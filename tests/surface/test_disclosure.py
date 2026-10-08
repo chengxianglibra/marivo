@@ -1,0 +1,241 @@
+"""Drift tests enforcing the agent-friendly public API result contract.
+
+These tests verify:
+- Result-producing public APIs do not write stdout.
+- repr() is one line and points to .show().
+- render() + show() are present and well-behaved.
+- available: sections are present and non-empty.
+- display= parameter is absent.
+"""
+
+from __future__ import annotations
+
+import textwrap
+from pathlib import Path
+
+import pytest
+
+import marivo.datasource as md
+import marivo.semantic as ms
+from marivo.datasource.authoring import DuckDBSpec
+from tests.support.paths import PROJECT_ROOT
+
+# ---------------------------------------------------------------------------
+# Minimal project files for tests that need a loaded SemanticProject
+# ---------------------------------------------------------------------------
+
+_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.datasource as md
+    import marivo.semantic as ms
+    ms.domain(name="sales", owner='Mina Zhang', default=True)
+""")
+
+_OBJECTS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
+    import marivo.semantic as ms
+    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+
+    @ms.dimension(entity=orders)
+    def amount(table):
+        return table.amount
+
+    @ms.dimension(entity=orders)
+    def region(table):
+        return table.region
+
+    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
+    def created_at(table):
+        return table.created_at
+
+    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
+    def total_revenue(table):
+        return table.amount.sum()
+""")
+
+
+def _make_project(semantic_project_factory):
+    """Create a minimal loaded project for drift tests."""
+    return semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _OBJECTS_PY,
+        }
+    )
+
+
+def _make_catalog(semantic_project_factory):
+    """Create a minimal loaded catalog for drift tests."""
+    from marivo.semantic.catalog import SemanticCatalog
+
+    return SemanticCatalog(_make_project(semantic_project_factory))
+
+
+# ---------------------------------------------------------------------------
+# No-stdout contract on public APIs
+# ---------------------------------------------------------------------------
+
+
+def test_catalog_metrics_is_silent(semantic_project_factory, capsys) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    _ = catalog.metrics
+    assert capsys.readouterr().out == ""
+
+
+def test_catalog_datasources_is_silent(semantic_project_factory, capsys) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    _ = catalog.datasources
+    assert capsys.readouterr().out == ""
+
+
+def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
+    project = _make_project(semantic_project_factory)
+    project.readiness()
+    assert capsys.readouterr().out == ""
+
+
+def test_richness_is_silent(semantic_project_factory, capsys) -> None:
+    project = _make_project(semantic_project_factory)
+    project.richness()
+    assert capsys.readouterr().out == ""
+
+
+# ---------------------------------------------------------------------------
+# repr() is one line and hints .show()
+# ---------------------------------------------------------------------------
+
+
+def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
+    )
+    rendered = repr(result)
+    assert "\n" not in rendered
+    assert len(rendered) <= 200
+    assert "logical" in rendered.lower()
+    assert ".show()" in rendered
+
+
+def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.metrics
+    r = repr(result)
+    assert r.count("\n") == 0
+
+
+# ---------------------------------------------------------------------------
+# render() + show() contract
+# ---------------------------------------------------------------------------
+
+
+def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
+        .contract()
+    )
+    assert result.actions
+    assert capsys.readouterr().out == ""
+
+
+def test_dataset_contract_show_prints_render_plus_newline(
+    analysis_dsl_case_factory, capsys
+) -> None:
+    result = (
+        analysis_dsl_case_factory("j2")
+        .session.members(ms.ref.entity("sales.customer"))
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
+        .contract()
+    )
+    assert result.show() is None
+    first = capsys.readouterr().out
+    assert first and len(first) <= 8192
+    result.show()
+    assert capsys.readouterr().out == first
+
+
+def test_catalog_collection_render_contains_refs_affordance(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.metrics
+    rendered = result.render()
+    assert "available:" in rendered
+    assert "- .refs" in rendered
+    assert "selection: catalog.metrics.get(<displayed ref>) -> MetricEntry" in rendered
+
+
+def test_datasource_catalog_render_uses_card_listing_shape(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    md.register(
+        DuckDBSpec(name="warehouse", path=str(tmp_path / "warehouse.duckdb")),
+        project_root=tmp_path,
+    )
+    catalog = md.load(workspace_dir=tmp_path)
+
+    rendered = catalog.render()
+
+    assert "DatasourceCatalog datasources=2" in rendered
+    assert "warehouse:" in rendered
+    assert "- backend_type=duckdb" in rendered
+    assert "- fields=path:" in rendered
+    assert "- env_refs=(none)" in rendered
+    assert "- name:" not in rendered
+    assert "backend_type: duckdb" not in rendered
+    assert repr(catalog).count("\n") == 0
+
+    assert catalog.show() is None
+    assert capsys.readouterr().out == rendered + "\n"
+
+
+def test_catalog_collection_available_never_none(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.metrics
+    # "available: none" should never appear — the available: section lists
+    # method entries, never the word "none"
+    assert "available: none" not in result.render().lower()
+
+
+def test_readiness_render_contains_available(semantic_project_factory) -> None:
+    project = _make_project(semantic_project_factory)
+    report = project.readiness()
+    assert "available:" in report.render()
+
+
+# ---------------------------------------------------------------------------
+# Default public export surface is pruned to workflow objects
+# ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Analysis runtime must not query public catalog collections or direct registry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "marivo/analysis/materialization/graph_observation.py",
+        "marivo/analysis/materialization/graph_members.py",
+        "marivo/analysis/materialization/graph_axes.py",
+        "marivo/analysis/compiler/graph_lowering.py",
+        "marivo/analysis/materialization/admission.py",
+    ],
+)
+def test_analysis_runtime_does_not_query_public_catalog_collections(path: str) -> None:
+    source = (PROJECT_ROOT / path).read_text()
+    assert "catalog.list(" not in source
+    assert "catalog._reg" not in source

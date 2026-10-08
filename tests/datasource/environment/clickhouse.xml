@@ -1,0 +1,12 @@
+<clickhouse>
+    <max_server_memory_usage>2147483648</max_server_memory_usage>
+    <logger>
+        <level>warning</level>
+        <size>10M</size>
+        <count>2</count>
+    </logger>
+    <query_log>
+        <ttl>event_date + INTERVAL 2 DAY DELETE</ttl>
+        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+    </query_log>
+</clickhouse>

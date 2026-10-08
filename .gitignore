@@ -90,22 +90,64 @@ models/
 # Plan
 plan/
 
-# Local review evidence (untracked working artifacts)
-evidence/
-
 # Archive
 docs/archive/
 
-# Superpowers (working docs — tracked selectively via frontmatter convention)
-# docs/superpowers/ is no longer fully ignored; active specs/plans are tracked
+# Superpowers working plans
 docs/superpowers/plans/
 docs/superpowers/discussions/
 docs/superpowers/specs/archive/
+docs/superpowers/specs/evidence/
+docs/superpowers/specs/*-qualification.json
+docs/superpowers/specs/*-qualification-cells-*.json
+docs/superpowers/specs/*-qualification.md
 .superpowers/
 .gitnexus
 .worktrees/
 .codegraph/
 .mimocode/
+/evidence/
 
 # Sphinx autosummary-generated stub pages (build artifact)
 docs/api/api/
+
+# Shared documentation copies generated from site/shared-docs.json.
+/site/src/content/docs/docs/latest/contributing.mdx
+/site/src/content/docs/docs/latest/release-notes/0.1.0.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.0.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.1.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.2.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.3.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.4.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.5.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.6.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.7.mdx
+/site/src/content/docs/docs/latest/release-notes/0.2.8.mdx
+/site/src/content/docs/docs/latest/release-notes/0.3.0.mdx
+/site/src/content/docs/docs/latest/release-notes/0.3.1.mdx
+/site/src/content/docs/docs/latest/release-notes/0.3.2.mdx
+/site/src/content/docs/docs/latest/release-notes/0.3.3.mdx
+/site/src/content/docs/docs/latest/release-notes/0.4.0.mdx
+/site/src/content/docs/docs/latest/release-notes/0.4.1.mdx
+/site/src/content/docs/docs/v0.2/contributing.mdx
+/site/src/content/docs/docs/v0.3/contributing.mdx
+/site/src/content/docs/docs/v0.5/contributing.mdx
+/site/src/content/docs/zh-cn/docs/latest/contributing.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.1.0.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.0.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.1.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.2.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.3.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.4.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.5.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.6.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.7.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.2.8.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.3.0.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.3.1.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.3.2.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.3.3.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.4.0.mdx
+/site/src/content/docs/zh-cn/docs/latest/release-notes/0.4.1.mdx
+/site/src/content/docs/zh-cn/docs/v0.2/contributing.mdx
+/site/src/content/docs/zh-cn/docs/v0.5/contributing.mdx

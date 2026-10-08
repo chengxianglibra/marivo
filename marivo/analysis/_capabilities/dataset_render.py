@@ -1,0 +1,256 @@
+"""Bounded native private rendering; all facts and routes come from owner inputs."""
+
+from __future__ import annotations
+
+import inspect
+
+from marivo.analysis._capabilities.dataset_model import (
+    CallableInput,
+    NavigationInput,
+    TypeInput,
+    invalid,
+)
+from marivo.analysis._capabilities.dataset_registry import DatasetDisclosureRegistry
+from marivo.analysis._capabilities.model import (
+    ANALYSIS_HELP_RENDER_BUDGETS,
+    AnalysisHelpRenderClass,
+    ReadCapability,
+)
+
+
+def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
+    resolved = registry.resolve(target)
+    if resolved.kind in ("error_contract", "error_briefing"):
+        from marivo.analysis.errors import AnalysisError
+
+        lines = [resolved.error_name or "AnalysisError", "  Analysis error contract."]
+        original = resolved.original
+        if isinstance(original, AnalysisError):
+            for name in ("message", "expected", "received", "location"):
+                value = getattr(original, name)
+                if value is not None:
+                    lines.append(f"  {name.title()}: {value}")
+        if isinstance(original, AnalysisError) and original.repair is not None:
+            repair = original.repair
+            lines.extend(("  Repair:", "    Kind: " + repair.kind, "    Action: " + repair.action))
+            if repair.snippet:
+                lines.extend("    " + line for line in repair.snippet.splitlines())
+            if repair.candidates:
+                lines.append("    Candidates: " + ", ".join(repair.candidates))
+            help_target = repair.help_target
+            qualified = help_target.surface + (
+                "." + help_target.canonical_id if help_target.canonical_id else ""
+            )
+            lines.append('    Next help: marivo.help("' + qualified + '")')
+        else:
+            lines.append(
+                "  Fields: message, expected, received, location and optional repair. Inspect the instance facts before choosing a repair."
+            )
+        text = "\n".join(lines) + "\n"
+        budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]
+        if len(text.splitlines()) > budget.max_lines or len(text) > budget.max_codepoints:
+            raise invalid("bounded analysis error Help", "error briefing exceeds the native budget")
+        return text
+    canonical = resolved.canonical_id if resolved.canonical_id is not None else resolved.type_name
+    if canonical is None:
+        raise invalid("native static target", "no descriptor identity")
+    descriptor = registry.by_canonical_id(canonical)
+    title = "analysis" + ("." + canonical if canonical else "")
+    lines = [title, descriptor.summary]
+    routes: tuple[str, ...] = ()
+    render_class: AnalysisHelpRenderClass
+    examples = 0
+    if isinstance(descriptor, NavigationInput):
+        if descriptor.render_class == "root":
+            from marivo.introspection.live.model import EnvironmentFingerprint
+            from marivo.introspection.live.render import render_fingerprint
+
+            lines.insert(0, render_fingerprint(EnvironmentFingerprint.current(), reveal=True))
+        render_class = descriptor.render_class
+        routes = descriptor.members + descriptor.related
+        lines.extend(descriptor.guidance)
+        rendered_families: set[str] = set()
+        for t in routes:
+            member = registry.by_canonical_id(t)
+            if isinstance(member, CallableInput) and member.discovery_family is not None:
+                family = member.discovery_family
+                if family in rendered_families:
+                    continue
+                rendered_families.add(family)
+                lines.append("  " + registry.by_canonical_id(family).summary)
+                variants = tuple(
+                    route
+                    for route in routes
+                    if isinstance((entry := registry.by_canonical_id(route)), CallableInput)
+                    and entry.discovery_family == family
+                )
+                lines.extend("    marivo.help('analysis." + variant + "')" for variant in variants)
+            else:
+                lines.append("  marivo.help('analysis." + t + "') — " + member.summary)
+    elif isinstance(descriptor, ReadCapability):
+        render_class = "exact_callable"
+        lines.append("Call: " + descriptor.public_entrypoint)
+        lines.append("Result: " + (descriptor.output_type or descriptor.result_kind))
+        lines.append("Bound: " + descriptor.read_bound)
+        lines.append("Owner: " + descriptor.receiver_family)
+        from marivo.introspection.live.reflect import import_registered_callable
+
+        if descriptor.callable_path is not None:
+            value = import_registered_callable(descriptor.callable_path)
+            if callable(value):
+                lines.append("Signature: " + str(inspect.signature(value)))
+        lines.extend(
+            (
+                "Requires: " + descriptor.acquisition,
+                "Example:",
+                descriptor.example,
+            )
+        )
+        routes = descriptor.related
+        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+        examples = 1
+    elif isinstance(descriptor, CallableInput):
+        render_class = "exact_callable"
+        signatures = tuple(
+            dict.fromkeys(
+                str(
+                    b.signature.replace(
+                        parameters=tuple(
+                            p
+                            for name, p in b.signature.parameters.items()
+                            if name not in ("self", "cls")
+                        ),
+                        return_annotation=inspect.Signature.empty,
+                    )
+                )
+                for b in descriptor.bindings
+            )
+        )
+        lines.extend("Signature: " + descriptor.public_entrypoint + s for s in signatures)
+        lines.append("Returns: " + descriptor.output)
+        lines.extend("Input " + p.name + ": " + p.acquisition for p in descriptor.parameters)
+        disclosed = {descriptor.summary}
+        for label, facts in (
+            ("Constraint", descriptor.constraints),
+            ("Effects", (descriptor.effects,)),
+            ("Failure/repair", descriptor.failures),
+        ):
+            for fact in facts:
+                if fact not in disclosed:
+                    lines.append(label + ": " + fact)
+                    disclosed.add(fact)
+        exports = {e.name: e for p in registry.providers for e in p.exports if e.name != "session"}
+        bindings = tuple(name for name in descriptor.example.requires if name in exports)
+        required = tuple(name for name in descriptor.example.requires if name not in exports)
+        lines.append("Example inputs: " + (", ".join(required) or "none"))
+        prelude_lines = []
+        if bindings or "mv." in descriptor.example.code:
+            prelude_lines.append("import marivo.analysis as mv")
+        if "ms." in descriptor.example.code:
+            prelude_lines.append("import marivo.semantic as ms")
+        prelude_lines.extend(name + " = mv." + name for name in bindings)
+        prelude = "\n".join(prelude_lines) + ("\n" if prelude_lines else "")
+        lines.extend(
+            (
+                "Example:",
+                prelude + descriptor.example.code,
+            )
+        )
+        if descriptor.example.outcome not in (descriptor.output, "The receiver-bound result."):
+            lines.append("Expected: " + descriptor.example.outcome)
+        routes = registry.callable_routes(descriptor)
+        lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+        examples = 1
+    else:
+        render_class = "public_type"
+        lines.append("Acquire: " + descriptor.acquisition)
+        lines.extend("Constraint: " + text for text in descriptor.constraints)
+        for binding in descriptor.bindings:
+            name = next(
+                (
+                    e.name
+                    for p in registry.providers
+                    for e in p.exports
+                    if e.implementation is binding.implementation
+                ),
+                binding.implementation.__name__,
+            )
+            lines.append("Type: " + name)
+            lines.extend("  " + f.name + ": " + f.annotation for f in binding.fields)
+            lines.append("Methods: " + (", ".join(binding.methods) or "none"))
+        if isinstance(descriptor, TypeInput):
+            for index, variant in enumerate(descriptor.variants, 1):
+                lines.append(
+                    f"Value variant {index}: "
+                    + "; ".join(f.name + ": " + f.annotation for f in variant.fields)
+                )
+            method_routes: list[str] = []
+            for binding in descriptor.bindings:
+                implementation = binding.implementation
+                if implementation.__module__ != "marivo.analysis.public_dsl":
+                    continue
+                for name in binding.methods:
+                    owner = next(
+                        (
+                            base
+                            for base in implementation.__mro__
+                            if inspect.isfunction(vars(base).get(name))
+                        ),
+                        None,
+                    )
+                    if owner is None:
+                        continue
+                    target = registry.by_callable(getattr(implementation, name)).canonical_id
+                    callable_descriptor = registry.by_canonical_id(target)
+                    group = (
+                        callable_descriptor.discovery_group
+                        if isinstance(callable_descriptor, CallableInput)
+                        else None
+                    )
+                    parent = (
+                        registry.by_canonical_id(group.rpartition(".")[0])
+                        if group and group.count(".") > 1
+                        else None
+                    )
+                    method_routes.append(
+                        group
+                        if isinstance(parent, NavigationInput)
+                        and group in parent.members
+                        and parent.render_class == "navigation"
+                        else target
+                    )
+                if any(item.name == "coefficient" for item in binding.fields):
+                    method_routes.append("MaterializedCoefficientRelation")
+            routes = tuple(
+                dict.fromkeys(descriptor.producers + descriptor.consumers + tuple(method_routes))
+            )
+            if len(routes) > ANALYSIS_HELP_RENDER_BUDGETS["public_type"].max_outgoing_routes:
+                grouped_routes: list[str] = []
+                for route in routes:
+                    leaf = registry.by_canonical_id(route)
+                    group = leaf.discovery_group if isinstance(leaf, CallableInput) else None
+                    grouped_routes.append(group or route)
+                routes = tuple(dict.fromkeys(grouped_routes))
+            lines.extend("Producer: " + t for t in descriptor.producers)
+            lines.extend("Consumer: " + t for t in descriptor.consumers)
+            lines.extend("See: marivo.help('analysis." + t + "')" for t in routes)
+            if any(b.methods for b in descriptor.bindings):
+                lines.append(
+                    "Exact member contract: pass the bound public method to marivo.help(value.method)."
+                )
+    text = "\n".join(lines) + "\n"
+    # Translate only explicitly registered public type bindings. Reflection
+    # remains attached to the real implementation, never to a signature stub.
+    for provider in registry.providers:
+        for export in provider.exports:
+            if isinstance(export.implementation, type) and export.name != "session":
+                text = text.replace(export.implementation.__name__, export.name)
+    budget = ANALYSIS_HELP_RENDER_BUDGETS[render_class]
+    if (
+        len(text.splitlines()) > budget.max_lines
+        or len(text) > budget.max_codepoints
+        or len(routes) > budget.max_outgoing_routes
+        or examples > budget.max_examples_or_snippets
+    ):
+        raise invalid("native Help within existing " + render_class + " budget", title)
+    return text

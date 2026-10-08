@@ -1,123 +1,296 @@
-"""Marivo's typed analysis runtime."""
+"""Typed lazy analysis with explicit execution and committed Dataset reads."""
 
 from datetime import date as _date
 from datetime import datetime as _datetime
-from typing import Any as _Any
-from typing import Literal
+from types import ModuleType
+from typing import TYPE_CHECKING, Literal
 
-from marivo._temporal import Grain
+from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
+from marivo._temporal import Grain, TimeScope
 from marivo._temporal import time_scope as _time_scope
-from marivo.analysis import errors as errors
-from marivo.analysis import runtime_metric as runtime_metric
-from marivo.analysis import session
-from marivo.analysis.candidate_lineage import CandidateOrigin, CandidateResolutionIssue
-from marivo.analysis.errors import EvidenceIntegrityError
-from marivo.analysis.event import (
-    CompletenessDeclaration,
-    EventOccurrenceBounds,
-    EventPattern,
-    EventWatermarkReceipt,
-    EventWatermarkRequest,
-    EveryStart,
-    FirstPerSubject,
-    PatternStep,
-    declared_complete_through,
-    every_start,
-    first_per_subject,
-    sequence,
-    step,
-)
-from marivo.analysis.evidence import (
-    AnalysisScope,
-    AnomalyCandidate,
-    ArtifactDigest,
-    ArtifactIssue,
-    ArtifactRevalidation,
-    AssociationFact,
-    ChangeFact,
-    ComparabilityIssue,
-    ContributionFact,
-    DataQualityIssue,
-    EvidenceAvailabilityIssue,
-    EvidenceRuleIssue,
-    ForecastOutput,
-    ObservationFact,
-    QualityCheckResult,
-    TestDecision,
-)
-from marivo.analysis.evidence.artifact_reads import Finding, FindingPage
-from marivo.analysis.frames.association import AssociationResult
-from marivo.analysis.frames.attribution import AttributionFrame
-from marivo.analysis.frames.base import (
-    ArtifactAffordance,
-    ArtifactColumn,
-    ArtifactContract,
-    ArtifactInputRequirement,
-    ArtifactPrecondition,
-    ArtifactSchema,
-    ArtifactSemanticInput,
-    ArtifactState,
-    BaseFrame,
-    BaseFrameMeta,
-)
-from marivo.analysis.frames.candidate import (
-    CandidateObjective,
-    CandidateSelection,
-    CandidateSet,
-    CrossSectionalOutlierSelection,
-    DriverAxisSelection,
-    OntologyMetricCandidate,
-    PeriodShiftSelection,
-    PointAnomalySelection,
-    SliceSelection,
-    WindowSelection,
-)
-from marivo.analysis.frames.component import ComponentFrame
-from marivo.analysis.frames.coverage import CoverageFrame
-from marivo.analysis.frames.delta import DeltaFrame
-from marivo.analysis.frames.event import EventFrame
-from marivo.analysis.frames.forecast import ForecastFrame
-from marivo.analysis.frames.hypothesis import HypothesisTestResult
-from marivo.analysis.frames.lifecycle import LifecycleFrame
-from marivo.analysis.frames.metric import MetricFrame
-from marivo.analysis.frames.subject import SubjectSet
-from marivo.analysis.funnel import FunnelLossRate, funnel_loss_rate
-from marivo.analysis.lifecycle import FromInception, InState, from_inception, in_state
-from marivo.analysis.lineage import Lineage, LineageStep
-from marivo.analysis.policies import (
-    AlignmentKind,
-    AlignmentPolicy,
-    SamplingPolicy,
-    day_of_week,
-    occurrence_progress,
-    period_correspondence,
-    period_progress,
-    window_bucket,
-    working_day_progress,
-)
-from marivo.analysis.refs import ArtifactRef
-from marivo.analysis.session._read_model import (
-    ArtifactSummary,
-    FailedRun,
-    IncompleteRun,
-    RunPage,
-    SessionGraph,
-    SucceededRun,
-)
-from marivo.analysis.session._store import SessionSummary
-from marivo.analysis.session.core import Session
-from marivo.analysis.slice_types import (
-    SlicePredicate,
-    SlicePredicateOp,
-    SliceScalar,
-    SliceValue,
-)
-from marivo.analysis.subject import DroppedBefore, dropped_before
-from marivo.analysis.windows.spec import (
-    AbsoluteWindow,
-    TimeScope,
-    TimeScopeInput,
-)
+
+if TYPE_CHECKING:
+    from marivo.analysis import runtime_metric as runtime_metric
+    from marivo.analysis import session as session
+    from marivo.analysis._cohort import AllInstances as AllInstances
+    from marivo.analysis._cohort import AnyInstance as AnyInstance
+    from marivo.analysis._cohort import AtLeast as AtLeast
+    from marivo.analysis._cohort import EmptyOpportunityPolicy as EmptyOpportunityPolicy
+    from marivo.analysis._cohort import all_instances as all_instances
+    from marivo.analysis._cohort import any_instance as any_instance
+    from marivo.analysis._cohort import at_least as at_least
+    from marivo.analysis._cohort import empty_opportunity as empty_opportunity
+    from marivo.analysis._comparison import CohortContrast as CohortContrast
+    from marivo.analysis._comparison import ExactKeys as ExactKeys
+    from marivo.analysis._comparison import PeriodChange as PeriodChange
+    from marivo.analysis._comparison import TimeChange as TimeChange
+    from marivo.analysis._comparison import UnionKeys as UnionKeys
+    from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
+    from marivo.analysis._comparison import window_bucket as window_bucket
+    from marivo.analysis._subject import SubjectBinding as SubjectBinding
+    from marivo.analysis.anchors import AnyAnchor as AnyAnchor
+    from marivo.analysis.anchors import CalendarWindow as CalendarWindow
+    from marivo.analysis.anchors import Duration as Duration
+    from marivo.analysis.anchors import ElapsedWindow as ElapsedWindow
+    from marivo.analysis.anchors import EveryAnchor as EveryAnchor
+    from marivo.analysis.anchors import any_anchor as any_anchor
+    from marivo.analysis.anchors import calendar_days as calendar_days
+    from marivo.analysis.anchors import duration as duration
+    from marivo.analysis.anchors import elapsed as elapsed
+    from marivo.analysis.anchors import every_anchor as every_anchor
+    from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
+    from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
+    from marivo.analysis.domains.completeness import (
+        BoundedCompletenessDeclarationV1 as BoundedCompletenessDeclarationV1,
+    )
+    from marivo.analysis.domains.completeness import (
+        SourceOriginCompletenessDeclarationV1 as SourceOriginCompletenessDeclarationV1,
+    )
+    from marivo.analysis.event import EventPattern as EventPattern
+    from marivo.analysis.event import EveryStart as EveryStart
+    from marivo.analysis.event import FirstPerSubject as FirstPerSubject
+    from marivo.analysis.event import PatternStep as PatternStep
+    from marivo.analysis.event import every_start as every_start
+    from marivo.analysis.event import first_per_subject as first_per_subject
+    from marivo.analysis.event import sequence as sequence
+    from marivo.analysis.event import step as step
+    from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
+    from marivo.analysis.evidence._dataset_types import Finding as Finding
+    from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
+    from marivo.analysis.forecast_models import ForecastHorizon as ForecastHorizon
+    from marivo.analysis.forecast_models import ForecastModel as ForecastModel
+    from marivo.analysis.forecast_models import drift as drift
+    from marivo.analysis.forecast_models import naive as naive
+    from marivo.analysis.forecast_models import periods as periods
+    from marivo.analysis.forecast_models import seasonal_naive as seasonal_naive
+    from marivo.analysis.funnel import FunnelLossRate as FunnelLossRate
+    from marivo.analysis.funnel import funnel_loss_rate as funnel_loss_rate
+    from marivo.analysis.lifecycle import FromInception as FromInception
+    from marivo.analysis.lifecycle import InState as InState
+    from marivo.analysis.lifecycle import from_inception as from_inception
+    from marivo.analysis.lifecycle import in_state as in_state
+    from marivo.analysis.materialization.graph_fields import all_of as all_of
+    from marivo.analysis.materialization.graph_fields import any_of as any_of
+    from marivo.analysis.materialization.graph_fields import not_ as not_
+    from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
+    from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
+    from marivo.analysis.public_dsl import CountMethod as CountMethod
+    from marivo.analysis.public_dsl import GridEndpoint as GridEndpoint
+    from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
+    from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
+    from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
+    from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
+    from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalAnchorDomain as LogicalAnchorDomain
+    from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
+    from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
+    from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
+    from marivo.analysis.public_dsl import LogicalCategoryRelation as LogicalCategoryRelation
+    from marivo.analysis.public_dsl import LogicalCoefficientRelation as LogicalCoefficientRelation
+    from marivo.analysis.public_dsl import (
+        LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
+    )
+    from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
+    from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
+    from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
+    from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
+    from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
+    from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
+    from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
+    from marivo.analysis.public_dsl import (
+        LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
+    )
+    from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
+    from marivo.analysis.public_dsl import LogicalHistoryResult as LogicalHistoryResult
+    from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
+    from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
+    from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
+    from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
+    from marivo.analysis.public_dsl import LogicalRetentionResult as LogicalRetentionResult
+    from marivo.analysis.public_dsl import (
+        LogicalRolledNumericRelation as LogicalRolledNumericRelation,
+    )
+    from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedNumericRelation as LogicalSelectedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        LogicalStateDistributionResult as LogicalStateDistributionResult,
+    )
+    from marivo.analysis.public_dsl import LogicalStateIntervalResult as LogicalStateIntervalResult
+    from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
+    from marivo.analysis.public_dsl import (
+        LogicalSubjectRetentionResult as LogicalSubjectRetentionResult,
+    )
+    from marivo.analysis.public_dsl import LogicalTable as LogicalTable
+    from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
+    from marivo.analysis.public_dsl import LogicalTimeRunResult as LogicalTimeRunResult
+    from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
+    from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
+    from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
+    from marivo.analysis.public_dsl import MaterializedAnchorDomain as MaterializedAnchorDomain
+    from marivo.analysis.public_dsl import (
+        MaterializedAssociationResult as MaterializedAssociationResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedAttributionResult as MaterializedAttributionResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedBooleanRelation as MaterializedBooleanRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCategoryRelation as MaterializedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCoefficientRelation as MaterializedCoefficientRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedCompletedJourneys as MaterializedCompletedJourneys,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedDeviationResult as MaterializedDeviationResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedDifferenceRelation as MaterializedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import MaterializedDwellSummary as MaterializedDwellSummary
+    from marivo.analysis.public_dsl import (
+        MaterializedEventDurationResult as MaterializedEventDurationResult,
+    )
+    from marivo.analysis.public_dsl import MaterializedForecastResult as MaterializedForecastResult
+    from marivo.analysis.public_dsl import (
+        MaterializedFunnelComparisonResult as MaterializedFunnelComparisonResult,
+    )
+    from marivo.analysis.public_dsl import MaterializedFunnelResult as MaterializedFunnelResult
+    from marivo.analysis.public_dsl import (
+        MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import MaterializedHistoryResult as MaterializedHistoryResult
+    from marivo.analysis.public_dsl import MaterializedJourneyResult as MaterializedJourneyResult
+    from marivo.analysis.public_dsl import (
+        MaterializedNumericRelation as MaterializedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
+    from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
+    from marivo.analysis.public_dsl import (
+        MaterializedRetentionResult as MaterializedRetentionResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedRolledRatioRelation as MaterializedRolledRatioRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedNumericRelation as MaterializedSelectedNumericRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedStateDistributionResult as MaterializedStateDistributionResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedStateIntervalResult as MaterializedStateIntervalResult,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedStatisticRelation as MaterializedStatisticRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedSubjectRetentionResult as MaterializedSubjectRetentionResult,
+    )
+    from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
+    from marivo.analysis.public_dsl import (
+        MaterializedTemporalRelation as MaterializedTemporalRelation,
+    )
+    from marivo.analysis.public_dsl import MaterializedTimeRunResult as MaterializedTimeRunResult
+    from marivo.analysis.public_dsl import (
+        MaterializedTransitionSummary as MaterializedTransitionSummary,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedViolationResult as MaterializedViolationResult,
+    )
+    from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
+    from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
+    from marivo.analysis.public_dsl import RootRoute as RootRoute
+    from marivo.analysis.public_dsl import RootRoutes as RootRoutes
+    from marivo.analysis.public_dsl import RowMethod as RowMethod
+    from marivo.analysis.public_dsl import TimeGrid as TimeGrid
+    from marivo.analysis.public_dsl import count as count
+    from marivo.analysis.public_dsl import count_defined as count_defined
+    from marivo.analysis.public_dsl import max as max
+    from marivo.analysis.public_dsl import mean as mean
+    from marivo.analysis.public_dsl import min as min
+    from marivo.analysis.public_dsl import one_to_one as one_to_one
+    from marivo.analysis.public_dsl import reference_weights as reference_weights
+    from marivo.analysis.public_dsl import route as route
+    from marivo.analysis.public_dsl import routes as routes
+    from marivo.analysis.public_dsl import sum as sum
+    from marivo.analysis.public_dsl import table as table
+    from marivo.analysis.public_dsl import time_grid as time_grid
+    from marivo.analysis.refs import ArtifactRef as ArtifactRef
+    from marivo.analysis.session._lazy_read_model import ArtifactSummary as ArtifactSummary
+    from marivo.analysis.session._lazy_read_model import FailedRun as FailedRun
+    from marivo.analysis.session._lazy_read_model import IncompleteRun as IncompleteRun
+    from marivo.analysis.session._lazy_read_model import RunPage as RunPage
+    from marivo.analysis.session._lazy_read_model import SessionGraph as SessionGraph
+    from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
+    from marivo.analysis.session.core import Session as Session
+    from marivo.analysis.subject import DroppedBefore as DroppedBefore
+    from marivo.analysis.subject import dropped_before as dropped_before
+
+
+if not TYPE_CHECKING:
+
+    def __getattr__(name: str) -> object:
+        from importlib import import_module
+        from importlib.util import find_spec
+
+        if name == "help":
+            raise AttributeError('Use marivo.help("analysis") for the public analysis contract.')
+        if name == "catalog":
+            raise AttributeError(
+                "The analysis catalog is session-bound; acquire session = mv.session.get_or_create(name), then use catalog = session.catalog."
+            )
+        if name.startswith("__") and name not in ("__all__", "__marivo_telemetry_capabilities__"):
+            raise AttributeError(name)
+        if not name.startswith("_") and find_spec(f"marivo.analysis.{name}") is not None:
+            return import_module(f"marivo.analysis.{name}")
+        return getattr(_initialize_public(), name)
+
+
+def _initialize_public() -> ModuleType:
+    from importlib import import_module
+
+    return import_module("marivo.analysis._public")
+
+
+def __dir__() -> list[str]:
+    return sorted(_initialize_public().__all__)
 
 
 def grain(
@@ -162,149 +335,19 @@ def time_scope(
 ) -> TimeScope:
     """Construct one validated absolute analysis scope.
 
-    Calendar-period scopes come from certified catalog lookups; absolute
-    callers should use this helper rather than constructing ``TimeScope``
-    directly.
-
     Args:
-        start: Inclusive ISO date/datetime string or normalized date/datetime.
-        end: Exclusive bound of the same representation and temporal type as start.
-
-    Constraints:
-        Bounds must be ordered and compatible; strings and normalized bounds cannot mix.
-        Pass observation grain to session.observe(grain=...), not to this helper.
+        start: Inclusive ISO date or timestamp, or a date/datetime value.
+        end: Exclusive endpoint of the same temporal kind.
 
     Returns:
-        One validated immutable TimeScope.
+        An immutable absolute TimeScope.
+
+    Example:
+        >>> import marivo.analysis as mv
+        >>> window = mv.time_scope(start="2026-01-01", end="2026-02-01")
+
+    Constraints:
+        End must follow start. Calendar periods come from certified catalog lookups.
     """
 
     return _time_scope(start=start, end=end)
-
-
-def __getattr__(name: str) -> _Any:
-    if name == "evidence":
-        from importlib import import_module
-
-        return import_module("marivo.analysis.evidence")
-    if name == "frames":
-        from importlib import import_module
-
-        return import_module("marivo.analysis.frames")
-    if name == "help":
-        raise AttributeError(
-            "module 'marivo.analysis' has no attribute 'help'; the single public "
-            "help coordinator lives on the top-level namespace — use marivo.help(...)"
-        )
-    if name == "catalog":
-        raise AttributeError(
-            "module 'marivo.analysis' has no attribute 'catalog'; catalog is session-bound — "
-            "use session = mv.session.get_or_create('<stable-session-name>', "
-            "question='<business question>'), then catalog = session.catalog"
-        )
-    raise AttributeError(name)
-
-
-def __dir__() -> list[str]:
-    return sorted(__all__)
-
-
-__all__ = [
-    "AbsoluteWindow",
-    "AlignmentPolicy",
-    "AnalysisScope",
-    "AnomalyCandidate",
-    "ArtifactDigest",
-    "ArtifactIssue",
-    "ArtifactRef",
-    "ArtifactRevalidation",
-    "ArtifactSummary",
-    "AssociationFact",
-    "AssociationResult",
-    "AttributionFrame",
-    "CandidateOrigin",
-    "CandidateResolutionIssue",
-    "CandidateSelection",
-    "CandidateSet",
-    "ChangeFact",
-    "ComparabilityIssue",
-    "CompletenessDeclaration",
-    "ContributionFact",
-    "CrossSectionalOutlierSelection",
-    "DataQualityIssue",
-    "DeltaFrame",
-    "DriverAxisSelection",
-    "DroppedBefore",
-    "EventFrame",
-    "EventOccurrenceBounds",
-    "EventPattern",
-    "EventWatermarkReceipt",
-    "EventWatermarkRequest",
-    "EveryStart",
-    "EvidenceAvailabilityIssue",
-    "EvidenceIntegrityError",
-    "EvidenceRuleIssue",
-    "FailedRun",
-    "Finding",
-    "FindingPage",
-    "FirstPerSubject",
-    "ForecastFrame",
-    "ForecastOutput",
-    "FromInception",
-    "FunnelLossRate",
-    "Grain",
-    "HypothesisTestResult",
-    "InState",
-    "IncompleteRun",
-    "LifecycleFrame",
-    "MetricFrame",
-    "ObservationFact",
-    "OntologyMetricCandidate",
-    "PatternStep",
-    "PeriodShiftSelection",
-    "PointAnomalySelection",
-    "QualityCheckResult",
-    "RunPage",
-    "Session",
-    "SessionGraph",
-    "SliceSelection",
-    "SubjectSet",
-    "SucceededRun",
-    "TestDecision",
-    "TimeScope",
-    "WindowSelection",
-    "day_of_week",
-    "declared_complete_through",
-    "dropped_before",
-    "every_start",
-    "first_per_subject",
-    "from_inception",
-    "funnel_loss_rate",
-    "grain",
-    "in_state",
-    "occurrence_progress",
-    "period_correspondence",
-    "period_progress",
-    "runtime_metric",
-    "sequence",
-    "session",
-    "step",
-    "time_scope",
-    "window_bucket",
-    "working_day_progress",
-]
-
-
-def _install_telemetry() -> None:
-    import sys
-
-    from marivo.analysis._capabilities.registry import REGISTRY
-    from marivo.telemetry import install_surface_instrumentation
-
-    install_surface_instrumentation(
-        surface="analysis",
-        descriptors=REGISTRY._descriptors,
-        root_module=sys.modules[__name__],
-    )
-
-
-_install_telemetry()

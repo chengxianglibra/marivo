@@ -31,8 +31,9 @@ from marivo.semantic._authoring_context import (
     _require_ref_id,
     _resolve_domain,
 )
-from marivo.semantic._authoring_validation import _validate_unit
+from marivo.semantic._authoring_validation import _validate_unit, _validate_value_policies
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._dsl_authoring import ZeroDenominatorPolicyV1
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -187,7 +188,10 @@ def trailing(*, count: int, unit: str) -> Trailing:
 
 def _compute_composition_hash(composition: Composition) -> str:
     if isinstance(composition, RatioComposition):
-        text = repr(("ratio", composition.numerator, composition.denominator))
+        identity: tuple[object, ...] = ("ratio", composition.numerator, composition.denominator)
+        if composition.zero_denominator_policy is not None:
+            identity = (*identity, composition.zero_denominator_policy)
+        text = repr(identity)
     elif isinstance(composition, CumulativeComposition):
         text = repr(("cumulative", composition.base, composition.over, composition.anchor))
     else:  # LinearComposition
@@ -221,13 +225,17 @@ def _derived(
         measure=None,
         composition=composition,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_composition_hash(composition),
         python_symbol=name,
         location=location,
         unit=unit,
         unit_override=unit,
+        zero_denominator_policy=(
+            composition.zero_denominator_policy
+            if isinstance(composition, RatioComposition)
+            else None
+        ),
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref
@@ -238,6 +246,7 @@ def ratio(
     name: str,
     numerator: Ref[MetricKind],
     denominator: Ref[MetricKind],
+    zero_denominator: ZeroDenominatorPolicyV1 | None = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -247,10 +256,23 @@ def ratio(
     Components may themselves be derived metrics. Each nested ratio must satisfy
     its own unit, source, scope, and bounded-graph contract before analysis.
 
+    Args:
+        name: Stable Metric name.
+        numerator: Exact numerator Metric Ref.
+        denominator: Exact denominator Metric Ref.
+        zero_denominator: Explicit policy for an admitted component-ratio method.
+        unit: Optional derived-unit override.
+        domain: Optional Semantic domain.
+        ai_context: Optional agent-facing context.
+    Returns: A derived Metric Ref.
+
     Example::
 
         loss_rate = ms.ratio(name="loss_rate", numerator=lost, denominator=total, unit="1")
     """
+    _validate_value_policies(
+        semantic_id=name, nulls=None, empty=None, zero_denominator=zero_denominator
+    )
     return _derived(
         name=name,
         composition=RatioComposition(
@@ -264,6 +286,7 @@ def ratio(
                 parameter="denominator",
                 expected=(SemanticKind.METRIC,),
             ),
+            zero_denominator_policy=zero_denominator,
         ),
         unit=unit,
         domain=domain,

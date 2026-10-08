@@ -6,7 +6,7 @@ description: 配置 Marivo 项目，并在多个仓库之间复用语义层。
 ## 用版本控制管理项目契约
 
 `marivo.toml` 是可选文件。缺少时，项目名使用项目根目录名，`semantic.layer_paths` 为空，并启用
-本地遥测。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
+本地遥测；`execute()` 结果使用项目本地 Parquet。缺少表或字段时也使用这些默认值；已有但 TOML 非法或显式字段非法的配置会严格失败。
 项目配置中没有 `version` 字段。
 
 如需加载由其他仓库维护的语义层包，请在 `marivo.toml` 的
@@ -28,5 +28,29 @@ Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加�
 语义层无法加载。`marivo doctor`、语义层预览、验证和分析会话都会通过这些已配置的根目录解析
 语义对象及其数据源。
 
+`md.load()`、`md.inspect()` 和数据源连接使用同一组模型根。向 `md.load()`、`ms.load()` 或
+`md.inspect()` 传入 `workspace_dir` 时，它表示精确的项目根；省略时依次使用
+`MARIVO_PROJECT_ROOT`、最近祖先目录中的 `marivo.toml`、当前目录。数据源目录对象的每个方法
+都保留这个项目边界。注册和删除只影响本地数据源文件。新的读取会看到文件修改；已有语义目录
+保留加载时的定义，需要再次调用 `ms.load()` 才能更新。
+
+{/* example: project-configuration-1 */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+catalog = md.load(workspace_dir=".")
+catalog.describe("warehouse").show()
+inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"), workspace_dir=".")
+inspection.show()
+```
+
 需要让配置或声明随项目流转时，请将 `marivo.toml` 和 `models/` 纳入版本控制；将 `.marivo/`
 加入 `.gitignore`，其中保存的是本地会话、证据、遥测和缓存元数据，而不是可共享的声明。
+
+## 分析结果存储
+
+分析结果始终使用项目本地 Parquet，没有结果存储配置。写入失败后不会换用其他执行器重试。
+
+构造、显式执行和恢复边界见[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)。

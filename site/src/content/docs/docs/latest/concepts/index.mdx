@@ -1,22 +1,26 @@
 ---
-title: Concepts
-description: The core vocabulary behind Marivo semantic modeling and analysis.
+title: Core concepts
+description: The vocabulary needed to read governed analysis results.
 ---
 
-The primary user journey lives under **Get started** and **Work with an agent**:
-begin at [Get started](/docs/latest/), then continue with
-[First agent-guided analysis](/docs/latest/first-analysis/) and the
-[business-question guide](/docs/latest/guides/business-question/). Use this section
-as an integration and reference map when you need to inspect the contracts behind
-that journey.
+Use this map when a term changes the meaning of a calculation. Exact type and callable contracts remain in native Help.
 
-- [Semantic Layer](/docs/latest/concepts/semantic-layer/) — semantic object and
-  authoring contracts.
-- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) — analysis
-  operators, typed frames, artifacts, and recovery behavior.
-- [Readiness](/docs/latest/concepts/readiness/) — report fields and explicit
-  certification for semantic changes.
-- [Evidence](/docs/latest/concepts/evidence/) — typed findings, bounded artifact
-  digests, inference boundaries, and audit traces.
-- [Python API Reference](/api/) — exact public modules, classes, functions, and
-  signatures for implementation work.
+## Vocabulary
+
+| Term | Meaning |
+| --- | --- |
+| Semantic Ref | Stable typed identity of a governed declaration |
+| Entity / Subject | Business instance and its complete ordered identity |
+| Member domain | Explicit selected instances; versions do not replace instance keys |
+| Coordinate / grain | Retained output position and observational unit |
+| Quantity | Equation, unit, contribution identity and state policy |
+| Cell | Defined, Null, Undefined or Unknown; missing correspondence is separate |
+| Logical / Materialized | Planned computation / committed retained result |
+| Original rollup / row statistic | Merge original sufficient components / derive a new quantity from current rows |
+| Run / Artifact | Execution record / exact committed output |
+| Evidence / Finding | Recorded computation facts / typed extracted facts |
+| Coverage / censoring | What observation can establish / limits of follow-up |
+
+## Find the owning guide
+
+[Semantic meaning](/docs/latest/concepts/semantic-layer/), [analysis states](/docs/latest/concepts/analysis-workflow/), [time and cohorts](/docs/latest/guides/time-and-cohorts/), [Readiness](/docs/latest/concepts/readiness/) and [Evidence](/docs/latest/concepts/evidence/) each own their detailed explanation.

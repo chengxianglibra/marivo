@@ -8,8 +8,14 @@ from contextlib import contextmanager
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Literal
 
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -19,13 +25,11 @@ from marivo.datasource.engines.base import (
     PartitionProbeResult,
     QuantileCapability,
     TableRefRequest,
-    decode_cursor_frame,
     identity_read_only_kwargs,
-    identity_str,
-    quote_identifier,
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import (
@@ -35,8 +39,6 @@ if TYPE_CHECKING:
         TableMetadata,
         TablePhysicalProfile,
     )
-
-from marivo.datasource.strptime import python_to_mysql_strptime
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -57,7 +59,9 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
         connect_kwargs["client_tags"] = list(tags)
     if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
         connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
-    return ibis.trino.connect(**connect_kwargs)
+    backend = ibis.trino.connect(**connect_kwargs)
+    backend._marivo_timezone_name = str(connect_kwargs.get("timezone", "UTC"))
+    return backend
 
 
 def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
@@ -107,68 +111,168 @@ def _partition_table_parts(request: PartitionProbeRequest) -> tuple[str, str | N
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.ir import TableSourceIR
+
     catalog, schema_name, table_name = _partition_table_parts(request)
     if schema_name is None:
         raise RuntimeError("trino partition inspection requires database= or datasource schema")
-    table_ref = ".".join(
-        quote_identifier(part, PROFILE)
-        for part in (catalog, schema_name, f"{table_name}$partitions")
+    identity = f"partition-metadata:{catalog}.{schema_name}.{table_name}"
+    with SourceSession(
+        PROFILE, request.datasource_ir, request.backend, owns_backend=False
+    ) as session:
+        relation = session.bind(
+            TableSourceIR(f"{table_name}$partitions", database=(catalog, schema_name)),
+            source_identity=identity,
+        ).relation
+        expression = _partition_projection(
+            relation, request.partition_columns, request.order, request.limit
+        )
+        rows = session.collect_bounded(
+            expression,
+            source_identities=(identity,),
+            purpose="datasource.partition_metadata",
+            max_rows=request.limit,
+        ).to_pylist()
+    return PartitionProbeResult(rows=tuple(rows), value_source="metadata")
+
+
+def _partition_projection(
+    relation: ir.Table,
+    columns: tuple[str, ...],
+    order: Literal["asc", "desc"],
+    limit: int,
+) -> ir.Table:
+    nested = "partition" in relation.columns and not all(
+        column in relation.columns for column in columns
     )
-    # Hive-connector ``$partitions`` exposes partition columns as top-level
-    # columns, but Iceberg ``$partitions`` nests partition values under a
-    # ``partition`` row column — so ``SELECT <col>`` raises COLUMN_NOT_FOUND on
-    # Iceberg even though the column exists in ``SHOW COLUMNS``. Probe the
-    # ``$partitions`` schema once and route through the ``partition`` row when
-    # the partition columns are not top-level. See issue #21.
-    iceberg = _partitions_table_is_iceberg(request.backend, table_ref, request.partition_columns)
-    select_columns = ", ".join(
-        _partition_column_select(column, iceberg) for column in request.partition_columns
+    values = relation.select(
+        **{
+            column: (relation["partition"][column] if nested else relation[column])
+            for column in columns
+        }
     )
-    direction = request.order.upper()
-    order_by = ", ".join(
-        f"{_partition_column_ref(column, iceberg)} {direction}"
-        for column in request.partition_columns
+    sort_keys = (
+        value.asc() if order == "asc" else value.desc()
+        for value in (values[column] for column in columns)
     )
-    sql = f"SELECT {select_columns} FROM {table_ref} ORDER BY {order_by} LIMIT {request.limit}"
-    frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)
-    return PartitionProbeResult(rows=frame.rows, value_source="metadata")
+    return values.order_by(*sort_keys).limit(limit)
 
 
-def _partitions_table_is_iceberg(
-    backend: BaseBackend,
-    table_ref: str,
-    partition_columns: tuple[str, ...],
-) -> bool:
-    """Return True when ``$partitions`` nests partition values under ``partition``.
+def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unavailable"] | None:
+    """Classify Trino metadata permission denial from the server error name."""
+    for candidate in structured_exception_chain(exc):
+        if getattr(candidate, "error_name", None) == "PERMISSION_DENIED":
+            return "metadata_unavailable"
+    return None
 
-    Iceberg's ``$partitions`` table has a ``partition`` row column and does not
-    expose the partition columns at the top level. Hive's ``$partitions`` exposes
-    the partition columns directly. A ``LIMIT 0`` probe reads only the column
-    metadata, so it scans no partition data.
-    """
-    probe = decode_cursor_frame(
-        backend.raw_sql(f"SELECT * FROM {table_ref} LIMIT 0"),
-        include_types=False,
-        max_rows=None,
+
+@contextmanager
+def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+    properties = getattr(backend.con, "session_properties", None)
+    if (
+        getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds
+        or not isinstance(properties, dict)
+        or properties.get("query_max_run_time") != f"{timeout_seconds}s"
+    ):
+        raise RuntimeError("trino terminal connection has no configured query timeout")
+    yield
+
+
+register_provider_statements(
+    "trino",
+    {
+        "columns": ProviderStatement(
+            statement_id="trino.columns",
+            template=(
+                "SELECT column_name, data_type, is_nullable, ordinal_position "
+                "FROM information_schema.columns "
+                "WHERE table_catalog = {catalog} "
+                "AND table_schema = {schema} "
+                "AND table_name = {table} "
+                "ORDER BY ordinal_position"
+            ),
+            literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "show_columns": ProviderStatement(
+            statement_id="trino.show_columns",
+            template="SHOW COLUMNS FROM {table_ref}",
+            identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "tables.type": ProviderStatement(
+            statement_id="trino.tables.type",
+            template=(
+                "SELECT table_type FROM information_schema.tables "
+                "WHERE table_catalog = {catalog} "
+                "AND table_schema = {schema} "
+                "AND table_name = {table} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "views.definition": ProviderStatement(
+            statement_id="trino.views.definition",
+            template=(
+                "SELECT view_definition FROM information_schema.views "
+                "WHERE table_catalog = {catalog} "
+                "AND table_schema = {schema} "
+                "AND table_name = {table} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"catalog", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "show_create": ProviderStatement(
+            statement_id="trino.show_create",
+            template="SHOW CREATE TABLE {table_ref}",
+            identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "show_stats": ProviderStatement(
+            statement_id="trino.show_stats",
+            template="SHOW STATS FOR {table_ref}",
+            identifier_slots=frozenset({"table_ref"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+        "constraints": ProviderStatement(
+            statement_id="trino.constraints",
+            template=(
+                "SELECT tc.constraint_type AS constraint_type, kcu.column_name AS column_name "
+                "FROM information_schema.table_constraints tc "
+                "JOIN information_schema.key_column_usage kcu "
+                "ON kcu.constraint_schema = tc.constraint_schema "
+                "AND kcu.table_name = tc.table_name "
+                "AND kcu.constraint_name = tc.constraint_name "
+                "WHERE tc.constraint_schema = {schema} "
+                "AND tc.table_name = {table} "
+                "AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') "
+                "ORDER BY tc.constraint_name, kcu.ordinal_position"
+            ),
+            literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.trino"}),
+        ),
+    },
+)
+
+
+def _trino_rows(
+    backend: Any,
+    statement_id: str,
+    *,
+    values: Mapping[str, object] = {},
+    identifiers: Mapping[str, str | tuple[str, ...]] = {},
+) -> tuple[dict[str, object], ...]:
+    return execute_provider_statement(
+        backend,
+        PROFILE,
+        statement_id,
+        values=values,
+        identifiers=identifiers,
+        purpose="datasource.metadata.trino",
     )
-    columns = set(probe.columns)
-    if not columns:
-        return False
-    return "partition" in columns and not all(column in columns for column in partition_columns)
-
-
-def _partition_column_ref(column: str, iceberg: bool) -> str:
-    quoted = quote_identifier(column, PROFILE)
-    return f"{quote_identifier('partition', PROFILE)}.{quoted}" if iceberg else quoted
-
-
-def _partition_column_select(column: str, iceberg: bool) -> str:
-    quoted = quote_identifier(column, PROFILE)
-    if not iceberg:
-        return quoted
-    # Route through the ``partition`` row and alias back to the column name so
-    # downstream value extraction (row.get(field.name)) resolves the column.
-    return f"{quote_identifier('partition', PROFILE)}.{quoted} AS {quoted}"
 
 
 _TRINO_PARTITION_ARRAY_RE = re.compile(
@@ -183,19 +287,15 @@ _TRINO_TABLE_COMMENT_RE = re.compile(
 )
 
 
-def _trino_columns_from_rows(
-    rows: Iterable[Mapping[str, object]],
-) -> dict[str, ColumnMetadata]:
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        _bool_from_nullable,
-    )
+def _trino_columns_from_rows(rows: Iterable[Mapping[str, object]]) -> dict[str, ColumnMetadata]:
+    from marivo.datasource.metadata import ColumnMetadata as _ColumnMetadata
+    from marivo.datasource.metadata import _bool_from_nullable
 
-    columns: dict[str, ColumnMetadata] = {}
+    columns: dict[str, _ColumnMetadata] = {}
     for row in rows:
         name = str(row.get("column_name"))
         ordinal = row.get("ordinal_position")
-        columns[name] = ColumnMetadata(
+        columns[name] = _ColumnMetadata(
             name=name,
             type=str(row.get("data_type") or ""),
             nullable=_bool_from_nullable(row.get("is_nullable")),
@@ -251,7 +351,7 @@ def _trino_partition_from_spec(
     spec: str,
     catalog_columns: Mapping[str, ColumnMetadata],
 ) -> PartitionMetadata | None:
-    from marivo.datasource.metadata import PartitionMetadata
+    from marivo.datasource.metadata import PartitionMetadata as _PartitionMetadata
 
     transform: str | None = None
     column_name = spec.strip()
@@ -263,7 +363,7 @@ def _trino_partition_from_spec(
     column = catalog_columns.get(column_name)
     if column is None:
         return None
-    return PartitionMetadata(
+    return _PartitionMetadata(
         name=column_name,
         type=column.type,
         transform=transform,
@@ -292,20 +392,22 @@ def _trino_show_create_table(
     schema_name: str,
     warnings: list[MetadataWarning],
 ) -> str | None:
-    from marivo.datasource.metadata import (
-        MetadataWarning,
-        _query_rows,
-        _table_ref,
-    )
+    from marivo.datasource.errors import _backend_failure_summary
+    from marivo.datasource.metadata import MetadataWarning as _Warning
 
     try:
-        table_ref = _table_ref(table, (catalog, schema_name))
-        rows = _query_rows(backend, f"SHOW CREATE TABLE {table_ref}")
+        rows = _trino_rows(
+            backend,
+            "trino.show_create",
+            identifiers={"table_ref": (catalog, schema_name, table)},
+        )
     except Exception as exc:
         warnings.append(
-            MetadataWarning(
+            _Warning(
                 kind="metadata_query_failed",
-                message=f"trino show create table query failed: {exc}",
+                message=(
+                    f"trino show create table query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
         return None
@@ -334,21 +436,30 @@ def _trino_physical_profile(
     schema_name: str,
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
-        MetadataWarning,
-        TablePhysicalProfile,
+        MetadataWarning as _Warning,
+    )
+    from marivo.datasource.metadata import (
+        TablePhysicalProfile as _Profile,
+    )
+    from marivo.datasource.metadata import (
         _int_or_none,
-        _query_rows,
-        _table_ref,
     )
 
     try:
-        rows = _query_rows(backend, f"SHOW STATS FOR {_table_ref(table, (catalog, schema_name))}")
+        rows = _trino_rows(
+            backend,
+            "trino.show_stats",
+            identifiers={"table_ref": (catalog, schema_name, table)},
+        )
     except Exception as exc:
         warnings.append(
-            MetadataWarning(
+            _Warning(
                 kind="metadata_query_failed",
-                message=f"trino physical profile query failed: {exc}",
+                message=(
+                    f"trino physical profile query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
         return None
@@ -369,7 +480,7 @@ def _trino_physical_profile(
             size_bytes += data_size
     if row_count is None and not saw_size:
         return None
-    return TablePhysicalProfile(
+    return _Profile(
         row_count=row_count,
         row_count_kind="estimate" if row_count is not None else "unknown",
         size_bytes=size_bytes if saw_size else None,
@@ -389,16 +500,15 @@ def _inspect_trino(
     catalog: str,
     default_schema: str | None,
 ) -> TableMetadata:
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
         MetadataWarning,
         TableMetadata,
+        UniqueConstraintMetadata,
         _empty_to_none,
         _merge_columns,
-        _query_rows,
-        _quote_literal,
         _schema_columns,
         _schema_only,
-        _table_ref,
     )
 
     schema_columns = _schema_columns(table_expr)
@@ -428,36 +538,28 @@ def _inspect_trino(
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
     physical_profile: TablePhysicalProfile | None = None
-
-    table_predicates = [
-        f"table_catalog = {_quote_literal(catalog_name)}",
-        f"table_schema = {_quote_literal(schema_name)}",
-        f"table_name = {_quote_literal(table)}",
-    ]
-    where_clause = " AND ".join(table_predicates)
+    predicates = {"catalog": catalog_name, "schema": schema_name, "table": table}
 
     catalog_columns: dict[str, ColumnMetadata] = {}
     try:
-        column_rows = _query_rows(
-            backend,
-            "SELECT column_name, data_type, is_nullable, ordinal_position "
-            "FROM information_schema.columns "
-            f"WHERE {where_clause} ORDER BY ordinal_position",
-        )
+        column_rows = _trino_rows(backend, "trino.columns", values=predicates)
         catalog_columns = _trino_columns_from_rows(column_rows)
     except Exception as exc:
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"trino column metadata query failed: {exc}",
+                message=(
+                    f"trino column metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
     if catalog_columns:
         try:
-            show_column_rows = _query_rows(
+            show_column_rows = _trino_rows(
                 backend,
-                f"SHOW COLUMNS FROM {_table_ref(table, (catalog_name, schema_name))}",
+                "trino.show_columns",
+                identifiers={"table_ref": (catalog_name, schema_name, table)},
             )
             catalog_columns = _trino_columns_with_show_comments(
                 catalog_columns,
@@ -467,30 +569,61 @@ def _inspect_trino(
             warnings.append(
                 MetadataWarning(
                     kind="column_comments_unavailable",
-                    message=f"trino column comments are unavailable: {exc}",
+                    message=(
+                        "trino column comments are unavailable: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
                 )
             )
 
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     try:
-        type_rows = _query_rows(
-            backend,
-            f"SELECT table_type FROM information_schema.tables WHERE {where_clause} LIMIT 1",
-        )
-        if type_rows and str(type_rows[0].get("table_type") or "").upper() == "VIEW":
+        type_rows = _trino_rows(backend, "trino.tables.type", values=predicates)
+        if type_rows:
+            is_view = str(type_rows[0].get("table_type") or "").upper() == "VIEW"
+        if is_view:
             is_view = True
-            def_rows = _query_rows(
-                backend,
-                f"SELECT view_definition FROM information_schema.views WHERE {where_clause} LIMIT 1",
-            )
+            def_rows = _trino_rows(backend, "trino.views.definition", values=predicates)
             if def_rows:
                 view_definition = _empty_to_none(def_rows[0].get("view_definition"))
     except Exception as exc:
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"trino view metadata query failed: {exc}",
+                message=(
+                    f"trino view metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    primary_keys: tuple[str, ...] = ()
+    unique_constraints: list[UniqueConstraintMetadata] = []
+    try:
+        constraint_rows = _trino_rows(
+            backend, "trino.constraints", values={"schema": schema_name, "table": table}
+        )
+        pk_names: list[str] = []
+        unique_names: list[str] = []
+        for row in constraint_rows:
+            kind = str(row.get("constraint_type") or "").upper()
+            column_name = row.get("column_name")
+            if not isinstance(column_name, str) or not column_name:
+                continue
+            if kind == "PRIMARY KEY" and column_name not in pk_names:
+                pk_names.append(column_name)
+            elif kind == "UNIQUE" and column_name not in unique_names:
+                unique_names.append(column_name)
+        primary_keys = tuple(pk_names)
+        if unique_names:
+            unique_constraints.append(
+                UniqueConstraintMetadata(name=None, columns=tuple(unique_names), kind="unique")
+            )
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(f"trino constraint query failed: {_backend_failure_summary(exc).message}"),
             )
         )
 
@@ -551,6 +684,8 @@ def _inspect_trino(
         warnings=tuple(warnings),
         is_view=is_view,
         view_definition=view_definition,
+        primary_keys=primary_keys,
+        unique_constraints=tuple(unique_constraints),
         physical_profile=physical_profile,
     )
 
@@ -572,36 +707,6 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
-def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unavailable"] | None:
-    """Classify Trino metadata permission denial from the server error name."""
-    for candidate in structured_exception_chain(exc):
-        if getattr(candidate, "error_name", None) == "PERMISSION_DENIED":
-            return "metadata_unavailable"
-    return None
-
-
-@contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        raise RuntimeError("trino backend does not expose raw_sql()")
-    cursor = raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
-    fetchone = getattr(cursor, "fetchone", None)
-    row = fetchone() if callable(fetchone) else None
-    if not row or len(row) < 2:
-        raise RuntimeError("trino did not expose the current query_max_run_time setting")
-    previous = str(row[1]).replace("'", "''")
-    try:
-        raw_sql(f"SET SESSION query_max_run_time = '{timeout_seconds}s'")
-    except BaseException:
-        raw_sql(f"SET SESSION query_max_run_time = '{previous}'")
-        raise
-    try:
-        yield
-    finally:
-        raw_sql(f"SET SESSION query_max_run_time = '{previous}'")
-
-
 PROFILE = EngineProfile(
     name="trino",
     aliases=("presto",),
@@ -609,11 +714,9 @@ PROFILE = EngineProfile(
     required_modules=("ibis.backends.trino",),
     connect=connect,
     apply_read_only_kwargs=identity_read_only_kwargs,
-    timezone_probe_sql="select current_timezone() as timezone",
     identifier_quote='"',
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,
-    readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(
         inspect_table=inspect_table,
         classify_table_resolution_failure=classify_table_resolution_failure,
@@ -625,8 +728,8 @@ PROFILE = EngineProfile(
         byte_estimate_supported=True,
     ),
     translate_strptime_format=python_to_mysql_strptime,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
     quantile=QuantileCapability(mode="approximate", method="approx_percentile"),
     percentile_uses_approx_quantile=True,
     authoring_timeout=authoring_timeout,

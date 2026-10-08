@@ -68,9 +68,21 @@ marivo/
 .venv/bin/pre-commit run --all-files
 ```
 
+普通提交保留已安装的格式、lint、typing 和默认测试 hooks；不执行完整 Runtime
+验收，也不为提交启动 MinIO。已有检查通过且文件未变时，提交准备不再重复运行同一批
+检查，提交 hooks 仍照常执行。
+
 ### 代码格式化
+在最终检查和候选版本摘要冻结前，只对本次修改的 Python 文件执行：
+
 ```bash
-# 自动格式化（包含 ruff format 和 ruff check --fix）
+.venv/bin/ruff check --fix path/to/changed.py
+.venv/bin/ruff format path/to/changed.py
+```
+
+需要格式化整个工作区时才使用：
+
+```bash
 make format
 ```
 
@@ -84,6 +96,9 @@ make lint
 ```bash
 make typecheck
 ```
+
+标准入口默认使用精简输出，并保留错误和退出状态。可通过
+`TYPECHECK_TARGETS='marivo/path/to/module.py'` 缩小检查范围。
 
 ### 构建 API 文档
 使用 Sphinx 从公共模块（`marivo.datasource` / `marivo.semantic` /
@@ -109,14 +124,20 @@ cd site && npm run build
 
 ### 运行测试
 ```bash
-# 运行所有测试（并行）
+# 运行日常回归测试（并行）
 make test
 
-# 运行特定测试文件
-.venv/bin/pytest tests/test_sessions.py
+# Run focused Runtime checks when the change needs them
+make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 
-# 运行特定测试方法
-.venv/bin/pytest tests/test_sessions.py::SessionAPITests::test_get_session_after_create
+# Run daily tests, static checks, and API documentation checks
+make check-agent
+
+# Run a specific test file with compact output
+make test TESTS='tests/analysis/session/test_analysis_session_core.py'
+
+# Run a specific test method
+make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_session_public_fields_are_read_only'
 
 # 显示详细输出
 .venv/bin/pytest -v
@@ -125,7 +146,33 @@ make test
 .venv/bin/pytest -s
 ```
 
+`make test` 默认精简输出，使用短 traceback，累计五项失败后停止，同时保留失败
+退出状态。需要更多诊断时，仅对失败范围使用 `.venv/bin/pytest` 并指定详细输出。
+日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整
+Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
+
+Runtime Make targets default to two workers to leave capacity for their nested
+execution and read subprocesses. Use `RUNTIME_WORKERS=<count>` to override the
+per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
+containing `::` run serially. Account for other concurrent test tasks on the host.
+
+`make check` 和 `make check-agent` 均不执行完整 Runtime suite。完整多阶段分析、
+真实数据源、worker 和进程恢复验收归入发布准备与发布 CI，由 `make release-check`
+连同日常检查、安装和打包检查一起执行。不需要对象存储测试服务。
+
+Functional Runtime acceptance uses local Parquet files. Retain native engine
+cases for engine-specific execution, receipts, and recovery. See
+[Runtime test coverage](docs/testing/runtime-coverage.md).
+
+For test performance investigations, measure the same suite with
+`.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare
+explicit worker counts and simultaneous invocations. Compiler oracle tests can use
+`assert_compiled_validations` from `tests/analysis/graph/execution_fixtures.py` to check
+every named validation in one query without repeatedly compiling shared Ibis
+nodes. Keep independent budget checks parametrized so xdist can distribute them.
+
 ### 测试覆盖率
+
 ```bash
 # 生成覆盖率报告
 .venv/bin/pytest --cov=marivo --cov-report=term-missing

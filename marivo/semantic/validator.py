@@ -9,17 +9,28 @@ Three layers:
 from __future__ import annotations
 
 import ast
+import builtins
 import hashlib
 import inspect
 import textwrap
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
+from datetime import datetime, time, timedelta
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
+from zoneinfo import ZoneInfo
 
-from marivo.datasource.ir import DatasourceIR, TableSourceIR
+from marivo.datasource.ir import (
+    CsvSourceIR,
+    DatasourceIR,
+    EntitySourceIR,
+    JsonQueryParamValue,
+    JsonSourceIR,
+    ParquetSourceIR,
+    TableSourceIR,
+)
 from marivo.introspection._fuzzy import did_you_mean
-from marivo.refs import SemanticKind
+from marivo.refs import RefPayloadV1, SemanticKind, _create_ref
 from marivo.refs import ref as ref_factory
 from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
@@ -31,6 +42,8 @@ from marivo.semantic.errors import (
     repair,
 )
 from marivo.semantic.ir import (
+    BusinessOrderDeclarationIR,
+    BusinessOrderIR,
     CumulativeComposition,
     DateParse,
     DatetimeParse,
@@ -39,6 +52,7 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     EventIR,
+    EventSequenceIR,
     HourPrefixParse,
     LinearComposition,
     MeasureIR,
@@ -54,6 +68,13 @@ from marivo.semantic.ir import (
     StateTriggerDeclarationIR,
     StateTriggerIR,
     StrptimeParse,
+    TargetDimensionContract,
+    TargetEntityContract,
+    TargetRelationshipContract,
+    TargetSnapshotSelection,
+    TargetSnapshotVersion,
+    TargetValiditySelection,
+    TargetValidityVersion,
     TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
@@ -69,6 +90,7 @@ if TYPE_CHECKING:
 __all__ = [
     "Registry",
     "assembly_validate",
+    "canonicalize_business_orders",
     "canonicalize_state_models",
     "validate_decorator_call",
     "validate_event_body_ast",
@@ -94,6 +116,7 @@ class Registry:
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
     events: dict[str, EventIR] = field(default_factory=dict)
     state_models: dict[str, StateModelIR] = field(default_factory=dict)
+    business_orders: dict[str, BusinessOrderIR] = field(default_factory=dict)
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
@@ -113,6 +136,7 @@ class Registry:
             "relationships",
             "events",
             "state_models",
+            "business_orders",
             "period_calendars",
             "temporal_sets",
             "work_schedules",
@@ -125,6 +149,396 @@ class Registry:
         if getattr(self, "_frozen", False):
             raise AttributeError("compiled semantic registry is immutable")
         object.__setattr__(self, name, value)
+
+
+def _target_error(
+    *,
+    ref: str,
+    expected: str,
+    received: str,
+    action: str,
+    kind: ErrorKind | str = "invalid_target_semantics",
+    constraint_id: ConstraintId | None = None,
+    location: SourceLocation | None = None,
+) -> NoReturn:
+    raise SemanticLoadError(
+        kind=kind,
+        message="The declaration cannot supply the typed analysis semantic contract.",
+        refs=(ref,),
+        location=location,
+        expected=expected,
+        received=received,
+        hint=action,
+        constraint_id=constraint_id,
+        repair=repair(kind="reauthor", canonical_id="entity", action=action),
+    )
+
+
+def _target_columns(entity: EntityIR) -> tuple[tuple[str, str], ...]:
+    source = entity.source
+    if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+        names = tuple(name for name, _source in source.columns)
+    elif isinstance(source, ParquetSourceIR):
+        names = tuple(source.columns or ())
+    else:
+        names = ()
+    return tuple((name, "unknown") for name in names)
+
+
+def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
+    """Detach nested authoring sequences from the captured source declaration."""
+    if isinstance(source, JsonSourceIR):
+        query: list[tuple[str, JsonQueryParamValue]] = []
+        for name, value in source.query_params:
+            frozen_value = (
+                tuple(value)
+                if isinstance(value, Sequence) and not isinstance(value, str)
+                else value
+            )
+            query.append((name, frozen_value))
+        return replace(
+            source,
+            columns=tuple((name, path) for name, path in source.columns),
+            query_params=tuple(query),
+            body_params=tuple((tuple(path), parameter) for path, parameter in source.body_params),
+        )
+    if isinstance(source, CsvSourceIR):
+        return replace(source, columns=tuple(source.columns))
+    if isinstance(source, ParquetSourceIR):
+        return replace(
+            source, columns=tuple(source.columns) if source.columns is not None else None
+        )
+    return replace(source, columns=tuple(source.columns))
+
+
+def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetDimensionContract:
+    """Normalize a declared column Dimension without compiling or reading its source."""
+    dimension = registry.dimensions.get(dimension_id)
+    if dimension is None:
+        _target_error(
+            ref=dimension_id,
+            expected="a loaded Dimension",
+            received="not loaded",
+            action="Use a Dimension from the current Registry.",
+        )
+    entity = registry.entities.get(dimension.entity)
+    if entity is None or dimension.source_column is None:
+        _target_error(
+            ref=dimension_id,
+            expected="a declared direct source column on a loaded Entity",
+            received="missing declared source-column facts",
+            action="Declare a direct-column Dimension on a source field, and include it in columns=... when the source is projected.",
+        )
+    columns = dict(_target_columns(entity))
+    projected_names = set(columns)
+    if projected_names and dimension.source_column not in projected_names:
+        _target_error(
+            ref=dimension_id,
+            expected="a logical source column exposed by the projection",
+            received=f"{dimension.source_column!r} is not projected",
+            action="Add the Dimension source column to columns=... or omit the projection.",
+        )
+    dimension_ref = (
+        _create_ref(SemanticKind.TIME_DIMENSION, dimension_id)
+        if dimension.is_time_dimension
+        else _create_ref(SemanticKind.DIMENSION, dimension_id)
+    )
+    parse = dimension.parse
+    if isinstance(parse, DateParse) or (
+        isinstance(parse, StrptimeParse) and not is_time_bearing_format(parse.format)
+    ):
+        logical_type = "date"
+    elif dimension.is_time_dimension:
+        logical_type = "timestamp"
+    else:
+        logical_type = "unknown"
+    return TargetDimensionContract(
+        ref=RefPayloadV1.from_ref(dimension_ref),
+        entity_ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity.semantic_id)),
+        source_column=dimension.source_column,
+        logical_type=logical_type,
+        nullable=True,
+        is_time_dimension=dimension.is_time_dimension,
+        granularity=dimension.granularity,
+        parse=parse,
+        is_default=dimension.is_default,
+        timezone=(
+            parse.timezone
+            if isinstance(parse, DatetimeParse | TimestampParse | StrptimeParse)
+            else None
+        ),
+    )
+
+
+def _target_time_axis(registry: Registry, entity: EntityIR, path: str) -> TargetDimensionContract:
+    axis = normalize_target_dimension(registry, path)
+    if axis.entity_ref.path != entity.semantic_id or not axis.is_time_dimension:
+        _target_error(
+            ref=entity.semantic_id,
+            expected="a temporal Dimension on the same Entity",
+            received="a foreign or non-temporal version axis",
+            action="Reference a declared temporal Dimension owned by this Entity.",
+        )
+    return axis
+
+
+def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityContract:
+    """Derive stable identity K and independent version-row facts for authoring and analysis."""
+    entity = registry.entities.get(entity_id)
+    if entity is None:
+        _target_error(
+            ref=entity_id,
+            expected="a loaded Entity",
+            received="not loaded",
+            action="Use an Entity from the current Registry.",
+        )
+    columns = _target_columns(entity)
+    key = entity.primary_key
+    seen_keys: set[str] = set()
+    duplicate_keys: list[str] = []
+    for name in key:
+        if name in seen_keys and name not in duplicate_keys:
+            duplicate_keys.append(name)
+        seen_keys.add(name)
+    if duplicate_keys:
+        _target_error(
+            ref=entity_id,
+            expected="each identity key listed once in primary_key",
+            received=f"duplicate identity keys {tuple(duplicate_keys)!r}",
+            action=f"Remove {tuple(duplicate_keys)!r} from repeated positions in primary_key.",
+            kind=ErrorKind.DUPLICATE_IDENTITY_KEY,
+            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE,
+            location=entity.location,
+        )
+    projected_names = set(dict(columns))
+    if isinstance(entity.source, ParquetSourceIR) and entity.source.columns is not None:
+        projected_names = set(entity.source.columns)
+    missing_columns = tuple(name for name in key if projected_names and name not in projected_names)
+    if missing_columns:
+        _target_error(
+            ref=entity_id,
+            expected="every identity key to be exposed by the source projection",
+            received=f"identity columns absent from projection {missing_columns!r}",
+            action="Add these identity columns to columns=... or omit the projection.",
+            kind=ErrorKind.MISSING_IDENTITY_KEY_COLUMN,
+            constraint_id=ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED,
+            location=entity.location,
+        )
+    signature = tuple((name, "unknown") for name in key)
+    version: TargetSnapshotVersion | TargetValidityVersion | None = None
+    row_key = key
+    authored = entity.versioning
+    if isinstance(authored, SnapshotVersioningIR):
+        axis = _target_time_axis(registry, entity, authored.partition_field)
+        if axis.source_column in key:
+            _target_error(
+                ref=entity_id,
+                expected="stable identity K separate from snapshot coordinate",
+                received=(
+                    f"snapshot coordinate {axis.source_column!r} included in primary_key={key!r}"
+                ),
+                action=f"Remove {axis.source_column!r} from primary_key; keep it in versioning.",
+                kind=ErrorKind.IDENTITY_VERSION_OVERLAP,
+                constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+                location=entity.location,
+            )
+        version = TargetSnapshotVersion(
+            axis.ref,
+            axis.source_column,
+            axis.logical_type,
+            authored.timezone or axis.timezone,
+            authored.format,
+        )
+        row_key = (*key, axis.source_column) if key else ()
+    elif isinstance(authored, ValidityVersioningIR):
+        start = _target_time_axis(registry, entity, authored.valid_from)
+        end = _target_time_axis(registry, entity, authored.valid_to)
+        if start.source_column == end.source_column:
+            _target_error(
+                ref=entity_id,
+                expected="distinct validity bounds separate from K",
+                received=f"validity bounds share source column {start.source_column!r}",
+                action="Declare two distinct validity axes.",
+            )
+        overlapping = tuple(
+            column for column in (start.source_column, end.source_column) if column in key
+        )
+        if overlapping:
+            _target_error(
+                ref=entity_id,
+                expected="stable identity K separate from validity coordinates",
+                received=f"validity coordinates {overlapping!r} included in primary_key={key!r}",
+                action=f"Remove {overlapping!r} from primary_key; keep them in versioning.",
+                kind=ErrorKind.IDENTITY_VERSION_OVERLAP,
+                constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+                location=entity.location,
+            )
+        version = TargetValidityVersion(
+            start.ref,
+            end.ref,
+            start.source_column,
+            end.source_column,
+            authored.interval,
+            authored.open_end,
+            authored.timezone or start.timezone,
+        )
+        row_key = (*key, start.source_column) if key else ()
+    datasource = registry.datasources.get(entity.datasource)
+    if datasource is None:
+        _target_error(
+            ref=entity_id,
+            expected="a loaded declared datasource",
+            received="datasource not loaded",
+            action="Load the Entity's declared datasource before constructing its contract.",
+        )
+    from marivo.semantic.metric_graph_lowering import dependency_fingerprint_for_target
+
+    dependency_fingerprint = dependency_fingerprint_for_target(
+        registry,
+        kind="entity",
+        semantic_id=entity_id,
+    )
+    credential_slots = tuple(sorted(datasource.env_refs))
+    return TargetEntityContract(
+        ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity_id)),
+        datasource_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.DATASOURCE, entity.datasource)
+        ),
+        dependency_fingerprint=dependency_fingerprint,
+        source=_snapshot_target_source(entity.source),
+        primary_key=key,
+        identity_signature=signature,
+        version_row_key=row_key,
+        columns=columns,
+        version=version,
+        credential_slots=credential_slots,
+    )
+
+
+def normalize_target_relationship(
+    registry: Registry, relationship_id: str
+) -> TargetRelationshipContract:
+    """Resolve directed keys and structural multiplicity without source I/O."""
+    relationship = registry.relationships[relationship_id]
+    left_entity = registry.entities.get(relationship.from_entity)
+    right_entity = registry.entities.get(relationship.to_entity)
+
+    def invalid(expected: str, received: str, action: str) -> NoReturn:
+        raise SemanticLoadError(
+            kind=ErrorKind.INVALID_RELATIONSHIP_MAPPING,
+            message=f"Relationship {relationship_id!r} has an invalid directed mapping.",
+            refs=(relationship_id,),
+            location=relationship.location,
+            expected=expected,
+            received=received,
+            hint=action,
+            constraint_id=ConstraintId.RELATIONSHIP_MAPPING,
+            repair=repair(kind="reauthor", canonical_id="relationship", action=action),
+        )
+
+    if left_entity is None or right_entity is None:
+        invalid(
+            "two loaded Entity endpoints",
+            f"{relationship.from_entity!r} -> {relationship.to_entity!r}",
+            "Declare both endpoint Entities before loading the Relationship.",
+        )
+    if not relationship.keys:
+        invalid("one or more join key pairs", "empty keys", "Add ms.join_on(...) pairs.")
+    columns: list[tuple[str, str]] = []
+    for pair in relationship.keys:
+        left = registry.dimensions.get(pair.from_key)
+        right = registry.dimensions.get(pair.to_key)
+        if (
+            left is None
+            or right is None
+            or left.entity != relationship.from_entity
+            or right.entity != relationship.to_entity
+            or left.source_column is None
+            or right.source_column is None
+        ):
+            invalid(
+                "direct-column Dimensions on the exact from/to Entity endpoints",
+                f"{pair.from_key!r} -> {pair.to_key!r}",
+                "Bind each join key to a direct-column Dimension on its declared endpoint.",
+            )
+        columns.append((left.source_column, right.source_column))
+    from_columns = tuple(left for left, _right in columns)
+    to_columns = tuple(right for _left, right in columns)
+    if len(set(from_columns)) != len(columns) or len(set(to_columns)) != len(columns):
+        invalid(
+            "each endpoint key column used once",
+            repr(columns),
+            "Remove repeated source or target key columns from the relationship keys.",
+        )
+    from_covers_key = bool(left_entity.primary_key) and set(left_entity.primary_key).issubset(
+        from_columns
+    )
+    to_covers_key = bool(right_entity.primary_key) and set(right_entity.primary_key).issubset(
+        to_columns
+    )
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    if from_covers_key and to_covers_key:
+        cardinality = "one_to_one"
+    elif from_covers_key:
+        cardinality = "one_to_many"
+    elif to_covers_key:
+        cardinality = "many_to_one"
+    else:
+        cardinality = "many_to_many"
+    return TargetRelationshipContract(
+        ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.RELATIONSHIP, relationship_id)),
+        from_entity_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.ENTITY, relationship.from_entity)
+        ),
+        to_entity_ref=RefPayloadV1.from_ref(
+            _create_ref(SemanticKind.ENTITY, relationship.to_entity)
+        ),
+        role=relationship.name,
+        keys=tuple(columns),
+        cardinality=cardinality,
+        from_version_resolution_required=left_entity.versioning is not None,
+        to_version_resolution_required=right_entity.versioning is not None,
+    )
+
+
+def normalize_target_version_selection(
+    entity: TargetEntityContract,
+    *,
+    boundary: datetime,
+    interpretation: Literal["instant", "before_endpoint"],
+) -> TargetSnapshotSelection | TargetValiditySelection:
+    """Resolve exact period/comparison facts without observing available versions."""
+    version = entity.version
+    if version is None or interpretation not in {"instant", "before_endpoint"}:
+        _target_error(
+            ref=entity.ref.path,
+            expected="versioning and an exact boundary interpretation",
+            received="unversioned Entity or unsupported interpretation",
+            action="Supply a versioned Entity and an instant or before-endpoint boundary.",
+        )
+    zone = ZoneInfo(version.timezone or "UTC")
+    localized = (
+        boundary.replace(tzinfo=zone) if boundary.tzinfo is None else boundary.astimezone(zone)
+    )
+    if isinstance(version, TargetSnapshotVersion):
+        period = localized.date()
+        if (
+            interpretation == "before_endpoint"
+            and localized.timetz().replace(tzinfo=None) == time()
+        ):
+            period -= timedelta(days=1)
+        return TargetSnapshotSelection(version.coordinate_ref, period.isoformat(), interpretation)
+    return TargetValiditySelection(
+        version.valid_from_ref,
+        version.valid_to_ref,
+        localized.isoformat(),
+        "lt" if interpretation == "before_endpoint" else "le",
+        "ge"
+        if interpretation == "before_endpoint" or version.interval == "closed_closed"
+        else "gt",
+        version.open_end,
+        interpretation,
+    )
 
 
 _PARTITION_TIME_COLUMN_NAMES = {
@@ -188,6 +602,187 @@ def _participant_endpoint(
     return endpoint, participant.cardinality
 
 
+def canonicalize_business_orders(
+    registry: Registry,
+    declarations: tuple[BusinessOrderDeclarationIR, ...],
+) -> list[SemanticError]:
+    """Resolve declared business order roles against exact loaded Event identities."""
+    errors: list[SemanticError] = []
+    for declaration in declarations:
+        local: list[SemanticError] = []
+
+        def reject(
+            expected: str,
+            received: object,
+            action: str,
+            *,
+            current: BusinessOrderDeclarationIR = declaration,
+            current_errors: list[SemanticError] = local,
+        ) -> None:
+            current_errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_BUSINESS_ORDER,
+                    message=f"Business order {current.semantic_id!r} has invalid order authority.",
+                    refs=(current.semantic_id,),
+                    expected=expected,
+                    received=repr(received),
+                    location=current.location,
+                    hint=action,
+                    repair=repair(kind="reauthor", canonical_id="business_order", action=action),
+                )
+            )
+
+        subject = registry.entities.get(declaration.subject)
+        if subject is None or not subject.primary_key:
+            reject(
+                "loaded Subject Entity with a complete non-empty K",
+                declaration.subject,
+                "Declare the exact Subject Entity and its complete primary_key.",
+            )
+        sequences: list[EventSequenceIR] = []
+        sequence_events: set[str] = set()
+        sequence_orders: set[object] = set()
+        for item in declaration.sequences:
+            event = registry.events.get(item.event_ref)
+            value = registry.dimensions.get(item.value_ref)
+            if event is None or value is None or value.is_time_dimension:
+                reject(
+                    "loaded Event and categorical Dimension",
+                    (item.event_ref, item.value_ref),
+                    "Use exact loaded Event and Dimension refs.",
+                )
+                continue
+            if item.event_ref in sequence_events:
+                reject(
+                    "one sequence per Event",
+                    item.event_ref,
+                    "Remove the duplicate Event sequence rule.",
+                )
+                continue
+            sequence_events.add(item.event_ref)
+            if value.entity != event.source_entity:
+                reject(
+                    f"Dimension owned by {event.source_entity}",
+                    value.entity,
+                    "Choose a sequence Dimension on the Event occurrence Entity.",
+                )
+                continue
+            identity_columns = {
+                registry.dimensions[path].source_column
+                for path in event.identity
+                if path in registry.dimensions
+            }
+            if item.value_ref in event.identity or (
+                value.source_column is not None and value.source_column in identity_columns
+            ):
+                reject(
+                    "a business sequence distinct from occurrence identity",
+                    item.value_ref,
+                    "Declare a separate business sequence field, not an occurrence ID alias.",
+                )
+                continue
+            qualifying = tuple(
+                part.name
+                for part in event.participants
+                if _participant_endpoint(event, participant_name=part.name, registry=registry)
+                == (declaration.subject, "one")
+            )
+            if len(qualifying) != 1:
+                reject(
+                    "one unambiguous cardinality-one participant for the Subject",
+                    (item.event_ref, qualifying),
+                    "Resolve Event participant roles so exactly one maps to the order Subject.",
+                )
+                continue
+            sequence_orders.add(item.order)
+            sequences.append(
+                EventSequenceIR(
+                    event_ref=item.event_ref,
+                    value_ref=item.value_ref,
+                    order=item.order,
+                    participant_role=qualifying[0],
+                )
+            )
+        if len(sequence_orders) > 1:
+            reject(
+                "one comparable sequence order contract per Subject",
+                tuple(sorted(sequence_orders, key=repr)),
+                "Use the same integer mode or exact ordered-value tuple for every sequence.",
+            )
+
+        edges: set[tuple[tuple[str, str], tuple[str, str]]] = set()
+        for precedence in declaration.conflicts:
+            before_event = registry.events.get(precedence.before_event)
+            after_event = registry.events.get(precedence.after_event)
+            if before_event is None or after_event is None:
+                reject(
+                    "loaded Event roles",
+                    (precedence.before_event, precedence.after_event),
+                    "Use participant roles of loaded Events.",
+                )
+                continue
+            before = (precedence.before_event, precedence.before_role)
+            after = (precedence.after_event, precedence.after_role)
+            if _participant_endpoint(
+                before_event, participant_name=precedence.before_role, registry=registry
+            ) != (declaration.subject, "one") or _participant_endpoint(
+                after_event, participant_name=precedence.after_role, registry=registry
+            ) != (declaration.subject, "one"):
+                reject(
+                    "two cardinality-one roles on the exact Subject",
+                    (before, after),
+                    "Select exact Event participant roles ending at the order Subject.",
+                )
+                continue
+            edge = (before, after)
+            if before == after or edge in edges:
+                reject(
+                    "distinct unique precedence edge",
+                    edge,
+                    "Remove self-precedence or repeated rules.",
+                )
+                continue
+            edges.add(edge)
+
+        outgoing: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        indegree: dict[tuple[str, str], int] = {}
+        for before, after in edges:
+            outgoing.setdefault(before, set()).add(after)
+            indegree.setdefault(before, 0)
+            indegree[after] = indegree.get(after, 0) + 1
+        pending = [node for node, degree in indegree.items() if degree == 0]
+        visited = 0
+        while pending:
+            node = pending.pop()
+            visited += 1
+            for after in outgoing.get(node, ()):
+                indegree[after] -= 1
+                if indegree[after] == 0:
+                    pending.append(after)
+        if visited != len(indegree):
+            reject(
+                "acyclic simultaneous precedence",
+                tuple(sorted(edges)),
+                "Remove the cycle from ms.precedes(...) rules.",
+            )
+        errors.extend(local)
+        if local:
+            continue
+
+        registry.business_orders[declaration.semantic_id] = BusinessOrderIR(
+            semantic_id=declaration.semantic_id,
+            domain=declaration.domain,
+            name=declaration.name,
+            subject=declaration.subject,
+            sequences=tuple(sequences),
+            conflicts=declaration.conflicts,
+            ai_context=declaration.ai_context,
+            python_symbol=declaration.python_symbol,
+            location=declaration.location,
+        )
+    return errors
+
+
 def canonicalize_state_models(
     registry: Registry,
     declarations: tuple[StateModelDeclarationIR, ...],
@@ -212,6 +807,45 @@ def canonicalize_state_models(
                 )
             )
             continue
+
+        if declaration.business_order is not None:
+            order = registry.business_orders.get(declaration.business_order)
+            trigger_events = {item.event_ref for item in declaration.inceptions} | {
+                trigger.event_ref for _source, trigger, _target in declaration.transitions
+            }
+            order_events = (
+                set()
+                if order is None
+                else {item.event_ref for item in order.sequences}
+                | {item.before_event for item in order.conflicts}
+                | {item.after_event for item in order.conflicts}
+            )
+            if (
+                order is None
+                or order.subject != declaration.subject
+                or not trigger_events <= order_events
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_STATE_MODEL,
+                        message=f"StateModel {declaration.semantic_id!r} has an incompatible business order.",
+                        refs=(declaration.semantic_id, declaration.business_order),
+                        expected="loaded business order on the exact Subject covering every trigger Event",
+                        received=repr(
+                            {
+                                "subject": None if order is None else order.subject,
+                                "missing_events": tuple(sorted(trigger_events - order_events)),
+                            }
+                        ),
+                        location=declaration.location,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="state_model",
+                            action="Bind an exact business order with the same Subject and all trigger Events.",
+                        ),
+                    )
+                )
+                continue
 
         def resolve_trigger(
             trigger: object,
@@ -426,6 +1060,7 @@ def canonicalize_state_models(
             states=declaration.states,
             inceptions=tuple(inceptions),
             transitions=tuple(transitions),
+            business_order=declaration.business_order,
             ai_context=declaration.ai_context,
             python_symbol=declaration.python_symbol,
             location=declaration.location,
@@ -457,22 +1092,41 @@ def _has_pushdown_unfriendly_time_call(node: ast.AST) -> bool:
     return False
 
 
-def _return_expr(fn: Callable[..., Any]) -> ast.AST | None:
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError):
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            for stmt in node.body:
-                if isinstance(stmt, ast.Return):
-                    return stmt.value
+def _return_expr(
+    fn: Callable[..., Any],
+    function: ast.FunctionDef | None = None,
+) -> ast.AST | None:
+    if function is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(source)
+        except (OSError, TypeError, IndentationError, SyntaxError):
             return None
-    return None
+        function = next(
+            (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None
+        )
+    if function is None:
+        return None
+    locals_by_name = {
+        stmt.targets[0].id: stmt.value
+        for stmt in function.body
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+    }
+    value = next((stmt.value for stmt in function.body if isinstance(stmt, ast.Return)), None)
+    seen: set[str] = set()
+    while isinstance(value, ast.Name) and value.id in locals_by_name and value.id not in seen:
+        seen.add(value.id)
+        value = locals_by_name[value.id]
+    return value
 
 
-def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., Any] | None) -> bool:
+def _time_dimension_pushdown_advisory(
+    field_ir: DimensionIR,
+    fn: Callable[..., Any] | None,
+    function: ast.FunctionDef | None = None,
+) -> bool:
     if not field_ir.is_time_dimension:
         return False
     parse = field_ir.parse
@@ -482,7 +1136,7 @@ def _time_dimension_pushdown_advisory(field_ir: DimensionIR, fn: Callable[..., A
         return False
     if fn is None:
         return False
-    expr = _return_expr(fn)
+    expr = _return_expr(fn, function)
     if expr is None or not _has_pushdown_unfriendly_time_call(expr):
         return False
     source_column = _source_column_name(expr)
@@ -523,9 +1177,11 @@ def _infer_terminal_cast(expr: ast.AST) -> str | None:
 
 
 def _time_dimension_dtype_advisory(
-    field_ir: DimensionIR, fn: Callable[..., Any] | None
+    field_ir: DimensionIR,
+    fn: Callable[..., Any] | None,
+    function: ast.FunctionDef | None = None,
 ) -> str | None:
-    """Return the inferred cast target if it conflicts with declared data_type, else None."""
+    """Return a cast target that conflicts with the Dimension's declared parse result."""
     if not field_ir.is_time_dimension:
         return None
     parse = field_ir.parse
@@ -534,7 +1190,7 @@ def _time_dimension_dtype_advisory(
         return None
     if fn is None:
         return None
-    expr = _return_expr(fn)
+    expr = _return_expr(fn, function)
     if expr is None:
         return None
     inferred = _infer_terminal_cast(expr)
@@ -543,7 +1199,7 @@ def _time_dimension_dtype_advisory(
     compatible = _CAST_TARGET_TO_DECLARED.get(inferred)
     if compatible is None:
         return None
-    # Extract data_type from parse variant for comparison
+    # The parse declaration determines the semantic expression's expected kind.
     parse = field_ir.parse
     data_type_val: str | None = None
     if parse is None:
@@ -640,9 +1296,16 @@ _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
 class _BaseMetricASTValidator(ast.NodeVisitor):
     """Walk a single-return ibis expression body AST and accumulate errors."""
 
-    def __init__(self, fn_name: str, *, body_label: str = "Metric body") -> None:
+    def __init__(
+        self,
+        fn_name: str,
+        *,
+        body_label: str = "Metric body",
+        symbols: frozenset[str] | None = None,
+    ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
+        self._symbols = symbols
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -665,7 +1328,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         # Extract parameter names and build parent map for context-sensitive checks.
-        self._param_names = {arg.arg for arg in node.args.args}
+        self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
         self._parent_map = {
             child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
         }
@@ -708,6 +1371,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             # expression-body contract.
             if isinstance(child, ast.Return):
                 continue
+            if self._symbols is not None and isinstance(child, ast.Assign) and child in node.body:
+                continue
             for forbidden_type in (*_FORBIDDEN_STMT_TYPES, ast.Expr):
                 if isinstance(child, forbidden_type):
                     # Every statement that reaches this loop is a forbidden
@@ -723,10 +1388,96 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                     )
                     break
 
+        if self._symbols is not None:
+            statements = [stmt for stmt in node.body if stmt is not leading_docstring]
+            if statements and not isinstance(statements[-1], ast.Return):
+                self._local_error(
+                    statements[-1], "a final return expression", "statement after return"
+                )
+            defined = set(self._param_names) | set(self._symbols)
+            for stmt in statements:
+                if isinstance(stmt, ast.Assign):
+                    if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+                        self._local_error(
+                            stmt, "one fresh local name", "non-name or multiple targets"
+                        )
+                        continue
+                    name = stmt.targets[0].id
+                    if name in defined:
+                        self._local_error(
+                            stmt, "one fresh local name", f"reassignment or shadowing of {name!r}"
+                        )
+                    self._validate_local_expression(stmt.value, defined)
+                    defined.add(name)
+                elif isinstance(stmt, ast.Return):
+                    if stmt.value is None:
+                        self._local_error(
+                            stmt, "a final Ibis return expression", "return without a value"
+                        )
+                    else:
+                        self._validate_local_expression(stmt.value, defined)
+
         # Walk only the function body for deeper AST checks. Decorator calls
         # are normal Python and are not part of the captured expression DSL.
         for stmt in node.body:
             self.visit(stmt)
+
+    def _local_error(self, node: ast.AST, expected: str, received: str) -> None:
+        self.errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.INVALID_COMPONENT_BODY,
+                message=f"{self.body_label} of {self.fn_name!r} has an invalid local expression at "
+                f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}.",
+                refs=(self.fn_name,),
+                expected=expected,
+                received=received,
+                hint="Use fresh local names in definition order and finish with one Ibis return expression.",
+            )
+        )
+
+    def _validate_local_expression(self, value: ast.expr, defined: set[str]) -> None:
+        for child in ast.walk(value):
+            if (
+                isinstance(child, ast.Name)
+                and isinstance(child.ctx, ast.Load)
+                and child.id not in defined
+            ):
+                self._local_error(
+                    child, "a parameter, existing symbol, or previously defined local", child.id
+                )
+            if isinstance(
+                child,
+                (
+                    ast.NamedExpr,
+                    ast.ListComp,
+                    ast.SetComp,
+                    ast.DictComp,
+                    ast.GeneratorExp,
+                    ast.Yield,
+                    ast.YieldFrom,
+                    ast.Await,
+                ),
+            ):
+                self._local_error(
+                    child,
+                    "an expression without nested bindings or control flow",
+                    type(child).__name__,
+                )
+            if (
+                isinstance(child, ast.Call)
+                and isinstance(child.func, ast.Name)
+                and child.func.id not in (self._symbols or ())
+            ):
+                self._local_error(
+                    child,
+                    "an existing expression callable",
+                    f"local callable {child.func.id!r}",
+                )
+        if (
+            isinstance(value, ast.Name)
+            and value.id in (self._symbols or frozenset()) | self._param_names
+        ):
+            self._local_error(value, "an Ibis value expression", f"bare symbol {value.id!r}")
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         # Check for .sql / .raw_sql escape hatches
@@ -734,7 +1485,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._add_error(
                 ErrorKind.SQL_ESCAPE_HATCH,
                 f"{self.body_label} of {self.fn_name!r} uses .{node.attr}(), "
-                f"which is not allowed. Use provenance=ms.from_sql(...) on the decorator instead.",
+                f"which is not allowed. Use an Ibis expression body instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
         # Check for ibis Table attribute shadowing (e.g. orders.schema instead of orders["schema"])
@@ -820,27 +1571,33 @@ def _event_call_name(node: ast.Call) -> str | None:
     return None
 
 
-def validate_event_body_ast(fn: Callable[..., Any]) -> Literal["all_rows", "filtered"]:
+def validate_event_body_ast(
+    fn: Callable[..., Any],
+    *,
+    _function: ast.FunctionDef | None = None,
+) -> Literal["all_rows", "filtered"]:
     """Validate the closed Event row-predicate body and classify its shape."""
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-        tree = ast.parse(source)
-    except (OSError, TypeError, IndentationError, SyntaxError) as exc:
-        raise SemanticLoadError(
-            kind=ErrorKind.INVALID_EVENT_PREDICATE,
-            message=f"Event body {fn.__name__!r} source could not be inspected.",
-            refs=(fn.__name__,),
-            expected="one inspectable return expression",
-            received=type(exc).__name__,
-        ) from exc
-    function = next(
-        (
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
-        ),
-        None,
-    )
+    function = _function
+    if function is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+            tree = ast.parse(source)
+        except (OSError, TypeError, IndentationError, SyntaxError) as exc:
+            raise SemanticLoadError(
+                kind=ErrorKind.INVALID_EVENT_PREDICATE,
+                message=f"Event body {fn.__name__!r} source could not be inspected.",
+                refs=(fn.__name__,),
+                expected="one inspectable return expression",
+                received=type(exc).__name__,
+            ) from exc
+        function = next(
+            (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == fn.__name__
+            ),
+            None,
+        )
     if function is None:
         raise SemanticLoadError(
             kind=ErrorKind.INVALID_EVENT_PREDICATE,
@@ -977,6 +1734,7 @@ def validate_metric_body_ast(
     mode: Literal["base"],
     *,
     body_kind: Literal["dimension", "time_dimension", "measure", "metric"] = "metric",
+    _function: ast.FunctionDef | None = None,
 ) -> str:
     """Layer 2: AST whitelist validation for base metric bodies.
 
@@ -988,35 +1746,43 @@ def validate_metric_body_ast(
         raise ValueError(f"unsupported metric body AST validation mode {mode!r}")
     body_label = _BODY_KIND_LABELS[body_kind]
 
-    # Compute body AST hash
-    try:
-        source = inspect.getsource(fn)
-        source = textwrap.dedent(source)
-        tree = ast.parse(source)
-        # Find the function definition node
-        func_node: ast.FunctionDef | None = None
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
-                func_node = node
-                break
-        if func_node is None:
+    if _function is not None:
+        func_node = _function
+        body_hash = _body_hash_without_docstring(func_node)
+    else:
+        # Compute body AST hash
+        try:
+            source = inspect.getsource(fn)
+            source = textwrap.dedent(source)
+            tree = ast.parse(source)
+            # Find the function definition node
+            func_node = None
             for node in ast.walk(tree):
-                if isinstance(node, ast.FunctionDef):
+                if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
                     func_node = node
                     break
+            if func_node is None:
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.FunctionDef):
+                        func_node = node
+                        break
 
-        if func_node is None:
-            body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]
-        else:
-            body_hash = _body_hash_without_docstring(func_node)
-    except (OSError, TypeError, IndentationError):
-        body_hash = hashlib.sha256(b"<unavailable>").hexdigest()[:16]
-        return body_hash
+            if func_node is None:
+                body_hash = hashlib.sha256(b"<no-function>").hexdigest()[:16]
+            else:
+                body_hash = _body_hash_without_docstring(func_node)
+        except (OSError, TypeError, IndentationError):
+            body_hash = hashlib.sha256(b"<unavailable>").hexdigest()[:16]
+            return body_hash
 
     if func_node is None:
         return body_hash
 
-    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label)
+    symbols: frozenset[str] | None = None
+    if any(isinstance(stmt, ast.Assign) for stmt in func_node.body):
+        closure = inspect.getclosurevars(fn)
+        symbols = frozenset((*fn.__globals__, *closure.nonlocals, *vars(builtins)))
+    base_validator = _BaseMetricASTValidator(fn.__name__, body_label=body_label, symbols=symbols)
     base_validator.visit(func_node)
     if base_validator.errors:
         raise base_validator.errors[0]
@@ -1135,84 +1901,14 @@ def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
 _AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
 
 
-def _validate_snapshot_versioning(
-    errors: list[SemanticError],
-    ds_id: str,
-    ds_ir: EntityIR,
-    versioning: SnapshotVersioningIR,
+def _validate_entity_versioning(
+    errors: list[SemanticError], entity_id: str, registry: Registry
 ) -> None:
-    """Validate snapshot versioning metadata at assembly time."""
-    partition_name = versioning.partition_field.rsplit(".", 1)[-1]
-    if partition_name not in ds_ir.primary_key:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                message=(
-                    f"Snapshot dataset {ds_id!r} partition field "
-                    f"{versioning.partition_field!r} must be part of primary_key."
-                ),
-                refs=(ds_id, versioning.partition_field),
-                details={
-                    "entity": ds_id,
-                    "field": "partition_field",
-                    "partition_field": versioning.partition_field,
-                    "primary_key": list(ds_ir.primary_key),
-                },
-            )
-        )
-
-
-def _validate_validity_versioning(
-    errors: list[SemanticError],
-    ds_id: str,
-    ds_ir: EntityIR,
-    versioning: ValidityVersioningIR,
-    registry: Registry,
-) -> None:
-    """Validate validity versioning metadata at assembly time."""
-    # valid_from local name must be in primary_key
-    valid_from_local = versioning.valid_from.rsplit(".", 1)[-1]
-    if valid_from_local not in ds_ir.primary_key:
-        errors.append(
-            SemanticLoadError(
-                kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                message=(
-                    f"Validity entity {ds_id!r} valid_from dimension "
-                    f"{versioning.valid_from!r} must be part of primary_key."
-                ),
-                refs=(ds_id, versioning.valid_from),
-                details={
-                    "entity": ds_id,
-                    "dimension": "valid_from",
-                    "reason": (
-                        f"{versioning.valid_from!r} is not in primary_key {list(ds_ir.primary_key)}"
-                    ),
-                },
-            )
-        )
-
-    # dimension-existence check: valid_from and valid_to must resolve to known dimensions in this entity
-    for label, field_id in (
-        ("valid_from", versioning.valid_from),
-        ("valid_to", versioning.valid_to),
-    ):
-        field = registry.dimensions.get(field_id)
-        if field is None or field.entity != ds_id:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_ENTITY_VERSIONING,
-                    message=(
-                        f"Validity entity {ds_id!r} {label} dimension "
-                        f"{field_id!r} does not resolve to a known dimension on this entity."
-                    ),
-                    refs=(ds_id, field_id),
-                    details={
-                        "entity": ds_id,
-                        "dimension": label,
-                        "ref": field_id,
-                    },
-                )
-            )
+    """Validate stable identity and separate version coordinates with the sole normalizer."""
+    try:
+        normalize_target_entity(registry, entity_id)
+    except SemanticError as error:
+        errors.append(error)
 
 
 def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
@@ -1226,6 +1922,125 @@ def _validate_measure_refs(registry: Registry) -> list[SemanticError]:
                     message=f"Measure {measure.semantic_id!r} references unknown entity {measure.entity!r}.",
                     refs=(measure.semantic_id, measure.entity),
                     details={"measure": measure.semantic_id, "entity": measure.entity},
+                )
+            )
+    return errors
+
+
+def _validate_dsl_declarations(registry: Registry) -> list[SemanticError]:
+    """Bind authored DSL coordinates and time roles without opening sources."""
+    from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
+
+    errors: list[SemanticError] = []
+    declarations = (
+        *(
+            (
+                measure.semantic_id,
+                measure.entity,
+                measure.dsl_additivity,
+                None,
+                measure.status_time_dimension,
+                (),
+            )
+            for measure in registry.measures.values()
+        ),
+        *(
+            (
+                metric.semantic_id,
+                metric.root_entity,
+                metric.dsl_additivity,
+                metric.event_time_dimension,
+                metric.status_time_dimension,
+                metric.event_time_path,
+            )
+            for metric in registry.metrics.values()
+        ),
+    )
+    for semantic_id, root, policy, event_time, status_time, event_path in declarations:
+        coordinates: tuple[str, ...] = ()
+        if isinstance(policy, AdditiveAllV1):
+            coordinates = policy.exceptions
+        elif isinstance(policy, AdditiveOverV1):
+            coordinates = policy.coordinates
+        for coordinate in coordinates:
+            dimension = registry.dimensions.get(coordinate)
+            if dimension is None or dimension.entity != root:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=f"{semantic_id!r} names a non-native additivity coordinate {coordinate!r}.",
+                        refs=(semantic_id, coordinate),
+                        expected=f"Dimension on {root}",
+                        received=coordinate,
+                        hint="Declare a coordinate on the computation root or revise the additivity policy.",
+                    )
+                )
+        for role, axis in (("event time", event_time), ("status time", status_time)):
+            if axis is None:
+                continue
+            dimension = registry.dimensions.get(axis)
+            valid_path = True
+            if role == "event time" and event_path:
+                current = root
+                for relationship_id in event_path:
+                    relationship = registry.relationships.get(relationship_id)
+                    if relationship is None or relationship.from_entity != current:
+                        valid_path = False
+                        break
+                    target = registry.entities.get(relationship.to_entity)
+                    columns = tuple(
+                        registry.dimensions[key.to_key].source_column
+                        if key.to_key in registry.dimensions
+                        else None
+                        for key in relationship.keys
+                    )
+                    if (
+                        target is None
+                        or target.versioning is not None
+                        or columns != target.primary_key
+                    ):
+                        valid_path = False
+                        break
+                    current = relationship.to_entity
+                valid_path = valid_path and dimension is not None and dimension.entity == current
+            elif role == "event time":
+                valid_path = dimension is not None and dimension.entity == root
+            if (
+                dimension is None
+                or not dimension.is_time_dimension
+                or (role == "status time" and dimension.entity != root)
+                or not valid_path
+            ):
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_REF,
+                        message=f"{semantic_id!r} has an invalid {role} dimension {axis!r}.",
+                        refs=(semantic_id, axis),
+                        expected=f"TimeDimension reached from {root} by a declared functional path",
+                        received=axis,
+                        hint="Bind a native time axis or a continuous to-one time_via path.",
+                    )
+                )
+        if event_path and event_time is None:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"{semantic_id!r} declares time_via without event time.",
+                    refs=(semantic_id,),
+                    expected="time= with time_via=",
+                    received="missing time",
+                    hint="Declare the exact business time axis.",
+                )
+            )
+        if event_time is not None and status_time == event_time:
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"{semantic_id!r} uses the same axis as event and status time.",
+                    refs=(semantic_id, event_time),
+                    expected="distinct business time roles",
+                    received=event_time,
+                    hint="Declare the actual event-time axis separately from the status-time axis.",
                 )
             )
     return errors
@@ -1337,16 +2152,26 @@ def _non_root_aggregate_entity(
     fn: Callable[..., Any],
     *,
     metric_ir: MetricIR,
+    function: ast.FunctionDef | None = None,
 ) -> str | None:
-    try:
-        source = textwrap.dedent(inspect.getsource(fn))
-    except (OSError, TypeError):
-        return None
-    tree = ast.parse(source)
-    func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
+    func = function
+    if func is None:
+        try:
+            source = textwrap.dedent(inspect.getsource(fn))
+        except (OSError, TypeError):
+            return None
+        tree = ast.parse(source)
+        func = next((node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)), None)
     if func is None:
         return None
-    param_names = [arg.arg for arg in func.args.args]
+    param_names = [arg.arg for arg in (*func.args.posonlyargs, *func.args.args)]
+    locals_by_name = {
+        stmt.targets[0].id: stmt.value
+        for stmt in func.body
+        if isinstance(stmt, ast.Assign)
+        and len(stmt.targets) == 1
+        and isinstance(stmt.targets[0], ast.Name)
+    }
     entity_by_param = dict(zip(param_names, metric_ir.entities, strict=False))
     for node in ast.walk(func):
         if not isinstance(node, ast.Call):
@@ -1354,9 +2179,19 @@ def _non_root_aggregate_entity(
         param = _aggregate_receiver_param_name(node)
         if param is None:
             continue
-        entity = entity_by_param.get(param)
-        if entity is not None and entity != metric_ir.root_entity:
-            return entity
+        pending = [param]
+        seen: set[str] = set()
+        while pending:
+            receiver = pending.pop()
+            if receiver in seen:
+                continue
+            seen.add(receiver)
+            entity = entity_by_param.get(receiver)
+            if entity is not None and entity != metric_ir.root_entity:
+                return entity
+            local = locals_by_name.get(receiver)
+            if local is not None:
+                pending.extend(child.id for child in ast.walk(local) if isinstance(child, ast.Name))
     return None
 
 
@@ -1416,6 +2251,39 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
     from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
     from marivo.semantic.ir import DimensionKind
 
+    declarations: Sequence[MeasureIR | MetricIR] = (
+        *registry.measures.values(),
+        *registry.metrics.values(),
+    )
+    for declaration in declarations:
+        status_axis = declaration.status_time_dimension
+        if status_axis is None or declaration.status_time_fold is not None:
+            continue
+        axis = registry.dimensions.get(status_axis)
+        if (
+            axis is None
+            or not isinstance(
+                axis.parse, (DatetimeParse, TimestampParse, StrptimeParse, HourPrefixParse)
+            )
+            or axis.parse.sample_interval is None
+        ):
+            continue
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MISSING_TIME_FOLD,
+                message=f"{declaration.semantic_id!r} declares sampled status time without a fold.",
+                refs=(declaration.semantic_id, status_axis),
+                constraint_id=ConstraintId.TIME_FOLD_MISSING,
+                expected="status_time_fold for a sampled status_time_dimension",
+                received=f"status_time_dimension={status_axis!r}, status_time_fold=None",
+                hint=(
+                    f"Keep {status_axis!r} in additive_all(except_=...) and set "
+                    "status_time_fold to the business fold (mean/min/max/first/last or "
+                    "('percentile', q))."
+                ),
+            )
+        )
+
     for metric_id, metric_ir in registry.metrics.items():
         temporal_contract = resolve_metric_temporal_contract(metric_ir, registry)
         if metric_ir.fold_override is not None and temporal_contract is None:
@@ -1435,7 +2303,8 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
                         received=f"measure additivity {target.additivity!r}",
                         hint=(
                             "Remove fold= or model the measure with "
-                            "ms.semi_additive(over=<time_dimension>, fold=<fold>)."
+                            "ms.additive_all(except_=(<time_dimension>,)), "
+                            "status_time_dimension=<time_dimension>, and status_time_fold=<fold>."
                         ),
                         details={
                             "metric": metric_id,
@@ -1666,7 +2535,7 @@ def _validate_projected_source_aliases(
     Only direct Entity declarations carry the projected-alias contract: their
     output schema is the Source schema. Expression Entities own a transformed
     output schema, so their downstream references are validated against the
-    body output by ``_validate_expression_entity_output`` instead.
+    body output when actual physical metadata is bound instead.
     """
     expression_entities = _expression_entity_ids(registry, sidecar)
     missing_by_entity: dict[str, list[dict[str, object]]] = {}
@@ -1675,11 +2544,16 @@ def _validate_projected_source_aliases(
         *, object_id: str, entity: EntityIR, field: str, column: str, location: SourceLocation
     ) -> None:
         source = entity.source
-        if not isinstance(source, TableSourceIR) or not source.columns:
+        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+            aliases = {output_name for output_name, _source in source.columns}
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+            aliases = set(source.columns)
+        else:
+            return
+        if not aliases:
             return
         if entity.semantic_id in expression_entities:
             return
-        aliases = {output_name for output_name, _binding in source.columns}
         if column in aliases:
             return
         missing_by_entity.setdefault(entity.semantic_id, []).append(
@@ -1729,9 +2603,12 @@ def _validate_projected_source_aliases(
     for entity_id, missing in missing_by_entity.items():
         entity = registry.entities[entity_id]
         source = entity.source
-        if not isinstance(source, TableSourceIR):
+        if isinstance(source, TableSourceIR | CsvSourceIR | JsonSourceIR):
+            aliases = tuple(output_name for output_name, _source in source.columns)
+        elif isinstance(source, ParquetSourceIR) and source.columns is not None:
+            aliases = source.columns
+        else:
             continue
-        aliases = tuple(output_name for output_name, _binding in source.columns)
         visible_missing = missing[:_PROJECTED_ALIAS_DISPLAY_LIMIT]
         rendered_missing = ", ".join(
             f"{item['object']}.{item['field']}={item['received_column']!r}"
@@ -1754,8 +2631,8 @@ def _validate_projected_source_aliases(
                 expected="stable output aliases declared by md.table(columns=...)",
                 received=", ".join(str(item["received_column"]) for item in visible_missing),
                 hint=(
-                    "Add every missing md.source_column(...) binding to the entity's "
-                    "md.table(columns=...), or change each semantic column= to an exposed alias."
+                    "Add every missing logical output to the entity's columns= projection, "
+                    "or change each semantic column= to an exposed alias."
                 ),
                 details={
                     "entity": entity_id,
@@ -1779,145 +2656,6 @@ def _render_column_list(columns: Sequence[str]) -> str:
     if omitted > 0:
         rendered += f", ... (+{omitted} more)"
     return rendered
-
-
-def _validate_expression_entity_output(
-    registry: Registry,
-    sidecar: CompiledExpressionSidecar | None,
-) -> list[SemanticError]:
-    """Validate expression Entity bodies against unbound declared input schema.
-
-    For every expression Entity whose declared Source is a projected
-    ``md.table(columns=...)`` — a declared typed input interface — build an
-    equivalent unbound Ibis Table, evaluate the body once without executing
-    rows, and require an Ibis Table result. Declared primary-key components
-    and downstream ``column=`` references must exist on the returned output
-    schema. Unprojected Sources carry no declared input metadata, so their
-    schema-dependent checks stay deferred to runtime validation, preview, or
-    first use, and are not reported as already passed here.
-    """
-    if sidecar is None:
-        return []
-    errors: list[SemanticError] = []
-    for entity_id in sorted(_expression_entity_ids(registry, sidecar)):
-        entity = registry.entities[entity_id]
-        source = entity.source
-        if not isinstance(source, TableSourceIR) or not source.columns:
-            continue
-        body = sidecar.bodies.get(ref_factory.entity(entity_id))
-        if body is None:
-            continue
-        input_columns = {output_name: binding.data_type for output_name, binding in source.columns}
-        unbound = _ibis_table_from_declared_columns(
-            input_columns, table_name=f"marivo_unbound_{entity_id}"
-        )
-        result, error = _expression_entity_output_result(
-            entity=entity,
-            body=body,
-            unbound=unbound,
-            input_columns=tuple(input_columns),
-        )
-        if error is not None:
-            errors.append(error)
-            continue
-        if result is None:
-            # Deferred to runtime validation: no static verdict, never read
-            # the absent result.
-            continue
-        output_columns = tuple(result.schema().names)
-        errors.extend(
-            _expression_entity_output_schema_errors(
-                registry=registry,
-                sidecar=sidecar,
-                entity=entity,
-                output_columns=output_columns,
-            )
-        )
-    return errors
-
-
-def _ibis_table_from_declared_columns(
-    columns: Mapping[str, str],
-    *,
-    table_name: str,
-) -> Any:
-    """Build one unbound Ibis Table from declared projected output aliases.
-
-    Data types are the canonical Ibis type strings already validated by
-    ``TableColumnBindingIR``. Construction is deferred to call time so module
-    import stays Ibis-light.
-    """
-    import ibis
-
-    return ibis.table(dict(columns), name=table_name)
-
-
-def _is_ibis_table(value: object) -> bool:
-    """Check one value against the Ibis Table class without importing eagerly."""
-    import ibis
-
-    return isinstance(value, ibis.Table)
-
-
-def _expression_entity_output_result(
-    *,
-    entity: EntityIR,
-    body: Any,
-    unbound: Any,
-    input_columns: Sequence[str],
-) -> tuple[Any, SemanticError | None]:
-    """Evaluate one Entity body over the unbound input, or classify the failure.
-
-    Returns exactly one of: ``(result, None)`` for a successful Table
-    result, ``(None, error)`` for a classified assembly error, or
-    ``(None, None)`` when the failure is deferred to runtime validation.
-    Callers must treat ``(None, None)`` as "no static verdict" and never
-    read the result.
-    """
-    entity_id = entity.semantic_id
-    try:
-        result = cast("Any", body.callable(unbound))
-    except Exception as exc:
-        missing = tuple(
-            column for column in body.source_columns if column not in set(input_columns)
-        )
-        if missing:
-            return None, SemanticLoadError(
-                kind=ErrorKind.INVALID_COMPONENT_BODY,
-                message=(
-                    f"Entity {entity_id!r} body references input column(s) "
-                    f"{_render_column_list(missing)} that the declared Source does not "
-                    "expose. Correct the Entity expression or the Source column bindings."
-                ),
-                refs=(entity_id,),
-                expected="input columns declared by md.table(columns=...)",
-                received=_render_column_list(missing),
-                hint="Expose the column(s) in md.table(columns=...) or read an exposed alias.",
-                location=entity.location,
-                constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
-                details={
-                    "entity": entity_id,
-                    "missing_input_columns": list(missing),
-                    "available_input_columns": list(input_columns),
-                    "build_error": str(exc),
-                },
-            )
-        return None, None
-    if not _is_ibis_table(result):
-        return None, SemanticLoadError(
-            kind=ErrorKind.BINDING_RESULT_INVALID,
-            message=(
-                f"Entity {entity_id!r} body must return one Ibis Table relation derived "
-                "from its declared Source."
-            ),
-            refs=(entity_id,),
-            expected="ibis.expr.types.Table",
-            received=type(result).__name__,
-            location=entity.location,
-            constraint_id=ConstraintId.REF_SHAPE,
-            details={"entity": entity_id},
-        )
-    return result, None
 
 
 def _expression_entity_output_schema_errors(
@@ -2054,7 +2792,6 @@ def assembly_validate(
     warnings: list[StructuredWarning] = []
 
     errors.extend(_validate_projected_source_aliases(registry, sidecar))
-    errors.extend(_validate_expression_entity_output(registry, sidecar))
 
     # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.entities.items():
@@ -2077,11 +2814,16 @@ def assembly_validate(
         #  This will become meaningful when typed refs are more common.)
 
         versioning = ds_ir.versioning
-        if versioning is not None:
-            if isinstance(versioning, SnapshotVersioningIR):
-                _validate_snapshot_versioning(errors, ds_id, ds_ir, versioning)
-            elif isinstance(versioning, ValidityVersioningIR):
-                _validate_validity_versioning(errors, ds_id, ds_ir, versioning, registry)
+        projected_names = {name for name, _physical in _target_columns(ds_ir)}
+        missing_projected_key = bool(projected_names) and any(
+            name not in projected_names for name in ds_ir.primary_key
+        )
+        if (
+            (versioning is not None or ds_ir.primary_key)
+            and ds_ir.datasource in registry.datasources
+            and not missing_projected_key
+        ):
+            _validate_entity_versioning(errors, ds_id, registry)
 
     # -- Validate entity refs on dimensions ----------------------------------
     for f_id, f_ir in registry.dimensions.items():
@@ -2120,6 +2862,26 @@ def assembly_validate(
                         "resolve to a day-grain time dimension."
                     ),
                     refs=(calendar_id, calendar.date),
+                )
+            )
+            continue
+        if isinstance(date_field.parse, (DatetimeParse, TimestampParse, HourPrefixParse)) or (
+            isinstance(date_field.parse, StrptimeParse)
+            and is_time_bearing_format(date_field.parse.format)
+        ):
+            errors.append(
+                SemanticLoadError(
+                    kind=ErrorKind.INVALID_REF,
+                    message=f"Period calendar {calendar_id!r} date axis declares timestamp meaning.",
+                    refs=(calendar_id, calendar.date),
+                    expected="civil-date TimeDimension at day grain",
+                    received=type(date_field.parse).__name__,
+                    hint="Declare a civil-date axis; native untyped axes must prove date values during complete certification.",
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="period_calendar",
+                        action="Choose a civil-date TimeDimension and reload the calendar.",
+                    ),
                 )
             )
             continue
@@ -2267,6 +3029,7 @@ def assembly_validate(
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))
+    errors.extend(_validate_dsl_declarations(registry))
 
     # -- Validate Event sources, fields, and directed participant paths -------
     for event_id, event_ir in registry.events.items():
@@ -2279,6 +3042,11 @@ def assembly_validate(
                     refs=(event_id, event_ir.source_entity),
                     expected="owner(occurred_at) present in the compiled catalog",
                     received=event_ir.source_entity,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="event",
+                        action="Declare occurred_at on a loaded Event source Entity and reload.",
+                    ),
                 )
             )
             continue
@@ -2295,6 +3063,11 @@ def assembly_validate(
                     refs=(event_id, event_ir.occurred_at),
                     expected=f"Ref[time_dimension] owned by {event_ir.source_entity}",
                     received=event_ir.occurred_at,
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="event",
+                        action="Choose a source-owned business time dimension and reload.",
+                    ),
                 )
             )
         for identity_ref in event_ir.identity:
@@ -2314,6 +3087,11 @@ def assembly_validate(
                         refs=(event_id, identity_ref),
                         expected=f"Ref[dimension] owned by {event_ir.source_entity}",
                         received=identity_ref,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="event",
+                            action="Use source-owned categorical occurrence identity fields and reload.",
+                        ),
                     )
                 )
         for participant in event_ir.participants:
@@ -2334,6 +3112,11 @@ def assembly_validate(
                                 "missing"
                                 if relationship is None
                                 else f"{relationship.from_entity} -> {relationship.to_entity}"
+                            ),
+                            repair=repair(
+                                kind="reauthor",
+                                canonical_id="participant",
+                                action="Declare a directed relationship path from the Event source and reload.",
                             ),
                         )
                     )
@@ -2356,6 +3139,11 @@ def assembly_validate(
                         refs=(event_id, endpoint),
                         expected="a non-empty endpoint Entity primary_key",
                         received="empty primary_key",
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="participant",
+                            action="Declare the participant Subject's complete primary_key and reload.",
+                        ),
                     )
                 )
             if endpoint_entity is not None and endpoint_entity.datasource != source.datasource:
@@ -2369,6 +3157,11 @@ def assembly_validate(
                         refs=(event_id, event_ir.source_entity, endpoint),
                         expected=f"datasource {source.datasource}",
                         received=endpoint_entity.datasource,
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id="participant",
+                            action="Keep Event participant paths within the source datasource and reload.",
+                        ),
                     )
                 )
 
@@ -2718,7 +3511,9 @@ def assembly_validate(
             body = sidecar.bodies.get(ref_factory.metric(m_id))
             fn = None if body is None else body.callable
             if callable(fn):
-                offending_entity = _non_root_aggregate_entity(fn, metric_ir=m_ir)
+                offending_entity = _non_root_aggregate_entity(
+                    fn, metric_ir=m_ir, function=None if body is None else body._function_ast
+                )
                 if offending_entity is not None:
                     errors.append(
                         SemanticLoadError(
@@ -2870,6 +3665,19 @@ def assembly_validate(
                         )
                     )
 
+        if (
+            r_ir.from_entity in registry.entities
+            and r_ir.to_entity in registry.entities
+            and all(
+                key.from_key in registry.dimensions and key.to_key in registry.dimensions
+                for key in r_ir.keys
+            )
+        ):
+            try:
+                normalize_target_relationship(registry, r_id)
+            except SemanticError as error:
+                errors.append(error)
+
     # -- Validate HourPrefixParse prefix cross-reference ---------------------
     for f_id, f_ir in registry.dimensions.items():
         if f_ir.is_time_dimension and isinstance(f_ir.parse, HourPrefixParse):
@@ -2910,42 +3718,6 @@ def assembly_validate(
     # Check for cycles in metric component references
     _detect_metric_cycles(registry, errors)
 
-    # -- Metric provenance contract ------------------------------------------
-    # SqlProvenance carries sql + dialect; verification_mode is always "sql_parity".
-    # - Base metrics: SqlProvenance.sql requires a non-empty dialect
-    # - Derived metrics: must not carry provenance
-    for m_id, m_ir in registry.metrics.items():
-        prov = m_ir.provenance
-        if m_ir.metric_type == "derived":
-            if prov is not None:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_VERIFICATION_MODE,
-                        message=(
-                            f"Derived metric {m_id!r} must omit provenance. "
-                            "Verify its component metrics instead."
-                        ),
-                        refs=(m_id,),
-                        location=m_ir.location,
-                        constraint_id=ConstraintId.METRIC_VERIFICATION_MODE_VALID,
-                    )
-                )
-            continue
-
-        if prov is not None and not prov.dialect:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.PROVENANCE_DIALECT_MISSING,
-                    message=(
-                        f"Metric {m_id!r} declares provenance SQL but not a dialect. "
-                        "Both are required for SQL parity verification."
-                    ),
-                    refs=(m_id,),
-                    location=m_ir.location,
-                    constraint_id=ConstraintId.PROVENANCE_DIALECT_REQUIRED,
-                )
-            )
-
     # -- Warnings -----------------------------------------------------------
     # String ref warnings: datasource names are intentionally strings in the
     # target API, and cross-file refs are common, so skip string-ref warnings.
@@ -2961,22 +3733,24 @@ def assembly_validate(
         if _time_dimension_pushdown_advisory(
             f_ir,
             None if body is None else body.callable,
+            None if body is None else body._function_ast,
         ):
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value,
                     message=(
                         f"Time field {f_id!r} casts or parses a partition-like source column. "
-                        "If this is a day/hour partition axis, prefer a raw string/integer "
-                        "time_field with date_format so window filters can use simple "
-                        "partition comparisons."
+                        "For an encoded time axis, declare its raw string/integer column "
+                        "with ms.strptime(format) and canonical source values. Qualified "
+                        "ordered formats can use bare-column window comparisons without "
+                        "partition enumeration or validation queries."
                     ),
                     refs=(f_id,),
                     location=f_ir.location,
                 )
             )
 
-    # Dtype/data_type mismatch advisory warnings
+    # Warn when the expression casts away from its declared temporal parse result.
     for f_id, f_ir in registry.dimensions.items():
         field_ref = (
             ref_factory.time_dimension(f_id)
@@ -2987,30 +3761,31 @@ def assembly_validate(
         inferred = _time_dimension_dtype_advisory(
             f_ir,
             None if body is None else body.callable,
+            None if body is None else body._function_ast,
         )
         if inferred is not None:
             compatible = sorted(_CAST_TARGET_TO_DECLARED.get(inferred, set()))
             parse = f_ir.parse
-            declared_data_type: str | None = None
+            declared_kind: str | None = None
             if parse is None:
                 continue  # deferred parse — skip dtype advisory
             elif isinstance(parse, DateParse):
-                declared_data_type = "date"
+                declared_kind = "date"
             elif isinstance(parse, DatetimeParse):
-                declared_data_type = "datetime"
+                declared_kind = "datetime"
             elif isinstance(parse, TimestampParse):
-                declared_data_type = "timestamp"
+                declared_kind = "timestamp"
             elif isinstance(parse, StrptimeParse):
-                declared_data_type = "strptime"
+                declared_kind = "strptime"
             elif isinstance(parse, HourPrefixParse):
-                declared_data_type = "hour_prefix"
+                declared_kind = "hour_prefix"
             warnings.append(
                 StructuredWarning(
                     kind=WarningKind.TIME_DIMENSION_DTYPE_ADVISORY.value,
                     message=(
-                        f"Time field {f_id!r} declared data_type={declared_data_type!r} "
+                        f"Time field {f_id!r} declares parse kind={declared_kind!r} "
                         f"but body .cast({inferred!r}) produces ibis dtype {inferred!r}. "
-                        f"Compatible data_type values: {', '.join(compatible)}. "
+                        f"Compatible parse kinds: {', '.join(compatible)}. "
                         "This mismatch causes TypeError at execution."
                     ),
                     refs=(f_id,),

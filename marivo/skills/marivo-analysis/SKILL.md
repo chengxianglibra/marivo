@@ -1,200 +1,185 @@
 ---
 name: marivo-analysis
-description: Use when a user wants to run or continue a trusted Marivo investigation over governed metrics, Events, StateModels, or persisted analysis artifacts.
+description: Use when a user wants to answer a business question or continue a Marivo investigation over governed metrics, Events, StateModels, or persisted analysis artifacts. Guides analytical judgment, evidence continuity, semantic handoffs, and stopping.
 ---
 
 # marivo-analysis
 
 ## Purpose and ownership
 
-Turn the user's question into a bounded, evidence-backed investigation. The
-agent owns planning, method choice, judgment, synthesis, and stopping; governed
-semantic objects own reusable business meaning.
+Turn the user's question into a bounded, evidence-backed investigation. This
+skill guides investigation decisions, boundaries, handoffs, and completion. The
+agent chooses methods, plans the work, interprets results, and decides when the
+answer is sufficient.
 
-Use the host-selected verified environment. `marivo.help("analysis")` provides
-progressive discovery; focused Help owns exact signatures, constraints, and
-examples. `.show()` owns current artifact state, `.contract()` owns mechanically
-valid continuations, and structured errors own repair. Consult them when the
-next decision needs that information; do not reconstruct contracts from memory
-or private implementation details.
+Governed semantic objects own reusable business meaning. The Analysis DSL owns
+typed computation and Evidence. `marivo.help("analysis")` provides progressive
+discovery; focused Help owns signatures, constraints, and examples. `.show()`
+exposes committed result state, `.contract()` owns mechanically valid
+continuations, and structured errors own repair. A valid continuation need not
+be useful to the question; successful execution alone does not answer it.
 
-## Bounded analysis loop
+Use the host-selected verified environment. Consult live guidance when the next
+decision needs it, without reconstructing API contracts from memory or private
+implementation details.
 
-### 1. Frame the question as an Evidence obligation
+## Analytical judgment
 
-Before execution, identify the answers the investigation owes the user. For
-each required answer, record the claim or decision it supports, the exact
-population and governed inputs, the time and comparison scope, the minimum
-supporting evidence, and whether the answer is observed, interpreted, or
-currently unsupported.
+Before choosing an operation, establish the distinctions that affect the answer:
 
-Preserve scopes named by the user. Do not replace a selected cohort, segment,
-top-N set, time window, comparison direction, or exhaustive request with a
-broader or easier analysis. Add optional analysis only when it can materially
-change a required conclusion, recommendation, or limitation.
+- Identify the unit of analysis: subjects, event occurrences, or state history.
+  One subject can contribute several occurrences; do not silently change the
+  denominator or generalize a selected segment to the whole population.
+- Keep population selection, Metric observation, and follow-up windows distinct.
+  Preserve their alignment through Event and Lifecycle selections; incomplete
+  follow-up or unknown coverage cannot establish absence.
+- Distinguish statistics over current result rows from aggregation of an
+  original Metric. They may describe different quantities; preserve grain,
+  units, weighting, and additivity when choosing the intended calculation.
+- Choose output grain independently of member scope. Ordinary observation
+  computes the overall Metric; preserve member identity explicitly for member
+  screening, comparisons or association. A time grid retains its buckets while
+  spatial grouping chooses who shares each value. Preserve attribution
+  partitions before reducing them, and use current-row statistics only when the
+  question concerns the represented rows rather than the original Metric.
+- Establish the comparison baseline and comparability before interpreting a
+  difference. Algebraic attribution and association do not establish cause;
+  forecasts describe model outputs under assumptions, not observed outcomes.
+- Distinguish recovering a past result, continuing over retained data, and
+  observing current sources. Choose according to the question's freshness need.
 
-### 2. Establish the governed starting point
+Use these distinctions where they matter. Exact methods and admitted inputs
+come from live Help and the current object's contract, not a fixed operator recipe.
 
-Use the host-selected verified Marivo environment throughout. Create or resume
-one question-scoped session. Resolve the exact typed semantic inputs together
-and inspect readiness only for the required closure. Reuse a current semantic
-handoff for the same project and scope instead of repeating it.
+## Question-driven decision loop
 
-If the required capability is unknown, start with `marivo.help("analysis")`.
-Route through `marivo.help("analysis.inputs")` for input construction or
-`marivo.help("analysis.entry")` for the first typed Artifact, then consult the
-focused Help for the selected capability. Avoid broad catalog browsing when an
-exact typed ref or full semantic identity is already available.
+Enter at the unresolved decision. A simple question may need one round; existing
+work may already supply the inputs or results. Reuse established facts and
+completed checks instead of restarting the workflow.
 
-### 3. Choose the execution path and build typed Evidence
+### Identify the remaining answer and evidence gap
 
-Choose by the responsibility of each step, not by tool familiarity. `observe`
-establishes inputs; it is not the end of typed analysis. Keep calculations that
-produce new analytical facts in typed flow whenever the installed public
-contract supports them, including comparison, contribution attribution, and
-filtering, aggregation, ranking, or normalization that affects a conclusion.
+Identify what the user still needs to know and what evidence would support it.
+Preserve the requested population, governed meaning, time window, comparison
+direction, selected cohort or top-N set, accuracy, and completeness. Keep this
+framing proportional to the task; it does not require a separate document.
 
-Distinguish an unknown capability from inadmissible inputs and an unsupported
-method. Discover unknown capabilities through focused Help; repair inadmissible
-inputs through the public guidance. A failed precondition is not permission to
-recreate the calculation in pandas or SQL.
+Distinguish missing reusable meaning, a missing computation, incomplete
+coverage, and an interpretation that the available evidence cannot support.
+Reuse exact semantic refs, a current analysis-ready handoff, and relevant
+committed results. Check readiness only for missing required inputs.
 
-Use `frame.to_pandas()` to read complete Artifact rows for inspection or
-presentation, or to compute a method outside the installed typed surface.
-Presentation may plot, arrange, label, or format existing results; changing the
-population, metric definition, aggregation, or comparison is analytical work.
-For an unsupported method, complete the supported upstream typed work before
-exporting the appropriate Artifact.
+### Choose the next useful step
 
-Use `md.raw_sql(...)` for a concrete source-specific question that public
-inspection cannot answer, or a provisional terminal analysis when typed inputs
-cannot be established. It cannot replace available governed definitions or
-resolve a business-semantic gap. Hand reusable gaps to `marivo-semantic` while
-keeping any provisional result separate from canonical Evidence.
+Choose work that can materially change a required answer, recommendation, or
+limitation. Prefer the smallest sufficient typed analysis chain and batch known,
+compatible work into one decision round.
 
-Produce a bounded typed Artifact early. Inspect `.show()` when current state
-contributes evidence and use `.contract()` when the mechanically valid next
-actions are unknown. The fixed Frame footer provides discovery exits; body hints
-are not the complete operation set. Follow omission recovery when the preview
-or Evidence summary is insufficient for a claim. Route method discovery through
-`marivo.help("analysis.methods")`, but choose subsequent methods from the
-question and the Artifact in hand rather than from a fixed recipe.
+For an unknown capability, start with `marivo.help("analysis")` and follow the
+selected intent and its prerequisites. For an existing object, use its contract
+and exact Help target when the next action is uncertain. Stop browsing once the
+available guidance supports the next useful operation. Connectivity and semantic
+readiness alone do not establish method execution support.
 
-Batch compatible work into one decision round, prefer the smallest chain
-that supports a required answer, and stop expanding when another result cannot
-materially change the answer or its limitations.
+Identify known downstream input needs before executing. Do not assume that a
+materialized selection can accept a new live-source observation; follow the
+current contract to construct the required dependencies. Execute when results
+are needed for interpretation, delivery, an intentional recovery boundary, or a
+required execution boundary. If the next choice depends on those results, read
+them before expanding the graph. Logical construction is planned work, not
+evidence that business rows were read or a result exists.
 
-### 4. Validate before interpreting
+### Read the result and update the answer
 
-For every material result, check the semantic identity and exact population;
-time coverage, completeness, censoring, and comparison alignment; grain, units,
-additivity, and reconciliation where applicable; missingness, uncertainty, and
-quality blockers; and the boundary between observation, association,
-projection, hypothesis testing, and causal evidence.
+Inspect the materialized result with `.show()`. Follow
+`marivo.help("analysis.evidence")` when additional evidence detail is needed.
+Assess the facts that could change the conclusion: exact identity and scope,
+comparison alignment, completeness and censoring, missingness, reconciliation,
+uncertainty, and material warnings. Do not repeat mechanical checks already
+owned by the DSL or treat its guarantees as proof of business validity.
 
-Use `marivo.help("analysis.artifacts")` and `marivo.help("analysis.evidence")`
-when inspection or Evidence mechanics are unknown. Preserve warnings
-and partial coverage. Do not turn absence into zero, association into causation,
-a point forecast into certainty, or a segment result into a population claim.
+Update what is supported, what remains an interpretation, and what is still
+unknown. Do not turn missing values into zero, partial coverage into complete
+coverage, or a point forecast into certainty. Continue only for a remaining
+material gap; otherwise complete the answer.
 
-### 5. Synthesize, hand off, or stop
+## Boundaries and handoffs
 
-Close when every required answer is supported or explicitly blocked, using the
-closeout obligations below.
+### Semantic authority and persistence
 
-Hand only reusable semantic gaps to `marivo-semantic`. Resume the affected
-analysis branch from the returned analysis-ready inputs; do not restart
-unaffected branches or require redundant user approval.
+Use governed definitions and relationships for reusable business meaning.
+Analysis may choose question-specific windows, cohorts, policies, and runtime
+expressions over governed inputs. It must not invent a physical-column meaning,
+join, substitute metric, or reusable definition to make an analysis proceed.
 
-## Hard boundaries
+When analysis reveals a missing reusable semantic definition, tell the user
+what is missing, why it matters, and that it should be persisted through
+`marivo-semantic` for future reuse. Include any candidate meaning and unresolved
+business choices in the handoff. A question-scoped expression is not a persisted
+semantic definition; do not silently promote it to organizational truth.
 
-### Semantic authority
+Hand reusable authoring or repair to `marivo-semantic`, reusing existing scope
+and authorization. Ask only for material unresolved business meaning or missing
+execution scope. A blocking gap pauses only the affected branch; a future reuse
+recommendation need not block a valid question-scoped calculation. After the
+handoff, resume with the returned analysis-ready inputs without restarting
+unaffected work. Keep unpersisted definitions visible in the final answer.
 
-Take metrics, dimensions, Events, StateModels, participant roles,
-relationships, units, definitions, and admissible joins from the semantic
-catalog. Analysis may choose question-specific windows, alignments, cohorts,
-policies, seeds, and completeness declarations, but it must not author or edit
-reusable semantic definitions while this skill is active.
+### Typed computation and terminal exits
 
-A missing or disputed reusable business object stops only the affected branch.
-Record the smallest gap and hand it to `marivo-semantic`. Never substitute a
-physical column, guessed join, different metric, or presentation label for
-governed meaning.
+Before calling a calculation custom, classify its intent against live capability
+Help. Keep supported analysis in typed flow. A failed precondition is not an
+unsupported method; follow structured repair and disclose a blocked branch when
+the public contract cannot produce its required evidence. Do not bypass it with
+direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-A runtime metric remains a question-scoped expression over governed inputs; it
-does not become reusable organizational truth. Preserve the assumptions and
-limits that materially affect a conclusion, and hand the definition to
-`marivo-semantic` if it must become reusable.
+Before exporting, read `marivo.help("analysis.actions.to_pandas")`. Presentation
+may arrange, plot, label, or format existing results. Changing population,
+metric meaning, aggregation, or comparison is analytical work. For a method
+outside the installed surface, first complete supported upstream work, then
+preserve exact inputs, assumptions, and rerunnable external calculations.
+External outputs do not inherit typed Evidence guarantees. Exported rows and
+derivatives cannot re-enter typed analysis; the original Artifact remains usable.
 
-### Typed execution and terminal exits
+Use `md.raw_sql(...)` only for a concrete source-specific question public
+inspection cannot answer, or provisional terminal analysis when typed inputs
+cannot be established. Read `marivo.help("datasource.raw_sql")`, preserve access
+budgets, and disclose scope, truncation, and semantic gaps. Raw SQL cannot replace
+available governed definitions or settle missing business meaning. Keep its
+provisional results separate from canonical Evidence.
 
-Do not query business rows through Ibis, DuckDB, pandas readers, backend
-connections, private datasource handles, or ad hoc SQL to bypass Marivo.
+### Evidence continuity
 
-Before exporting Artifact rows, read
-`marivo.help("analysis.boundary.to_pandas")`; before source SQL, read
-`marivo.help("datasource.raw_sql")`. Identify whether the exit is a read or a
-calculation, the specific capability or semantic gap for a calculation, and
-which claims remain supported by typed Evidence. This is a decision obligation,
-not a new approval or reporting checkpoint.
+Use one question-scoped Session and exact committed Artifact identities across
+rounds. Process memory, an implicit latest result, scripts, and chat summaries
+are not substitutes for persisted identity. Logical objects stay in their
+originating Session; follow public recovery when crossing Session boundaries.
 
-Keep presentation tied to the original Artifact identity and scope. Keep external
-calculations rerunnable with their exact inputs, assumptions, and limitations;
-their outputs do not inherit typed Evidence guarantees. For raw SQL, retain the
-datasource, purpose, query scope, semantic gaps, and caller-stated data-access
-and timeout budgets. Control query size in SQL before execution; all returned
-rows load into client memory. Use read-only SQL and credentials as required by
-focused Help. A SQL row limit does not bound the source scan, and a sampled or
-filtered result does not establish a complete population.
+Use `marivo.help("analysis.runtime")` for recovery mechanics. Never replay source
+queries or reconstruct displayed rows to conceal missing retained state. Local
+committed results are trusted; recovery does not establish current semantic
+authority, source freshness, causality, or suitability for the question. If a
+current observation is needed, make it explicit. If recovery fails, disclose the
+affected branch and continue independent work.
 
-Terminality applies to the exported branch: the original Artifact can still feed
-typed analysis, but exported rows and their derivatives cannot re-enter it. Do
-not export and reload Artifact rows to construct a new typed input.
+### Scope and resources
 
-### Evidence continuity and recovery
+Choose input scope and external runner resources deliberately. Preserve
+caller-stated access budgets and the requested method, accuracy, and completeness
+through retries and continuations. Failure does not authorize sampling,
+truncation, relaxed precision, or an easier population. Disclose incomplete work
+and resolve any necessary change to the question before proceeding with it.
 
-Carry exact Artifact identities across decision rounds in that session. Do not
-depend on process memory, an implicit latest result,
-imported prior scripts, chat summaries, or repeated successful observations as
-substitutes for persisted identity.
+## Completion and communication
 
-When resuming work, start with `marivo.help("analysis.runtime")` and use only its
-public runtime reads to recover the relevant branch. Consult
-`marivo.help("analysis.evidence")` before treating recovered Evidence as current.
-Use the installed revalidation and repair guidance when authority-sensitive
-reuse requires it; mechanical compatibility alone is not current semantic
-authority.
+Finish when every required answer is supported or explicitly blocked with its
+smallest missing evidence or definition. Answer in the user's business vocabulary:
+state the supported direction and magnitude or uncertainty; distinguish computed
+facts, interpretation, recommendations, and hypotheses; disclose material
+warnings, omissions, terminal exits, and unresolved semantic persistence needs.
 
-For cold starts, use bounded Run history to locate the exact committed Artifact;
-use focused Session graph reads for factual adjacency and Artifact-owned Finding reads
-for audit detail. These public recovery reads do not establish current semantic
-authority, datasource freshness, causality, or business validity. Disclose
-freshness as unchecked unless a separate current source check establishes it.
-If authority or Evidence cannot be restored, block only the affected branch and
-continue independent work.
-
-### Structured repair and stopping
-
-Follow the structured repair or focused Help for a failed public capability.
-Do not invent a neighboring API, private workaround, or silent fallback. Stop
-and disclose the affected branch when the current public contract cannot
-produce the required Evidence.
-
-## Closeout
-
-Answer the user's questions first in their business vocabulary. For every
-material conclusion:
-
-- state the supported direction and the magnitude or uncertainty needed to
-  interpret it;
-- preserve the exact source, scope, definition, and comparison that govern it;
-- distinguish Evidence, interpretation, recommendation, and hypothesis;
-- disclose material blockers, warnings, omissions, quality limits, and terminal
-  exits;
-- keep the supporting semantic refs, Session, Run, Artifact, and scope
-  recoverable without exposing runtime bookkeeping unless the user requests an
-  audit.
-
-Do not prescribe a fixed report template or continue exploring after the
-required answers and limitations are complete. Delivery or publication belongs
-to an independent capability when the user requests it.
+Keep supporting definitions, scope, Session, Run, and Artifact identities
+recoverable without exposing runtime bookkeeping unless an audit is requested.
+Use a format suited to the question. Do not continue exploring after the answers
+and limitations are complete. Delivery or publication uses an independent
+capability when requested.

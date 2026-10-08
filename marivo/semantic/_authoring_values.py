@@ -18,20 +18,16 @@ from marivo.semantic._authoring_context import (
 )
 from marivo.semantic._authoring_validation import (
     _normalize_sample_interval_value,
-    _normalize_time_fold,
     _validate_timezone,
 )
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
-    AggregateFoldValue,
     AiContextIR,
     DatetimeParse,
     HourPrefixParse,
     JoinKey,
-    SemiAdditive,
     SnapshotVersioningIR,
-    SqlProvenance,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
@@ -234,55 +230,6 @@ def validity(
     )
 
 
-def semi_additive(
-    *,
-    over: Ref[TimeDimensionKind],
-    fold: AggregateFoldValue,
-) -> SemiAdditive:
-    """Declare a semi-additive nature: additive off the ``over`` time axis, folded by ``fold``.
-
-    ``over`` must be a ``Ref[time_dimension]`` returned by ``@ms.time_dimension``.
-    Use as the ``additivity=`` value on a measure or a metric::
-
-        @ms.measure(entity=inventory,
-                    additivity=ms.semi_additive(over=snapshot_date, fold="last"))
-        def quantity(inventory):
-            return inventory.qty
-    """
-    if type(over) is not Ref or over.kind is not SemanticKind.TIME_DIMENSION:
-        received = getattr(over, "key", over)
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.semi_additive(...) over must be Ref[time_dimension] returned by "
-            f"semantic authoring; got {type(over).__name__}: {received!r}.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    over_id = over.path
-    fold_ir = _normalize_time_fold(fold, semantic_id=over_id)
-    if fold_ir is None:
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.semi_additive(...) requires a fold (e.g. 'last', 'max', ('percentile', 0.9)).",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    return SemiAdditive(over=over_id, fold=fold_ir)
-
-
-def from_sql(*, sql: str, dialect: str) -> SqlProvenance:
-    """Declare SQL parity provenance for a Python metric body.
-
-    Use as the ``provenance=`` value on ``@ms.metric(...)``::
-
-        @ms.metric(entities=[orders], additivity="additive",
-                   provenance=ms.from_sql(sql="select sum(amount) from orders", dialect="duckdb"))
-        def revenue(orders_table):
-            return orders_table.amount.sum()
-    """
-    return SqlProvenance(sql=sql, dialect=dialect)
-
-
 def join_on(
     from_key: Ref[DimensionKind | TimeDimensionKind],
     to_key: Ref[DimensionKind | TimeDimensionKind],
@@ -401,11 +348,20 @@ def strptime(
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a string or integer that must be parsed with a Python
     strptime format. The physical column type (string or integer) is inferred
-    from the ibis expression at analysis time.
+    from the ibis expression at analysis time. Source values must use the
+    format's canonical encoding: fixed directive widths, zero padding, exact
+    separators and valid calendar values. For example, ``%Y%m%d`` requires
+    ``20260701``, not ``2026071``. Integer encodings use the corresponding
+    base-ten digits without losing leading zeros.
+
+    Analysis can invert ordered calendar encodings into bare-column range
+    predicates without additional queries or source validation. Unsupported
+    inverses keep the parsed predicate. This guarantee assumes compliant source
+    values; values excluded by the range are not inspected for contract violations.
 
     Args:
-        format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
-            ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
+        format: Python strptime format and canonical source encoding contract
+            (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         timezone: Optional IANA timezone for time-bearing formats.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.

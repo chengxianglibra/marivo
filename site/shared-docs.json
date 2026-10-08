@@ -1,0 +1,275 @@
+[
+  {
+    "target": "docs/latest/contributing.mdx",
+    "source": "docs/v0.4/contributing.mdx",
+    "frontmatter": "---\ntitle: Contributing\ndescription: Set up Marivo locally and run the repository checks before opening a pull request.\n---\n\n",
+    "bodySha256": "2b14598258b669548e46fcba8f48fdbd984e2e31d225c519144f704cb9d1b67c",
+    "pageSha256": "0ee22589a80c5e50970ff3b9b49f6ecdd8c22a1b4e699ea50e04e29480f11c8c"
+  },
+  {
+    "target": "docs/latest/release-notes/0.1.0.mdx",
+    "source": "docs/v0.4/release-notes/0.1.0.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.1.0\ntitle: Marivo 0.1.0\ndescription: Release notes for Marivo 0.1.0.\n---\n\n",
+    "bodySha256": "cb7f7ca702db6f9b9b150481839cb9442afc70582e85286381ca16e16fe739ec",
+    "pageSha256": "ade0028a81e9b4c69928fe371cfd9a574af12047557589e421d17dc1b5c1f7bd"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.0.mdx",
+    "source": "docs/v0.4/release-notes/0.2.0.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.0\ntitle: Marivo 0.2.0\ndescription: Release notes for Marivo 0.2.0.\n---\n\n",
+    "bodySha256": "2a856aee7678ddd4cd9421b618ba894dd6635845b4cdc4356de7ea7e63567472",
+    "pageSha256": "56c9a56769283baad948706df1d66ed1cf2d8cf72f322dbc444c6150ee757e7e"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.1.mdx",
+    "source": "docs/v0.4/release-notes/0.2.1.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.1\ntitle: Marivo 0.2.1\ndescription: Release notes for Marivo 0.2.1.\n---\n\n",
+    "bodySha256": "b9c9bb0c84ba592652723d648495795daf1b5ce0d63d87798b389b925a8e7b6c",
+    "pageSha256": "95ac41b46a12b3d5c512381c3f4446b2054645d3aaa25ace2590c1a2a06aef3c"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.2.mdx",
+    "source": "docs/v0.4/release-notes/0.2.2.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.2\ntitle: Marivo 0.2.2\ndescription: Release notes for Marivo 0.2.2.\n---\n\n",
+    "bodySha256": "3dd9bb3ea055d9ce9a5e63e9a67c3eb42e023567b80ae170084539661b0e0cc6",
+    "pageSha256": "69d7e437fc88e340170c457a5e53bd0fc1b2f69ef95def222c5fc1701c53362a"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.3.mdx",
+    "source": "docs/v0.4/release-notes/0.2.3.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.3\ntitle: Marivo 0.2.3\ndescription: Release notes for Marivo 0.2.3.\n---\n\n",
+    "bodySha256": "1321b39dc7143178a325cd389125820c25986231beb4b48c650b8178e1f461b9",
+    "pageSha256": "a7ee0f32595e15e24dc3e4171a014103b4a1f31781da57d2e1f9a66d271a9b26"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.4.mdx",
+    "source": "docs/v0.4/release-notes/0.2.4.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.4\ntitle: Marivo 0.2.4\ndescription: Release notes for Marivo 0.2.4.\n---\n\n",
+    "bodySha256": "6d3a94aad39f49e7b10edb87f423af83a4c9cb065f5a56292ced384735c31647",
+    "pageSha256": "4a3ce819cb9fbbf97496360469320c157b2f306bd20434d471b3cc486d5effd8"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.5.mdx",
+    "source": "docs/v0.4/release-notes/0.2.5.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.5\ntitle: Marivo 0.2.5\ndescription: Release notes for Marivo 0.2.5.\n---\n\n",
+    "bodySha256": "fef478d02f5f79899b98f06b64e64531a515b3b8d35c0d0216880fbe0fc6c635",
+    "pageSha256": "cc980f20aa8b1107bb46fabc5bcbe27d92dbc832353b85627d58aa499c862671"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.6.mdx",
+    "source": "docs/v0.4/release-notes/0.2.6.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.6\ntitle: Marivo 0.2.6\ndescription: Release notes for Marivo 0.2.6.\n---\n\n",
+    "bodySha256": "1445f50e03ddbe604ca8d9d0d308ccc59a359ed059c26eb5d1a64e471d347a3c",
+    "pageSha256": "4275f974feeb0b33cb007bf4bd6850bf7d908fe0aa7f88b5e4592653fbd2e432"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.7.mdx",
+    "source": "docs/v0.4/release-notes/0.2.7.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.7\ntitle: Marivo 0.2.7\ndescription: Release notes for Marivo 0.2.7.\n---\n\n",
+    "bodySha256": "39c982ebd73903ff711af05154ebd9c67798a4ff64ebaefaba9b94af0d9924cd",
+    "pageSha256": "da4819069ca6c4c0ee999f283b6a5fd52e351309ef370f4bf1843da5afef196d"
+  },
+  {
+    "target": "docs/latest/release-notes/0.2.8.mdx",
+    "source": "docs/v0.4/release-notes/0.2.8.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.2.8\ntitle: Marivo 0.2.8\ndescription: Release notes for Marivo 0.2.8.\n---\n\n",
+    "bodySha256": "015cfa52c130bbc340b12c1732da254385d6c3e91a4fda90c9e146a5b79c639b",
+    "pageSha256": "9ea8c1c0949847b38480eb82e133960f9d9692fe202d7bfbc750d7d4d59a31db"
+  },
+  {
+    "target": "docs/latest/release-notes/0.3.0.mdx",
+    "source": "docs/v0.4/release-notes/0.3.0.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.3.0\ntitle: Marivo 0.3.0\ndescription: Release notes for Marivo 0.3.0.\n---\n\n",
+    "bodySha256": "b91eb6e6d5c41dab161d257d8b618241044c7caa10386811d8250b8c092aed08",
+    "pageSha256": "dd6c4518f4db4b346acf01ad46cfab5569051a1bc8da18a23bcd55556cac0d2d"
+  },
+  {
+    "target": "docs/latest/release-notes/0.3.1.mdx",
+    "source": "docs/v0.4/release-notes/0.3.1.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.3.1\ntitle: Marivo 0.3.1\ndescription: Release notes for Marivo 0.3.1.\n---\n\n",
+    "bodySha256": "a770027525710a2c6f096cb43a02a30e8ce3d957cc9a6f9d27c0125e3b19de81",
+    "pageSha256": "8d61b4af14a546afd4a6420fa6094f1f55651a2a0b56186e29b2d68f078ec075"
+  },
+  {
+    "target": "docs/latest/release-notes/0.3.2.mdx",
+    "source": "docs/v0.4/release-notes/0.3.2.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.3.2\ntitle: Marivo 0.3.2\ndescription: Release notes for Marivo 0.3.2.\n---\n\n",
+    "bodySha256": "d04a3735d17d4ff27343c4addb5019b9b47f794356b2ad036aa10828ece69cb5",
+    "pageSha256": "4532b0650fe6ec6be4b4d6f62baafe36b5f2838c1d45bdf20df986c9ceb01ebb"
+  },
+  {
+    "target": "docs/latest/release-notes/0.3.3.mdx",
+    "source": "docs/v0.4/release-notes/0.3.3.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.3.3\ntitle: Marivo 0.3.3\ndescription: Release notes for Marivo 0.3.3.\n---\n\n",
+    "bodySha256": "3a157a6a18ff86512b7fc3abb93ecb891f97d7a1f52876d88f275b9767424a0a",
+    "pageSha256": "a6cd41e05812fcfc418d39b4a2361ad7035e30521b6e842213dcb3174a3b4f9a"
+  },
+  {
+    "target": "docs/latest/release-notes/0.4.0.mdx",
+    "source": "docs/v0.4/release-notes/0.4.0.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.4.0\ntitle: Marivo 0.4.0\ndescription: Release notes for Marivo 0.4.0.\n---\n\n",
+    "bodySha256": "7ff9d83900dbca08ac2dafac3e0fc206a665cd2bd4a2c6e8292365e8663cca01",
+    "pageSha256": "67031cb848fb82c60156267cf7a4e2e3bbd5cc60c51e7869e19714e36ad6222a"
+  },
+  {
+    "target": "docs/latest/release-notes/0.4.1.mdx",
+    "source": "docs/v0.4/release-notes/0.4.1.mdx",
+    "frontmatter": "---\nslug: docs/latest/release-notes/0.4.1\ntitle: Marivo 0.4.1\ndescription: Release notes for Marivo 0.4.1.\n---\n\n",
+    "bodySha256": "3b2405bdc26a389ab8d72ff4a513b9cd32e1cbc10892d723c1f48dacafebb819",
+    "pageSha256": "9250dba6d6beae15725ebf77270d4f0f1a25f26f2e5357ab58a2442a94e859ef"
+  },
+  {
+    "target": "docs/v0.2/contributing.mdx",
+    "source": "docs/v0.1/contributing.mdx",
+    "frontmatter": "---\nslug: docs/v0.2/contributing\ntitle: Contributing\ndescription: Set up Marivo locally and run the repository checks before opening a pull request.\n---\n\n",
+    "bodySha256": "e1f9564216fdd588348f2df69ef66014f1416ff02683f21eaa6f8b6ed8186494",
+    "pageSha256": "742decbfd0fcb85650adebc6e68ca1915eb04d3dbbe3262e922fd80924a44fe9"
+  },
+  {
+    "target": "docs/v0.3/contributing.mdx",
+    "source": "docs/v0.1/contributing.mdx",
+    "frontmatter": "---\nslug: docs/v0.3/contributing\ntitle: Contributing\ndescription: Set up Marivo locally and run the repository checks before opening a pull request.\n---\n\n",
+    "bodySha256": "e1f9564216fdd588348f2df69ef66014f1416ff02683f21eaa6f8b6ed8186494",
+    "pageSha256": "0419c26a622da11725b2a643ad0d4ee20215e5230fad21b9339203d29e636b05"
+  },
+  {
+    "target": "docs/v0.5/contributing.mdx",
+    "source": "docs/v0.4/contributing.mdx",
+    "frontmatter": "---\nslug: docs/v0.5/contributing\ntitle: Contributing\ndescription: Set up Marivo locally and run the repository checks before opening a pull request.\n---\n\n",
+    "bodySha256": "2b14598258b669548e46fcba8f48fdbd984e2e31d225c519144f704cb9d1b67c",
+    "pageSha256": "f46750585f6f8e783e688cd1bfc1b2244029d9e5b25440611603da7d5e883e0d"
+  },
+  {
+    "target": "zh-cn/docs/latest/contributing.mdx",
+    "source": "zh-cn/docs/v0.4/contributing.mdx",
+    "frontmatter": "---\ntitle: 参与贡献\ndescription: 设置本地 Marivo 开发环境，并在提交 pull 请求前运行仓库检查。\n---\n\n",
+    "bodySha256": "af7cf583d96cf97e5faf824a09d1be8aef8251056d01bb46d35e1ef33bbb7e2b",
+    "pageSha256": "e014164b9c66fbe960a04dc35349c08b37128e2faf240e9a91e8200773ffc6dc"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.1.0.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.1.0.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.1.0\ntitle: Marivo 0.1.0\ndescription: Marivo 0.1.0 发布说明。\n---\n\n",
+    "bodySha256": "1f9723f98fe2c664bbc1aad31580d1faf1c9b400fc88a3f9bf899e814ca81ad9",
+    "pageSha256": "5da6274f3fa27c985aa45a65de265b94681e3be42fbb16a478bd42295530c415"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.0.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.0.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.0\ntitle: Marivo 0.2.0\ndescription: Marivo 0.2.0 发布说明。\n---\n\n",
+    "bodySha256": "a9ded263fc5bece6bbd60c26ed6a646b1b8ce4142248281ca20b918265b791fc",
+    "pageSha256": "5933da25fee8f67a9b81d98420ad59b5c3d554b6f7f79c809459c3903343f715"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.1.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.1.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.1\ntitle: Marivo 0.2.1\ndescription: Marivo 0.2.1 发布说明。\n---\n\n",
+    "bodySha256": "01971f833dc3c53e8d087839014464f5dfffa75df67f38aa4986472fe5b9a115",
+    "pageSha256": "d5ac7a11d331c78ca5ec25aec36aff893f9c11d794a15ef7d5fdae3bdf0eb560"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.2.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.2.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.2\ntitle: Marivo 0.2.2\ndescription: Marivo 0.2.2 发布说明。\n---\n\n",
+    "bodySha256": "487dc20d7f7d4236c7ce0544d2993fa73e5b36c4b23be6115ec3b3dde31e6dec",
+    "pageSha256": "b109859ea38fb8c05cb20280ecf7490f6c0fc305852d45a843728448636f1d34"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.3.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.3.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.3\ntitle: Marivo 0.2.3\ndescription: Marivo 0.2.3 发布说明。\n---\n\n",
+    "bodySha256": "61afdb942635c071ad9054a42f29c5ad57320110efbdf82ec1d15220b37d8b88",
+    "pageSha256": "f642de899d2fa91e4374adfe3a3f790696a9a0ece34e1b6f11505a7493d86d43"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.4.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.4.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.4\ntitle: Marivo 0.2.4\ndescription: Marivo 0.2.4 发布说明。\n---\n\n",
+    "bodySha256": "f85a894daddfbeebf85aa156d319a7f715f68e3cd4b9154f4682ce0407e56e4e",
+    "pageSha256": "146adb92909f3be2a42d7e94a8c499f7453eaed23ddc2eaac1c69d8281f0d736"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.5.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.5.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.5\ntitle: Marivo 0.2.5\ndescription: Marivo 0.2.5 发布说明。\n---\n\n",
+    "bodySha256": "7a93a44ed844202edceabb2f889a5007dfc2b9d4c32cdf5d6bb0ac2fbc31f927",
+    "pageSha256": "3541d3dbc2218fbccc19dd6fe6ce25b6d94da19a98ca8381fdccb1ebb52393f2"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.6.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.6.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.6\ntitle: Marivo 0.2.6\ndescription: Marivo 0.2.6 发布说明。\n---\n\n",
+    "bodySha256": "6c12403321c3b080f6e0eef369df0c0b8db3835ed303cc5a7f1916a6e638c278",
+    "pageSha256": "4c81ad073905c126164bca6d07bb75d85eb4bed37258e86cc9e1bad63d971088"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.7.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.7.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.7\ntitle: Marivo 0.2.7\ndescription: Marivo 0.2.7 发布说明。\n---\n\n",
+    "bodySha256": "3dc160240b46f916f2b3da848c06a232fadb6d69e7b4485c571a8381da1016f6",
+    "pageSha256": "d72fa1b616f602229319fc57d8b0ee4176c121f2f427205b686d7f57ed415521"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.2.8.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.2.8.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.2.8\ntitle: Marivo 0.2.8\ndescription: Marivo 0.2.8 发布说明。\n---\n\n",
+    "bodySha256": "9a363b19a8b5f261b656fb2845ac55e330d6c7184d1653fa599b6fceba513679",
+    "pageSha256": "4a3d846ca2671fb63edffde862e105c9db98cfe3bf7ffa2efb2d356ae03b2c67"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.3.0.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.3.0.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.3.0\ntitle: Marivo 0.3.0\ndescription: Marivo 0.3.0 发布说明。\n---\n\n",
+    "bodySha256": "9cf22403d207f4df3876324ed5c3b97fe471f4a3f9a55dd46d525d35246b1fed",
+    "pageSha256": "bc32e7175acad54cf44f78057fb337bde965c850e4c83e9282762f3416dbecde"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.3.1.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.3.1.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.3.1\ntitle: Marivo 0.3.1\ndescription: Marivo 0.3.1 发布说明。\n---\n\n",
+    "bodySha256": "3c4bbaca84a50e8639f5feb1ce08a44d8ad8333258178c0462dcb0b8ef8bd11d",
+    "pageSha256": "57b9c43da3e4836f013dbb30ff8274592de798094ea7bf3e8a40ed6b9037183b"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.3.2.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.3.2.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.3.2\ntitle: Marivo 0.3.2\ndescription: Marivo 0.3.2 发布说明。\n---\n\n",
+    "bodySha256": "2290cda5ecd9bca86be6a571c27348cd704e095e9eb5b3d467b482a2d6e60215",
+    "pageSha256": "4be9f138fc256a665ac7fdbe9a8a5a91a0336e684a16fb80dad9a87c36f0e1c5"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.3.3.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.3.3.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.3.3\ntitle: Marivo 0.3.3\ndescription: Marivo 0.3.3 发布说明。\n---\n\n",
+    "bodySha256": "7b4a7d9a4f5736d0816eb04f73091798c949c7c453f236f7b283ca7a2cf97cd2",
+    "pageSha256": "09e587137f664e93b98a4dbe4a0125a08321fb96e64457bb6227b4b65fb2255b"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.4.0.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.4.0.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.4.0\ntitle: Marivo 0.4.0\ndescription: Marivo 0.4.0 发布说明。\n---\n\n",
+    "bodySha256": "4cb6ac93291025b34fbb0f5d7d1efbf3ded3afa053eb49926a6b6f14d2ff387f",
+    "pageSha256": "420661b21c75f0c5ad0605e5604576279dd3666d3925dec67d04b3d6a43bc98c"
+  },
+  {
+    "target": "zh-cn/docs/latest/release-notes/0.4.1.mdx",
+    "source": "zh-cn/docs/v0.4/release-notes/0.4.1.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/latest/release-notes/0.4.1\ntitle: Marivo 0.4.1\ndescription: Marivo 0.4.1 发布说明。\n---\n\n",
+    "bodySha256": "ad38be63caf10d0cc5318b509a270e23ed31945102b5705a4ae761c54209bb94",
+    "pageSha256": "4243d08ecfb47a0be5f7361cb432cfd861fd688c204b1343dc5c1d5f15f89570"
+  },
+  {
+    "target": "zh-cn/docs/v0.2/contributing.mdx",
+    "source": "zh-cn/docs/v0.1/contributing.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/v0.2/contributing\ntitle: 参与贡献\ndescription: 本地设置 Marivo，并在提交 pull 请求前运行仓库检查。\n---\n\n",
+    "bodySha256": "05063d79da884741ab7444ecfe39b55f912679f4ad3c5e16f5352f76e1d50d54",
+    "pageSha256": "eb69801008a2f7b876d514fdbce868cbc163a443f856887c9bbd7f7db3c64cda"
+  },
+  {
+    "target": "zh-cn/docs/v0.5/contributing.mdx",
+    "source": "zh-cn/docs/v0.4/contributing.mdx",
+    "frontmatter": "---\nslug: zh-cn/docs/v0.5/contributing\ntitle: 参与贡献\ndescription: 设置本地 Marivo 开发环境，并在提交 pull 请求前运行仓库检查。\n---\n\n",
+    "bodySha256": "af7cf583d96cf97e5faf824a09d1be8aef8251056d01bb46d35e1ef33bbb7e2b",
+    "pageSha256": "7cf58294faf2fc6e31a0f5ad3160876e2ec219e8c5b2857d7140c61b6e5a7125"
+  }
+]

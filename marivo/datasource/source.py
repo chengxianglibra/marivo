@@ -16,7 +16,6 @@ from marivo.datasource.ir import (
     JsonSourceIR,
     ParquetSourceIR,
     SourceParamIR,
-    TableColumnBindingIR,
     TableSourceIR,
     normalize_json_body,
 )
@@ -256,15 +255,22 @@ def unpruned(*, max_rows: int, timeout_seconds: int) -> UnprunedScope:
     return UnprunedScope(max_rows, timeout_seconds)
 
 
-def _normalize_schema(schema: Mapping[str, str], *, field: str) -> tuple[tuple[str, str], ...]:
-    normalized = tuple(schema.items())
-    if not normalized:
-        raise ValueError(f"{field} must contain at least one typed column.")
-    if any(not isinstance(name, str) or not name for name, _type in normalized):
-        raise TypeError(f"{field} column names must be non-empty strings.")
-    if any(not isinstance(_type, str) or not _type for _name, _type in normalized):
-        raise TypeError(f"{field} type names must be non-empty strings.")
-    return normalized
+def _normalize_source_columns(
+    columns: Mapping[str, str] | None,
+    *,
+    field: str,
+) -> tuple[tuple[str, str], ...]:
+    if columns is None:
+        return ()
+    if not isinstance(columns, Mapping):
+        raise TypeError(f"{field} must be a mapping of output names to source fields.")
+    if not columns:
+        raise ValueError(f"{field} must contain at least one projected column when supplied.")
+    if any(not isinstance(name, str) or not name for name in columns):
+        raise TypeError(f"{field} output names must be non-empty strings.")
+    if any(not isinstance(source, str) or not source for source in columns.values()):
+        raise TypeError(f"{field} source fields must be non-empty strings.")
+    return tuple(columns.items())
 
 
 def _normalize_query_params(
@@ -278,16 +284,6 @@ def _normalize_query_params(
             "scalar values, lists of scalar values, or md.source_param(...)."
         )
     return tuple(query_params.items())
-
-
-def _normalize_field_paths(
-    field_paths: Mapping[str, str] | None,
-) -> tuple[tuple[str, str], ...]:
-    if field_paths is None:
-        return ()
-    if not isinstance(field_paths, Mapping):
-        raise TypeError("md.json(field_paths=...) must be a mapping of output names to JSON paths.")
-    return tuple(field_paths.items())
 
 
 def source_param(name: str, /) -> SourceParamIR:
@@ -309,32 +305,12 @@ def source_param(name: str, /) -> SourceParamIR:
     return SourceParamIR(name=name)
 
 
-def source_column(name: str, /, *, data_type: str) -> TableColumnBindingIR:
-    """Declare one typed physical identifier for a table column binding.
-
-    Args:
-        name: One complete physical identifier, quoted atomically at runtime.
-        data_type: Non-empty Ibis type string asserted for the projected output.
-
-    Returns:
-        A frozen ``TableColumnBindingIR`` for use in ``md.table(columns=...)``.
-
-    Example:
-        ``md.source_column("event.timestamp", data_type="timestamp(3)")``
-
-    Constraints:
-        The name is an identifier, not an SQL expression. The declared type
-        supplies the output schema and does not cast the physical value.
-    """
-    return TableColumnBindingIR(source=name, data_type=data_type)
-
-
 def table(
     name: str,
     /,
     *,
     database: str | tuple[str, ...] | None = None,
-    columns: Mapping[str, TableColumnBindingIR] | None = None,
+    columns: Mapping[str, str] | None = None,
 ) -> TableSourceIR:
     """Build a physical table source descriptor.
 
@@ -343,31 +319,27 @@ def table(
     Args:
         name: Table or view name inside the datasource.
         database: Optional database/catalog name or namespace tuple.
-        columns: Optional complete output-name to typed physical-column mapping.
+        columns: Optional output-name to physical-column projection mapping
+            (``Mapping[str, str]``). Values are names, not type declarations.
+            Physical types come from source metadata when execution needs them;
+            ``md.inspect(...)`` exposes current names and types.
 
     Returns:
         A validated ``TableSourceIR``.
 
     Example:
         ``md.table("orders", database="sales")`` or
-        ``md.table("events", columns={"event_time": md.source_column("event.timestamp", data_type="timestamp")})``
+        ``md.table("events", columns={"event_time": "event.timestamp"})``
 
     Constraints:
         The name and any database namespace parts must be non-empty. When
-        ``columns`` is supplied, it must be non-empty and every output must use
-        one unique ``TableColumnBindingIR`` physical source.
+        ``columns`` is supplied, it must be non-empty and each physical column
+        is a complete identifier, not SQL. One physical column may be projected
+        under more than one output name.
+        Each projection value is a physical name, not an object describing
+        a column or its type.
     """
-    if columns is None:
-        normalized_columns: tuple[tuple[str, TableColumnBindingIR], ...] = ()
-    else:
-        if not isinstance(columns, Mapping):
-            raise TypeError(
-                "md.table(columns=...) must be a mapping of output names to "
-                f"TableColumnBindingIR values, got {type(columns).__name__}."
-            )
-        if not columns:
-            raise ValueError("md.table(columns=...) must contain at least one binding.")
-        normalized_columns = tuple(columns.items())
+    normalized_columns = _normalize_source_columns(columns, field="md.table(columns=...)")
     return TableSourceIR(table=name, database=database, columns=normalized_columns)
 
 
@@ -406,17 +378,17 @@ def csv(
     path: str,
     /,
     *,
-    schema: Mapping[str, str],
+    columns: Mapping[str, str] | None = None,
     header: bool = True,
     delimiter: str = ",",
 ) -> CsvSourceIR:
-    """Build a typed DuckDB file source descriptor for CSV files.
+    """Build a DuckDB file source descriptor for CSV files.
 
     This descriptor is not a datasource declaration.
 
     Args:
         path: File path or glob pattern.
-        schema: Non-empty insertion-ordered column-to-type mapping.
+        columns: Optional output-name to physical-header projection mapping.
         header: Whether the CSV file has a header row.
         delimiter: Column delimiter.
 
@@ -424,14 +396,15 @@ def csv(
         A validated ``CsvSourceIR``.
 
     Example:
-        ``md.csv("orders.csv", schema={"order_id": "string"})``
+        ``md.csv("orders.csv", columns={"order_id": "Order ID"})``
 
     Constraints:
-        Schema column names and type names must be non-empty strings.
+        Types are inferred from the source during reading. Projected source names
+        must be non-empty strings and must exist in the file.
     """
     return CsvSourceIR(
         path=path,
-        schema=_normalize_schema(schema, field="md.csv(schema=...)"),
+        columns=_normalize_source_columns(columns, field="md.csv(columns=...)"),
         header=header,
         delimiter=delimiter,
     )
@@ -441,28 +414,25 @@ def json(
     path: str,
     /,
     *,
-    schema: Mapping[str, str],
+    columns: Mapping[str, str] | None = None,
     format: Literal["auto", "newline_delimited", "array"] = "auto",
     records_path: str | None = None,
-    field_paths: Mapping[str, str] | None = None,
     query_params: Mapping[str, JsonQueryParamValue] | None = None,
     method: Literal["GET", "POST"] = "GET",
     body: Mapping[str, JsonBodyValue] | None = None,
 ) -> JsonSourceIR:
-    """Build a typed DuckDB JSON physical-source descriptor.
+    """Build a DuckDB JSON physical-source descriptor.
 
     This descriptor is not a datasource declaration.
 
     Args:
         path: File path, glob pattern, or supported URL.
-        schema: Non-empty insertion-ordered output-column-to-type mapping. Type
-            names use Ibis type strings (e.g. ``"int64"``).
+        columns: Optional output-name to JSON field-path projection mapping.
+            Paths support object members, fixed array indexes, and one shared
+            array traversal such as ``"apps[].name"``.
         format: JSON layout.
         records_path: Optional object-member path to the array of records inside
             a wrapped response, for example ``"$.data"`` or ``"$.result.items"``.
-        field_paths: Optional output-column-to-JSON-path mapping for fields nested
-            inside each selected record. Paths support object members, fixed array
-            indexes, and one shared array traversal such as ``"apps[].name"``.
         query_params: Optional query-string mapping. Values are fixed scalars or
             lists of scalars, or required runtime parameters from
             ``md.source_param(...)``. List values URL-encode as repeated keys.
@@ -475,26 +445,23 @@ def json(
         A validated ``JsonSourceIR``.
 
     Example:
-        ``md.json("events.json", schema={"event_id": "string"})``
+        ``md.json("events.json", columns={"event_id": "event_id"})``
 
-        ``md.json("events.json", schema={"event_id": "string"}, records_path="$.data")``
+        ``md.json("events.json", columns={"event_id": "event.id"}, records_path="$.data")``
 
-        ``md.json("https://api.example/graphql", schema={"id": "string"},
+        ``md.json("https://api.example/graphql", columns={"id": "id"},
         method="POST", body={"query": "{ items { id } }"}, records_path="$.data.items")``
 
     Constraints:
-        Schema output names and type names must be non-empty strings. Type names
-        must be valid Ibis type strings (e.g. ``"string"``, ``"int64"``,
-        ``"float64"``, ``"timestamp"``); SQL or DuckDB names such as ``"BIGINT"``
-        are rejected. ``field_paths`` requires ``records_path`` and may only name
-        declared schema outputs. Multiple traversed fields must share one array
-        path and are projected from the same array element; independent traversal
-        roots and multiple traversals in one path are rejected.
+        Types are inferred from the source during reading. Projected output names
+        and paths must be non-empty strings. Multiple traversed fields must share
+        one array path and are projected from the same array element; independent
+        traversal roots and multiple traversals in one path are rejected.
         A declared records path must resolve to an array at execution; a missing
         path or non-array value fails instead of materializing zero rows.
-        For wrapped records, declared fields are projected in schema order;
-        missing fields become typed nulls and additional object fields are
-        ignored. Present fields must be convertible to their declared types.
+        For wrapped records, requested fields are projected in mapping order;
+        missing fields fail when read and additional object fields are ignored.
+        Present field types are inferred from their values.
         A traversal path (``"a[].b"``) expands one row per element; a record
         whose traversal array is missing, empty, or null produces no rows, and
         sibling fields from that array remain correlated.
@@ -508,10 +475,9 @@ def json(
         body_json, body_params = normalize_json_body(body)
     return JsonSourceIR(
         path=path,
-        schema=_normalize_schema(schema, field="md.json(schema=...)"),
         format=format,
         records_path=records_path,
-        field_paths=_normalize_field_paths(field_paths),
+        columns=_normalize_source_columns(columns, field="md.json(columns=...)"),
         query_params=_normalize_query_params(query_params),
         method=method,
         body_json=body_json,

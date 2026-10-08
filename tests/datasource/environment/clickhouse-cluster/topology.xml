@@ -1,0 +1,32 @@
+<clickhouse>
+    <!-- Qualification cluster topology; the same file binds both nodes.
+         Nodes keep the default internal native port 9000 so the pods can
+         reach each other; only the HTTP listener moves per node. -->
+    <max_server_memory_usage>2147483648</max_server_memory_usage>
+    <logger>
+        <level>warning</level>
+        <size>10M</size>
+        <count>2</count>
+    </logger>
+    <query_log>
+        <ttl>event_date + INTERVAL 2 DAY DELETE</ttl>
+        <flush_interval_milliseconds>1000</flush_interval_milliseconds>
+    </query_log>
+    <remote_servers>
+        <marivo_multisource>
+            <secret>marivo-multisource-cluster</secret>
+            <shard>
+                <replica>
+                    <host>clickhouse-shard-a</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-shard-b</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </marivo_multisource>
+    </remote_servers>
+</clickhouse>

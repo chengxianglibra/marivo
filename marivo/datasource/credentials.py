@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import Event
 from typing import NoReturn, Protocol, SupportsIndex
 
+from marivo._errors import MarivoError
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceCredentialError,
@@ -336,6 +337,8 @@ def backend_errors(backend: object) -> Iterator[None]:
     """Sanitize driver failures only while Marivo owns the operation."""
     try:
         yield
+    except MarivoError:
+        raise
     except Exception as exc:
         values = injected_values(backend)
         if values:

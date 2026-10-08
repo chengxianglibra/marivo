@@ -56,16 +56,23 @@ from marivo.semantic._authoring_temporal import (
 from marivo.semantic._authoring_values import (
     ai_context,
     datetime,
-    from_sql,
     hour_prefix,
     join_on,
-    semi_additive,
     snapshot,
     strptime,
     timestamp,
     validity,
 )
+from marivo.semantic._dsl_authoring import (
+    additive,
+    additive_all,
+    empty,
+    non_additive,
+    nulls,
+    zero_denominator,
+)
 from marivo.semantic._expression_binding import bind
+from marivo.semantic.business_order import business_order, event_sequence, precedes
 from marivo.semantic.event import all_rows, participant, participant_role
 from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
 from marivo.semantic.state_model import (
@@ -81,10 +88,13 @@ __all__ = [
     "AggregateFoldValue",
     "GrainToDate",
     "PeriodCorrespondence",
+    "additive",
+    "additive_all",
     "aggregate",
     "ai_context",
     "all_rows",
     "bind",
+    "business_order",
     "calendar_grain",
     "count",
     "cumulative",
@@ -92,9 +102,10 @@ __all__ = [
     "dimension",
     "dimension_column",
     "domain",
+    "empty",
     "entity",
     "event",
-    "from_sql",
+    "event_sequence",
     "grain_to_date",
     "hour_prefix",
     "inception",
@@ -105,13 +116,15 @@ __all__ = [
     "measure_column",
     "metric",
     "model_state",
+    "non_additive",
+    "nulls",
     "participant",
     "participant_role",
     "period_calendar",
     "period_correspondence",
+    "precedes",
     "ratio",
     "relationship",
-    "semi_additive",
     "snapshot",
     "state_model",
     "strptime",
@@ -125,4 +138,5 @@ __all__ = [
     "weighted_mean",
     "where",
     "work_schedule",
+    "zero_denominator",
 ]

@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -15,10 +20,10 @@ from marivo.datasource.engines.base import (
     MetadataInspectRequest,
     TableRefRequest,
     identity_read_only_kwargs,
-    identity_str,
     require_field,
     structured_exception_chain,
 )
+from marivo.datasource.strptime import python_to_postgres_strptime
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
@@ -46,6 +51,108 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
     return (request.source.table,) if schema_name is None else (schema_name, request.source.table)
 
 
+register_provider_statements(
+    "postgres",
+    {
+        "comment.table": ProviderStatement(
+            statement_id="postgres.comment.table",
+            template=(
+                "SELECT obj_description(pg_catalog.to_regclass({qualified}), 'pg_class') AS comment"
+            ),
+            literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "columns": ProviderStatement(
+            statement_id="postgres.columns",
+            template=(
+                "SELECT column_name, data_type, is_nullable, ordinal_position, datetime_precision "
+                "FROM information_schema.columns "
+                "WHERE table_schema = {schema} "
+                "AND table_name = {table} "
+                "ORDER BY ordinal_position"
+            ),
+            literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "comment.columns": ProviderStatement(
+            statement_id="postgres.comment.columns",
+            template=(
+                "SELECT a.attname AS column_name, "
+                "pg_catalog.col_description(a.attrelid, a.attnum) AS comment "
+                "FROM pg_catalog.pg_attribute a "
+                "WHERE a.attrelid = pg_catalog.to_regclass({qualified}) "
+                "AND a.attnum > 0 AND NOT a.attisdropped "
+                "ORDER BY a.attnum"
+            ),
+            literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "constraints": ProviderStatement(
+            statement_id="postgres.constraints",
+            template=(
+                "SELECT c.oid AS constraint_id, c.contype AS constraint_kind, c.conkey AS key_attnums, "
+                "a.attname AS column_name "
+                "FROM pg_catalog.pg_constraint c "
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid = c.conrelid "
+                "AND a.attnum = ANY(c.conkey) "
+                "WHERE c.conrelid = pg_catalog.to_regclass({qualified}) "
+                "AND c.contype IN ('p', 'u') "
+                "ORDER BY c.oid, array_position(c.conkey, a.attnum)"
+            ),
+            literal_slots=frozenset({"qualified"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "tables.kind": ProviderStatement(
+            statement_id="postgres.tables.kind",
+            template=(
+                "SELECT c.relkind AS relation_kind, pg_get_viewdef(c.oid) AS view_definition "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relname = {table} "
+                "AND n.nspname = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "partition.key": ProviderStatement(
+            statement_id="postgres.partition.key",
+            template=(
+                "SELECT pg_get_partkeydef(c.oid) AS partition_key "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relname = {table} "
+                "AND n.nspname = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+        "profile.physical": ProviderStatement(
+            statement_id="postgres.profile.physical",
+            template=(
+                "SELECT c.reltuples, pg_total_relation_size(c.oid) AS total_relation_size "
+                "FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE c.relname = {table} "
+                "AND n.nspname = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.postgres"}),
+        ),
+    },
+)
+
+
+def _postgres_rows(
+    backend: Any, statement_id: str, values: Mapping[str, object] = {}
+) -> tuple[dict[str, object], ...]:
+    return execute_provider_statement(
+        backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.postgres"
+    )
+
+
 def _inspect_postgres(
     *,
     datasource: str,
@@ -56,61 +163,66 @@ def _inspect_postgres(
     include_partitions: bool,
     default_schema: str | None,
 ) -> TableMetadata:
+    from dataclasses import replace
+
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
         ColumnMetadata,
         MetadataWarning,
         PartitionMetadata,
         TableMetadata,
         TablePhysicalProfile,
+        UniqueConstraintMetadata,
         _bool_from_nullable,
         _database_label,
         _empty_to_none,
         _int_or_none,
         _merge_columns,
         _partition_columns_from_expression,
-        _query_rows,
-        _quote_literal,
+        _quote_identifier,
         _schema_columns,
     )
 
     schema_columns = _schema_columns(table_expr)
     schema_name = _database_label(database) or default_schema or "public"
     warnings: list[MetadataWarning] = []
+    comment_schema = _database_label(database) or default_schema
+    qualified = ".".join(
+        _quote_identifier(part)
+        for part in ((comment_schema, table) if comment_schema else (table,))
+    )
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
     physical_profile: TablePhysicalProfile | None = None
 
     try:
-        table_rows = _query_rows(
-            backend,
-            "SELECT obj_description(to_regclass("
-            f"{_quote_literal(f'{schema_name}.{table}')}), 'pg_class') AS comment",
-        )
+        table_rows = _postgres_rows(backend, "postgres.comment.table", {"qualified": qualified})
         if table_rows:
             table_comment = _empty_to_none(table_rows[0].get("comment"))
     except Exception as exc:
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"postgres table comment query failed: {exc}",
+                message=(
+                    f"postgres table comment query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
     try:
-        column_rows = _query_rows(
-            backend,
-            "SELECT column_name, data_type, is_nullable, ordinal_position "
-            "FROM information_schema.columns "
-            f"WHERE table_schema = {_quote_literal(schema_name)} "
-            f"AND table_name = {_quote_literal(table)} "
-            "ORDER BY ordinal_position",
+        column_rows = _postgres_rows(
+            backend, "postgres.columns", {"schema": schema_name, "table": table}
         )
         for row in column_rows:
             name = str(row.get("column_name"))
             ordinal = row.get("ordinal_position")
+            physical_type = str(row.get("data_type") or "")
+            precision = row.get("datetime_precision")
+            if physical_type.startswith("timestamp") and type(precision) is int:
+                physical_type = physical_type.replace("timestamp", f"timestamp({precision})", 1)
             catalog_columns[name] = ColumnMetadata(
                 name=name,
-                type=str(row.get("data_type") or ""),
+                type=physical_type,
                 nullable=_bool_from_nullable(row.get("is_nullable")),
                 comment=None,
                 ordinal_position=int(str(ordinal)) if ordinal is not None else None,
@@ -119,7 +231,87 @@ def _inspect_postgres(
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"postgres column metadata query failed: {exc}",
+                message=(
+                    "postgres column metadata query failed: "
+                    f"{_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    try:
+        comment_rows = _postgres_rows(backend, "postgres.comment.columns", {"qualified": qualified})
+        if not comment_rows and schema_columns:
+            warnings.append(
+                MetadataWarning(
+                    kind="column_comments_unavailable",
+                    message="PostgreSQL column comment metadata was unavailable for the resolved relation.",
+                )
+            )
+        comments = {
+            str(row["column_name"]): _empty_to_none(row.get("comment")) for row in comment_rows
+        }
+        for schema_column in schema_columns:
+            if schema_column.name in comments:
+                comment_column = catalog_columns.get(schema_column.name, schema_column)
+                catalog_columns[schema_column.name] = replace(
+                    comment_column, comment=comments[schema_column.name]
+                )
+    except Exception:
+        warnings.append(
+            MetadataWarning(
+                kind="column_comments_unavailable",
+                message="PostgreSQL column comments could not be read for the resolved relation.",
+            )
+        )
+
+    primary_keys: tuple[str, ...] = ()
+    unique_constraints: list[UniqueConstraintMetadata] = []
+    try:
+        constraint_rows = _postgres_rows(backend, "postgres.constraints", {"qualified": qualified})
+        pk_names: list[str] = []
+        unique_by_position: dict[str, list[str]] = {}
+        for row in constraint_rows:
+            kind = str(row.get("constraint_kind") or "")
+            column_name = row.get("column_name")
+            if not isinstance(column_name, str) or not column_name:
+                continue
+            if kind == "p":
+                pk_names.append(column_name)
+            elif kind == "u":
+                unique_by_position.setdefault(str(row["constraint_id"]), []).append(column_name)
+        primary_keys = tuple(pk_names)
+        unique_constraints = [
+            UniqueConstraintMetadata(name=None, columns=tuple(names), kind="unique")
+            for names in unique_by_position.values()
+        ]
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"postgres constraint query failed: {_backend_failure_summary(exc).message}"
+                ),
+            )
+        )
+
+    is_view: bool | None = None
+    view_definition: str | None = None
+    try:
+        kind_rows = _postgres_rows(
+            backend, "postgres.tables.kind", {"schema": schema_name, "table": table}
+        )
+        if kind_rows:
+            relation_kind = str(kind_rows[0].get("relation_kind") or "")
+            is_view = relation_kind in ("v", "m")
+            if is_view:
+                view_definition = _empty_to_none(kind_rows[0].get("view_definition"))
+    except Exception as exc:
+        warnings.append(
+            MetadataWarning(
+                kind="metadata_query_failed",
+                message=(
+                    f"postgres view metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
@@ -129,14 +321,8 @@ def _inspect_postgres(
     partition_state: Literal["known", "none", "unknown"] = "unknown"
     if include_partitions:
         try:
-            partition_rows = _query_rows(
-                backend,
-                "SELECT pg_get_partkeydef(c.oid) AS partition_key "
-                "FROM pg_class c "
-                "JOIN pg_namespace n ON n.oid = c.relnamespace "
-                f"WHERE c.relname = {_quote_literal(table)} "
-                f"AND n.nspname = {_quote_literal(schema_name)} "
-                "LIMIT 1",
+            partition_rows = _postgres_rows(
+                backend, "postgres.partition.key", {"schema": schema_name, "table": table}
             )
             saw_partition_expression = False
             for row in partition_rows:
@@ -160,7 +346,10 @@ def _inspect_postgres(
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"postgres partition metadata query failed: {exc}",
+                    message=(
+                        "postgres partition metadata query failed: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
                 )
             )
         if partition_state == "unknown":
@@ -172,14 +361,8 @@ def _inspect_postgres(
             )
 
     try:
-        profile_rows = _query_rows(
-            backend,
-            "SELECT c.reltuples, pg_total_relation_size(c.oid) AS total_relation_size "
-            "FROM pg_class c "
-            "JOIN pg_namespace n ON n.oid = c.relnamespace "
-            f"WHERE c.relname = {_quote_literal(table)} "
-            f"AND n.nspname = {_quote_literal(schema_name)} "
-            "LIMIT 1",
+        profile_rows = _postgres_rows(
+            backend, "postgres.profile.physical", {"schema": schema_name, "table": table}
         )
         if profile_rows:
             row = profile_rows[0]
@@ -199,7 +382,10 @@ def _inspect_postgres(
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"postgres physical profile query failed: {exc}",
+                message=(
+                    "postgres physical profile query failed: "
+                    f"{_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
@@ -213,6 +399,10 @@ def _inspect_postgres(
         partitions=tuple(partitions_by_name.values()) if include_partitions else (),
         partition_state=partition_state,
         warnings=tuple(warnings),
+        is_view=is_view,
+        view_definition=view_definition,
+        primary_keys=primary_keys,
+        unique_constraints=tuple(unique_constraints),
         physical_profile=physical_profile,
     )
 
@@ -243,15 +433,15 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
 
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        raise RuntimeError("postgres backend does not expose raw_sql()")
-    raw_sql("BEGIN READ ONLY")
+    if getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds:
+        raise RuntimeError("postgres terminal connection has no configured statement timeout")
+    connection = backend.con
+    if connection.read_only is not True or connection.autocommit:
+        raise RuntimeError("postgres terminal connection is not in read-only transaction mode")
     try:
-        raw_sql(f"SET LOCAL statement_timeout = '{timeout_seconds * 1000}ms'")
         yield
     finally:
-        raw_sql("ROLLBACK")
+        connection.rollback()
 
 
 PROFILE = EngineProfile(
@@ -261,11 +451,9 @@ PROFILE = EngineProfile(
     required_modules=("ibis.backends.postgres",),
     connect=connect,
     apply_read_only_kwargs=identity_read_only_kwargs,
-    timezone_probe_sql="select current_setting('TimeZone') as timezone",
     identifier_quote='"',
     table_name_parts=table_name_parts,
     inspect_partition_values=None,
-    readonly_tx_start="BEGIN READ ONLY",
     metadata=EngineMetadataIntrospection(
         inspect_table=inspect_table,
         classify_table_resolution_failure=classify_table_resolution_failure,
@@ -276,9 +464,10 @@ PROFILE = EngineProfile(
         timeout_enforced=True,
         byte_estimate_supported=True,
     ),
-    translate_strptime_format=identity_str,
-    postprocess_sql=identity_str,
+    translate_strptime_format=python_to_postgres_strptime,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
+    exact_quantile=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
     authoring_timeout=authoring_timeout,

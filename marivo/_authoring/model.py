@@ -125,6 +125,7 @@ class AuthoringCapability(BaseModel):
     see_also: tuple[LiveHelpTarget, ...] = ()
     repair_kinds: tuple[RepairKind, ...] = ()
     invocation_shape: AuthoringInvocationShape = "direct"
+    telemetry: bool = True
 
     @property
     def live_target(self) -> LiveHelpTarget:

@@ -1,62 +1,33 @@
 ---
-title: 让智能体完成第一次分析
-description: 向智能体说明业务问题，然后检查分析过程与证据。
+title: 首次 Agent 分析
+description: 向 Agent 提供决策与范围，再审阅其有证据支持的回答。
 ---
 
-## 开始分析
+使用相关语义定义已确认且可加载的项目，不需要指定 Python 算子或固定检查顺序。
 
-使用项目中已经确认业务含义、并且当前目录可以加载的指标。如果指标缺失或口径仍有
-疑问，类型化分析会停止；智能体可以使用只读账号、通过 SQL 自行控制规模的 `md.raw_sql(...)`
-和明确披露的临时口径继续分析，但会把可复用缺口交给语义编写，只对尚未确定的业务含义提问。
+## 向 Agent 提供明确范围的问题
 
-你不需要编写 Python、选择算子或安排检查步骤。只要说明问题、指标、比较范围，以及希望
-优先检查的因素：
+> 使用 `marivo-analysis`解释已确认 `sales.revenue`在 2026 年 7 月与 8 月间的变化。
+> 比较同一已完成订单范围，先看地区，最后报告结论、关键证据与限制。
 
-> 使用 `marivo-analysis`，分析 2026 年第四季度收入相比 2025 年同期下降的原因。
-> 使用已经确认的 `sales.revenue` 指标，按月比较，并优先检查地区差异。
-> 最后给出结论、关键证据和限制。
+说明决策、有意义的基准、纳入和排除群体及初始重点。定义缺失时，先解决最小语义缺口，
+不要静默替换 Metric。
 
-## Marivo 会处理什么
+## 理解 Agent 的工作
 
-智能体会读取相关语义定义，解析并验证实时语义输入，在同一个分析会话中
-执行合适的类型化分析，并保留支持结论的结果和证据。语义缺口不允许智能体在分析过程中
-修改口径。终端原始 SQL 可以提供临时答案，但必须和规范 Marivo 证据分开；智能体
-会自动把最小可复用缺口交给 `marivo-semantic`，并在 readiness 后恢复受影响的分析分支。
+Agent 验证所选环境、读取已有 catalog 对象，在一个 Session 中构造明确分析，
+并在下一决策需要结果时执行。通过 `.show()`读取已提交行，通过 `.contract()`跟随合法
+后续操作，对不熟悉的调用使用 focused Help。
 
-目录导航返回当前类型化条目；符合条件的语义和分析运行时调用
-可以直接接收它，配置与 recovery 仍可使用精确引用。Marivo 会在规划、证据、
-持久化或重放之前把两种输入都归一化为引用。
+可复用定义缺失时交给 `marivo-semantic`，认证修改的根，再回到原问题。
+终端 raw SQL 可回答已披露临时口径的问题，但其行不能进入 typed analysis。
+Readiness、连接和执行成功证明不同事实。
 
-智能体先选择项目解释器，并运行一次 `<selected-python> -m marivo doctor` 验证实时环境。
-常规项目本地安装在 macOS、Linux 和 WSL 使用 `.venv/bin/python`，在 Windows 使用
-`.venv/Scripts/python.exe`。
-进入分析后，智能体优先使用手中已有的公开对象：用 `.show()` 读取当前状态，在不熟悉的组合
-操作前读取 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询专项
-`marivo.help(...)`（先 `import marivo`）。发生失败后，智能体按照结构化修复指引继续。
-专项帮助并不是每次 API 调用的前置步骤。
+## 审阅回答
 
-类型化边界（`session.observe` 入、`frame.to_pandas()` / `md.raw_sql` 出）确保自定义分析
-不会断开证据链。
-`RawSqlResult.shape` 和 `.row_count` 只表示完整查询结果的返回行；该结果没有 `.contract()`，也不能
-回到类型化分析。Marivo 目前不提供类型化 regression；需要回归时仍使用显式的终端
-custom 分析。
+确认 Metric 含义、群体、时期、比较方向与拆分。检查重要主张具有结果或 Evidence 支持，
+并明确覆盖、缺失、删失和方法限制。代数分配与关联本身不证明原因。
 
-这些执行细节由实时帮助、frames 和结构化错误负责，不需要写进你的提示词。
+仅为仍有意义的问题继续。历史问题复用确切保存结果，新鲜度重要时执行当前来源。
 
-## 继续之前需要检查什么
-
-接受结论或要求进一步调查前，请确认：
-
-- 指标含义与你关心的业务结果一致；
-- 时间范围和分析群体（包括排除范围）正确；
-- 比较方式和优先检查的因素具有业务意义；
-- 每项重要判断都有 Marivo 结果或证据支持；
-- 限制、质量问题和未解决的问题都已明确说明；
-- 智能体没有悄悄修改语义层。
-
-## 下一步
-
-- 开始更广泛的调查前，先[梳理业务问题](/zh-cn/docs/latest/guides/business-question/)。
-- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)介绍 Marivo 如何组织分析。
-- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)说明语义变更如何获得显式技术认证。
-- [证据](/zh-cn/docs/latest/concepts/evidence/)说明最终回顾中的结论由什么支持。
+下一步：[业务问题](/zh-cn/docs/latest/guides/business-question/)、[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)，或[完整 Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)。

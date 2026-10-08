@@ -74,6 +74,7 @@ class SemanticResolver:
             sample_size=self.sample_size,
             entity_scopes=self.entity_scopes,
             source_bindings=self.source_bindings,
+            source_binder=getattr(self.connections, "bind_source", None),
         )
 
     def entity(self, entity_ref: Ref[EntityKind]) -> ibis.Table:

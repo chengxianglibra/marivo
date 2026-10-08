@@ -14,6 +14,7 @@ from typing import Any, Literal, NoReturn
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import StrEnum
+from marivo._errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.constraints import (
@@ -22,7 +23,7 @@ from marivo.semantic.constraints import (
     default_hint_for_error_kind,
     get_constraint,
 )
-from marivo.semantic.ir import SourceLocation
+from marivo.semantic.ir import SourceLocation, TargetDimensionContract
 
 __all__ = [
     "HINTS",
@@ -34,7 +35,6 @@ __all__ = [
     "SemanticHelpTargetError",
     "SemanticLoadError",
     "SemanticLoadFailed",
-    "SemanticParityError",
     "SemanticRuntimeError",
     "StructuredWarning",
     "WarningKind",
@@ -113,8 +113,10 @@ class ErrorKind(StrEnum):
     INVALID_EVENT_PARTICIPANT_PATH = "invalid_event_participant_path"
     INVALID_EVENT_PARTICIPANT_CARDINALITY = "invalid_event_participant_cardinality"
     INVALID_STATE_MODEL = "invalid_state_model"
+    INVALID_BUSINESS_ORDER = "invalid_business_order"
     AMBIGUOUS_PARTICIPANT_ROLE = "ambiguous_participant_role"
     MODEL_STATE_MISMATCH = "model_state_mismatch"
+    ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
@@ -125,6 +127,7 @@ class ErrorKind(StrEnum):
     CROSS_MODEL_CYCLE = "cross_model_cycle"
 
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
+    INVALID_RELATIONSHIP_MAPPING = "invalid_relationship_mapping"
     ORGANIZATION_ERROR = "organization_error"
     INVALID_PROJECT = "invalid_project"
     MISSING_METRIC_ADDITIVITY = "missing_metric_additivity"
@@ -134,8 +137,10 @@ class ErrorKind(StrEnum):
     MISSING_MEASURE_ADDITIVITY = "missing_measure_additivity"
     INVALID_MEASURE_AGGREGATION = "invalid_measure_aggregation"
     INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
-    INVALID_VERIFICATION_MODE = "invalid_verification_mode"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
+    DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
+    MISSING_IDENTITY_KEY_COLUMN = "missing_identity_key_column"
+    IDENTITY_VERSION_OVERLAP = "identity_version_overlap"
     NON_ROOT_METRIC_AGGREGATE = "non_root_metric_aggregate"
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
@@ -174,12 +179,6 @@ class ErrorKind(StrEnum):
     BINDING_RESULT_INVALID = "binding_result_invalid"
     FILTER_VALUE_RUNTIME_INCOMPATIBLE = "filter_value_runtime_incompatible"
 
-    # parity
-    PROVENANCE_DIALECT_MISSING = "provenance_dialect_missing"
-    UNVERIFIED_PROVENANCE = "unverified_provenance"
-    PARITY_VALUE_MISMATCH = "parity_value_mismatch"
-    PARITY_NOT_SCALAR = "parity_not_scalar"
-
 
 # ---------------------------------------------------------------------------
 # Catalog-backed hint factories
@@ -203,7 +202,7 @@ HINTS: dict[ErrorKind, Callable[..., str]] = {
 # ---------------------------------------------------------------------------
 
 
-class SemanticError(Exception):
+class SemanticError(MarivoError):
     """Base class for all semantic errors.
 
     Shared template for ``__str__``::
@@ -224,13 +223,15 @@ class SemanticError(Exception):
     expected: str | None
     received: str | None
     location_label: str | None
+    exception_type: str | None
+    traceback: str | None
 
     def __init__(
         self,
         *,
         kind: str,
         message: str,
-        refs: tuple[str, ...] = (),
+        refs: tuple[str | TargetDimensionContract, ...] = (),
         location: SourceLocation | None = None,
         hint: str | None = None,
         details: dict[str, Any] | None = None,
@@ -239,6 +240,8 @@ class SemanticError(Exception):
         expected: str | None = None,
         received: str | None = None,
         location_label: str | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
     ) -> None:
         if constraint_id is None:
             default_constraint = default_constraint_for_error_kind(kind)
@@ -260,7 +263,9 @@ class SemanticError(Exception):
                 )
         self.kind = kind
         self.message = message
-        self.semantic_refs = refs
+        self.semantic_refs = tuple(
+            ref.ref.path if isinstance(ref, TargetDimensionContract) else ref for ref in refs
+        )
         self.location = location
         self.hint = hint
         self.details = details or {}
@@ -269,6 +274,8 @@ class SemanticError(Exception):
         self.expected = expected
         self.received = received
         self.location_label = location_label
+        self.exception_type = exception_type
+        self.traceback = traceback
         super().__init__(str(self))
 
     def __str__(self) -> str:
@@ -285,6 +292,8 @@ class SemanticError(Exception):
             lines.append(f"  received: {self.received}")
         if self.hint is not None:
             lines.append(f"  hint: {self.hint}")
+        if self.exception_type is not None:
+            lines.append(f"  exception type: {self.exception_type}")
         dym = self.details.get("did_you_mean")
         if isinstance(dym, list) and dym:
             lines.append(f"  Did you mean: {', '.join(dym)}")
@@ -298,6 +307,8 @@ class SemanticError(Exception):
             if target.canonical_id is not None:
                 qualified = f"{target.surface}.{target.canonical_id}"
                 lines.append(f"Help: marivo.help({qualified!r})")
+        if self.traceback is not None:
+            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 
@@ -340,10 +351,6 @@ class SemanticLoadError(SemanticError):
 
 class SemanticRuntimeError(SemanticError):
     """Error raised during runtime operations (materialize, compile)."""
-
-
-class SemanticParityError(SemanticError):
-    """Error raised during parity checking."""
 
 
 class SemanticHelpTargetError(SemanticError):
@@ -394,7 +401,7 @@ class SemanticLoadFailed(Exception):  # noqa: N818
 
     def __init__(self, errors: Sequence[SemanticError]) -> None:
         self.errors = tuple(errors)
-        joined = "; ".join(str(error) for error in self.errors)
+        joined = "\n\n".join(str(error) for error in self.errors)
         super().__init__(joined)
 
 
@@ -407,7 +414,6 @@ class WarningKind(StrEnum):
     """Canonical warning kind identifiers for non-fatal issues."""
 
     STRING_REF = "string_ref"
-    UNVERIFIED_PROVENANCE = "unverified_provenance"
     POTENTIALLY_FRAGILE_REFERENCE = "potentially_fragile_reference"
     TIME_DIMENSION_PUSHDOWN_ADVISORY = "time_dimension_pushdown_advisory"
     TIME_DIMENSION_DTYPE_ADVISORY = "time_dimension_dtype_advisory"
@@ -423,7 +429,6 @@ class StructuredWarning:
 
     kind: Literal[
         "string_ref",
-        "unverified_provenance",
         "potentially_fragile_reference",
         "time_dimension_pushdown_advisory",
         "time_dimension_dtype_advisory",

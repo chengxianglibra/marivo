@@ -12,6 +12,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
+    BusinessOrderIR,
     DimensionIR,
     EntityIR,
     EventIR,
@@ -101,6 +102,10 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         for key, value in registry.state_models.items()
     )
     rows.update(
+        (cast("Ref[SemanticKindTag]", ref_factory.business_order(key)), value)
+        for key, value in registry.business_orders.items()
+    )
+    rows.update(
         (cast("Ref[SemanticKindTag]", ref_factory.period_calendar(key)), value)
         for key, value in registry.period_calendars.items()
     )
@@ -140,6 +145,8 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.event(path))
     if path in registry.state_models:
         return cast("Ref[SemanticKindTag]", ref_factory.state_model(path))
+    if path in registry.business_orders:
+        return cast("Ref[SemanticKindTag]", ref_factory.business_order(path))
     if path in registry.period_calendars:
         return cast("Ref[SemanticKindTag]", ref_factory.period_calendar(path))
     if path in registry.temporal_sets:
@@ -188,8 +195,16 @@ def _dependencies_for(
             paths.extend(participant.path or ())
     elif isinstance(definition, StateModelIR):
         paths.append(definition.subject)
+        if definition.business_order is not None:
+            paths.append(definition.business_order)
         paths.extend(item.trigger.event_ref for item in definition.inceptions)
         paths.extend(item.trigger.event_ref for item in definition.transitions)
+    elif isinstance(definition, BusinessOrderIR):
+        paths.append(definition.subject)
+        for sequence in definition.sequences:
+            paths.extend((sequence.event_ref, sequence.value_ref))
+        for edge in definition.conflicts:
+            paths.extend((edge.before_event, edge.after_event))
     elif isinstance(definition, PeriodCalendarIR):
         paths.append(definition.date)
         paths.extend(ref for _level, ref in definition.levels)

@@ -1,0 +1,372 @@
+---
+title: Time, membership and cohorts
+description: Keep member selection, observation windows and output coordinates distinct.
+---
+
+Use the conventional `mv` and `ms` imports and an existing Session. Each section
+states its companion model. Membership time, contribution time and reporting
+coordinates are separate authorities; a matching label does not align them.
+
+## Build a complete grid
+
+This model declares a customer Entity, revenue Metric and order-to-buyer relationship. Use the exact grid’s window for each cell.
+
+{/* example: monthly-member-grid */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
+    grain=mv.grain("month"),
+)
+monthly = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
+)
+fixed = monthly.execute()
+totals = fixed.group_by(grid).rollup().execute()
+```
+
+`during=grid` binds the complete time axis and selects each bucket's contribution
+window, including empty cells. A fixed TimeScope selects one observation window.
+For endpoint reads and cumulative observations, pass the grid endpoint directly
+to `at`; no separate time-domain construction is required. Coarsening requires
+whole original cells to fit inside target buckets; crossing weeks reject.
+The default grid timezone binds to the consuming Session.
+
+With omitted `by`, observation returns one overall value per month. Use `by=(member_entity,)` for the member/time product; `by` selects spatial grain only.
+
+{/* example: default-time-grain */}
+
+```python
+monthly_total = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+)
+monthly_total.execute().show()
+```
+
+## Select versions and read attributes
+
+The customer Entity declares its versioning and the region/score fields below. Membership and attribute anchors are explicit and independent.
+
+{/* example: versioned-attributes */}
+
+```python
+from datetime import datetime, timezone
+
+anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
+customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
+region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
+# A declared @ms.measure row expression uses the same read entry point:
+score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
+assert isinstance(region, mv.LogicalCategoryRelation)
+selected = region.where(region.value.eq("west")).members()
+selected.execute().show()
+```
+{/* example: grid-endpoint-consumers */}
+
+```python
+from datetime import datetime, timezone
+
+accounts = session.members(
+    ms.ref.entity("sales.account"),
+    at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+)
+balances = accounts.read(
+    ms.ref.measure("sales.account.balance"),
+    at=grid.before_end,
+)
+running = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.running_revenue"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
+)
+```
+
+The endpoint example additionally needs `sales.account.balance` and a declared
+cumulative `sales.running_revenue`. Snapshot selection is exact; no implicit
+latest or per-Entity last-known repair occurs. Validity intervals use their
+owned endpoint semantics. `grid.before_end` denotes the immediate left limit,
+while `grid.end` is the exact endpoint.
+An unversioned attribute read with a grid endpoint keeps its stable value in
+every member/time cell.
+
+## Declare source-time parsing
+
+`orders` is a declared Entity with the physical log-date and timestamp columns in these alternative declarations.
+
+{/* example: time-parsing */}
+
+```python
+# Canonical day partition: exactly eight digits, e.g. "20260131"
+log_date = ms.time_dimension_column(
+    name="log_date",
+    entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+    is_default=True,
+)
+
+# Native timestamp adopting the captured reader default, usable for sub-day buckets
+event_ts = ms.time_dimension_column(
+    name="event_ts",
+    entity=orders,
+    column="event_ts",
+    granularity="minute",
+    parse=ms.timestamp(),
+)
+```
+
+Civil dates retain their calendar interpretation; aware timestamps retain their
+absolute instant. A naive timestamp uses an explicit parser timezone first, the
+reader default second, and the system default only when the reader has no timezone
+capability. DuckDB's reader is configured as UTC; SQLite captures the system
+default. Add `timezone="Asia/Shanghai"` to `ms.timestamp(...)` when the source
+stores Shanghai wall time. Report timezone controls windows and buckets without
+changing source interpretation. Defaults are frozen when the source is bound;
+changing the host timezone does not change the bound graph or recovered results.
+Engine probe failures or invalid timezone facts still reject. String parsing must match the actual format.
+Do not replace an event-time axis with a physical partition just because it is convenient.
+
+## Status and cumulative Metrics
+
+The status example assumes a snapshot-versioned inventory Entity. Cumulative examples require their governed base Metric, event axis and, where used, certified calendar.
+
+{/* example: snapshot-status-fold */}
+
+```python
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
+    entity=inventory_daily,
+    column="snapshot_date",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
+    additivity=ms.additive_all(except_=(snapshot_date,)),
+    status_time_dimension=snapshot_date,
+    status_time_fold="last",
+)
+```
+{/* example: cumulative-metric */}
+
+```python
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
+active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users",
+    base=active_users,
+    over=event_time,
+)
+```
+{/* example: cumulative-grain-anchor */}
+
+```python
+mtd_revenue = ms.cumulative(
+    name="mtd_revenue",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(grain=mv.grain("month")),
+)
+```
+{/* example: cumulative-calendar-anchor */}
+
+```python
+fiscal_mtd = ms.cumulative(
+    name="fiscal_mtd",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(
+        grain=ms.calendar_grain(
+            calendar=ms.ref.period_calendar("sales.fiscal"),
+            level="fiscal_month",
+        )
+    ),
+)
+
+fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
+dataset = (
+    session.members(ms.ref.entity("sales.events"))
+    .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
+    .group_by(grid)
+    .rollup()
+)
+```
+{/* example: cumulative-trailing-anchor */}
+
+```python
+rolling7_active = ms.cumulative(
+    name="rolling7_active",
+    base=active_users,
+    over=event_time,
+    anchor=ms.trailing(count=7, unit="day"),
+)
+```
+
+Status folds aggregate spatially at each sample before folding time. Original
+rollup needs compatible retained samples. Cumulative endpoints read from their
+declared anchor, including history before the displayed grid. Overlapping
+accumulation windows cannot be summed across time.
+
+## Select Defined values first
+
+The customer model declares region, revenue and the buyer relationship. Every predicate input must cover the complete receiver domain.
+
+{/* example: defined-selection */}
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+revenue = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+defined = revenue.where(revenue.value.is_defined())
+defined.contract().show()
+selected = defined.where(mv.all_of(defined.value.gt(0), region.value.eq("east")))
+```
+{/* example: cohort-opportunities */}
+
+```python
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+activity = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=grid,
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
+cohort.contract().show()
+```
+
+`is_defined()` is a total tag check. Combining it with a numeric comparison in
+`all_of()` does not protect that comparison: child consumption checks run first.
+Select Defined values before the numeric call. Cohort rules distinguish subjects
+from their multiple opportunities; preserve the complete grid and declared
+empty-opportunity policy instead of dropping no-contribution cells.
+
+## Declare business coverage
+
+`members`, `grid` and `sum_metric` already describe a complete, non-partial daily grid and one original sum Metric. The declaration must have an actual business basis.
+
+{/* example: business-completeness */}
+
+```python
+from datetime import datetime, timezone
+
+complete = mv.time_scope(
+    start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    end=datetime(2026, 8, 3, tzinfo=timezone.utc),
+)
+daily = members.observe(
+    sum_metric,
+    during=grid,
+    complete_during=(complete,),
+    by=(ms.ref.entity("sales.customer"),),
+)
+```
+
+Outside the declared complete scopes, cells are Unknown with retained partial
+state. This form requires `during=grid`, no extra contribution coordinates
+and no `at`; it cannot original-rollup the covered observation. Empty data is
+not evidence of complete coverage. Count zero, absent state and incomplete
+coverage remain distinct.
+
+## Inspect current rows and complete groups
+
+Use the customer sales model. The example explicitly supplies target groups, including groups with no selected rows.
+
+{/* example: complete-target-groups */}
+
+```python
+all_members = session.members(ms.ref.entity("sales.customer"))
+all_regions = all_members.read(ms.ref.dimension("sales.customer.region"))
+members = all_regions.where(all_regions.value.eq("east")).members()
+region = members.read(ms.ref.dimension("sales.customer.region"))
+values = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+targets = all_regions.group_by()
+original = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(region,),
+    groups=targets,
+).execute()
+row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
+total_row_mean = row_mean.rollup().execute()
+selected_regions = all_regions.where(all_regions.value.eq("east"))
+category_counts = selected_regions.group_by(groups=targets).summarize(mv.count()).execute()
+fixed_targets = selected_regions.group_by(groups=targets).execute()
+```
+{/* example: mean-original-rollup */}
+
+```python
+mean_amount = ms.ref.metric("sales.mean_amount")
+channel = ms.ref.dimension("sales.orders.channel")
+means = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        mean_amount,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(channel,),
+    )
+    .execute()
+)
+overall = means.rollup().execute()
+overall.show()
+```
+{/* example: hourly-daily-source */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+window = mv.time_scope(start="2026-07-01", end="2026-07-03")
+orders = session.members(ms.ref.entity("sales.orders"))
+hours = mv.time_grid(during=window, grain=mv.grain("hour"))
+orders_by_hour = (
+    orders.observe(ms.ref.metric("sales.revenue"), during=hours).execute()
+)
+# A new daily observation uses the same business window.
+days = mv.time_grid(during=window, grain=mv.grain("day"))
+orders.observe(ms.ref.metric("sales.revenue"), during=days).execute().show()
+```
+
+The mean example instead needs `sales.orders`, `sales.mean_amount` and channel;
+the hourly example needs that orders Entity with a UTC timestamp axis. Original
+mean rollup merges sums and counts; a row mean creates a different quantity.
+Follow [statistics](/docs/latest/guides/statistics/) for screening, and
+[calendars and schedules](/docs/latest/guides/calendars-and-schedules/) for governed civil boundaries.

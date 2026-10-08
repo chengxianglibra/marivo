@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -74,8 +75,27 @@ def _fixed_offset_fallback() -> ResolvedTimezone:
     if local_tz is None:
         local_tz = ZoneInfo("UTC")
     return ResolvedTimezone(
-        name=str(local_tz),
+        name=str(timezone(local_tz.utcoffset(None) or timedelta(0))),
         tz=local_tz,
         resolution="fixed_offset",
         warning="system timezone could not be resolved as IANA; fixed offset fallback is in use",
+    )
+
+
+def restore_timezone(name: str, resolution: str) -> tzinfo:
+    """Restore a persisted IANA name or canonical fixed UTC offset."""
+    if resolution == "iana":
+        return zoneinfo_from_name(name)
+    if resolution == "fixed_offset":
+        if name == "UTC":
+            return timezone.utc
+        match = re.fullmatch(r"UTC([+-])(\d{2}):(\d{2})(?::(\d{2}))?", name)
+        if match is not None:
+            hours, minutes, seconds = (int(match[index] or 0) for index in (2, 3, 4))
+            if hours < 24 and minutes < 60 and seconds < 60:
+                offset = timedelta(hours=hours, minutes=minutes, seconds=seconds)
+                return timezone(offset if match[1] == "+" else -offset)
+    raise TimezoneInvalidError(
+        message="Persisted report timezone is not a canonical IANA name or fixed UTC offset.",
+        context={"kind": "PersistedTimezoneInvalid", "tz": name, "resolution": resolution},
     )

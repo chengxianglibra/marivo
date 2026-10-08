@@ -1,344 +1,525 @@
-# Session, State, and Runtime
+# Session State and Runtime
 
-Status: design. This document specifies how `marivo.analysis` holds state across
-the agent write-run-read loop: the `Session` object, the project-local on-disk
-layout, content-addressed artifact identity, cold-start rehydration, cross-session
-ownership, and failure recovery. It is the runtime companion to
-[`python-analysis-design.md`](python-analysis-design.md) (overview) and
-[`operators-and-frames.md`](operators-and-frames.md) (the operator algebra). The
-evidence ledger that shares this session directory is specified in
-[`evidence-access-surface.md`](evidence-access-surface.md).
+Status: current Runtime and Store 9 contract, 2026-10-09.
+[Analysis Design](python-analysis-design.md) owns construction and compilation;
+[Operators and Frames](operators-and-frames.md) owns method meaning and sufficient
+state. This document owns execution identity, publication, storage and recovery.
 
-The analysis alias is `mv` (`import marivo.analysis as mv`).
+## Session and invocation ownership
 
-## The Session object
+A Session owns an investigation and immutable Run/Artifact history under the
+project's `.marivo/` directory. Creation, current selection and resume use
+`mv.session.get_or_create(...)`, `mv.session.current()` and
+`mv.session.resume(...)`. Report timezone is persisted Session authority.
+Identity/timezone conflicts and cross-Session operands fail explicitly.
 
-A `Session` is the one stateful handle in analysis. It owns the semantic catalog
-consumed by operators, the report timezone, and the persistence layout;
-every operator is a method on it. Sessions are created and resumed through the
-narrow `mv.session` module facade, never constructed directly.
+Construction and compilation create no Run and read no business rows.
+Schema-only source preflight may connect to resolve unknown key/value types.
+Business reads follow exact physical admission and Run allocation, and recheck
+the schema captured during preflight. One typed-graph Runtime owns the path;
+scenario executors and former Population/Metric Dataset routes are removed.
 
-Read-only identity properties are `session.id` (a `sess_<hex>` id) and
-`session.name`. Other read-only public properties include `session.question`
-(the current guiding question), `session.cwd`, `session.project_root`, `session.catalog`,
-`session.created_at`, `session.updated_at`, `session.tz` / `session.report_tz`
-(plus `report_tz_name` / `report_tz_resolution` / `report_tz_warning`),
-and `session.is_read_only`.
+## Source and fixed execution identity
 
-`repr(session)` is a bounded one-line identity that points to `session.show()`.
-`session.show()` prints, and `session.render()` returns, the same bounded state
-card with the question, read/write status, report timezone, timestamps, and
-catalog/job/frame inspection entries.
+Classification follows the root's transitive data dependencies. An explicit
+FixedLeaf is a retained boundary; its origin lineage is not a current source.
+Source output passed to a local stage within the invocation remains source-only.
 
-`session.is_read_only` is `True` when no datasource resolution path is configured:
-such a session can read persisted artifacts and evidence but cannot run analysis
-that touches a datasource. Operators that need a backend raise
-`NoBackendFactoryError` on a read-only session.
+| Classification | Identity and execution |
+| --- | --- |
+| Source-only | Every admitted top-level execute gets a fresh Run/evaluation key and reads current sources. A saved Artifact with the same definition cannot satisfy it. |
+| Fixed-only | Exact ordered Artifact inputs, bindings and method/plan identity define the key. An exact published hit returns its original Artifact without a new Run; a miss executes the admitted local consumer. |
+| Mixed live source and fixed Artifact | Reject before Run admission, business source acquisition or retained row consumption. |
 
-### Credential source ownership
+Definition identity describes a normalized question and explicit bindings,
+not a source snapshot. One shared logical node realizes once per invocation;
+separate equal definitions remain separate nodes. Checks, required parts and
+terminal native expressions may read independently. A Run does not promise
+one scan, transaction or stable source version.
 
-Connection runtimes capture the datasource resolver selected when they are created
-or resumed. They retain it after `md.credential_scope` exits; no resolver or secret
-is persisted in the Session Store. A different explicit resolver at managed
-backend acquisition requires a new runtime. Existing backend overrides and
-Session cleanup remain unchanged. See `marivo.help("datasource.credential_scope")`
-for the owning credential contract.
+The Runtime orders admission as follows:
 
-Session connections retain environment-secret provenance through the shared
-backend construction path. The first successful analysis execution attempts
-best-effort caching; failed execution and injected credentials do not write the
-cache. Each Marivo-owned connection has an independent default 30-second handshake
-budget. Session connections retain their declared open mode and live until
-`Session.close()`; semantic preview and source-health operations release their
-own connections independently. A DuckDB read/write mode conflict requires closing
-the existing owner or matching declared settings; diagnostics never close an
-active Session implicitly.
+1. Capture/validate the graph, classify dependencies and select the exact
+   qualified plan, source bindings and fixed schedule.
+2. Acquire the Session writer guard and reconcile unfinished Run/resource state.
+3. Resolve a fixed-only exact key and return an existing committed result if found.
+4. On a producer miss, determine the key and allocate/admit its Run.
+5. Execute preparation, methods and checks under one deadline.
+6. Publish complete Artifact/Evidence/Findings and successful Run atomically.
 
-### Lifecycle
+The source key binds protocol, definition/plan and fresh Run identity.
+The fixed key binds exact ordered Artifact inputs and method/protocol/plan
+identity without a new random value. Store uniqueness remains
+`(Session, execution_key)`. Source evaluations can publish different immutable
+Artifacts for one definition; one fixed key has at most one successful output.
 
-The public session surface is intentionally small (`mv.session.__all__` is exactly
-`abandon_run`, `current`, `delete`, `get_or_create`, `inspect`, `recent`,
-`resume`; the removed names `archive`, `attach`, `create`, `switch`, `active`
-are gone):
+Exact Artifact references recover their own producing Run, never the latest
+result for a definition. A failed later evaluation does not replace an earlier
+success. Lost commit acknowledgement is reconciled against the original Run/key,
+without allocating a new identity or replaying sources.
 
-- `mv.session.abandon_run(*, session_id, run_id) -> None` — after confirming
-  execution stopped, atomically fail one incomplete Run before Session
-  activation. It removes only unconsumed Session Store Artifact registrations;
-  physical files and Evidence markers remain unchanged. Repeating the same
-  abandonment is a no-op. It does not stop a running process and rejects
-  succeeded Runs, Runs failed for another reason, and outputs referenced by any
-  downstream Run.
-- `mv.session.get_or_create(name, question=None, *, report_timezone=None, backends=None, backend_factory=None, use_datasources=True, domains=None) -> Session`
-  — the default entry. The first call with a name creates the session; later calls
-  attach to the same immutable session id. An explicit string becomes the current
-  guiding question, while omitting `question` preserves the persisted value.
-  Either way the named session becomes current. An optional domain name or
-  non-empty sequence fixes the new session's semantic loading scope. Omission
-  (including explicit `None`) on an existing session reuses its saved scope;
-  an explicitly different set fails before activation and reports both the
-  existing and requested sets. Existing sessions without a stored scope load
-  all domains. `resume()`, `current()`, and cold artifact recovery reuse the
-  saved scope without changing their public signatures.
-- `mv.session.resume(identity, *, by=None, backends=None, backend_factory=None, use_datasources=True) -> Session`
-  — explicitly resume one current-project session by its exact stable name or
-  immutable `sess_...` id. Unknown and ambiguous identities fail without
-  creating a session. It never changes the persisted name, question, or report
-  timezone. Omit `by` for normal resolution; after an ambiguous match, retry
-  with the closed selector `by="name"` or `by="id"` to choose the intended row.
-- `mv.session.current() -> Session | None` — a safe probe for the current session
-  (process-current, else the persisted `current_session_id`, else `None`). Both
-  process and persisted paths validate exact Store row schemas and reconcile
-  incomplete Runs without changing the question, timestamps, or current pointer;
-  cold rehydration additionally validates every registered Artifact sidecar.
-- `mv.session.recent(*, limit=20, cursor=None) -> SessionSummaryPage` — a bounded,
-  newest-updated-first keyset page for selective historical reference. This is
-  the discovery path for historical sessions; each summary supports bounded
-  `.show()`, and its exact `name` or immutable `id` can be passed to `resume`
-  to obtain a live `Session`.
-- `mv.session.inspect(name, *, frame_limit=10, job_limit=5) -> SessionInspection`
-  — a bounded metadata snapshot containing the exact session summary, recent
-  frame summaries, and recent jobs. It does not resume the session, move the
-  current pointer, touch timestamps, load semantic/datasource state, or expose
-  execution methods.
-- `mv.session.delete(name) -> None` — permanently remove a session and its
-  on-disk data; a no-op for unknown names.
+## Acquisition and local consumption
 
-`name` is the stable API lookup key and `session.id` remains the immutable
-persistence identity. Updating the current question never rewrites existing jobs,
-Artifacts, Evidence, lineage, or their `analysis_purpose`. `report_timezone` is
-persisted on first create; reopening with a conflicting value raises
-`SessionTimezoneConflict` (see
-[`timezone-and-calendar-design.md`](timezone-and-calendar-design.md)). `backends`
-and `backend_factory` are mutually exclusive; supplying both raises
-`SessionStateError`.
+A selected `ibis` plan keeps governed dependencies as Ibis expressions.
+Checks, terminal primary and required parts are submitted through SourceSession.
+Pure-native execution does not capture intermediates only to restage them as
+literal/temporary source relations. Temporary validation output may still be
+read for independent checks.
+
+`ibis_python` prepares the exact projected/filtered input for its registered
+local consumer. Safe member/time filters, joins, attributes and component
+aggregation stay at source. Source-native execution is preferred when an exact
+qualified implementation preserves the complete requested contract. Route
+selection happens before execution; failure never switches implementations.
+
+Every source dependency needed after local selection is collected from the
+Logical DAG and prepared before that selection consumes rows. Prepared
+observation retains per-Subject support, components, path/version facts, axes,
+time envelope and full keys. Local consumers restrict that capture by the
+selected Subject/Anchor image. A population scalar cannot replace this support.
+No selected-ID upload, source-after-local query, rematch or implicit second
+selection is admitted.
+
+Fixed execution reads controlled local Arrow/Parquet data into registered
+pandas/NumPy/SciPy methods. It does not open DuckDB to scan retained Parquet,
+load current Semantic/calendar definitions or reconnect historical sources.
+A fixed member domain does not fix a new live Metric/property/Event dependency.
+
+Independent native queries have no shared transaction-snapshot guarantee.
+A completed source check proves its own query, not a later calculation.
+Where common captured authority is required, the exact producer must supply it;
+equal paths, definitions or row counts do not supply it.
+
+## Check scheduling and transport
+
+Declarations, constructor guarantees, call assumptions and completed checks
+have distinct evidence bases. Obligations retain exact originating ordered
+nodes, scope and consume/publish deadline. Composite facts bind windows,
+versions, quantities and paths as well as symbolic domains. One check serves
+consumers only for the same actual input and fulfillment location.
+
+A consumer of inherited evidence requires the originating completed record.
+Completing a local stage does not prove its upstream checks ran. Checks over
+local History views consume actual controlled inputs before their deadline.
+Predicate transport checks complete consumed keys, including interval and
+violation identities, before selection. Later source observation candidates
+are prepared before History selection consumes local rows.
+
+Local numeric finishes rebind a retained source projection to finished values.
+Downstream statistics check those actual inputs; a local stage does not erase
+its source/input binding. Historical attribute selections retain captured
+versions through a subsequent observation.
+
+Exchange preserves typed schema/decoding, compact Cell bindings, ordered parts,
+complete read/close, deadline/cancellation and resource ownership. Producer
+key/Cell/business guarantees are trusted rather than repeatedly re-audited.
+Necessary indexes reject encountered duplicates and required lookups reject
+missing operands. Methods still enforce their actual consumed Cell, finite,
+coverage and arithmetic contracts. A partial/failed stream cannot publish
+successful evidence.
+
+## Retained schemas and method state
+
+Store, graph, descriptor, continuation and method-state versions are distinct:
+
+| Current protocol | Authority |
+| --- | --- |
+| SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
+| graph_dag/v4, `graph-dag-v4:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
+| run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
+| artifact_descriptor/v5 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
+| receipt/v1 | Closed primary/part variants with complete key schema and local storage facts |
+| method_state/v2 | Kind-dispatched state, binding and method/contract versions |
+| continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
+| execution_key/v3 | Same-Session execution identity, independent of Store generation |
+
+Complete graph protocol names have the `marivo.analysis.` prefix. Parts preserve
+exact physical types, Decimal precision/scale and Duration/timestamp units.
+Each Cell slot freezes its carrier and canonical reason dictionary in the
+descriptor's primary Arrow schema or its part receipt. Parquet payloads carry
+only physical fields; they do not repeat the dictionary in their headers. Reads
+restore the one frozen binding before validating codes. Physical implementation ABI 6 and
+state/part contract 3 bind this representation. Defined is code 0. Non-Defined
+codes use the low two bits for Null (1), Undefined (2), Unknown (3), with the
+high bits holding the dictionary ordinal (starting at 1). Dictionaries sort by
+tag then reason, admit at most 8191 pairs, and are deterministically rebound when
+inputs combine. Encoded state fields are non-null int16; invalid codes, undeclared
+reasons and state/value-validity disagreements reject without fallback.
+
+Optional correspondence endpoints use -1 solely for an absent endpoint, outside
+the four Cell states. Only a frozen optional binding permits that sentinel;
+correspondence parts still own presence and pairing checks. An absent endpoint
+is distinct from a present Null Cell. Empty streams retain bindings, schemas and
+domains; actual row distributions never alter their carrier.
+
+Descriptor v4 and earlier, method-state v1 and earlier, and prior state/part
+contracts reject on recovery. Existing history and files are preserved. Re-execute
+the producing source analysis to create a current Artifact; there is no migration
+or alternate read path. Store 9 adds canonical Session domain-scope metadata;
+Artifact and graph codec versions remain independent. Current public `show()` and
+`to_pandas()` restore the same value/tag/reason fields and types.
+
+Ordinary state includes Subject/coordinate maps, original components, current-row
+statistic state, coverage, correspondence/endpoints and references as required.
+Coordinate recovery preserves the numeric relation family, complete coordinate
+rows and original state. Domain/statistical selection can restrict current rows
+while retaining original assignment, trace, fit, classification, search, training,
+Omega or reconciliation scope. The tables below describe semantic layouts;
+the typed protocol and method-state consumers own their exact field schemas.
+
+
+| Method key / parameters | Output/state kind | Required retained parts and continuation condition |
+| --- | --- | --- |
+| occurrence.prepare@v1 / Event captures, Subject input, time bounds, order, coverage | occurrence_inputs | exact occurrences, participants, order facts, coverage and capture authority; reusable only for the bound downstream methods |
+| journey.match@v1 / pattern, policy, start/follow-up bounds | journey_assignment | complete Journey domain, dense assignment/reach, exact steps, SubjectBinding, input/order/coverage facts |
+| journey.duration@v1 / exact from/to steps | journey_duration | full Journey domain, status/endpoints/follow-up, assignment/reach and SubjectBinding |
+| journey.dropped_before@v1 / exact noninitial step | journey_truth | full opportunity/reach and coverage; first_per_subject only |
+| funnel.reduce@v1 / axes | funnel_components | assignment binding, step/axis domain, seven counts, three rate Cells, entry-time axes and complete-partition evidence |
+| funnel.compare@v1 / ordered current/baseline | funnel_comparison | both endpoint components/domains and funnel-period compatibility; read preserves the bound endpoint roles |
+| funnel_ratio_mix@v1 / target, axes, mode, Top-K | funnel_allocation | both full component partitions, target, common mapping/masks, all resolutions, allocated sides/error bounds and original reconciliation scope |
+| history.replay@v1 / full members + occurrence preparation, model, from_inception, report window | canonical_history | exact full Subject domain/classification, inception/known-prefix/coverage, clipped intervals with original boundaries, all legal transitions and occurrence violations |
+| history.in_state@v1 / state, checkpoint | history_truth | full Subject ledger, state/interval and end-left-limit authority; missing interval is not missing Subject |
+| history.distribution@v1 / checkpoints, axes | state_distribution | checkpoint/state/actual-axis target domain, checkpoint axes, exact Subject classifications and count components |
+| history.transitions@v1 / report window | transition_summary | complete declared pair domain and all legal trace entries, self/zero-duration included |
+| history.violations@v1 / report window | violation_rows | exact violation occurrences/time/kind/state, model and SubjectBinding |
+| history.intervals@v1 / report window | interval_rows | original/clipped boundary causes, statuses, exact observed ticks, SubjectBinding |
+| history.dwell@v1 / completed_window_fragment_duration@v1 | dwell_statistics | complete state domain, classified interval counts, exact completed ticks/order statistics and tick sum/count |
+| anchor.bind@v1 / Event role or Journey starts, population, during, order | anchor_domain | full Anchor keys/starts, source assignment or occurrence input, exact Subject map, frozen order/coverage |
+| anchor.observe@v1 / Metric/RuntimeMetricExpr, RootRoutes, relative window | anchor_observation | per-Anchor Metric components and Cells, exact windows, contribution-use keys, coverage and root/path definitions |
+| anchor.retention@v1 / returning role, relative window, coverage | anchor_retention | original Omega, K+/K-/K?, windows, exact return uses/absence facts and Anchor-to-Subject mapping |
+| retention.by_subject@v1 / any_anchor or every_anchor | subject_retention | original instance status fibers, explicit Subject-image Omega, quantified truth and bounds |
+| existing parts_transport@v1 / bound selection, completed, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |
+| existing row.mean@v1 / Duration current rows | row_statistic | exact checked tick sum/count, unit, complete selected domain and final rounding policy |
+
+### Domain continuation conditions
+
+| Producer/view | Permitted continuation and exact condition |
+| --- | --- |
+| journey.match | duration and SubjectBinding views require assignment/reach/map; funnel and dropped_before additionally require first_per_subject |
+| journey.duration / completed view | owned relations, exact where/Subject image and Duration row.mean require the selected full Journey keys and transported endpoint/unit state |
+| funnel.reduce | owned read and period compare require full components; compare additionally needs both compatible complete endpoints; attribute needs complete axis partitions, with explicit Logical same-assignment expansion or already retained fixed axes |
+| funnel.compare / funnel_ratio_mix | read and contribution selection/table retain endpoint/allocation/scope parts; selected views lose complete-partition K; no arbitrary rate rollup or Subject reconstruction |
+| history.replay | each named History method requires the Subject ledger and its specific trace/interval/checkpoint parts from the table; no bag replay/merge |
+| history.in_state | decidable where/members uses the Entity domain and known-state proof, without an instance through binding |
+| history.distribution / transitions / dwell | owned read/selection/table retain full state/pair/count/statistic scope; no default Subject map or summary-value rollup |
+| history.violations / intervals | owned read/where and members require the total model SubjectBinding; interval Duration row.mean also requires exact observed ticks/unit |
+| anchor.bind | observe/retention require the frozen instance keys/windows/map and all explicitly captured downstream Metric/return parts; an unseen live dependency is mixed |
+| anchor.observe | existing Metric read/selection/table rules apply per Anchor with original components/use bindings; removing Anchor coordinates grants no original rollup without an independently admitted disjoint/allocation proof |
+| anchor.retention / retention.by_subject | status views and known-true members retain original Omega/coverage/map; subject quantification requires complete fibers; bounds have no arithmetic/rollup K |
+| parts_transport / row.mean | transport preserves only capabilities justified by surviving rekeyed parts; mean retains exact sum/count/unit for its existing row-statistic continuations, never original Metric state |
+
+A missing required part removes its continuation and an attempted successor
+fails at the earliest known boundary. Materialized receivers construct Logical
+fixed work; successor derivation/admission still validate the request.
+A serialized list of actions is not authority for K.
+
+### Domain capture layouts
+
+| Part role | Complete row key | Required payload beyond the key |
+| --- | --- | --- |
+| occurrences | Event binding + complete occurrence K | exact Subject K, occurred_at; closed no-sequence/integer-sequence/enum-sequence schema variant |
+| coverage | exact Event/source/version + Subject/interval binding | observed/declared/mixed/unknown basis, origin or bounded claim, exclusive extent, known prefix, capture authority |
+| assignments | Journey K + exact step key | assigned occurrence/time Cells, reach truth/reason and input binding |
+| subjects | exact instance K | exact complete Subject K and role/definition binding; total single-valued map |
+| duration | Journey K + exact step-pair binding | closed status, started/completed/follow-up Cells, completed/observed ticks and unit |
+| funnel_components | step + complete historical-axis tuple | seven exact counts, first/previous denominator roles, full target scope and coverage |
+| subject_history | complete input Subject K | inception/NotStarted/Unknown classification, known prefix, origin and follow-up authority |
+| transitions | Subject K + canonical transition ordinal | occurrence key, instant, from/to state, legal/inception disposition, report-window inclusion |
+| violations | exact trigger occurrence K | instant, known state, illegal/terminal kind and model binding |
+| intervals | Subject K + original canonical interval ordinal | original/clipped start/end and causes, state, completed/right/coverage censor, left clipping and observed ticks |
+| checkpoint_axes | Subject K + exact checkpoint | exact historical Dimension tuple and version/path facts |
+| metric_candidates | Metric component/root + original contribution K + exact time/version key | exact value/state and null/empty policy, path allocation, historical axes, support mapping and candidate scope |
+| anchor_uses | Anchor K + component/return occurrence K | exact per-Anchor window, component state or return truth, coverage and use binding |
+| retention_status | original Omega instance K | exactly one true/false/unknown tag and its proof/coverage binding |
+| allocation | full resolution/axis/mask/kind key | exact endpoint counts, target/side/contribution values with bounds, common Top-K mapping and original scope |
+
+Original interval ordinals stay bound to the saved trace after clipping or
+selection. No summary can reconstruct Subject/occurrence membership.
+Statistical fit_inputs, fit_state, grid_cells, condition_cells, run_cells,
+pair_inputs, association_state, training_inputs, forecast_state and future_cells
+are specified by [the method owner](operators-and-frames.md#requiredparts-transformations-and-closed-failures).
+
+## Deadline and resource ownership
+
+Every graph execute shares one private 600-second monotonic deadline from entry
+through admission, preparation, checks, acquisition, local computation/refinement,
+fixed exact-hit handling and publication/return. Expiry is elapsed>600.
+Stages, batches and source/fixed transitions do not reset the budget.
+There is no public budget parameter.
+
+Native source timeout/cancellation, local checkpoints and late-result rejection
+enforce the same remaining deadline. Unsupported cancellation authority blocks
+that physical route. Timeout, cancellation, bad/late batch or failed read/close
+abort uncommitted publication and release owned readers/cursors/connections/
+staging under their resource owners. Durable success remains committed after a
+later deadline; unknown commit state belongs to reconciliation.
+
+There are no occurrence/attempt/Subject/tie-width, input-row, part-row,
+captured-byte or workspace-memory execution quotas. Protocol-envelope limits,
+association's 4096 candidate ceiling, explicit horizon/limit bounds and Findings'
+1000 cap remain separate contracts. Resource failure never truncates, samples
+or replaces valid input.
+
+Actual submissions, rows, decoded bytes, simultaneous buffers, stage time and
+output/part sizes describe cost; they do not qualify correctness or another
+route. Batches do not imply a streaming kernel: rank/order methods and forecast
+retain their full required vectors; runs carries unfinished sequence state.
+
+Driver APIs own cancellation and close. Unknown remote termination is never
+reported as confirmed termination. Writer/commit ownership must be safe before
+continuation; unresolved commit or resource journal obligations block
+reconciliation. Recovery never resubmits the action.
+
+### MySQL owned cancellation
+
+MySQL source graphs prepare a separate same-datasource control connection before
+business submission. The approved provider statement cancels only the still-owned
+native data connection ID; its parameter and purpose are closed. Preparation
+captures the data connection object, its native thread ID and a duplicated socket
+while the driver is idle. Timer and signal callbacks use that captured ownership
+without invoking connection metadata methods during an active query. The duplicate
+socket closes during owner-thread cleanup. Control setup
+and requests have one-second native connection/read/write bounds and checkpoint
+the shared execution budget. Cancellation also shuts down the owned data socket,
+then owner-thread cleanup waits for control work before closing cursors and both
+connections. Control errors do not establish remote termination: receipts retain
+`remote_unknown`, and a control-close error prevents successful publication.
+During a main-thread graph with Python's default SIGINT handler, a temporary
+signal wakeup listener requests the same owned cancellation while mysqlclient
+blocks in a native read. It preserves the handler and forwards notifications to
+the previous wakeup descriptor, restoring that descriptor before releasing the
+listener. Concurrent timer and signal requests issue at most one owned KILL.
+Cursor close remains on the execution thread. Query ownership lasts until cursor
+release, including failed/early-closed unread streams; terminal submission state
+alone cannot remove an active query's cancellation target. Owner release marks
+an interrupted submission still pending during SIGINT failure unwinding as failed.
+If interrupted
+mysqlclient response draining fails, confirmed disconnection of the owned data
+connection replaces that drain and preserves the original KeyboardInterrupt.
+For a borrowed backend, only native connection-loss errors 2006/2013 after the
+exact owned cancellation preserve the original interruption while retaining
+`close_failed`. SourceSession does not disconnect the borrowed backend. Its
+outer datasource connection owner must confirm disconnection before
+`mark_backend_disconnected()` changes that cursor state to closed; failed outer
+release retains the existing typed error and unconfirmed state. Custom signal
+handlers and worker-thread callers retain their existing signal behavior.
+The Run reserves `mysql_owned_control_close@v1` before control creation and only
+discharges it after confirmed owner release. Unconfirmed creation/close retains
+the obligation and an incomplete Run; reconciliation raises a typed pending error
+instead of assuming that a read-only control was released. It never targets a
+connection from a later session.
+
+## Store 9 publication and local trust
+
+Output is project-local Parquet under `.marivo/analysis/generations/v9/`.
+Session/Run/Artifact metadata is in the generation's SQLite Store.
+Database result storage and project-level analysis storage settings are absent.
+
+The writer journal tracks owned staging/final resources. Primary and every part
+have independent typed schemas, key layouts and local receipts. Publication
+makes complete Artifact, RequiredParts, Evidence, capped Findings and successful
+Run visible in one Store transaction. Deadline-aware publication cannot commit
+late or partial results. Failure cleanup preserves previously committed outputs
+and another Run's resources.
+
+Committed local results and private in-process compiler objects are trusted.
+Readers decode required types/data without content hashes, anti-tamper chains,
+producer method proofs or re-extracting Findings. Local receipts retain paths,
+file sizes, row counts and format version without file/manifest/schema hashes.
+Remaining definition, execution and recorded-evidence digests identify work;
+they do not certify unchanged file bytes.
+
+Store 8 and earlier, graph DAG v1 and superseded descriptor/continuation formats
+reject without mutation, migration, dual reading or automatic rebuilding.
+Preserve old bytes. A new Session may create the independent current-generation
+directory in the same project; it never reads or upgrades the earlier generation.
+`session.revalidate` and its former result types are removed. Re-executing a
+current question creates a new result; it does not upgrade an old Store.
+
+## Recovery and bounded reads
+
+Use `session.runs(limit=..., cursor=...)`, `session.get_run(run_id)`,
+`session.artifact(reference)` and `session.graph(...)`. Run variants are
+incomplete, succeeded and failed; inspect the exact type before accessing
+success-only or failure-only fields.
 
 ```python
 import marivo.analysis as mv
 
-session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
-frame = session.observe(
-    metrics=session.catalog.require(ms.ref.metric("analytics.dau")).ref,
-    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
-)
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    saved = session.artifact(run.output_artifact_ref)
+    saved.show()
 ```
 
-### Parameterized physical sources
+Recovery returns the concrete Materialized family from saved metadata, types
+and required data. It preserves original time/report/calendar authority,
+versions, primary values and parts. It does not select the original producer,
+replay its method validation, load current models, read sources, rematch,
+replay History, refit statistics, resegment runs or reforecast. Recovery cannot
+establish freshness or suitability for a new question.
 
-`session.source_bindings({...})` supplies non-secret runtime values declared by
-`md.source_param(...)` on JSON Entity sources. It is a context manager rather
-than an `observe` keyword: one request scope can consistently cover planning,
-materialization, and any nested analysis calls without changing the stable
-semantic project.
+Inspection uses frozen graph records and signatures. A new continuation uses
+retained parts and current successor capability, then enters ordinary
+admission/execution. Independent operations decode their own metadata;
+an invocation-local ValidatedDescriptor is a handoff, not a disk-integrity cache.
+Missing/unreadable data, incompatible generations, invalid Session/cursor
+ownership and incomplete publication still raise structured errors.
 
-```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.samples"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
-```
+Cards/pages are bounded and deterministic; `to_pandas()` returns an isolated
+copy. Run graphs report recorded input/output edges without inferring or
+replaying historical lineage.
 
-Bindings are validated against the current catalog before execution, nest with
-normal context-manager semantics, and are isolated with `ContextVar`. Each scope
-is keyed by its owning Session connection runtime, so another Session in the
-same task cannot consume its values. The exact non-secret values enter persisted
-observe params and scope identity. Credentials remain datasource-owned `*_env`
-references and are never accepted here.
+## Fixed execution groups
 
-## Project-local persistence layout
+A validated fixed schedule may group adjacent admitted local stages.
+Groups are invocation-local arrangements of the original DAG; they do not
+replace definition fingerprints, selected method records, plan digests,
+execution keys or saved graph/continuation versions. Public semantics and
+numerical qualifications remain unchanged.
 
-All analysis state lives project-locally under `<project_root>/.marivo/analysis/`.
-Nothing is written to user-global state (datasource secrets are the sole exception
-and live outside analysis). The layout, owned by `PersistenceLayout`:
+### A2 sequential selection
 
-```text
-<project_root>/.marivo/analysis/
-  session_store.db                 # SQLite (WAL): the authoritative session index
-  sessions/<sess_id>/
-    meta.json                      # report timezone and known datasources
-    jobs/<job_id>.json             # full job records (intent, params, status, timing, output ref)
-    frames/<ref>/data.parquet      # frame data (snappy parquet via pyarrow)
-    frames/<ref>/meta.json         # BaseFrameMeta sidecar, content-hashed
-    scripts/                       # session-local script storage
-    judgment.db                    # evidence ledger (see evidence-access-surface.md)
-```
+After fixed schedule validation, the local executor may group adjacent selected
+`artifact_python` int64 `PartsTransport(mode="where")` stages. The existing L1
+owner checks the same quantity, domain, edge roles, retained parts and unknown
+policy without constructing another MethodNode. Each stage remains independently
+admitted and physically qualified; source execution and numeric type qualification
+are unchanged.
 
-Writes are atomic (temp file + `os.replace`) so an interrupted turn never leaves a
-partial `meta.json` or parquet. Evidence-backed Artifacts publish in one order:
-data/auxiliary files and `meta.json`, then the one-transaction evidence projection,
-then the Session Store index. A committed schema-v4 evidence Artifact row is the
-recovery marker for interruption before the final index write; exact recovery
-validates its session, canonical path, schemas, content hashes, evidence status,
-and digest before restoring the missing index row. Files without either an index
-row or that committed marker remain unreachable orphans. Paths recorded in the
-Session Store are **project-relative** (via `PersistenceLayout.relative_path`), so
-the `.marivo/` tree stays valid if the project directory is moved.
+Only receiver-bound ordinary predicates qualify. External dependencies, tag
+selection, cohort, limit, display or attribution views, business-coverage changes,
+and stages with pending check requirements retain their normal execution. A shared
+intermediate, requested output, explicit Artifact leaf or unfamiliar part transport
+ends a group. Ordinary Subject, original/coordinate/row state, coverage, statistical
+weight, endpoint and correspondence parts qualify only with the actual required
+schema and complete-key layout. Fixed references and domain-specific parts retain
+their specialized owners.
 
-If a non-lock projection transaction fails but `judgment.db` can still accept a
-fresh transaction, Marivo commits an `evidence_status="unavailable"` Artifact row
-and the exact `evidence_store_unavailable` issue without findings or a digest. That
-row is a truthful recovery marker, but it is not an immutable reuse hit when a
-later invocation requests evidence: the same deterministic Artifact ref retries
-the complete projection and atomically replaces the unavailable marker. If even
-the fallback transaction cannot be written for a first publication, the unavailable
-sidecar remains the only durable failure record. A failed retry of an existing
-unavailable marker instead restores its prior sidecar and Session Store registration
-before raising, preserving sidecar/ledger/index agreement.
+A group converts its primary rows and builds its complete-key index once, preserving
+duplicate-insertion failures. Predicates execute in original stage order over only
+the surviving original positions; all leaves in each predicate tree are consumed
+before truth composition. Required part key positions are located once. Primary
+and restricted parts are constructed only at the group's consumption boundary,
+with original row/part ordering and the exact terminal Signature and continuation.
+Non-Defined predicate operands still fail with the original CoreRuleError; its
+location identifies the consuming logical node.
 
-### The session store schema
+Grouping is invocation-local and preserves the logical DAG, definition fingerprint,
+ordered implementation records, per-stage proof digests and `plan_digest`. There
+is no public optimization switch or persisted second graph. An unqualified group
+uses the already selected ordinary stages. Once grouped computation starts, failure
+never retries those stages or changes route. The shared deadline, cancellation,
+resource cleanup and atomic publication boundaries still apply.
 
-`session_store.db` is a single WAL-mode SQLite database — the ordinary authoritative
-index for sessions, the current-session pointer, artifacts, and jobs. Its Artifact
-row may be reconstructed only from the exact committed evidence marker described
-above; arbitrary frame directories never populate it:
+### A3 direct-key original reduction
 
-| Table | Columns | Role |
+After `validate_fixed_schedule`, the executor may group adjacent fixed
+`artifact_python` OriginalReduce stages for sum, sum_zero, count, mean, ratio,
+weighted mean and linear. The original logical DAG, node identities and selected
+implementations remain intact. Qualification is invocation-local and inspects the
+existing L8 contracts without constructing or saving a replacement graph.
+
+Each mapping must project the complete input key, and successive projections
+may only remove coordinates. Each stage retains the same complete original-state
+binding, contribution, method, output type and finish/empty policy. Only ordinary
+Subject, original_state and coverage parts qualify, with their actual declared
+schemas and full-key layouts. A shared intermediate, requested boundary,
+explicit Artifact leaf, pending check, time coarsening map, nested contribution
+coordinate, allocation or other specialized part ends a group. Reference or
+weight changes and ordered folds never qualify.
+
+A group consumes and indexes the original input once, merges every component
+directly under terminal keys, then finishes and constructs the terminal result.
+It preserves the terminal Signature, complete parts, method state, empty policy
+and the original per-node proof chain. Exact carriers keep their captured range
+checks; floating merges keep the existing numeric contract and retained absolute
+magnitudes. L8 does not grant a new source route or numerical implementation.
+The earlier explicit sum-only StateEquation helper retains its independent
+qualification; invocation grouping does not invoke or broaden that helper.
+Grouping does not scan sources to prove every hypothetical intermediate range.
+Actual component and finish overflows remain execution failures in the captured
+carrier, as specified by the accepted numerical policy.
+
+Index insertion, grouping and stage transitions check the shared deadline.
+Unqualified schedules execute their already selected ordinary stages. Once a
+group starts, a numerical error, malformed consumed state, cancellation or timeout
+propagates without retry; Runtime publication remains atomic.
+
+## Evidence, Findings and interpretation
+
+Evidence and Findings are deterministic committed facts about one Artifact.
+Producer extraction/publication occur with the Artifact transaction.
+Recovery reads saved typed records without regeneration.
+
+| Producer | Extractor / policy | Eligibility and deterministic order |
 | --- | --- | --- |
-| `sessions` | `id` PK, `name` UNIQUE, `question`, `cwd`, `created_at`, `updated_at` | Session index |
-| `runtime_state` | `key` PK, `value` | Small runtime pointers (e.g. `current_session_id`) |
-| `artifacts` | (`session_id`,`artifact_id`) PK, `kind`, `path`, `meta_path`, `content_hash`, `created_at`, `produced_by_job` | Frame index, FK→`sessions` `ON DELETE CASCADE` |
-| `jobs` | (`session_id`,`job_id`) PK, `intent`, `status`, `started_at`, `finished_at`, `output_artifact_id`, `record_path` | Job index, FK→`sessions` `ON DELETE CASCADE` |
+| association.pearson/spearman/kendall@v1 | graph.association_findings@v1 / bounded_descriptive_findings@v1 | Every valid candidate, including nonselected lags; descending abs(coefficient), then complete typed key |
+| forecast.naive/drift/seasonal_naive@v1 | graph.forecast_findings@v1 / bounded_prediction_findings@v1 | Every valid future point; complete typed series/future key |
+| deviation.zscore/mad@v1 and time.runs@v1 | graph.no_findings@v1 / zero_findings@v1 | No automatic Finding; eligible/emitted/truncated=0 |
 
-The store holds the index; the on-disk `frames/<ref>/` directory holds the data and
-the `BaseFrameMeta` sidecar. `frames/<ref>/meta.json` is the source of truth for a
-frame's kind, schema, semantic shape, lineage, quality, typed issues, evidence
-status, and bounded digest.
+Nonzero policies count eligibility before cap=1000. Emitted is
+min(eligible,1000); truncated is eligible-emitted. Selection transports the
+producer's capped bodies, policy, original eligibility scope and selected-lag
+facts, rebinding Artifact identities without a selected-only extraction.
 
-## Content-addressed artifact identity
+Graph Association/Forecast subjects bind actual observed, derived, RowStatistic
+or rolled quantities, including runtime Metric identities. No invented catalog
+Metric Ref or raw Subject identity substitutes for the binding. Closed
+subject/value contracts retain their own schema versions.
 
-Every persisted frame carries a `content_hash` computed from its `BaseFrameMeta`
-plus the parquet bytes (`compute_frame_content_hash`). After `observe()` /
-`compare()` return, `frame.ref` equals the deterministic artifact id, so a frame
-produced in one script can be reloaded in the next with
-`session.artifact(prev_frame.ref)`.
+Read `evidence_digest`, `findings(limit=..., cursor=...)` or
+`finding(finding_id)` on Materialized results. Empty committed Findings differ
+from unavailable storage; cursor validity is bound to its owning read.
+[Analysis Evidence Access](evidence-access-surface.md) owns their public contract.
 
-`ref` is the single Artifact identity vocabulary: Artifacts expose
-`artifact.ref`, Run outputs expose `output_artifact_ref`, and typed
-`ArtifactRef` carries the same field. There is no `id` alias — one name end to end avoids agent
-selection and serialization burden.
+Attribution is algebraic, association is descriptive, forecast is conditional
+model output, and deviation/runs retain chosen fit/condition scope.
+Publication and numerical admission do not establish causality, business
+authority, calibration or release qualification.
 
-`frame.state` (an `ArtifactState`) carries only the baseline runtime facts:
-`materialization` (`materialized` | `recomputed` | `partial`) and `content_hash`.
-Cache, freshness, and superseded relationships are intentionally not baseline
-artifact fields — they are future extensions, and failure state belongs to
-job/recovery metadata, not the terminal artifact family. A content hash lets the
-runtime skip re-querying a backend for a deterministic computation that already
-materialized, but cache-hit correctness depends on the datasource snapshot and
-freshness, so identity is derived from resolved params + definition version +
-datasource freshness, never operator+params alone.
 
-## Cold-start rehydration
+## Execution diagnostics and usage telemetry
 
-Loop turn N+1 may lose every in-memory object. Recovery reads the current
-runtime schema without querying a datasource:
+Execution diagnostics are always-on, project-local JSONL in
+`.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record actual Marivo-owned SQL
+submissions before driver calls, consumption/cleanup outcomes, Analysis execution
+phases and retained Artifact reuse. Generated-only SQL, third-party driver/Ibis
+bootstrap SQL and Store persistence SQL are outside their coverage. Local
+Python/Arrow stages record timing and result counts without inventing SQL.
 
-- `mv.session.recent(...)` then `mv.session.inspect(name, run_limit=5)` provides
-  a bounded historical `RunPage` without resuming or mutating the Session;
-- `session.runs(...)` and `session.get_run(run_id)` expose the closed Run
-  lifecycle variants, exact Artifact inputs/output, and ordered captured query
-  executions on succeeded and failed Runs;
-- `session.artifact(ref)` reconstructs the exact committed Artifact;
-- `session.graph(...)` projects factual Run/Artifact adjacency, heads, failed
-  and incomplete Runs, with focused ancestor or descendant traversal;
-- `artifact.findings()` and `artifact.finding(id)` audit exact Findings;
-- `session.revalidate(ref)` checks persisted identity, current scoped semantic
-  authority, and evidence integrity.
+Diagnostic records share available operation/session IDs with usage telemetry;
+Run admission adds the actual Run ID. Project-root and operation contexts are
+propagated into connectivity workers and captured by query records, so completion
+still refers to the original project after ambient context changes. Diagnostics
+observe execution facts; they do not admit operations, prove remote termination,
+authorize publication or restore Artifacts. Runtime/Store remain the authority.
 
-Session reads and the graph do not check semantic authority or datasource
-freshness. Revalidation does not query datasource health or prove freshness.
-No public API exposes frames, jobs, a Session Evidence namespace, digest pages,
-derivation traces, or Finding-selection compatibility.
+The telemetry sink retains its independently configurable operation-level usage
+contract and excludes SQL text and exception messages. Turning it off does not
+disable diagnostics. SQL stays verbatim and complete; bound credential values,
+result rows and exception locals are excluded. Parameterized credential failures
+retain the error type without their potentially sensitive message. Other errors
+use the existing bounded, redacted backend summary.
 
-`Session.show()` reports exact Artifact and Run counts, bounded head and
-attention previews, Evidence status counts, and the canonical Run, Artifact,
-Graph, and revalidation continuations. Incompatible Store, Run, or Artifact
-schema fails before projection and does not modify the old directory.
+Both sinks use the shared private JSONL append/rolling primitives with separate
+content, directories and enablement. Execution logs roll by UTC day and an
+approximate 128 MiB size threshold; individual records are never truncated. Daily
+cleanup preserves the current day and unrelated files, retains 14 UTC days, and
+caps managed historical files at 1 GiB. This is not a whole-directory hard cap.
+Execution log directories/files use 0700/0600 permissions. Write and cleanup
+failures never replace execution results/errors; rate-limited warnings and
+per-project recovered-write drop counts expose logging failures.
 
-## Cross-session frame ownership
+## Session domain scope
 
-Frame ownership across sessions is enforced, not advisory. Each `BaseFrameMeta`
-records its owning `session_id` and `project_root`; `session.artifact(ref)` raises
-`CrossSessionFrameError` when the ref belongs to a different session. A helper that
-consumes a frame therefore cannot silently mix artifacts from two sessions — the
-consuming session must own the frame it is handed.
+`mv.session.get_or_create(name, domains="sales")` or a nonempty sequence selects
+an immutable semantic scope on creation. Names are exact, deduplicated and
+sorted. Omission recovers the saved selection, including None for all domains;
+conflicting explicit selections fail before activation. `session.domains`
+returns the persisted tuple or None. Source construction loads only that scope;
+retained Artifact reads never require current semantic models.
 
-## Failure recovery
-
-Default operators fail loud: if `compare()` cannot produce a `DeltaFrame`, it
-raises a structured error rather than returning a widened `DeltaFrame | FailedStep`.
-When a multi-step script fails at step *k* with steps `1..k-1` already
-materialized, the session/job layer keeps the recoverable context so the next turn
-can reuse upstream work:
-
-- successfully materialized upstream artifact refs (in `artifacts` + on disk);
-- the failed step's operator, expected/received, and repair hints (structured
-  error);
-- every captured successful query before the failure and the final failed query
-  when compiled SQL was available;
-- the Run record with its lifecycle, retrievable via `runs()` / `get_run(run_id)`.
-
-SQLite `locked`/`busy` timeouts in either the Session Store or evidence ledger raise
-`SessionLockedByAnotherProcessError`. They are not silently retried, overwritten,
-or downgraded to `evidence_status="unavailable"`. A failed final index write leaves
-the already committed evidence marker recoverable on the next exact read or retry.
-Projection integrity failures are distinct from environment or permission failures:
-their typed repair directs a projection retry with the current Marivo build.
-
-An abrupt process termination may leave an incomplete Run. Activation first
-reconciles it when exactly one committed Evidence Artifact identifies the output.
-If several candidates remain, activation fails with a structured repair containing
-the exact immutable Session and Run ids. After confirming the executor stopped,
-call `mv.session.abandon_run(session_id=..., run_id=...)`, then resume by immutable
-id. The abandoned Run becomes a normal `FailedRun` with `error_type="RunAbandoned"`;
-there is no fourth lifecycle state and no public caller-authored failure payload.
-
-There is no non-raising batch API on the default surface; a future advanced
-`StepOutcome` / `try_*` path, if added, would not change the terminal artifact
-family.
-
-## The session DAG and factual navigation
-
-An analysis is a multi-Artifact DAG, not a single object — no one value "is the
-analysis." Cross-turn state is reconstructed from session-level facts that already
-exist, which is why there is no public `AnalysisSnapshot` artifact:
-
-- `session.runs()` — bounded typed execution history, exact Artifact refs, and
-  terminal query executions;
-- `session.graph()` — factual producer, consumer, reuse, head, and attention state;
-- per-artifact bounded reads — `show()`/`render()`, `contract()`, `state`,
-  `lineage`, `evidence_status`, and `evidence_digest`;
-- Artifact-owned bounded audit pages — `artifact.findings(...)`.
-
-The graph is a factual projection, not synthesis or a planner.
-Cross-artifact judgment and the decision to execute another operator belong to
-the agent. If the evidence store cannot be read, audit methods raise
-`EvidenceStoreUnavailableError`; an empty page means a healthy store matched no
-records.
-
-## Re-run and replay discipline
-
-Because operators are pure computations over content-addressed inputs, re-running an
-accumulated script is safe: identical resolved params + definitions + datasource
-freshness reproduce the same `content_hash`, so repeated execution does not create
-semantic drift, and unchanged upstream steps can be served from persisted frames
-instead of re-querying. The persisted Run/Artifact records let a script
-reconcile its intended step chain against what already materialized before deciding
-what to recompute.
-
-Terminal `SucceededRun` and `FailedRun` values expose `queries`. Each immutable
-query value carries the exact compiled SQL submitted to the backend, its
-literal-neutral shape digest, datasource/dialect, status, timing, and row count.
-The normalized SQL used to compute the digest is transient and parser-derived
-literal values are not persisted as driver bind parameters. `Run.show()` renders
-only query summaries; inspect `.queries` explicitly for SQL. Because SQL keeps
-its literal values, protect project-local `.marivo` state accordingly. An empty
-tuple means no captured query records, not proof that no datasource activity
-occurred. Artifact-reuse Runs intentionally publish an empty tuple, including
-post-execution content deduplication; inspect `output_mode` before interpreting
-query absence. Incomplete Runs do not expose queries, and process termination
-before a terminal transition may lose in-memory query capture.
+The Session metadata column requires SQLite Store generation 9. Existing
+Store-generation directories are preserved without migration or dual reads.
+A prior generation is not qualified by the new source/fixed/cold acceptance.

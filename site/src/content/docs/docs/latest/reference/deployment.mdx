@@ -8,9 +8,8 @@ description: Run a Marivo project where an agent can access its semantic layer a
 Marivo is a Python library, not a hosted service. Install it in the environment
 where the agent runs, then check the project's datasource and semantic
 declarations into version control. Provide datasource secrets as environment
-variables referenced by `*_env` fields, or inject a host resolver with
-`md.credential_scope(resolver=...)`; do not commit credentials into the project.
-The host adapter contract is owned by `marivo.help("datasource.credential_scope")`.
+variables referenced by `*_env` fields; do not commit credentials into the
+project.
 
 For development from this repository, create an environment, install the
 editable package with the needed extras, and verify the import:
@@ -27,12 +26,14 @@ the environment is not activated, invoke the `marivo` executable belonging to
 that environment. The CLI is a bootstrap check only. After entry, use Python
 for focused live contracts:
 
+{/* example: deployment-connection-check */}
+
 ```python
 import marivo
 
-marivo.help("datasource.<target>")
-marivo.help("semantic.<target>")
-marivo.help("analysis.<target>")
+marivo.help("authoring")
+marivo.help("semantic.objects")
+marivo.help("analysis")
 ```
 
 For a project using a published release, install the required backend extra as
@@ -40,25 +41,3 @@ described in [Installation](/docs/latest/installation/). `marivo init` is option
 use it when the deployment should materialize a manifest or filesystem-discovered
 agent skills. Keep any committed semantic layer alongside the agent so every run
 resolves the same declarations.
-
-## Connection lifetime and timeouts
-
-Use `with md.connect("warehouse") as connection:` for an explicit connection.
-Inspection, sampling, semantic preview, source health, and parity release their
-connections when the operation completes or fails; a preview batch reuses its
-connections within the batch. Analysis retains connections until `session.close()`.
-The catalog does not require a close call.
-
-Marivo-owned internal handshakes have an independent 30-second limit. The
-`timeout_seconds` on raw SQL and sampling/preview scopes remains the query
-execution budget. `md.connect` uses its requested handshake timeout, and `md.test`
-uses one deadline for connect plus validation. SQLite opens on the calling thread;
-its synchronous local open is not forcibly interruptible.
-
-If a DuckDB file is already open with an incompatible read/write mode, close the
-Session or explicit connection holding it, or use matching declared settings.
-Marivo returns a structured repair and does not close the existing owner.
-
-Successful connection tests and the first successful Session analysis can cache
-environment-sourced secrets in the user-global cache. Cache write failures do not
-invalidate the operation, and host-injected credentials are never cached.

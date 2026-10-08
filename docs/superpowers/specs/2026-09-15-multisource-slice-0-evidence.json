@@ -1,0 +1,237 @@
+{
+  "base_head": "1f9b3d5d585fed7c339bbe7ef008262ce7333b92",
+  "blockers": [
+    "Activation/Slice 6: owning amendment for post-transfer source assertions and server barriers for checks that must remain pre-transfer",
+    "Activation/Slices 3-6: bounded multi-page/wide/nested/decompression/slow-fetch production transport; Trino HTTP wire bytes remain unknown",
+    "Activation/Slices 3-6: remote submit/cancel uncertainty and durable termination recovery",
+    "Activation: real Dataset atomic publication, source-offline binding hits and cold reads",
+    "Activation/Slices 3-7: remaining engine/method/type/cross-relation/fence/private-state qualification"
+  ],
+  "candidate_files": [
+    {
+      "path": "docs/superpowers/specs/2026-09-15-lazy-analysis-multi-datasource-design-and-plan.md",
+      "sha256": "50a1005402a434ac3ec6f37d41a03fbec396263bc41737f275010400d66c513b"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-multisource-slice-0-live-clickhouse.json",
+      "sha256": "87f30f6e188068b4f8068c6bdda5497115e822882093b5286a69bce183dc379c"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-multisource-slice-0-live-trino.json",
+      "sha256": "6a7e802f2fe4054785c125e784ef74c83f0c3f7185375dfc2a4d5778a42606d7"
+    },
+    {
+      "path": "docs/superpowers/specs/2026-09-15-multisource-slice-0-qualification.md",
+      "sha256": "83a1aca543c2a2792d34620d6c4daeefa2b82b61331652128e905cdbbda5b4fc"
+    },
+    {
+      "path": "tests/lazy_multisource_qualification.py",
+      "sha256": "db801202673004a71788875a67d8fd8057bd493af1581d13906096adff116299"
+    },
+    {
+      "path": "tests/multisource_environment/README.md",
+      "sha256": "2d77a8df69890455ad2dfdbcfd5b0afc9bd2ea65e79d9bc856c35ec169818b66"
+    },
+    {
+      "path": "tests/multisource_environment/clickhouse.xml",
+      "sha256": "1744ab7074239a41ea43cc838ca6f785220d92378be0a14e3179a0368916a14a"
+    },
+    {
+      "path": "tests/multisource_environment/compose.yaml",
+      "sha256": "e47bc353df51dc1f576c93ed77d2139c681e825872f6d94205dd4e4ed4dcaa32"
+    },
+    {
+      "path": "tests/multisource_environment/jdbc-init.sql",
+      "sha256": "c3374387db18157f3174703ddc18f40382d8283c147e54de5305d5f87b0c0671"
+    },
+    {
+      "path": "tests/multisource_environment/manage.sh",
+      "sha256": "f3dda861acc1470ced8fd08a9c92cd3166f073cc71a5c1d7403d065af8bad769"
+    },
+    {
+      "path": "tests/multisource_environment/qualify.py",
+      "sha256": "c618627a0fb9459adf17e15d99a25ed43f03ee9f95f2f56d144f83bbd4506960"
+    },
+    {
+      "path": "tests/multisource_environment/smoke.py",
+      "sha256": "e5eb312d295a299eb865fe32c2895fce6a00c67bc580f7a430dd33c9c87b56c0"
+    },
+    {
+      "path": "tests/multisource_environment/trino/config.properties",
+      "sha256": "6b91b43b192b0034f8483219be768a01102b0db16e82d574b70ac24906304b2c"
+    },
+    {
+      "path": "tests/multisource_environment/trino/iceberg.properties",
+      "sha256": "d3e90ff0e64c68525e5b9a28f5452f1347abc7df9481a9afa20d840b63dc2228"
+    },
+    {
+      "path": "tests/multisource_environment/trino/jvm.config",
+      "sha256": "8505061853e4543ad0fc02d0ef7e2e653ddef72f3fb63e094ef658efb29eaa66"
+    },
+    {
+      "path": "tests/test_lazy_multisource_environment.py",
+      "sha256": "d5e4ad389dd47a1da55ee5297c5151116c7a058dc74e41425b244efaca1cae41"
+    },
+    {
+      "path": "tests/test_lazy_multisource_qualification.py",
+      "sha256": "89a804b62e264e8af478676151ec814c794309417891e5c548cd019988af9693"
+    }
+  ],
+  "duckdb_baseline": {
+    "command": "make runtime-test TESTS='tests/test_lazy_execution_economics.py' RUNTIME_WORKERS=1",
+    "result": "6 passed in 7.80s: one DuckDB success and five non-DuckDB pre-admission rejections"
+  },
+  "environment_setup": {
+    "colima_profile": "marivo-multisource",
+    "compose_version": "5.5.1",
+    "cpus": 4,
+    "credentials": "private user-cache file; no credential values in evidence",
+    "data_disk_capacity_gib": 12,
+    "existing_profile_preserved": "marivo-slice9d",
+    "memory_gib": 6,
+    "observed_repairs": [
+      "Isolated Docker config avoids unavailable osxkeychain helper without editing user config",
+      "Fixed local.location from URI to filesystem Path after Trino483 startup rejected it",
+      "Capture main snapshot reference rather than unordered snapshot list",
+      "Explicit BIGINT version expression avoids INTEGER type rejection",
+      "Effective ClickHouse settings must match exactly before success receipt",
+      "Live ClickHouse UInt64 COUNT plus nullable Int64 UNION inferred Arrow-unsupported Variant; private typed AST branch projections now pin exact Arrow wire types"
+    ],
+    "platform": "linux/arm64",
+    "pull_recovery": "Interrupted stalled Trino layer pull and resumed identical digest; no image-version substitution",
+    "root_disk_capacity_gib": 8,
+    "trino_local_root": "/warehouse",
+    "trino_warehouse_uri": "local:///data"
+  },
+  "environment_smoke": {
+    "clickhouse": {
+      "command": ".venv/bin/python tests/multisource_environment/smoke.py clickhouse",
+      "dataset_acceptance": false,
+      "fixture": "smoke_a6993c266e314a2382cef199e2d76362",
+      "query_id": "fa2f0010-257c-474d-ae48-f08f6bb24f50",
+      "result": [
+        3,
+        "30"
+      ],
+      "scope": "local MergeTree, Decimal count/sum, effective session settings",
+      "settings_verified": {
+        "enable_shared_storage_snapshot_in_query": "1",
+        "join_use_nulls": "1",
+        "max_execution_time": "30",
+        "max_memory_usage": "536870912",
+        "use_query_cache": "0"
+      },
+      "status": "smoke passed with strict effective settings verification; current active group",
+      "version": "26.3.33.24"
+    },
+    "trino": {
+      "command": ".venv/bin/python tests/multisource_environment/smoke.py trino",
+      "current": [
+        [
+          3,
+          "30.00"
+        ]
+      ],
+      "dataset_acceptance": false,
+      "fixture": "smoke_99b0cc8d4dc7400cb4c7f84d77fb06d2",
+      "missing_snapshot_rejected": true,
+      "pinned": [
+        [
+          2,
+          "30.75"
+        ]
+      ],
+      "pinned_query_id": "20260915_070234_00025_ii48j",
+      "postgres_version": "17.11",
+      "scope": "single-node Iceberg/JDBC V1/local warehouse; table format version 2",
+      "snapshot": 8133604274064158658,
+      "snapshot_selection": "exact main reference in orders$refs after first insert",
+      "status": "smoke passed; stopped for serial environment operation",
+      "version": "483"
+    }
+  },
+  "final_evidence_review": "Clean-context read-only scope/evidence review: No findings. Slice 0 completion justified; 18 Trino success receipts plus 3 snapshot errors, 173 ClickHouse receipts and 5 concurrent QueryFinish records. All candidate/source/receipt/SQL hashes and links independently verified. Later activation gates remain unproved; Slice 9d completion attributed to user.",
+  "inventory": {
+    "consumers": 49,
+    "families": 9,
+    "producers": 53,
+    "shapes": 37
+  },
+  "jdbc_bootstrap_sha256": "c3374387db18157f3174703ddc18f40382d8283c147e54de5305d5f87b0c0671",
+  "live_qualification": [
+    {
+      "engine": "trino",
+      "path": "docs/superpowers/specs/2026-09-15-multisource-slice-0-live-trino.json",
+      "result": "passed",
+      "sha256": "6a7e802f2fe4054785c125e784ef74c83f0c3f7185375dfc2a4d5778a42606d7",
+      "statement_count": 18
+    },
+    {
+      "engine": "clickhouse",
+      "path": "docs/superpowers/specs/2026-09-15-multisource-slice-0-live-clickhouse.json",
+      "result": "passed",
+      "sha256": "87f30f6e188068b4f8068c6bdda5497115e822882093b5286a69bce183dc379c",
+      "statement_count": 173
+    }
+  ],
+  "offline_compilation": {
+    "scope": "compile-only SQL, separate from referenced live execution receipts",
+    "statements": [
+      {
+        "role": "trino.primary",
+        "sha256": "0f84c95e82aaeebd7de2c22eea3852b97b4b7955330ca8e3b1f80d9aa7c05f0c",
+        "sql": "WITH \"t15\" AS (SELECT DISTINCT * FROM (SELECT \"t6\".\"amount\", \"t6\".\"channel\", \"t6\".\"customer_id\", \"t6\".\"day\", \"t6\".\"end\", \"t6\".\"id\", \"t6\".\"order_id\", \"t6\".\"region\", \"t6\".\"start\", \"t6\".\"tenant\", \"t6\".\"weight\", \"t6\".\"__mv_identity_0\", \"t6\".\"entity_identity\" FROM (SELECT \"t0\".\"amount\", \"t0\".\"channel\", \"t0\".\"customer_id\", \"t0\".\"day\", \"t0\".\"end\", \"t0\".\"id\", \"t0\".\"order_id\", \"t0\".\"region\", \"t0\".\"start\", \"t0\".\"tenant\", \"t0\".\"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", TRY_CAST(ROW(\"t0\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\") AS \"t6\" WHERE EXISTS(SELECT 1 FROM (SELECT DISTINCT TRY_CAST(ROW(\"t8\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM (SELECT \"t7\".\"amount\", \"t7\".\"channel\", \"t7\".\"customer_id\", \"t7\".\"day\", \"t7\".\"end\", \"t7\".\"id\", \"t7\".\"order_id\", \"t7\".\"region\", \"t7\".\"start\", \"t7\".\"tenant\", \"t7\".\"weight\" FROM (SELECT \"t4\".\"amount\", \"t4\".\"channel\", \"t4\".\"customer_id\", \"t4\".\"day\", \"t4\".\"end\", \"t4\".\"id\", \"t4\".\"order_id\", \"t4\".\"region\", \"t4\".\"start\", \"t4\".\"tenant\", \"t4\".\"weight\", \"t4\".\"entity_identity\" FROM (SELECT \"t0\".\"amount\", \"t0\".\"channel\", \"t0\".\"customer_id\", \"t0\".\"day\", \"t0\".\"end\", \"t0\".\"id\", \"t0\".\"order_id\", \"t0\".\"region\", \"t0\".\"start\", \"t0\".\"tenant\", \"t0\".\"weight\", TRY_CAST(ROW(\"t0\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\") AS \"t4\" WHERE EXISTS(SELECT 1 FROM (SELECT DISTINCT TRY_CAST(ROW(\"t0\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\") AS \"t5\" WHERE \"t4\".\"entity_identity\" = \"t5\".\"entity_identity\")) AS \"t7\") AS \"t8\") AS \"t11\" WHERE \"t6\".\"entity_identity\" = \"t11\".\"entity_identity\")) AS \"t14\") SELECT CAST(\"t25\".\"revenue\" AS DOUBLE) AS \"revenue\", CAST(\"t25\".\"order_count\" AS BIGINT) AS \"order_count\", CAST(\"t25\".\"__mv_c9a00e7f02a9014461f3_sum\" AS DOUBLE) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(\"t25\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS BIGINT) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(\"t25\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS BIGINT) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(\"t25\".\"__mv_357811d7ad715974b25f_count\" AS BIGINT) AS \"__mv_357811d7ad715974b25f_count\", CAST(\"t25\".\"__mv_357811d7ad715974b25f_row_count\" AS BIGINT) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t24\".\"__mv_c9a00e7f02a9014461f3_sum\", \"t24\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t24\".\"__mv_c9a00e7f02a9014461f3_row_count\", \"t24\".\"__mv_357811d7ad715974b25f_count\", \"t24\".\"__mv_357811d7ad715974b25f_row_count\", \"t24\".\"revenue\", \"t24\".\"order_count\" FROM (SELECT \"t23\".\"__mv_scalar\", \"t23\".\"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t23\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t23\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t23\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t23\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t23\".\"__mv_c9a00e7f02a9014461f3_sum\" AS DOUBLE) AS \"revenue\", CAST(COALESCE(COALESCE(\"t23\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS BIGINT) AS \"order_count\" FROM (SELECT \"t13\".\"__mv_scalar\", \"t21\".\"__mv_c9a00e7f02a9014461f3_sum\", \"t21\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t21\".\"__mv_c9a00e7f02a9014461f3_row_count\", \"t22\".\"__mv_357811d7ad715974b25f_count\", \"t22\".\"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t8\".\"amount\", \"t8\".\"channel\", \"t8\".\"customer_id\", \"t8\".\"day\", \"t8\".\"end\", \"t8\".\"id\", \"t8\".\"order_id\", \"t8\".\"region\", \"t8\".\"start\", \"t8\".\"tenant\", \"t8\".\"weight\", TRY_CAST(ROW(\"t8\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM (SELECT \"t7\".\"amount\", \"t7\".\"channel\", \"t7\".\"customer_id\", \"t7\".\"day\", \"t7\".\"end\", \"t7\".\"id\", \"t7\".\"order_id\", \"t7\".\"region\", \"t7\".\"start\", \"t7\".\"tenant\", \"t7\".\"weight\" FROM (SELECT \"t4\".\"amount\", \"t4\".\"channel\", \"t4\".\"customer_id\", \"t4\".\"day\", \"t4\".\"end\", \"t4\".\"id\", \"t4\".\"order_id\", \"t4\".\"region\", \"t4\".\"start\", \"t4\".\"tenant\", \"t4\".\"weight\", \"t4\".\"entity_identity\" FROM (SELECT \"t0\".\"amount\", \"t0\".\"channel\", \"t0\".\"customer_id\", \"t0\".\"day\", \"t0\".\"end\", \"t0\".\"id\", \"t0\".\"order_id\", \"t0\".\"region\", \"t0\".\"start\", \"t0\".\"tenant\", \"t0\".\"weight\", TRY_CAST(ROW(\"t0\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\") AS \"t4\" WHERE EXISTS(SELECT 1 FROM (SELECT DISTINCT TRY_CAST(ROW(\"t0\".\"id\") AS ROW(\"id\" BIGINT)) AS \"entity_identity\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\") AS \"t5\" WHERE \"t4\".\"entity_identity\" = \"t5\".\"entity_identity\")) AS \"t7\") AS \"t8\") AS \"t9\") AS \"t13\" CROSS JOIN (SELECT \"t17\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t17\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t17\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t16\".\"amount\") AS \"sum\", COUNT(\"t16\".\"amount\") AS \"non_null_count\" FROM \"t15\" AS \"t16\") AS \"t17\") AS \"t21\" CROSS JOIN (SELECT \"t18\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t18\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t16\".\"amount\") AS \"count\" FROM \"t15\" AS \"t16\") AS \"t18\") AS \"t22\") AS \"t23\") AS \"t24\") AS \"t25\""
+      },
+      {
+        "role": "trino.assertion.sales.orders.identity_non_null",
+        "sha256": "a9466ca5223fa600731079b927a461414ee16da7820ce55139fd5ac232e37a10",
+        "sql": "SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\" WHERE NOT (\"t0\".\"id\" IS NOT NULL)) AS \"t1\""
+      },
+      {
+        "role": "trino.assertion.sales.orders.source_row_unique",
+        "sha256": "9b6d1e1a15160b0abc660c2c2958233065519df08511d50decd1f779b4b5ef97",
+        "sql": "SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\", COUNT(*) AS \"__mv_count\" FROM \"iceberg\".\"qualification\".\"orders\" FOR VERSION AS OF CAST(1234567890123456789 AS BIGINT) AS \"t0\" GROUP BY 1) AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t2\""
+      },
+      {
+        "role": "clickhouse.typed_envelope",
+        "sha256": "147e4a01d00c0105c9cb2e998ec3972e6459169f37c4cdfe80644431bf19f1a5",
+        "sql": "WITH \"t22\" AS (SELECT DISTINCT * FROM (SELECT \"t8\".\"amount\" AS \"amount\", \"t8\".\"channel\" AS \"channel\", \"t8\".\"customer_id\" AS \"customer_id\", \"t8\".\"day\" AS \"day\", \"t8\".\"end\" AS \"end\", \"t8\".\"id\" AS \"id\", \"t8\".\"order_id\" AS \"order_id\", \"t8\".\"region\" AS \"region\", \"t8\".\"start\" AS \"start\", \"t8\".\"tenant\" AS \"tenant\", \"t8\".\"weight\" AS \"weight\", \"t8\".\"__mv_identity_0\" AS \"__mv_identity_0\", \"t8\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", \"t0\".\"id\" AS \"__mv_identity_0\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"qualification\".\"orders\" AS \"t0\") AS \"t8\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"qualification\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"qualification\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t18\" ON \"t8\".\"entity_identity\" = \"t18\".\"entity_identity\") AS \"t21\") SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(1 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t11\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM (SELECT \"t0\".\"id\" AS \"id\", COUNT(*) AS \"__mv_count\" FROM \"qualification\".\"orders\" AS \"t0\" GROUP BY \"t0\".\"id\") AS \"t1\" WHERE \"t1\".\"__mv_count\" > 1) AS \"t9\") AS \"t11\") AS \"t15\" UNION ALL SELECT * FROM (SELECT * FROM (SELECT CAST('primary' AS Nullable(String)) AS \"__q_kind\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_check\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(\"t32\".\"revenue\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(\"t32\".\"order_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(\"t32\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(\"t32\".\"__mv_357811d7ad715974b25f_row_count\" AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT \"t31\".* EXCEPT (\"__mv_scalar\") FROM (SELECT \"t30\".\"__mv_scalar\" AS \"__mv_scalar\", \"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_non_null_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", COALESCE(\"t30\".\"__mv_c9a00e7f02a9014461f3_row_count\", 0) AS \"__mv_c9a00e7f02a9014461f3_row_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0) AS \"__mv_357811d7ad715974b25f_count\", COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_row_count\", 0) AS \"__mv_357811d7ad715974b25f_row_count\", CAST(\"t30\".\"__mv_c9a00e7f02a9014461f3_sum\" AS Nullable(Float64)) AS \"revenue\", CAST(COALESCE(COALESCE(\"t30\".\"__mv_357811d7ad715974b25f_count\", 0), 0) AS Nullable(Int64)) AS \"order_count\" FROM (SELECT \"t20\".\"__mv_scalar\" AS \"__mv_scalar\", \"t28\".\"__mv_c9a00e7f02a9014461f3_sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t28\".\"__mv_c9a00e7f02a9014461f3_non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t28\".\"__mv_c9a00e7f02a9014461f3_row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\", \"t29\".\"__mv_357811d7ad715974b25f_count\" AS \"__mv_357811d7ad715974b25f_count\", \"t29\".\"__mv_357811d7ad715974b25f_row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"__mv_scalar\" FROM (SELECT \"t14\".\"amount\" AS \"amount\", \"t14\".\"channel\" AS \"channel\", \"t14\".\"customer_id\" AS \"customer_id\", \"t14\".\"day\" AS \"day\", \"t14\".\"end\" AS \"end\", \"t14\".\"id\" AS \"id\", \"t14\".\"order_id\" AS \"order_id\", \"t14\".\"region\" AS \"region\", \"t14\".\"start\" AS \"start\", \"t14\".\"tenant\" AS \"tenant\", \"t14\".\"weight\" AS \"weight\", tuple(\"t14\".\"id\") AS \"entity_identity\" FROM (SELECT \"t13\".* EXCEPT (\"entity_identity\") FROM (SELECT \"t6\".\"amount\" AS \"amount\", \"t6\".\"channel\" AS \"channel\", \"t6\".\"customer_id\" AS \"customer_id\", \"t6\".\"day\" AS \"day\", \"t6\".\"end\" AS \"end\", \"t6\".\"id\" AS \"id\", \"t6\".\"order_id\" AS \"order_id\", \"t6\".\"region\" AS \"region\", \"t6\".\"start\" AS \"start\", \"t6\".\"tenant\" AS \"tenant\", \"t6\".\"weight\" AS \"weight\", \"t6\".\"entity_identity\" AS \"entity_identity\" FROM (SELECT \"t0\".\"amount\" AS \"amount\", \"t0\".\"channel\" AS \"channel\", \"t0\".\"customer_id\" AS \"customer_id\", \"t0\".\"day\" AS \"day\", \"t0\".\"end\" AS \"end\", \"t0\".\"id\" AS \"id\", \"t0\".\"order_id\" AS \"order_id\", \"t0\".\"region\" AS \"region\", \"t0\".\"start\" AS \"start\", \"t0\".\"tenant\" AS \"tenant\", \"t0\".\"weight\" AS \"weight\", tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"qualification\".\"orders\" AS \"t0\") AS \"t6\" LEFT SEMI JOIN (SELECT DISTINCT tuple(\"t0\".\"id\") AS \"entity_identity\" FROM \"qualification\".\"orders\" AS \"t0\") AS \"t7\" ON \"t6\".\"entity_identity\" = \"t7\".\"entity_identity\") AS \"t13\") AS \"t14\") AS \"t16\") AS \"t20\" CROSS JOIN (SELECT \"t24\".\"sum\" AS \"__mv_c9a00e7f02a9014461f3_sum\", \"t24\".\"non_null_count\" AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", \"t24\".\"row_count\" AS \"__mv_c9a00e7f02a9014461f3_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", SUM(\"t23\".\"amount\") AS \"sum\", COUNT(\"t23\".\"amount\") AS \"non_null_count\" FROM \"t22\" AS \"t23\") AS \"t24\") AS \"t28\" CROSS JOIN (SELECT \"t25\".\"count\" AS \"__mv_357811d7ad715974b25f_count\", \"t25\".\"row_count\" AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"row_count\", COUNT(\"t23\".\"amount\") AS \"count\" FROM \"t22\" AS \"t23\") AS \"t25\") AS \"t29\") AS \"t30\") AS \"t31\") AS \"t32\") AS \"t33\" UNION ALL SELECT * FROM (SELECT CAST('assertion' AS Nullable(String)) AS \"__q_kind\", CAST(0 AS Nullable(Int64)) AS \"__q_check\", CAST(\"t10\".\"violations\" AS Nullable(Int64)) AS \"__q_violations\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"revenue\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"order_count\", CAST(CAST(NULL AS Nullable(Float64)) AS Nullable(Float64)) AS \"__mv_c9a00e7f02a9014461f3_sum\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_non_null_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_c9a00e7f02a9014461f3_row_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_count\", CAST(CAST(NULL AS Nullable(Int64)) AS Nullable(Int64)) AS \"__mv_357811d7ad715974b25f_row_count\" FROM (SELECT COUNT(*) AS \"violations\" FROM (SELECT * FROM \"qualification\".\"orders\" AS \"t0\" WHERE NOT (isNotNull(\"t0\".\"id\"))) AS \"t5\") AS \"t10\") AS \"t12\") AS \"t34\""
+      }
+    ]
+  },
+  "offline_probe": {
+    "command": "make test TESTS='tests/test_lazy_multisource_qualification.py tests/test_lazy_multisource_environment.py'",
+    "independent_clean_context_review": "No findings in actual live probe code and receipts. Independent focused run: 33 passed in 3.32s. Scope review distinguishes Slice 0 exit probes from later enabling gates.",
+    "result": "24 qualification tests and 9 environment regressions: 33 passed in 5.83s"
+  },
+  "production_backends_enabled": [
+    "duckdb"
+  ],
+  "recorded_at": "2026-09-15T07:23:50.016373+00:00",
+  "scope": "multi-datasource Slice 0 complete qualification inventory and live feasibility; no backend activation",
+  "slice_0_blockers": [],
+  "slice_0_complete": true,
+  "slice_9d_status": {
+    "authority": "user confirmation on 2026-09-15; independent of Slice 0 probes",
+    "status": "complete"
+  },
+  "static_checks": {
+    "lint": "make lint-agent on all 5 added Python files: passed including import contracts",
+    "shell": "bash -n tests/multisource_environment/manage.sh: passed",
+    "typing": "make typecheck --explicit-package-bases on all 5 added Python files: passed",
+    "whitespace": "git diff --check: passed"
+  },
+  "versions": {
+    "clickhouse-connect": "1.3.0",
+    "duckdb": "1.5.3",
+    "ibis-framework": "12.0.0",
+    "mysqlclient": "2.2.7",
+    "psycopg": "3.3.4",
+    "pyarrow": "25.0.1",
+    "pymysql": "1.1.2",
+    "python": "3.12.13",
+    "sqlglot": "30.8.0",
+    "sqlite": "3.53.1",
+    "trino": "0.337.0"
+  }
+}

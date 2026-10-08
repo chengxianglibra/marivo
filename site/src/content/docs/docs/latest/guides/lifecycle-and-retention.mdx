@@ -1,0 +1,240 @@
+---
+title: Lifecycle, anchors and retention
+description: Replay governed state history and retain event-relative observation and retention.
+---
+
+StateModels define normative state and transition meaning. Analysis chooses
+membership, replay window, seed and scoped completeness. Anchors bind follow-up
+to each occurrence; they are not interchangeable with one fixed population date.
+
+## Declare a StateModel
+
+Import `ms`. Continue the [Event declaration](/docs/latest/guides/events-and-funnels/#declare-a-reusable-event), which binds `orders`, `order_id`, `order_date` and `order_created`. The orders source also needs physical `paid_at` and `status` columns. These additional fields are absent from the six-order tutorial.
+
+{/* example: state-model-declaration */}
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_business_order = ms.business_order(
+    name="order_business_order",
+    subject=orders,
+    conflicts=(
+        ms.precedes(
+            ms.participant_role(event=order_created, name="order"),
+            ms.participant_role(event=order_paid, name="order"),
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Creation precedes payment for the same order."
+    ),
+)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    business_order=order_business_order,
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+The seed establishes replay’s initial authority. Event coverage and source
+completeness remain separate from a normative transition graph. Check the model’s
+current certification and exact replay requirements before using it.
+
+## Replay and recover History
+
+This independent commerce model declares subjects and a StateModel. `window` is an aware TimeScope; `lifecycle_completeness` is its explicitly justified coverage tuple.
+
+{/* example: history-replay */}
+
+```python
+members = session.members(ms.ref.entity("commerce.subjects"))
+history = session.lifecycle.replay(
+    ms.ref.state_model("commerce.model"),
+    population=members,
+    window=window,
+    seed=mv.from_inception(),
+    completeness=lifecycle_completeness,
+)
+retained_history = history.execute()
+retained_history.show()
+retained_history.contract().show()
+recovered = session.artifact(retained_history.state.artifact_ref)
+recovered.show()
+```
+
+The result preserves replay truth, unknown coverage and violations. Recovery
+reads its saved state without replaying Events or opening current model/source
+files. New continuations use retained parts and current successor admission.
+
+## Read the six History views
+
+`history` and `window` come from the replay example. The commerce model also declares done, revenue and participant mapping.
+
+{/* example: history-views */}
+
+```python
+checkpoint = window.end
+done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
+truth = history.read(mv.in_state(done, at=checkpoint))
+distribution = history.distribution(at=(window.start, checkpoint))
+transitions = history.transitions()
+violations = history.violations()
+intervals = history.intervals()
+dwell = history.dwell()
+
+truth.where(truth.value.eq(True)).members().observe(
+    ms.ref.metric("commerce.revenue"),
+    during=window,
+    via=ms.ref.relationship("commerce.participant"),
+    by=(ms.ref.entity("commerce.subjects"),),
+).execute().show()
+
+retained_intervals = intervals.execute()
+interval_ref = retained_intervals.evidence_digest().artifact_ref
+session.artifact(interval_ref).state.execute().show()
+completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
+completed.members(through=retained_intervals.subjects()).execute().show()
+duration_result = completed.observed_duration.summarize(mv.mean()).execute()
+duration_result.show()
+duration_seconds = duration_result.to_pandas()["value"].dt.total_seconds()
+distribution.execute().known_state_count.execute().show()
+transitions.execute().count.execute().show()
+violations.execute().kind.execute().show()
+dwell.execute().p90_duration.execute().show()
+```
+
+Read in-state truth, distribution, transitions, violations, intervals and dwell.
+Known-state counts are not total-subject counts when truth is Unknown. Intervals
+keep observed duration, completion and censoring separate. Fixed Subject images
+require a retained total Subject map; scalars cannot recreate that map.
+
+## Observe relative to each Anchor
+
+The commerce model declares started.subject, revenue, participant mapping and governed business order.
+
+{/* example: anchor-observation */}
+
+```python
+from zoneinfo import ZoneInfo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-revenue", report_timezone="UTC")
+customers = session.members(ms.ref.entity("commerce.subjects"))
+anchors = session.anchors(
+    ms.participant_role(event=ms.ref.event("commerce.started"), name="subject"),
+    population=customers,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+elapsed_week = mv.elapsed(mv.duration(hours=168))
+civil_week = mv.calendar_days(7, ZoneInfo("America/New_York"))
+relative = anchors.observe(
+    ms.ref.metric("commerce.revenue"),
+    within=elapsed_week,
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+relative.show()
+relative.contract().show()
+relative.rank(order="descending", ties="ordinal").execute().show()
+row_count = relative.where(relative.value.is_defined()).summarize(mv.count()).execute()
+row_count.contract().show()
+row_count.ratio(row_count).execute().show()
+selected = relative.where(relative.value.is_defined()).execute()
+selected.members().execute().show()
+```
+{/* example: anchor-runtime-slice */}
+
+```python
+filtered_revenue = mv.runtime_metric.slice(
+    ms.ref.metric("commerce.revenue"),
+    by={ms.ref.dimension("commerce.facts.kind"): "finished"},
+    label="finished_only",
+)
+filtered_anchor = anchors.observe(
+    filtered_revenue,
+    within=mv.elapsed(mv.duration(seconds=10)),
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+```
+
+The slice example additionally needs commerce.facts.kind. Elapsed windows use
+exact duration; civil windows use an explicit calendar zone and can differ across
+daylight-saving boundaries. Rank and row summaries operate over the represented
+Anchor occurrences, not an inferred distinct Subject population.
+
+## Retain the fixed Anchor population
+
+The same commerce model declares finished.subject as the returning participant.
+
+{/* example: anchor-retention */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-retention", report_timezone="UTC")
+population = session.members(ms.ref.entity("commerce.subjects"))
+starting = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
+returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+anchors = session.anchors(
+    starting,
+    population=population,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+retention = anchors.retention(
+    returning, within=mv.elapsed(mv.duration(hours=168))
+).execute()
+retention.show()
+retention.contract().show()
+selected = retention.known_true().execute()
+selected.members(through=selected.subject_binding).execute().show()
+subjects = retention.by_subject(rule=mv.any_anchor()).execute()
+subjects.known_true().members().execute().show()
+```
+
+True, false and unknown retention have different meanings. No returned Event
+proves false only when the required follow-up coverage is complete. by_subject
+requires an explicit any/every Anchor rule; it does not change occurrence-level
+truth silently. Fixed selections do not introduce a new live-source dependency.

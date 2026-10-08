@@ -1,23 +1,28 @@
 # Semantic Authoring Workflow
 
-Status: draft design. This document defines the current agent-native authoring
-workflow across `marivo.datasource` and `marivo.semantic`.
+Status: current authoring workflow, 2026-10-08. This document defines agent-native
+authoring across `marivo.datasource` and `marivo.semantic`.
 
 ## Outcome
 
 An agent loads current project state, establishes the physical facts needed for
 the task, authors the smallest dependency-coherent semantic slice, and uses one
 `ms.load()` as the project-level static validation event. Exact authored roots
-are then resolved with `catalog.require(...)`, checked through scoped readiness,
-and handed to analysis when their business meaning has current authority.
+are then resolved with `catalog.require(...)`. Scoped readiness is required when
+the delivery needs analysis-ready roots; analysis handoff additionally requires
+current authority for their business meaning. Explanation and datasource tasks
+have their own earlier exits.
 
 The workflow has no public authoring lifecycle graph, no one-object-at-a-time
 checkpoint rule, and no separate static verification result.
 
 ## Ownership
 
-- `marivo.help(...)` owns current constructors, callable operations, effects,
-  input facts, constraints, examples, and repair routes.
+- `marivo.help(...)` owns static constructors, callable operations, effects,
+  input facts, constraints, examples, and proof boundaries. Entry briefings add
+  identity and usage navigation; error briefings preserve concrete failure facts.
+- Entry and details cards own current definitions. Check reports own actual
+  scope, outcomes, affected refs, and structured repair.
 - Datasource inspection, optional bounded sampling, and governed raw SQL expose
   physical evidence. They do not decide reusable business meaning.
 - Project Python is the semantic source of truth; `ms.load()` validates the
@@ -26,14 +31,19 @@ checkpoint rule, and no separate static verification result.
   choice, and residual-risk disclosure.
 - Current authority owns choices that change reusable business meaning.
 
-Focused Help includes legal parameter values and omission semantics, not only
-reflected type names. Aggregate row aggregation and status-time folding are
-separate contracts; their percentile forms require `0 < q < 1`. Declaration
-examples for decorators include the decorated function and its Ibis return
-expression: calling only the decorator factory does not register an object.
-These facts stay in the native registry within existing render budgets.
+## Task exits and decision dependencies
 
-## Current flow
+Choose the exit before acquiring evidence:
+
+- Definition explanation loads and reads the current catalog, with details or
+  focused Help as needed; it does not require readiness or preview.
+- Datasource setup or repair ends at the requested connection validation.
+- Reusable authoring or repair supplies the exact roots needed by the parent
+  task, following the dependency flow below.
+
+The packaged skill groups decisions into task boundaries, reuse and business
+authority, evidence and validation choices, and delivery. Help navigation selects
+objects, builders, or checks; it does not repeat that workflow.
 
 ```text
 load current datasource and semantic catalogs
@@ -42,8 +52,9 @@ load current datasource and semantic catalogs
 -> author one dependency-coherent semantic slice
 -> one ms.load()
 -> catalog.require(...) for every authored root
--> scoped readiness and targeted runtime probes when needed
--> first typed analysis use
+-> scoped readiness when analysis-ready delivery is required
+-> targeted runtime/source-health probes for concrete remaining risks
+-> selected authoring exit or first typed analysis use
 ```
 
 ### 1. Enter from current state
@@ -58,14 +69,6 @@ datasources = md.load()
 catalog = ms.load()
 ```
 
-An explicit `workspace_dir` selects the exact project root. When omitted,
-selection follows `MARIVO_PROJECT_ROOT`, the nearest ancestor manifest, then
-the current directory. The local `models/` root is always included; configured
-`marivo.toml [semantic].layer_paths` adds external roots. `domains` filters
-loaded domain directories; references to filtered-out domains produce warnings
-rather than errors. Inspect those warnings before treating a filtered load as
-evidence for a complete dependency closure.
-
 Environment fingerprinting and focused help remain available. Metadata
 inspection must not be blocked merely because an accountable owner has not yet
 been identified. Owner or business-definition questions become mandatory only
@@ -75,32 +78,33 @@ when the answer changes a reusable declaration or its promotion caliber.
 
 Use datasource registration, connection testing, and `md.inspect(...)` for
 column names, physical types, source identity, partition facts, and backend
-capabilities. Inspection is the preferred schema path because these facts should
-not require a user-data scan. Unknown or unsupported metadata remains explicit;
-Marivo does not replace it with a discovery guess.
+capabilities. Inspection helps authors choose projections and understand the
+current source; it does not copy types into semantic declarations. At execution,
+table metadata supplies types for the required dependency closure, while CSV and
+JSON infer them during the actual read. Unknown or unsupported required types
+fail explicitly, and unused columns do not add type restrictions.
 
 ### 3. Explore according to the question
 
-Choose among three evidence paths:
+Authoring has two governed evidence paths:
 
 - inspection only when schema and existing project context are sufficient;
 - optional explicitly scoped sampling when retained rows or generic profiles
-  directly answer the current question;
-- `md.raw_sql(...)` for source-specific metadata, distributions, joins,
-  conditional logic, comparison with existing SQL, or bounded scratch work.
+  directly answer the current question.
 
 These paths are composable within the caller's explicit data-access budget.
-There is no mandatory inspect-snapshot-projection ladder. Scoped sampling retains
-its positive row and timeout guards. For raw SQL, callers control query size in
-SQL; Marivo loads every returned row without a client resource cap. A SQL row
-limit is not a scan bound.
+There is no mandatory inspect-snapshot-projection ladder. Every user-data read
+has positive row and timeout guards; a returned-row limit is not a scan bound.
 
-Raw SQL is a normal governed exploration option. Use read-only SQL and credentials;
-Trino relies on database-side permissions. The result is effect-disclosed and
-terminal. A `RawSqlResult` cannot enter
-`session.observe(...)`, become a `MetricFrame`, or be persisted as canonical
-analysis. Its observed facts and disclosed assumptions may inform semantic
-Python.
+`md.raw_sql`/`RawSqlResult` remains available for a source-specific question
+outside Marivo's governed Analysis capability. It submits SQL text without
+parsing or classifying it, with a reason and enforced timeout. Query predicates,
+aggregation and an explicit SQL LIMIT control returned size; the complete query
+result is loaded into client memory.
+Read-only behavior depends on connection and backend permissions. Its result is
+terminal. To bring an answer into typed Analysis, author an upstream governed
+view or a qualified Ibis expression and bind it through normal Semantic facts;
+neither provenance text nor terminal raw-query rows are Analysis inputs.
 
 A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
 coverage, and cache identity. Its `.contract()` is a query-free read contract;
@@ -133,7 +137,7 @@ bindings, invalid decomposition, and cycles.
 After a successful load, confirm exact identity with ordinary catalog navigation:
 
 ```python
-catalog = ms.load(workspace_dir=project_root)
+catalog = ms.load(project_root)
 
 for ref in authored_roots:
     catalog.require(ref)
@@ -144,21 +148,22 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 ### 6. Scoped readiness and targeted runtime checks
 
-Run `catalog.readiness(refs=[...])` over the exact requested roots and their
-governed dependency closures. Readiness is snapshot-independent: it evaluates
+When delivering analysis-ready roots, run `catalog.readiness(refs=[...])` over
+the exact requested roots and their governed dependency closures. Readiness is
+snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
+Known aggregate/backend incompatibilities block affected roots without a
+connection or query. Follow the returned repair to explicitly choose an
+acceptable approximate definition or a compatible datasource, then reload and
+rerun scoped readiness. A passing report still does not certify physical types
+or operation-specific execution.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
 or dedicated artifact repair. Ordinary preview reads the current datasource and
 does not persist a check or change readiness. A successful project load proves
 static coherence, not current external source health or every possible
 downstream execution.
-
-Period-calendar, temporal-set, and work-schedule previews are the explicit
-exception: successful certification can publish their dedicated persistent
-artifacts. A subsequent readiness check consumes those artifacts; neither
-ordinary preview nor certification substitutes for that check.
 
 When current source or data drift matters, run
 `catalog.source_health(refs, checks=..., scope=...)` separately. Omitting
@@ -167,7 +172,10 @@ user data and therefore requires no scope. Null, enum, uniqueness, freshness,
 relationship, and cardinality expectations exist only when explicitly built
 with `ms.source_check`; those data-reading checks require an exact bounded
 scope and disclose it in every result. Source health is ephemeral and never
-changes readiness or semantic source.
+changes readiness or semantic source. A passing relationship-match check covers
+only the selected source rows. It cannot decide whether a consuming operation
+requires matches for its own selected members or how that operation treats an
+allowed absence.
 
 ## Business meaning and first-use authority
 
@@ -199,7 +207,8 @@ business semantics.
 ## Closeout
 
 An authoring closeout records the coherent slice changed, physical evidence and
-scope used, authoritative sources for business meaning, validation outcome,
-exact analysis-ready roots, and remaining warnings or runtime risks. If the
+scope used, authoritative sources for business meaning, checks performed and
+their outcomes, exact roots, and remaining warnings or runtime risks. Label
+roots analysis-ready only when readiness established that result. If the
 parent task includes analysis, the current refs or `analysis_ready_inputs` are
 handed to `marivo-analysis` and the original question continues.

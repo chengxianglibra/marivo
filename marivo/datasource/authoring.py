@@ -797,6 +797,9 @@ def sqlite(
         Parquet, CSV, and JSON file descriptors require DuckDB. SQLite does not
         support median or percentile aggregation, or string strptime expressions;
         use a supported aggregation and a native temporal column instead.
+        Native NUMERIC is not an exact Decimal carrier; type_map cannot restore
+        float precision. Exact Decimal reads refuse without coercion; use a
+        qualified exact-Decimal datasource instead.
     """
     spec = SQLiteSpec(
         name=name,
@@ -869,6 +872,11 @@ def trino(
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
         Marivo never infers credential environment-variable names.
+        Marivo's Trino source-native route does not support exact median or
+        percentile. Explicit ``approx_median`` or ``("approx_percentile", q)``
+        declarations permit approximation. Scoped semantic readiness blocks
+        known incompatibilities without connecting; execution never substitutes
+        an aggregate definition.
     """
     spec = TrinoSpec(
         name=name,

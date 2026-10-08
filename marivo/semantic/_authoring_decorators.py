@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Literal, overload
 
+import ibis.expr.types as ibis_ir
+
 from marivo.refs import (
     DatasourceKind,
     DomainKind,
@@ -42,6 +44,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import (
     _compute_column_hash,
     _normalize_additivity,
+    _normalize_time_fold,
     _validate_relationship_keys,
     _validate_sample_interval_granularity,
     _validate_time_parse,
@@ -49,12 +52,13 @@ from marivo.semantic._authoring_validation import (
     _validate_unit,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.event import Participant
 from marivo.semantic.ir import (
-    Additivity,
+    AggregateFoldInput,
     CsvSourceIR,
     DimensionIR,
     DimensionKind,
@@ -146,7 +150,7 @@ def entity(
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
     domain: Ref[DomainKind] | None = ...,
     ai_context: AiContextValue | None = ...,
-) -> Callable[[Callable[..., Any]], Ref[EntityKind]]: ...
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], Ref[EntityKind]]: ...
 
 
 def entity(
@@ -158,7 +162,7 @@ def entity(
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[EntityKind] | Callable[[Callable[..., Any]], Ref[EntityKind]]:
+) -> Ref[EntityKind] | Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], Ref[EntityKind]]:
     """Declare an entity directly or over one Table expression of its source.
 
     With an explicit ``name`` this declares the entity immediately and returns
@@ -175,7 +179,11 @@ def entity(
         datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
-        primary_key: Optional list of output column names forming the primary key.
+            Table ``columns`` maps output names to physical column names;
+            types come from source metadata when execution needs them.
+            Use ``md.inspect(...)`` to inspect current names and types.
+        primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
+        versioning: Explicit snapshot or validity representation; never inferred from source partitions.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
@@ -194,8 +202,13 @@ def entity(
         >>> orders = ms.entity(
         ...     name="orders",
         ...     datasource=ms.ref.datasource("warehouse"),
-        ...     source=md.table("orders", database="sales_mart"),
+        ...     source=md.table("orders", columns={"order_id": "id", "amount": "total"}),
+        ...     primary_key=["order_id"],
         ... )
+
+    Constraints:
+        Declare this constructor inside a semantic project loaded by ``ms.load``.
+        Identity and direct field columns name projected output aliases.
         >>> @ms.entity(
         ...     datasource=ms.ref.datasource("warehouse"),
         ...     source=md.table("order_changes"),
@@ -206,6 +219,18 @@ def entity(
         ...     return raw.filter(~raw["is_deleted"])
     """
     ctx = _require_ctx()
+    if primary_key is not None and (
+        type(primary_key) is not list
+        or any(type(column) is not str or not column.strip() for column in primary_key)
+    ):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "entity primary_key must be a list of non-empty output column names.",
+            cls=SemanticDecoratorError,
+            expected="list[str] of non-empty output columns, or None for an unkeyed source",
+            received=repr(primary_key),
+            hint="List the complete stable Entity identity in primary_key; declare version columns separately.",
+        )
     resolved_domain = _resolve_domain(domain, ctx)
     if name is not None:
         semantic_id = f"{resolved_domain}.{name}"
@@ -221,7 +246,7 @@ def entity(
             ai_context=ai_context,
         )
 
-    def decorator(fn: Callable[..., Any]) -> Ref[EntityKind]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Table]) -> Ref[EntityKind]:
         obj_name = fn.__name__
         semantic_id = f"{resolved_domain}.{obj_name}"
         return _register_entity_ir(
@@ -477,7 +502,7 @@ def dimension(
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
-    expression (single-return AST). Use this for both raw columns and derived
+    expression (fresh sequential local bindings and one final return). Use this for both raw columns and derived
     expressions (e.g. ``table.region``).
 
     For quantitative measures, use ``@ms.measure(entity=..., additivity=...)``
@@ -557,7 +582,9 @@ def measure_column(
     name: str,
     entity: Ref[EntityKind],
     column: str,
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -569,8 +596,9 @@ def measure_column(
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
-        additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
-            or ``ms.semi_additive(over=..., fold=...)``.
+        additivity: Closed policy from ``ms.additive``, ``ms.additive_all`` or ``ms.non_additive``.
+        status_time_dimension: Optional business status-time dimension.
+        status_time_fold: Fold over the status-time axis, when declared.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -588,7 +616,7 @@ def measure_column(
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> amount = ms.measure_column(
         ...     name="amount", entity=orders, column="amount",
-        ...     additivity="additive", unit="CNY",
+        ...     additivity=ms.additive_all(), unit="CNY",
         ... )
     """
     ctx = _require_ctx()
@@ -613,17 +641,39 @@ def measure_column(
     _validate_unit(unit, semantic_id, "measure")
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
+    status_id = (
+        _require_ref_id(
+            status_time_dimension,
+            parameter="status_time_dimension",
+            expected=(SemanticKind.TIME_DIMENSION,),
+        )
+        if status_time_dimension is not None
+        else None
+    )
+    status_fold = (
+        _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+        if status_time_fold is not None
+        else None
+    )
     ir = MeasureIR(
         semantic_id=semantic_id,
         domain=resolved_domain,
         entity=entity_id,
         name=obj_name,
         ai_context=ai_ctx,
-        additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+        additivity=_normalize_additivity(
+            additivity,
+            semantic_id=semantic_id,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
+        ),
         unit=unit,
         python_symbol=obj_name,
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
+        dsl_additivity=additivity,
+        status_time_dimension=status_id,
+        status_time_fold=status_fold,
     )
     _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
     return ref
@@ -633,7 +683,9 @@ def measure(
     *,
     name: str | None = None,
     entity: Ref[EntityKind],
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -647,8 +699,9 @@ def measure(
     Args:
         name: Measure name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
-        additivity: Whether the measure is ``"additive"``, ``"non_additive"``,
-            or ``ms.semi_additive(over=..., fold=...)``.
+        additivity: Closed coordinate-additivity policy.
+        status_time_dimension: Optional business status-time dimension.
+        status_time_fold: Fold over the status-time axis, when declared.
         unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -662,7 +715,7 @@ def measure(
             body violates the AST whitelist.
 
     Example:
-        >>> @ms.measure(entity=orders, additivity="additive", unit="USD")
+        >>> @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
         ... def amount(orders_table):
         ...     return orders_table.amount
     """
@@ -697,17 +750,39 @@ def measure(
         )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
+        status_id = (
+            _require_ref_id(
+                status_time_dimension,
+                parameter="status_time_dimension",
+                expected=(SemanticKind.TIME_DIMENSION,),
+            )
+            if status_time_dimension is not None
+            else None
+        )
+        status_fold = (
+            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+            if status_time_fold is not None
+            else None
+        )
         ir = MeasureIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
             entity=entity_ref,
             name=obj_name,
             ai_context=ai_ctx,
-            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
+            additivity=_normalize_additivity(
+                additivity,
+                semantic_id=semantic_id,
+                status_time_dimension=status_id,
+                status_time_fold=status_fold,
+            ),
             unit=unit,
             python_symbol=fn.__name__,
             location=location,
             body_ast_hash=expression_body.body_ast_hash,
+            dsl_additivity=additivity,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
         )
         _push_ir(ctx, ref, ir, expression_body)
         return ref
@@ -939,8 +1014,7 @@ def relationship(
         A ``Ref[relationship]``.
 
     Raises:
-        SemanticDecoratorError: ``name`` is missing, the entities are unknown, or
-            ``keys`` is empty.
+        SemanticDecoratorError: A ref or key shape is invalid.
 
     Example:
         >>> ms.relationship(
@@ -948,6 +1022,14 @@ def relationship(
         ...     from_entity=orders, to_entity=customers,
         ...     keys=[ms.join_on(customer_id, id)],
         ... )
+
+    Constraints:
+        Load derives structural multiplicity from complete endpoint identity key
+        coverage. The relationship declares no global required-match policy.
+        Each consumer decides whether its selected members require a match and
+        what an allowed absence means. Actual multiplicity and missing matches
+        require separate runtime evidence; a versioned endpoint needs an exact
+        version selection before its one side can be consumed.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

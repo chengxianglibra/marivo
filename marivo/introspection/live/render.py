@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 
-from marivo.introspection.live.model import EnvironmentFingerprint
+from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerprint
 
 
 def render_fingerprint(fp: EnvironmentFingerprint, *, reveal: bool) -> str:
@@ -52,3 +52,16 @@ def enforce_budget(text: str, *, max_lines: int, max_codepoints: int) -> str:
             f"render budget exceeded: {len(normalized)} codepoints > {max_codepoints}"
         )
     return normalized
+
+
+def bounded_help(text: str, *, root: bool = False) -> str:
+    """Enforce the common root or focused Help budget without truncation."""
+    return enforce_budget(
+        text,
+        max_lines=SURFACE_LIMITS.root_help_max_lines
+        if root
+        else SURFACE_LIMITS.focused_help_max_lines,
+        max_codepoints=SURFACE_LIMITS.root_help_max_codepoints
+        if root
+        else SURFACE_LIMITS.focused_help_max_codepoints,
+    )

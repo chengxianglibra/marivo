@@ -35,6 +35,7 @@ class SemanticKind(StrEnum):
     RELATIONSHIP = "relationship"
     EVENT = "event"
     STATE_MODEL = "state_model"
+    BUSINESS_ORDER = "business_order"
     PERIOD_CALENDAR = "period_calendar"
     TEMPORAL_SET = "temporal_set"
     WORK_SCHEDULE = "work_schedule"
@@ -86,6 +87,10 @@ class StateModelKind(SemanticKindTag):
     __slots__ = ()
 
 
+class BusinessOrderKind(SemanticKindTag):
+    __slots__ = ()
+
+
 class PeriodCalendarKind(SemanticKindTag):
     __slots__ = ()
 
@@ -112,6 +117,7 @@ _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
     RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
     EventKind: frozenset({SemanticKind.EVENT}),
     StateModelKind: frozenset({SemanticKind.STATE_MODEL}),
+    BusinessOrderKind: frozenset({SemanticKind.BUSINESS_ORDER}),
     PeriodCalendarKind: frozenset({SemanticKind.PERIOD_CALENDAR}),
     TemporalSetKind: frozenset({SemanticKind.TEMPORAL_SET}),
     WorkScheduleKind: frozenset({SemanticKind.WORK_SCHEDULE}),
@@ -129,6 +135,7 @@ _SEGMENT_COUNT = {
     SemanticKind.RELATIONSHIP: 2,
     SemanticKind.EVENT: 2,
     SemanticKind.STATE_MODEL: 2,
+    SemanticKind.BUSINESS_ORDER: 2,
     SemanticKind.PERIOD_CALENDAR: 2,
     SemanticKind.TEMPORAL_SET: 2,
     SemanticKind.WORK_SCHEDULE: 2,
@@ -350,6 +357,9 @@ class _RefFactory:
     def state_model(self, path: str) -> Ref[StateModelKind]:
         return cast("Ref[StateModelKind]", _create_ref(SemanticKind.STATE_MODEL, path))
 
+    def business_order(self, path: str) -> Ref[BusinessOrderKind]:
+        return cast("Ref[BusinessOrderKind]", _create_ref(SemanticKind.BUSINESS_ORDER, path))
+
     def period_calendar(self, path: str) -> Ref[PeriodCalendarKind]:
         return cast("Ref[PeriodCalendarKind]", _create_ref(SemanticKind.PERIOD_CALENDAR, path))
 
@@ -443,6 +453,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.STATE_MODEL: cast(
         "Callable[[str], Ref[SemanticKindTag]]",
         ref.state_model,
+    ),
+    SemanticKind.BUSINESS_ORDER: cast(
+        "Callable[[str], Ref[SemanticKindTag]]",
+        ref.business_order,
     ),
     SemanticKind.PERIOD_CALENDAR: cast(
         "Callable[[str], Ref[SemanticKindTag]]",

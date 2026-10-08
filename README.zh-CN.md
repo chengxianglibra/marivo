@@ -105,12 +105,14 @@ Windows 使用 `.venv/Scripts/python.exe -m marivo doctor`。
 import marivo
 
 marivo.help()
-marivo.help("targets")
+marivo.help("authoring")
+marivo.help("analysis")
 marivo.help("semantic.metric")
 marivo.help("analysis.observe")
 ```
 
-`marivo.help("targets")` 会列出当前安装版本的 canonical discovery index。
+`marivo.help()` 介绍核心概念，并引导到 `authoring` 或 `analysis`。
+`marivo.help("analysis")` 通过六个有界主题逐步披露当前安装版本的能力。
 请统一使用其中的完整限定名，不要依赖短名称自动消歧。已知或从 live result 获得的
 public type、error 和 member target 仍可直接查询 focused help。
 
@@ -147,7 +149,20 @@ make format
 make lint
 make typecheck
 make test
+make runtime-test
 make check
 ```
+
+`make test` 运行日常回归测试；`make check` 和 `make check-agent` 合并日常测试、
+静态检查和 API 文档检查。完整 Runtime 验收由 `make release-check` 执行。
+主要功能测试使用本地 Parquet 文件，engine 专属契约保留 DuckDB 验证。发布检查不需要对象存储服务。
+日常开发按需使用 `make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'`；
+`runtime-test-agent` 为同一范围提供精简输出。这两个 Runtime 入口默认使用两个
+worker，可在测量主机可用容量后通过 `RUNTIME_WORKERS=4` 覆盖。含 `::` 的单个
+测试节点仍串行执行。并发数限制针对每次调用，同机多个测试任务仍共享主机资源。
+测试采用 work-stealing 调度以减少慢模块拖尾。类型检查保持严格增量模式，
+缓存失效时执行全量检查。
+安装环境指纹随 `make release-test` 的打包检查运行。统计依赖在对应操作执行时加载，
+普通 worker 启动不再导入 SciPy 的统计包。
 
 贡献前请阅读 [`AGENTS.md`](AGENTS.md)。完整流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。

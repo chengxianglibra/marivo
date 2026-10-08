@@ -15,6 +15,15 @@ from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.semantic._authoring_context import _register_authoring_file
+from marivo.semantic._dsl_authoring import (
+    AdditiveAllV1,
+    AdditiveOverV1,
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NonAdditiveV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
@@ -27,23 +36,10 @@ from marivo.semantic.ir import (
     SampleIntervalIR,
     SemanticParse,
     SemiAdditive,
-    SqlProvenance,
     StrptimeParse,
     TimeFoldIR,
     TimestampParse,
 )
-
-
-def _validate_metric_provenance(provenance: SqlProvenance | None) -> None:
-    if provenance is None:
-        return
-    if not isinstance(provenance, SqlProvenance):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "metric provenance must be constructed with ms.from_sql(sql=..., dialect=...).",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
 
 
 def _validate_time_parse(parse: SemanticParse | None) -> None:
@@ -262,20 +258,73 @@ def _normalize_time_fold(
     return TimeFoldIR(kind="percentile", q=float(q))
 
 
-def _normalize_additivity(additivity: Additivity, *, semantic_id: str) -> Additivity:
-    """Validate an Additivity value (literal or SemiAdditive variant)."""
-    if isinstance(additivity, SemiAdditive):
-        return additivity
-    if additivity in ("additive", "non_additive"):
-        return additivity
-    _raise(
-        ErrorKind.INVALID_REF,
-        f"Metric {semantic_id!r}: additivity must be 'additive', 'non_additive', "
-        "or ms.semi_additive(over=..., fold=...). "
-        "Note: use underscores, not hyphens (e.g. 'non_additive', not 'non-additive').",
-        cls=SemanticDecoratorError,
-        constraint_id=ConstraintId.REF_SHAPE,
-    )
+def _normalize_additivity(
+    additivity: AdditivityPolicy,
+    *,
+    semantic_id: str,
+    status_time_dimension: str | None = None,
+    status_time_fold: TimeFoldIR | None = None,
+) -> Additivity:
+    """Project a closed declaration to the existing execution summary.
+
+    The projection is not authority for a new DSL coordinate fold.
+    """
+    if type(additivity) not in (AdditiveOverV1, AdditiveAllV1, NonAdditiveV1):
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"{semantic_id!r}: additivity requires ms.additive(...), "
+            "ms.additive_all(...), or ms.non_additive().",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    if status_time_dimension is None and status_time_fold is not None:
+        _raise(
+            ErrorKind.INVALID_REF,
+            f"{semantic_id!r}: status_time_fold requires status_time_dimension.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    if status_time_dimension is not None:
+        if type(additivity) is not AdditiveAllV1 or (
+            status_time_dimension not in additivity.exceptions
+        ):
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"{semantic_id!r}: status time must be fixed by ms.additive_all(except_=(...)).",
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
+        if status_time_fold is not None:
+            return SemiAdditive(over=status_time_dimension, fold=status_time_fold)
+        return "non_additive"
+    if type(additivity) is AdditiveAllV1:
+        return "additive" if not additivity.exceptions else "non_additive"
+    if type(additivity) is AdditiveOverV1:
+        return "non_additive"
+    return "non_additive"
+
+
+def _validate_value_policies(
+    *,
+    semantic_id: str,
+    nulls: NullInputPolicyV1 | None,
+    empty: EmptyContributionPolicyV1 | None,
+    zero_denominator: ZeroDenominatorPolicyV1 | None,
+) -> None:
+    """Reject raw strings and policy values from the wrong closed namespace."""
+    for name, value, expected in (
+        ("nulls", nulls, NullInputPolicyV1),
+        ("empty", empty, EmptyContributionPolicyV1),
+        ("zero_denominator", zero_denominator, ZeroDenominatorPolicyV1),
+    ):
+        if value is not None and type(value) is not expected:
+            _raise(
+                ErrorKind.INVALID_REF,
+                f"{semantic_id!r}: {name}= requires its ms.{name} constructor; "
+                f"received {type(value).__name__}.",
+                cls=SemanticDecoratorError,
+                constraint_id=ConstraintId.REF_SHAPE,
+            )
 
 
 def _validate_time_parse_granularity(

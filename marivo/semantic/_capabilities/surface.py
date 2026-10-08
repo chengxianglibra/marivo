@@ -7,7 +7,6 @@ from types import MappingProxyType
 from typing import NoReturn
 
 from marivo.introspection.live.errors import build_help_target_error_payload
-from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
@@ -74,14 +73,6 @@ def _enrich(target: object) -> ResolvedLiveTarget[SemanticHelpDescriptor] | None
 
     error_type = type(target)
     if ERROR_TYPES.get(error_type.__name__) is error_type:
-        repair = getattr(target, "repair", None)
-        help_target = getattr(repair, "help_target", None)
-        if not isinstance(help_target, LiveHelpTarget):
-            return ResolvedLiveTarget(
-                kind="error_contract",
-                surface="semantic",
-                error_name=error_type.__name__,
-            )
         return ResolvedLiveTarget(
             kind="error_briefing",
             surface="semantic",

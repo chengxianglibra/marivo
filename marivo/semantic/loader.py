@@ -12,6 +12,7 @@ you need the unassembled result rather than a catalog.
 
 from __future__ import annotations
 
+import ast
 import sys
 import types
 from collections.abc import Sequence
@@ -22,6 +23,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from marivo._authoring.loading import _execution_diagnostic, _source_loading
 from marivo.config import AUTHORED_DIR
 from marivo.datasource._builtin import default_datasource
 from marivo.datasource.errors import (
@@ -30,11 +32,12 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.loader import load_datasources
+from marivo.datasource.loader import _load_models_datasources, _models_root_errors
 from marivo.refs import FieldKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
@@ -50,8 +53,14 @@ from marivo.semantic.ir import (
     DomainIR,
     MeasureIR,
     MetricIR,
+    SourceLocation,
 )
-from marivo.semantic.validator import Registry, assembly_validate, canonicalize_state_models
+from marivo.semantic.validator import (
+    Registry,
+    assembly_validate,
+    canonicalize_business_orders,
+    canonicalize_state_models,
+)
 
 if TYPE_CHECKING:
     from marivo.semantic._authoring_context import PendingDefinition
@@ -114,39 +123,40 @@ loader_context = LoaderContextManager
 
 
 def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
-    if isinstance(error, DatasourceDuplicateError):
-        refs = (error.received,) if error.received else ()
-        return SemanticLoadError(
-            kind=ErrorKind.DUPLICATE_NAME,
-            message=error.message,
-            refs=refs,
-            hint=(
-                error.repair.action
-                if error.repair is not None
-                else "Keep each datasource name unique under models/datasources/."
-            ),
-        )
-    if isinstance(error, DatasourceLoadError):
-        refs = (error.location,) if error.location else ()
-        return SemanticLoadError(
-            kind=ErrorKind.INVALID_PROJECT,
-            message=error.message,
-            refs=refs,
-            hint="Check models/datasources/*.py datasource declarations.",
-        )
     if isinstance(error, DatasourceError):
-        refs = (error.received,) if error.received else ()
-        return SemanticLoadError(
-            kind=ErrorKind.ORGANIZATION_ERROR,
+        if isinstance(error, DatasourceDuplicateError):
+            kind = ErrorKind.DUPLICATE_NAME
+            refs = ((error.received,) if error.received else ()) + error.declaration_paths
+            hint = "Keep each datasource name unique under models/datasources/."
+        elif isinstance(error, DatasourceLoadError):
+            kind = ErrorKind.INVALID_PROJECT
+            refs = (error.location,) if error.location else ()
+            hint = "Check models/datasources/*.py datasource declarations."
+        else:
+            kind = ErrorKind.ORGANIZATION_ERROR
+            refs = (error.received,) if error.received else ()
+            hint = "Check models/datasources/*.py datasource declarations."
+        wrapped = SemanticLoadError(
+            kind=kind,
             message=error.message,
             refs=refs,
-            hint="Check models/datasources/*.py datasource declarations.",
+            hint=error.repair.action if error.repair is not None else hint,
+            expected=error.expected,
+            received=error.received,
+            location_label=error.location,
+            repair=error.repair,
+            exception_type=error.exception_type,
+            traceback=error.traceback,
         )
-    return SemanticLoadError(
+        wrapped.__cause__ = error
+        return wrapped
+    wrapped = SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,
         message=str(error),
         hint="Check models/datasources/*.py datasource declarations.",
     )
+    wrapped.__cause__ = error
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -254,6 +264,100 @@ def _ensure_package(name: str, path: Path) -> None:
     sys.modules[name] = package
 
 
+def _entity_constructor_decorator_error(filepath: Path, exc: Exception) -> SemanticLoadError | None:
+    """Classify only an executed @ms.entity(...) application that returned Ref."""
+    if type(exc) is not TypeError or str(exc) != "'Ref' object is not callable":
+        return None
+    offending_line: int | None = None
+    offending_scope: dict[str, object] | None = None
+    traceback = exc.__traceback__
+    while traceback is not None:
+        if Path(traceback.tb_frame.f_code.co_filename) == filepath:
+            offending_line = traceback.tb_lineno
+            offending_scope = {
+                **traceback.tb_frame.f_globals,
+                **traceback.tb_frame.f_locals,
+            }
+        traceback = traceback.tb_next
+    if offending_line is None or offending_scope is None:
+        return None
+    semantic_module = sys.modules.get("marivo.semantic")
+    if semantic_module is None:
+        return None
+    entity_constructor = getattr(semantic_module, "entity", None)
+    try:
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except (OSError, SyntaxError, UnicodeError):
+        return None
+
+    module_aliases: set[str] = set()
+    direct_aliases: set[str] = set()
+    bare_module = False
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                if alias.name == "marivo.semantic":
+                    if alias.asname is None:
+                        bare_module = True
+                    else:
+                        module_aliases.add(alias.asname)
+        elif isinstance(statement, ast.ImportFrom):
+            if statement.module == "marivo":
+                module_aliases.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name == "semantic"
+                )
+            elif statement.module == "marivo.semantic":
+                direct_aliases.update(
+                    alias.asname or alias.name
+                    for alias in statement.names
+                    if alias.name == "entity"
+                )
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not decorator.lineno <= offending_line <= (decorator.end_lineno or decorator.lineno):
+                continue
+            target = decorator.func
+            direct = (
+                isinstance(target, ast.Name)
+                and target.id in direct_aliases
+                and offending_scope.get(target.id) is entity_constructor
+            )
+            qualified = (
+                isinstance(target, ast.Attribute)
+                and target.attr == "entity"
+                and isinstance(target.value, ast.Name)
+                and target.value.id in module_aliases
+                and offending_scope.get(target.value.id) is semantic_module
+            )
+            bare = (
+                bare_module
+                and isinstance(target, ast.Attribute)
+                and target.attr == "entity"
+                and isinstance(target.value, ast.Attribute)
+                and target.value.attr == "semantic"
+                and isinstance(target.value.value, ast.Name)
+                and target.value.value.id == "marivo"
+                and getattr(offending_scope.get("marivo"), "semantic", None) is semantic_module
+            )
+            if direct or qualified or bare:
+                return SemanticLoadError(
+                    kind=ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR,
+                    message="ms.entity(...) returns Ref[entity] and cannot decorate a definition.",
+                    location=SourceLocation(str(filepath), decorator.lineno),
+                    expected="name = ms.entity(...) without a decorated function body",
+                    received="@ms.entity(...) applied to a definition",
+                    constraint_id=ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+                )
+    return None
+
+
 def _execute_file(
     filepath: Path,
     ctx: LoaderContext,
@@ -274,18 +378,36 @@ def _execute_file(
         module = importlib_util.module_from_spec(spec)
         module.__package__ = package_name
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        with _source_loading(filepath):
+            spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, SemanticError):
+            if exc.traceback is None:
+                diagnostic = _execution_diagnostic(exc, filepath)
+                exc.exception_type = diagnostic.exception_type
+                exc.traceback = diagnostic.traceback
             errors.append(exc)
+        elif isinstance(exc, DatasourceError):
+            if exc.traceback is None:
+                diagnostic = _execution_diagnostic(exc, filepath)
+                exc.exception_type = diagnostic.exception_type
+                exc.traceback = diagnostic.traceback
+            errors.append(_wrap_datasource_error(exc))
         else:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.ORGANIZATION_ERROR,
-                    message=f"Error executing {filepath}: {exc}",
-                    hint="Check the file for syntax or runtime errors.",
-                )
+            diagnostic = _execution_diagnostic(exc, filepath)
+            entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
+            error = entity_decorator_error or SemanticLoadError(
+                kind=ErrorKind.ORGANIZATION_ERROR,
+                message=f"Error executing {filepath}: {diagnostic.exception_type}: {exc}",
+                location=SourceLocation(diagnostic.file, diagnostic.line),
+                expected="an executable semantic declaration",
+                received=f"{diagnostic.exception_type}: {exc}",
+                hint=diagnostic.action,
             )
+            error.exception_type = diagnostic.exception_type
+            error.traceback = diagnostic.traceback
+            error.__cause__ = exc
+            errors.append(error)
     finally:
         _LOADER_CTX.reset(token)
 
@@ -506,6 +628,8 @@ def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additiv
 def _resolve_metric_additivity(registry: Registry) -> None:
     import dataclasses
 
+    from marivo.semantic._dsl_authoring import AdditivityPolicy, additive_all, non_additive
+
     # Phase A: tier-1 simple metrics resolve from their measure dimension.
     for sid, m in list(registry.metrics.items()):
         if (
@@ -515,7 +639,18 @@ def _resolve_metric_additivity(registry: Registry) -> None:
         ):
             resolved = _resolve_tier1_additivity(m, registry)
             if resolved is not None:
-                registry.metrics[sid] = dataclasses.replace(m, additivity=resolved)
+                policy: AdditivityPolicy | None = None
+                if m.aggregation == "count":
+                    policy = additive_all()
+                elif m.aggregation == "sum":
+                    target = m.aggregation_target or m.measure
+                    measure = registry.measures.get(target) if target is not None else None
+                    policy = measure.dsl_additivity if measure is not None else None
+                elif m.aggregation is not None:
+                    policy = non_additive()
+                registry.metrics[sid] = dataclasses.replace(
+                    m, additivity=resolved, dsl_additivity=policy
+                )
 
     # Phase B: derived metrics propagate from components (fixpoint over chains).
     for _ in range(len(registry.metrics) + 1):
@@ -541,7 +676,7 @@ def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
         "measure" if metric.measure is not None else None
     )
     if target_kind == "entity":
-        return None
+        return "1"
     target_id = metric.aggregation_target or metric.measure or ""
     measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
     if measure_ir is None:
@@ -621,6 +756,7 @@ def _build_registry(
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic.ir import (
+        BusinessOrderDeclarationIR,
         DimensionIR,
         EntityIR,
         EventIR,
@@ -637,6 +773,7 @@ def _build_registry(
     field_owners = {}
     catalog_refs: set[Ref[SemanticKindTag]] = set()
     state_model_declarations: list[StateModelDeclarationIR] = []
+    business_order_declarations: list[BusinessOrderDeclarationIR] = []
     for datasource_ir in datasource_irs:
         registry.datasources[datasource_ir.semantic_id] = datasource_ir
         catalog_refs.add(ref_factory.datasource(datasource_ir.semantic_id))
@@ -676,6 +813,8 @@ def _build_registry(
                 registry.events[sid] = ir
             elif isinstance(ir, StateModelDeclarationIR):
                 state_model_declarations.append(ir)
+            elif isinstance(ir, BusinessOrderDeclarationIR):
+                business_order_declarations.append(ir)
             if expression_body is not None:
                 bodies[ref] = expression_body
 
@@ -693,11 +832,15 @@ def _build_registry(
         catalog_refs=frozenset(catalog_refs),
         default_cumulative_axes=default_cumulative_axes,
     )
+    business_order_errors = canonicalize_business_orders(
+        registry,
+        tuple(business_order_declarations),
+    )
     state_model_errors = canonicalize_state_models(
         registry,
         tuple(state_model_declarations),
     )
-    return registry, expression_sidecar, tuple(state_model_errors)
+    return registry, expression_sidecar, (*business_order_errors, *state_model_errors)
 
 
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
@@ -720,121 +863,12 @@ def _models_root_from_semantic_root(root: Path) -> ModelsRoot:
     )
 
 
-def _root_shape_errors(roots: Sequence[ModelsRoot]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    if not roots:
-        return errors
-    local_root = roots[0].models_root
-    seen_external: set[Path] = set()
-    for root in roots[1:]:
-        if root.models_root == local_root:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root duplicates the local "
-                        f"project models root: {root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Remove the local models/ path from marivo.toml [semantic].layer_paths.",
-                )
-            )
-            continue
-        if root.models_root in seen_external:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is listed more than once: "
-                        f"{root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Keep each marivo.toml [semantic].layer_paths entry unique.",
-                )
-            )
-            continue
-        seen_external.add(root.models_root)
-        if not root.models_root.exists():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        f"Configured semantic layer models root does not exist: {root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Point marivo.toml [semantic].layer_paths at an existing models/ directory.",
-                )
-            )
-            continue
-        if not root.models_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is not a directory: "
-                        f"{root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Point marivo.toml [semantic].layer_paths at a models/ directory.",
-                )
-            )
-            continue
-        if not root.datasource_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is missing datasources/: "
-                        f"{root.datasource_root}"
-                    ),
-                    refs=(str(root.datasource_root),),
-                    hint="Create datasources/ under the configured models root or remove this layer path.",
-                )
-            )
-        if not root.semantic_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is missing semantic/: "
-                        f"{root.semantic_root}"
-                    ),
-                    refs=(str(root.semantic_root),),
-                    hint="Create semantic/ under the configured models root or remove this layer path.",
-                )
-            )
-    return errors
-
-
 def _semantic_source_path(ir: Any) -> str:
     location = getattr(ir, "location", None)
     file = getattr(location, "file", None)
     if isinstance(file, str) and file:
         return file
     return "<unknown>"
-
-
-def _datasource_duplicate_errors(datasources: Sequence[DatasourceIR]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    seen: dict[str, DatasourceIR] = {}
-    for datasource in datasources:
-        existing = seen.get(datasource.name)
-        if existing is not None:
-            first = existing.location.file
-            second = datasource.location.file
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.DUPLICATE_NAME,
-                    message=(
-                        f"Duplicate datasource name: {datasource.name!r}. "
-                        f"First declaration: {first}. Conflicting declaration: {second}."
-                    ),
-                    refs=(datasource.name, first, second),
-                    hint="Rename or remove one datasource declaration.",
-                )
-            )
-        seen.setdefault(datasource.name, datasource)
-    return errors
 
 
 def _domain_duplicate_errors(model_dirs: Sequence[Path]) -> list[SemanticLoadError]:
@@ -965,7 +999,8 @@ def load_project(
     path_entries: list[str] = []
     module_prefixes: list[str] = []
 
-    errors.extend(_root_shape_errors(root_specs))
+    datasource_roots = tuple(spec.models_root for spec in root_specs)
+    errors.extend(_wrap_datasource_error(error) for error in _models_root_errors(datasource_roots))
     if errors:
         return LoadResult(status="errored", errors=tuple(errors))
 
@@ -980,13 +1015,11 @@ def load_project(
     try:
         for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True):
             _ensure_package(module_prefix, root_spec.semantic_root)
-            datasource_result = load_datasources(root_spec.datasource_root)
-            for error in datasource_result.errors:
-                errors.append(_wrap_datasource_error(error))
-            datasource_irs.extend(datasource_result.datasources)
             all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-        errors.extend(_datasource_duplicate_errors(datasource_irs))
+        datasource_result = _load_models_datasources(datasource_roots)
+        errors.extend(_wrap_datasource_error(error) for error in datasource_result.errors)
+        datasource_irs.extend(datasource_result.datasources)
 
         model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
         warnings.extend(filter_warnings)
