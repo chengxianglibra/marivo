@@ -182,6 +182,23 @@ each call. Exact fixed continuations can reuse a committed execution key;
 snapshot and retained parts without reading the current source or Semantic
 catalog. Each other capability follows its current typed entry point and exact qualification.
 
+Grouping members does not require an additional relationship. When the Metric's
+contribution root is the member Entity, omit `via` or pass `None`. For example,
+observe order revenue by the order's own channel:
+
+```python
+orders = session.members(ms.ref.entity("sales.order"))
+channel = ms.ref.dimension("sales.order.channel")
+channel_revenue = orders.group_by(channel).observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+).rollup().execute()
+channel_revenue.show()
+```
+
+Observing this order Metric over customers still requires the declared
+order-to-customer route, such as `via=buyer` in the earlier example.
+
 Recovered observations retain their complete current rows, including contribution
 coordinates when present. `summarize` consumes those rows; `rollup` consumes the
 saved original aggregation state. Historical attribute selection followed by a

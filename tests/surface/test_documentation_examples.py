@@ -15,11 +15,27 @@ ROOT = PROJECT_ROOT
 
 
 @pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 34), ("evidence", 2), ("semantic-layer", 51)]
+    "page,count", [("analysis-workflow", 35), ("evidence", 2), ("semantic-layer", 51)]
 )
 def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
     assert len(_blocks("en", page)) == count
     assert _blocks("en", page) == _blocks("zh", page)
+
+
+@pytest.mark.runtime
+def test_grouped_same_entity_workflow_example_executes(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
+    code = next(
+        block for block in _blocks("en", "analysis-workflow") if block.startswith("orders =")
+    )
+    exec(compile(code, "grouped-same-entity-example", "exec"), namespace)
+    result = namespace["channel_revenue"]
+    assert isinstance(result, mv.MaterializedGroupedNumericRelation)
+    rows = result.to_pandas()
+    assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
 
 @pytest.mark.runtime

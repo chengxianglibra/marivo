@@ -153,6 +153,23 @@ recovered_observation.summarize(method=mv.count()).execute().show()
 每次执行逻辑来源分支都会重新读取来源；固定续算可命中已提交的精确执行键。
 `session.artifact(ref)` 依据校验过的快照与保留部件恢复公开 J1–J4 结果，
 不读取当前来源或 Semantic 目录。其他能力遵循各自当前类型化入口与精确资格。
+
+成员分组本身不要求额外的 relationship。当 Metric 的贡献根就是成员 Entity 时，
+可以省略 `via` 或传入 `None`。例如，按订单自身的渠道观察订单收入：
+
+```python
+orders = session.members(ms.ref.entity("sales.order"))
+channel = ms.ref.dimension("sales.order.channel")
+channel_revenue = orders.group_by(channel).observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+).rollup().execute()
+channel_revenue.show()
+```
+
+在客户域上观察这个订单 Metric 时，仍需声明订单到客户的路由，
+例如前一示例中的 `via=buyer`。
+
 恢复后的观察保留完整当前行，包括已有的贡献坐标。`summarize` 消费当前行，
 `rollup` 消费已存原量聚合状态。历史属性筛选后的新逻辑观察保留所选版本。
 History 的状态、区间和违规选人先准备来源候选，再消费本地行；

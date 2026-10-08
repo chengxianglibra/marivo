@@ -224,6 +224,97 @@ def test_public_member_read_and_category_selection(
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize("explicit_none", (False, True))
+def test_public_grouped_same_entity_observation_allows_omitted_route(
+    analysis_dsl_case_factory: DslCaseFactory, explicit_none: bool
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
+    channel = ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}")
+    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
+    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    grouped = orders.group_by(channel)
+
+    observed = (
+        grouped.observe(revenue, during=august, via=None)
+        if explicit_none
+        else grouped.observe(revenue, during=august)
+    )
+    assert isinstance(observed, mv.GroupedNumericRelation)
+    rows = observed.rollup().execute().to_pandas()
+    assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
+
+
+@pytest.mark.runtime
+def test_public_singleton_same_entity_observation_allows_omitted_route(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
+    observed = orders.group_by().observe(
+        ms.ref.metric(f"{names.domain}.{names.revenue}"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    )
+
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == [1000]
+
+
+@pytest.mark.runtime
+def test_public_grouped_foreign_entity_observation_requires_route(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    customers = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
+    grouped = customers.group_by(
+        ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}")
+    )
+    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
+    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    before = case.session.runs().items
+
+    with pytest.raises(AnalysisError, match="distinct contribution root") as missing:
+        grouped.observe(revenue, during=august)
+
+    assert missing.value.expected
+    assert missing.value.received
+    assert missing.value.repair is not None
+    assert missing.value.repair.action
+    assert case.session.runs().items == before
+    rows = (
+        grouped.observe(
+            revenue, during=august, via=ms.ref.relationship(f"{names.domain}.{names.buyer}")
+        )
+        .rollup()
+        .execute()
+        .to_pandas()
+    )
+    values = rows.set_index("group")["value"]
+    assert values.dropna().to_dict() == {"east": 600, "south": 400}
+    assert values.loc[["west"]].isna().all()
+
+
+@pytest.mark.runtime
+def test_public_target_only_groups_cannot_observe_without_members(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    names = case.names
+    orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
+    category = orders.read(ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}"))
+    assert isinstance(category, mv.LogicalCategoryRelation)
+    targets = category.group_by()
+    before = case.session.runs().items
+
+    with pytest.raises(AnalysisError, match="target-only group domain"):
+        targets.observe(ms.ref.metric(f"{names.domain}.{names.revenue}"))
+
+    assert case.session.runs().items == before
+
+
+@pytest.mark.runtime
 def test_public_fixed_coordinate_rollup_uses_retained_group_state(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
