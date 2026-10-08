@@ -71,7 +71,6 @@ from marivo.analysis.public_dsl import AnalysisAction as AnalysisAction
 from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
 from marivo.analysis.public_dsl import CountMethod as CountMethod
 from marivo.analysis.public_dsl import GridEndpoint as GridEndpoint
-from marivo.analysis.public_dsl import GridWindow as GridWindow
 from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
 from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
 from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
@@ -130,7 +129,6 @@ from marivo.analysis.public_dsl import (
 )
 from marivo.analysis.public_dsl import LogicalTable as LogicalTable
 from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
-from marivo.analysis.public_dsl import LogicalTimeAnalysisDomain as LogicalTimeAnalysisDomain
 from marivo.analysis.public_dsl import LogicalTimeRunResult as LogicalTimeRunResult
 from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
 from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
@@ -210,9 +208,6 @@ from marivo.analysis.public_dsl import (
 )
 from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
 from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
-from marivo.analysis.public_dsl import (
-    MaterializedTimeAnalysisDomain as MaterializedTimeAnalysisDomain,
-)
 from marivo.analysis.public_dsl import MaterializedTimeRunResult as MaterializedTimeRunResult
 from marivo.analysis.public_dsl import (
     MaterializedTransitionSummary as MaterializedTransitionSummary,
@@ -313,11 +308,8 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "TimeScope",
     "BeforeEndBoundary",
     "TimeGrid",
-    "GridWindow",
     "GridEndpoint",
     "time_grid",
-    "LogicalTimeAnalysisDomain",
-    "MaterializedTimeAnalysisDomain",
     "ArtifactDigest",
     "ArtifactRef",
     "ArtifactSummary",

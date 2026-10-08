@@ -18,29 +18,9 @@ def _invalid(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected="a grid and handles bound to one exact temporal authority",
         received=received,
-        repair="Construct with mv.time_grid and use the handles on members.each(the_same_grid).",
+        repair="Construct with mv.time_grid and pass the grid to observe(during=grid) or its endpoint to read/observe(at=endpoint).",
         location="analysis.time_grid",
     )
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class GridWindow:
-    """A row-window handle acquired from TimeGrid.window."""
-
-    _grid: TimeGrid
-
-    def show(self) -> None:
-        """Display bounded handle identity.
-
-        Args: None.
-        Returns: None; prints the grid identity and row-window binding.
-        Example: ``grid.window.show()``.
-        Constraints: Does not read a source or resolve a timezone.
-        """
-        print(f"GridWindow grid={self._grid._identity}; during selects each row window")
-
-    def __repr__(self) -> str:
-        return f"GridWindow(grid={self._grid._identity}; use .show())"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -63,7 +43,7 @@ class GridEndpoint:
         Constraints: Before-end is a symbolic left limit, never a timestamp tick.
         """
         print(
-            f"GridEndpoint grid={self._grid._identity}; side={self._side}; use at= on this product read/observe"
+            f"GridEndpoint grid={self._grid._identity}; side={self._side}; use at= on members.read/observe"
         )
 
     def __repr__(self) -> str:
@@ -86,17 +66,6 @@ class TimeGrid:
         self._bound: BoundTimeGrid | None = None
         self._lock = RLock()
         self._identity = sha256(repr((during, grain, timezone)).encode()).hexdigest()[:16]
-
-    @property
-    def window(self) -> GridWindow:
-        """Return this grid's row-window handle.
-
-        Args: None.
-        Returns: A GridWindow bound to this grid.
-        Example: ``values = members.each(grid).observe(metric, during=grid.window, via=route)``.
-        Constraints: Usable only on the owning grid product.
-        """
-        return GridWindow(self)
 
     @property
     def start(self) -> GridEndpoint:
@@ -169,13 +138,13 @@ class TimeGrid:
 
 
 def time_grid(*, during: TimeScope, grain: Grain, timezone: str | None = None) -> TimeGrid:
-    """Construct a finite time domain for a member/time product.
+    """Construct a finite time grid for interval observations and endpoint reads.
 
     Args:
         during: Finite half-open TimeScope.
         grain: Builtin or certified calendar Grain.
         timezone: Optional explicit boundary timezone; calendar authority must agree.
-    Returns: A TimeGrid with exact row-window and endpoint handles.
+    Returns: A TimeGrid selecting every bucket window, with exact endpoint handles.
     Example: ``grid = mv.time_grid(during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day"))``.
     Constraints: The consuming Session binds its persisted report timezone once; no source read occurs.
     """

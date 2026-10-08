@@ -289,15 +289,19 @@ def test_complete_versioned_members(
         )
         if kind == "snapshot":
             grid = mv.time_grid(
-                during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-                grain=mv.grain("day"),
+                during=mv.time_scope(
+                    start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
+                ),
+                grain=mv.grain("hour"),
             )
-            product = current.each(grid).execute()
+            product = current.read(
+                ms.ref.measure("sales.subjects.amount"), at=grid.before_end
+            ).execute()
             trace.record(product)
             product_rows = product.to_pandas()
             assert set(product_rows.coord_1) == {
                 "2026-08-01T00:00:00+00:00",
-                "2026-08-02T00:00:00+00:00",
+                "2026-08-01T01:00:00+00:00",
             }
             assert product_rows.groupby(["member", "coord_0"]).size().to_dict() == {
                 (9007199254740992, "a"): 2,

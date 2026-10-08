@@ -106,7 +106,7 @@ def test_business_completeness_shares_resolution_and_keeps_error_precedence(
         end=datetime(2026, 9, 1, tzinfo=timezone.utc),
     )
     grid = mv.time_grid(during=scope, grain=mv.grain("day"))
-    each = members.each(grid)
+    each = members
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     with patch.object(
         graph_observation,
@@ -115,7 +115,7 @@ def test_business_completeness_shares_resolution_and_keeps_error_precedence(
     ) as normalize:
         each.observe(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
-            during=grid.window,
+            during=grid,
             via=buyer,
             complete_during=(scope,),
             by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),

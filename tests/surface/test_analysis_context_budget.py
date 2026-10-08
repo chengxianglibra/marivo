@@ -224,9 +224,8 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
     daily = (
-        orders.each(grid)
-        .observe(
-            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        orders.observe(
+            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         .group_by(grid)
         .rollup()

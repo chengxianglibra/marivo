@@ -51,15 +51,18 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             grid = mv.time_grid(
                 during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
             )
-            domain = session.members(ms.ref.entity("operations.device")).each(grid)
+            domain = session.members(ms.ref.entity("operations.device"))
             produced_values = domain.observe(
                 ms.ref.metric("operations.reading_count"),
-                during=grid.window,
+                during=grid,
                 via=ms.ref.relationship("operations.reading_device"),
+                by=(ms.ref.entity("operations.device"),),
             ).execute()
             assert isinstance(produced_values, mv.MaterializedNumericRelation)
             values = produced_values
-            produced_categories = domain.read(ms.ref.dimension("operations.device.zone")).execute()
+            produced_categories = domain.read(
+                ms.ref.dimension("operations.device.zone"), at=grid.before_end
+            ).execute()
             assert isinstance(produced_categories, mv.MaterializedCategoryRelation)
             categories = produced_categories
             ranking = values.rank(

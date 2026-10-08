@@ -229,8 +229,7 @@ grid = mv.time_grid(
     grain=mv.grain("month"),
 )
 dataset = (
-    members.each(grid)
-    .observe(entry.ref, during=grid.window)
+    members.observe(entry.ref, during=grid)
     .group_by(grid)
     .rollup()
 )

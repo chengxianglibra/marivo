@@ -74,8 +74,7 @@ grid = mv.time_grid(
 )
 logical = (
     session.members(ms.ref.entity("sales.orders"))
-    .each(grid)
-    .observe(revenue, during=grid.window)
+    .observe(revenue, during=grid)
     .group_by(grid)
     .rollup()
 )

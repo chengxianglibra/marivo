@@ -15,6 +15,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case
+from tests.support.execution_logs import execution_records
 from tests.support.source_trace import SourceTrace
 
 
@@ -97,7 +98,19 @@ def test_public_source_reexecution_and_fixed_hit(
         assert fixed.to_pandas().equals(first.to_pandas())
         assert fixed._dataset is not None
         fixed_record = fixed._dataset.artifact
+        before_hit = len(execution_records(tmp_path))
         hit = continuation.execute()
+        hit_logs = execution_records(tmp_path)[before_hit:]
+        assert not any(r["event"].startswith("query.") for r in hit_logs)
+        assert any(r["event"] == "execution.reused" for r in hit_logs)
+        assert hit_logs[-1]["event"] == "execution.completed"
+        assert hit_logs[-1]["cache_hit"] is True
+        all_logs = execution_records(tmp_path)
+        assert any(r.get("stage") == "analysis.local" and r.get("row_count") == 3 for r in all_logs)
+        assert any(
+            r.get("stage") == "analysis.source" and r.get("row_count") == 3 for r in all_logs
+        )
+        assert all("operation_id" in r for r in all_logs if r["event"] == "execution.started")
         assert hit._dataset is not None
         assert hit.state.artifact_ref == fixed.state.artifact_ref
         assert hit._dataset.artifact.producing_run_ref == fixed_record.producing_run_ref

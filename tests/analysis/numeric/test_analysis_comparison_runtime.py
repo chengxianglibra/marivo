@@ -562,8 +562,8 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             grain=mv.grain("day"),
             timezone="America/New_York" if event_kind == "aware_local" else "UTC",
         )
-        result = members.each(grid).observe(
-            metric, during=grid.window, via=via, by=(ms.ref.entity("sales.customer"),)
+        result = members.observe(
+            metric, during=grid, via=via, by=(ms.ref.entity("sales.customer"),)
         )
         assert isinstance(result, mv.LogicalNumericRelation)
         return result
@@ -1240,9 +1240,9 @@ def test_period_change_after_bucket_rollup(
             grain=mv.grain("day"),
             timezone="UTC",
         )
-        observed = members.each(grid).observe(
+        observed = members.observe(
             ms.ref.metric("sales.order_count"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
         )
         rolled = observed.group_by(grid).rollup()

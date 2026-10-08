@@ -91,7 +91,7 @@ equation. `summarize()` creates a new statistic over current represented rows.
 A mean of displayed averages is not the original weighted mean. Grouped
 observation over the same Entity root needs no relationship solely for grouping.
 
-Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. `groups` retains an explicit logical target domain, including empty groups. On `each(grid)`, every time bucket stays while `by` selects spatial grain. Retain partitions before original rollup when attribution needs them. The former `coordinates` parameter and grouped-domain observation are removed.
+Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. `groups` retains an explicit logical target domain, including empty groups. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. The former `coordinates` parameter and grouped-domain observation are removed.
 
 ## Group the same Entity
 

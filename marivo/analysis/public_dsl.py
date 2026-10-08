@@ -27,7 +27,6 @@ from marivo.analysis._comparison import TimeChange as TimeChange
 from marivo.analysis._comparison import UnionKeys as UnionKeys
 from marivo.analysis._subject import SubjectBinding, subject_binding
 from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
-from marivo.analysis._time_grid import GridWindow as GridWindow
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
@@ -715,7 +714,7 @@ class _Value:
                 if self._has_fixed()
                 else ("read", "group_by", "observe", "execute")
                 if signature.domain.time_grid is not None
-                else ("each", "cohort", "read", "group_by", "observe", "execute")
+                else ("cohort", "read", "group_by", "observe", "execute")
             )
         elif kind == "read":
             names = (
@@ -2607,14 +2606,8 @@ class _CohortDomain(_Value):
 class LogicalAnalysisDomain(_CohortDomain):
     """Unexecuted governed Entity membership and its selected subdomains."""
 
-    def each(self, grid: TimeGrid) -> LogicalTimeAnalysisDomain:
-        """Bind the bounded product of these members and one time grid.
-
-        Args: grid: Finite grid constructed with mv.time_grid().
-        Returns: A LogicalTimeAnalysisDomain retaining every member/time cell.
-        Example: ``product = members.each(grid)``.
-        Constraints: One time axis only; report and certified boundary authorities bind exactly.
-        """
+    def _bind_time_grid(self, grid: TimeGrid) -> tuple[Relation, BoundTimeGrid]:
+        """Bind one operation's complete member/time product without a public receiver."""
         if not isinstance(grid, TimeGrid):
             raise _reject("TimeGrid", type(grid).__name__, "Use mv.time_grid().")
         live = self._node._live()
@@ -2630,9 +2623,14 @@ class LogicalAnalysisDomain(_CohortDomain):
                 None,
             )
         bound = grid._bind(live.report_timezone, snapshot)
-        return LogicalTimeAnalysisDomain(
-            _TOKEN, self._node.each(bound), self._runtime, inputs=(self,)
-        )
+        retained = self._node.root.signature.domain.time_grid
+        if retained is not None:
+            if retained != bound:
+                raise _reject(
+                    "one exact time grid", "conflicting grid", "Use the operation's own grid."
+                )
+            return self._node, bound
+        return self._node.each(bound), bound
 
     def execute(self) -> MaterializedAnalysisDomain:
         """Evaluate and publish this exact member domain.
@@ -2692,26 +2690,21 @@ class LogicalAnalysisDomain(_CohortDomain):
 
         Args:
             field: Declared Measure, direct Dimension/TimeDimension, or bound Boolean Dimension expression Ref.
-            at: Independent aware attribute instant or this product grid endpoint; None for unversioned fields.
+            at: Independent aware attribute instant or grid endpoint; an endpoint binds every member/time cell. Unversioned fields accept None or a grid endpoint and keep their stable value.
             via: Exact single-valued member-to-owner relationship or route.
             match_verification: Check unknown owner matching, or assume it for this call.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
         Example: ``values = members.read(field, at=scope.before_end)``.
-        Constraints: Unknown matching is checked by default; assume records a call premise. Declared to-one cardinality is trusted. Foreign grid endpoints reject; before_end is a symbolic left limit.
+        Constraints: Unknown matching is checked by default; assume records a call premise. Declared to-one cardinality is trusted. Member versions remain independent; before_end is a symbolic left limit.
         """
         point: datetime | BeforeEndBoundary | GridPoint | None = (
             at if not isinstance(at, GridEndpoint) else None
         )
+        receiver = self._node
         if isinstance(at, GridEndpoint):
-            bound = at._grid._bound
-            if bound is None or bound != self._node.root.signature.domain.time_grid:
-                raise _reject(
-                    "the receiver's grid endpoint",
-                    "foreign or unbound grid",
-                    "Use the same grid as each(grid).",
-                )
+            receiver, bound = self._bind_time_grid(at._grid)
             point = GridPoint(bound, at._side)
-        node = self._node.read(field, at=point, via=via, match_verification=match_verification)
+        node = receiver.read(field, at=point, via=via, match_verification=match_verification)
         if field.kind is SemanticKind.MEASURE:
             return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
         if field.kind is SemanticKind.TIME_DIMENSION:
@@ -2762,7 +2755,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         self,
         metric: MetricInputValue,
         *,
-        during: TimeScope | GridWindow | None = None,
+        during: TimeScope | TimeGrid | None = None,
         at: datetime | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoutes | None = None,
         by: tuple[
@@ -2779,8 +2772,8 @@ class LogicalAnalysisDomain(_CohortDomain):
 
         Args:
             metric: Declared Metric Ref or closed runtime Metric expression to observe.
-            during: Fixed TimeScope, the exact grid.window, or None for no added restriction.
-            at: Explicit cumulative endpoint, bound grid endpoint or aware datetime.
+            during: Fixed TimeScope, a TimeGrid selecting each bucket's window, or None for no added restriction.
+            at: Explicit cumulative endpoint, grid endpoint binding every time cell, or aware datetime.
             via: Admitted relationship Ref or ordered routes; omit or pass None for the same Entity root.
             by: Ordered tuple of the receiver's member Entity, categorical Dimensions, or
                 same-Session logical classifications. The Entity retains its full primary key.
@@ -2790,17 +2783,25 @@ class LogicalAnalysisDomain(_CohortDomain):
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: An original LogicalNumericRelation | LogicalRatioRelation at the selected grain.
         Example: ``result = relation.observe(metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
-        Constraints: Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid.window, no dimension grouping or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
+        Constraints: During and at are alternatives. By cannot introduce a time grid; time classifications must match the bound grid. Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid, no dimension grouping or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
+        if during is not None and at is not None:
+            raise _reject(
+                "one observation window or endpoint",
+                "both during and at",
+                "Pass during=scope/grid or at=instant/grid.end, not both.",
+            )
+        if during is not None and not isinstance(during, (TimeScope, TimeGrid)):
+            raise _reject(
+                "TimeScope or TimeGrid", type(during).__name__, "Pass during=scope or during=grid."
+            )
+        node = self._node
+        window: TimeScope | BoundTimeGrid | None = during if isinstance(during, TimeScope) else None
+        if isinstance(during, TimeGrid):
+            node, window = self._bind_time_grid(during)
         point: datetime | GridPoint | None = at if not isinstance(at, GridEndpoint) else None
         if isinstance(at, GridEndpoint):
-            bound_point = at._grid._bound
-            if bound_point is None or bound_point != self._node.root.signature.domain.time_grid:
-                raise _reject(
-                    "the receiver's grid endpoint",
-                    "foreign or unbound grid",
-                    "Use the same grid as each(grid).",
-                )
+            node, bound_point = self._bind_time_grid(at._grid)
             point = GridPoint(bound_point, at._side)
         if type(by) is not tuple:
             raise _reject(
@@ -2816,7 +2817,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                 type(groups).__name__,
                 "Use a logical complete target domain for groups.",
             )
-        node = self._node
+        receiver = LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         subject = next(p for p in node.root.signature.parts if isinstance(p, SubjectPart))
         keys: list[Coordinate] = []
         coordinates: list[Ref[DimensionKind]] = []
@@ -2844,7 +2845,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                         Coordinate(semantic_ref.entity(field.entity_ref.path), axis.path, "group")
                     )
                     continue
-                category = self.read(dimension)
+                category = receiver.read(dimension)
             else:
                 category = axis
             if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
@@ -2852,6 +2853,13 @@ class LogicalAnalysisDomain(_CohortDomain):
                     "a member Entity or categorical Dimension",
                     type(axis).__name__,
                     "Choose a typed axis in by.",
+                )
+            category_grid = category._node.root.signature.domain.time_grid
+            if category_grid is not None and category_grid != node.root.signature.domain.time_grid:
+                raise _reject(
+                    "a classification on the observation's exact time grid",
+                    "an unbound or different classification grid",
+                    "Bind during=grid or at=grid.end and read the classification on that same grid.",
                 )
             node = node.attach_category(category._node)
             categories.append(category)
@@ -2862,25 +2870,16 @@ class LogicalAnalysisDomain(_CohortDomain):
         live = node._live()
         metric_contract: TargetMetricContract | None = None
         if complete_during is not None and (
-            not isinstance(during, GridWindow)
+            not isinstance(during, TimeGrid)
             or at is not None
             or any(c.role == "group" for c in keys)
             or len((metric_contract := node.resolve_metric(metric)).components) > 1
         ):
             raise _reject(
-                "a single original sum on during=grid.window without dimension grouping or at",
+                "a single original sum on during=grid without dimension grouping or at",
                 "incompatible business-completeness observation",
-                "Use members.each(grid).observe(sum_metric, during=grid.window, complete_during=(scope,)).",
+                "Use members.observe(sum_metric, during=grid, complete_during=(scope,)).",
             )
-        if isinstance(during, GridWindow):
-            bound = during._grid._bound
-            if bound is None or bound != self._node.root.signature.domain.time_grid:
-                raise _reject(
-                    "the receiver's grid.window",
-                    "foreign or unbound grid",
-                    "Use the same grid as members.each(grid).",
-                )
-        window = bound if isinstance(during, GridWindow) else during
         declared = (
             via.routes if isinstance(via, RootRoutesValue) else (via,) if via is not None else ()
         )
@@ -2945,26 +2944,6 @@ class LogicalAnalysisDomain(_CohortDomain):
 
 class MaterializedAnalysisDomain(_MaterializedValue, _CohortDomain):
     """Exact fixed Entity membership; it cannot introduce a new live observation."""
-
-
-class LogicalTimeAnalysisDomain(LogicalAnalysisDomain):
-    """Unexecuted bounded Entity/time product with exact grid authority."""
-
-    def execute(self) -> MaterializedTimeAnalysisDomain:
-        """Publish the complete member/time product through the unified graph.
-
-        Args: None.
-        Returns: A MaterializedTimeAnalysisDomain with retained temporal authority.
-        Example: ``result = members.each(grid).execute()``.
-        Constraints: Source evaluation retains empty time cells and exact member identities.
-        """
-        return MaterializedTimeAnalysisDomain(
-            _TOKEN, self._node, self._runtime, dataset=self._run()
-        )
-
-
-class MaterializedTimeAnalysisDomain(MaterializedAnalysisDomain):
-    """Committed member/time product with retained grid identity."""
 
 
 class LogicalFixedAnalysisDomain(_CohortDomain):
@@ -5058,8 +5037,6 @@ def wrap_materialized(
         return MaterializedRankingResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "table":
         return MaterializedTable(_TOKEN, node, runtime, dataset=dataset)
-    if kind in ("members", "group") and node.root.signature.domain.time_grid is not None:
-        return MaterializedTimeAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind in ("members", "group"):
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "read":

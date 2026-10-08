@@ -351,13 +351,13 @@ def test_category_time_three_methods_three_models(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    timed_members = members.each(grid)
-    category = timed_members.read(ms.ref.dimension("sales.order.channel"))
+    timed_members = members
+    category = timed_members.read(ms.ref.dimension("sales.order.channel"), at=grid.before_end)
     assert isinstance(category, mv.LogicalCategoryRelation)
     values = tuple(
         timed_members.observe(
             ms.ref.metric(f"sales.total_{i}"),
-            during=grid.window,
+            during=grid,
             by=(ms.ref.entity("sales.order"),),
         )
         .group_by(category, grid)

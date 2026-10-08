@@ -58,7 +58,7 @@ def accept_chain(
     selected = positive.observed.members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
     observed = (
-        selected.each(grid).observe(metric, during=grid.window)
+        selected.observe(metric, during=grid)
         if domain == "entity_time"
         else selected.observe(metric, during=window)
     )
@@ -236,14 +236,12 @@ def run(
     )
     entries: list[Json] = []
     for index in range(len(PROFILES)):
-        receiver = members.each(grid) if domain == "entity_time" else members
-        during = grid.window if domain == "entity_time" else window
+        during = grid if domain == "entity_time" else window
         metric = ms.ref.metric(f"sales.total_{index}")
-        current = receiver.observe(metric, during=during, by=(ms.ref.entity("sales.order"),))
-        baseline_receiver = members.each(baseline_grid) if domain == "entity_time" else members
-        baseline = baseline_receiver.observe(
+        current = members.observe(metric, during=during, by=(ms.ref.entity("sales.order"),))
+        baseline = members.observe(
             metric,
-            during=baseline_grid.window if domain == "entity_time" else baseline_window,
+            during=baseline_grid if domain == "entity_time" else baseline_window,
             by=(ms.ref.entity("sales.order"),),
         )
         assert isinstance(current, mv.LogicalNumericRelation)

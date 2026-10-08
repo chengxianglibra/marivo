@@ -79,9 +79,8 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
     time_values = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        members.observe(
+            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         .group_by(grid)
         .rollup()

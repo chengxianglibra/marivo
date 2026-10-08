@@ -127,8 +127,8 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             else mv.grain("day"),
         )
         members = session.members(ms.ref.entity("sales.order"))
-        raw = members.each(grid).observe(
-            ms.ref.metric("sales.maximum_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        raw = members.observe(
+            ms.ref.metric("sales.maximum_0"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         daily = raw.group_by(grid).rollup()
         captured_original = daily.execute()

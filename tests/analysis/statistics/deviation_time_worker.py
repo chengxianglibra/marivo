@@ -211,9 +211,9 @@ def run(
         )
         entries = []
         for index in range(len(PROFILES)):
-            raw = members.each(grid).observe(
+            raw = members.observe(
                 ms.ref.metric(f"sales.maximum_{index}"),
-                during=grid.window,
+                during=grid,
                 by=(ms.ref.entity("sales.order"),),
             )
             assert isinstance(raw, mv.LogicalNumericRelation)
@@ -222,7 +222,7 @@ def run(
             }
             if key_profile == "KS":
                 sources["time"] = raw.group_by(grid).rollup()
-                category = members.each(grid).read(ms.ref.dimension("sales.order.channel"))
+                category = members.read(ms.ref.dimension("sales.order.channel"), at=grid.before_end)
                 assert isinstance(category, mv.LogicalCategoryRelation)
                 sources["category_time"] = raw.group_by(category, grid).rollup()
             for domain, source in sources.items():

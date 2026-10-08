@@ -192,8 +192,8 @@ def test_f11_complete_source_chain(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
         )
-        followup = selected.each(grid).observe(
-            metric, during=grid.window, via=via, by=(ms.ref.entity("sales.customer"),)
+        followup = selected.observe(
+            metric, during=grid, via=via, by=(ms.ref.entity("sales.customer"),)
         )
     else:
         followup = selected.observe(
@@ -398,10 +398,9 @@ def test_selected_time_score_can_establish_a_new_fixed_fit(
     )
     original = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
         .observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales." + case.names.buyer),
             by=(ms.ref.entity("sales.customer"),),
         )

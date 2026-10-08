@@ -66,7 +66,6 @@ _METHOD_GROUPS = {
     ("_CohortDomain", "penetration_in"): "methods.metric.reference",
     ("GroupedRatioRelation", "rollup"): "methods.metric",
     ("_CohortDomain", "cohort"): "methods.rows",
-    ("LogicalAnalysisDomain", "each"): "methods.metric",
     ("LogicalAnalysisDomain", "read"): "inputs.population",
     ("LogicalAnalysisDomain", "group_by"): "methods.metric",
     ("LogicalAnalysisDomain", "observe"): "methods.metric",
@@ -181,10 +180,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.LogicalCompletedJourneys,
         dsl.MaterializedCompletedJourneys,
         dsl.LogicalAnalysisDomain,
-        dsl.LogicalTimeAnalysisDomain,
-        dsl.MaterializedTimeAnalysisDomain,
         dsl.TimeGrid,
-        dsl.GridWindow,
         dsl.GridEndpoint,
         dsl.LogicalAssociationResult,
         dsl.LogicalForecastResult,
@@ -316,8 +312,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value in policy_examples
             else "Call mv.time_grid(during=scope, grain=mv.grain('day'))."
             if type_value is dsl.TimeGrid
-            else "Read grid.window."
-            if type_value is dsl.GridWindow
             else "Read grid.start, grid.end or grid.before_end."
             if type_value is dsl.GridEndpoint
             else "Read one action from relation.contract().actions."
@@ -380,9 +374,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else ("dsl.time_grid",)
             if type_value is dsl.TimeGrid
             else ("TimeGrid",)
-            if type_value in (dsl.GridWindow, dsl.GridEndpoint)
-            else ("dsl.LogicalAnalysisDomain.each",)
-            if type_value is dsl.LogicalTimeAnalysisDomain
+            if type_value is dsl.GridEndpoint
             else ("dsl.Value.contract",)
             if type_value is dsl.AnalysisContract
             else ("AnalysisContract",)
@@ -542,7 +534,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if type_value in (dsl.LogicalRankingResult, dsl.MaterializedRankingResult)
                 else ("dsl.NumericComparison.standardize", "dsl.ReferenceWeights.show")
                 if type_value is dsl.ReferenceWeights
-                else ("GridWindow", "GridEndpoint", "dsl.TimeGrid.show")
+                else ("dsl.LogicalAnalysisDomain.observe", "GridEndpoint", "dsl.TimeGrid.show")
                 if type_value is dsl.TimeGrid
                 else (
                     "dsl.LogicalAnalysisDomain.read",
@@ -550,8 +542,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "dsl.GridEndpoint.show",
                 )
                 if type_value is dsl.GridEndpoint
-                else ("dsl.LogicalAnalysisDomain.observe", "dsl.GridWindow.show")
-                if type_value is dsl.GridWindow
                 else ("AnalysisAction",)
                 if type_value is dsl.AnalysisContract
                 else ("dsl.routes",)

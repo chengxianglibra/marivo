@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import re
 from collections import deque
 
@@ -11,6 +12,25 @@ from marivo._help.route import route_help_target
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY
+
+
+def test_time_binding_has_one_public_entry_per_operation() -> None:
+    import marivo.analysis as mv
+
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("month")
+    )
+    assert not hasattr(mv.LogicalAnalysisDomain, "each")
+    assert not hasattr(grid, "window")
+    for name in ("GridWindow", "LogicalTimeAnalysisDomain", "MaterializedTimeAnalysisDomain"):
+        assert not hasattr(mv, name)
+        assert name not in REGISTRY.canonical_ids()
+    assert "dsl.LogicalAnalysisDomain.each" not in REGISTRY.canonical_ids()
+    assert (
+        str(inspect.signature(mv.LogicalAnalysisDomain.observe).parameters["during"].annotation)
+        == "TimeScope | TimeGrid | None"
+    )
+    assert "GridEndpoint" in str(inspect.signature(mv.LogicalAnalysisDomain.read))
 
 
 def _free_names(code: str) -> set[str]:
@@ -95,7 +115,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
 
     observed = render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
     assert "governed Metric" in observed
-    assert "Fixed TimeScope, the exact grid.window" in observed
+    assert "Fixed TimeScope, a TimeGrid selecting each bucket's window" in observed
     assert "dsl.route" in observed and "dsl.routes" in observed
     assert "coordinates=coordinates" not in observed
 

@@ -23,10 +23,9 @@ grid = mv.time_grid(
 )
 monthly = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(ms.ref.entity("sales.customer"),),
     )
@@ -35,9 +34,10 @@ fixed = monthly.execute()
 totals = fixed.group_by(grid).rollup().execute()
 ```
 
-`each(grid)` keeps the complete member/time product, including empty cells.
-`grid.window` selects each contribution interval. A fixed TimeScope repeats one
-interval on every cell and cannot be summed across time. Coarsening requires
+`during=grid` binds the complete time axis and selects each bucket's contribution
+window, including empty cells. A fixed TimeScope selects one observation window.
+For endpoint reads and cumulative observations, pass the grid endpoint directly
+to `at`; no separate time-domain construction is required. Coarsening requires
 whole original cells to fit inside target buckets; crossing weeks reject.
 The default grid timezone binds to the consuming Session.
 
@@ -48,10 +48,9 @@ With omitted `by`, observation returns one overall value per month. Use `by=(mem
 ```python
 monthly_total = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
     )
 )
@@ -85,13 +84,12 @@ accounts = session.members(
     ms.ref.entity("sales.account"),
     at=datetime(2026, 8, 1, tzinfo=timezone.utc),
 )
-balances = accounts.each(grid).read(
+balances = accounts.read(
     ms.ref.measure("sales.account.balance"),
     at=grid.before_end,
 )
 running = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.running_revenue"),
         at=grid.end,
@@ -106,6 +104,8 @@ cumulative `sales.running_revenue`. Snapshot selection is exact; no implicit
 latest or per-Entity last-known repair occurs. Validity intervals use their
 owned endpoint semantics. `grid.before_end` denotes the immediate left limit,
 while `grid.end` is the exact endpoint.
+An unversioned attribute read with a grid endpoint keeps its stable value in
+every member/time cell.
 
 ## Declare source-time parsing
 
@@ -202,7 +202,6 @@ fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal
 grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
 dataset = (
     session.members(ms.ref.entity("sales.events"))
-    .each(grid)
     .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
     .group_by(grid)
     .rollup()
@@ -250,9 +249,9 @@ grid = mv.time_grid(
     during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
     grain=mv.grain("month"),
 )
-activity = members.each(grid).observe(
+activity = members.observe(
     ms.ref.metric("sales.order_count"),
-    during=grid.window,
+    during=grid,
     via=ms.ref.relationship("sales.order_buyer"),
     by=(ms.ref.entity("sales.customer"),),
 )
@@ -279,16 +278,16 @@ complete = mv.time_scope(
     start=datetime(2026, 8, 1, tzinfo=timezone.utc),
     end=datetime(2026, 8, 3, tzinfo=timezone.utc),
 )
-daily = members.each(grid).observe(
+daily = members.observe(
     sum_metric,
-    during=grid.window,
+    during=grid,
     complete_during=(complete,),
     by=(ms.ref.entity("sales.customer"),),
 )
 ```
 
 Outside the declared complete scopes, cells are Unknown with retained partial
-state. This form requires `during=grid.window`, no extra contribution coordinates
+state. This form requires `during=grid`, no extra contribution coordinates
 and no `at`; it cannot original-rollup the covered observation. Empty data is
 not evidence of complete coverage. Count zero, absent state and incomplete
 coverage remain distinct.
@@ -352,11 +351,11 @@ window = mv.time_scope(start="2026-07-01", end="2026-07-03")
 orders = session.members(ms.ref.entity("sales.orders"))
 hours = mv.time_grid(during=window, grain=mv.grain("hour"))
 orders_by_hour = (
-    orders.each(hours).observe(ms.ref.metric("sales.revenue"), during=hours.window).execute()
+    orders.observe(ms.ref.metric("sales.revenue"), during=hours).execute()
 )
 # A new daily observation uses the same business window.
 days = mv.time_grid(during=window, grain=mv.grain("day"))
-orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).execute().show()
+orders.observe(ms.ref.metric("sales.revenue"), during=days).execute().show()
 ```
 
 The mean example instead needs `sales.orders`, `sales.mean_amount` and channel;

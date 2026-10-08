@@ -127,6 +127,15 @@ Entities require an aware instant or ``TimeScope.before_end``. Attribute
 Numeric, Category, Boolean or Temporal relations. Scalar paths require complete
 single-valued correspondence and coverage. Fixed member projections retain
 Subject parts and cannot introduce a live attribute read.
+
+``members.observe(metric, during=grid)`` computes one observation per complete
+time bucket. ``members.read(field, at=grid.before_end)`` and cumulative
+``members.observe(metric, at=grid.end)`` bind the endpoint grid directly.
+``grid.end`` selects the exact boundary; ``grid.before_end`` selects its symbolic
+left limit for versioned attributes. During and at are alternatives. Spatial
+``by`` classifications cannot create an independent time axis.
+Unversioned attributes retain their stable value in every endpoint cell.
+
 Measure reads admit direct columns and qualified bound row expressions. A
 computed Measure evaluates through Ibis on the consumed owner rows, and its
 definition and bound-field fingerprints are retained in the graph.

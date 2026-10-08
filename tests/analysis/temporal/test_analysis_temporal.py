@@ -91,6 +91,9 @@ def test_member_time_product_executes_on_unified_graph(
     assert set(frame["coord_0"]) == {"2026-08-01T00:00:00+00:00", "2026-08-02T00:00:00+00:00"}
     assert frame.groupby("member").size().tolist() == [2, 2, 2, 2]
     assert result.artifact.descriptor.definition_fingerprint == product.root.fingerprint
+    recovered = case.session.artifact(result.state.artifact_ref)
+    assert isinstance(recovered, mv.MaterializedAnalysisDomain)
+    assert recovered.to_pandas().equals(frame)
 
 
 @pytest.mark.runtime
@@ -104,11 +107,12 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     scope = mv.time_scope(start="2026-08-01", end="2026-10-01")
     grid = bind_grid(scope, mv.grain("month"), report_timezone="UTC")
     product = members._node.each(grid)
+    metric = ms.ref.metric(f"{n.domain}.{n.revenue}")
     observed = product.observe(
-        ms.ref.metric(f"{n.domain}.{n.revenue}"),
+        metric,
+        metric_contract=product.resolve_metric(metric),
         during=grid if row_window else scope,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     result = observed.execute()
     frame = result.to_pandas()
@@ -149,11 +153,9 @@ def test_public_grid_observation_and_retained_axis(
         during=mv.time_scope(start="2026-08-01", end="2026-11-01"), grain=mv.grain("month")
     )
     members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-    product = members.each(grid)
-    assert isinstance(product.execute(), mv.MaterializedTimeAnalysisDomain)
-    observed = product.observe(
+    observed = members.observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
@@ -173,15 +175,11 @@ def test_public_whole_cell_grain_coarsening(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
     )
-    observed = (
-        case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-        .each(grid)
-        .observe(
-            ms.ref.metric(f"{n.domain}.{n.revenue}"),
-            during=grid.window,
-            via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
-        )
+    observed = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
+        ms.ref.metric(f"{n.domain}.{n.revenue}"),
+        during=grid,
+        via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     current = observed.execute() if fixed else observed
     result = current.group_by(mv.grain("month")).rollup().execute()
@@ -242,26 +240,6 @@ def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
         )
 
 
-@pytest.mark.runtime
-def test_grid_handle_rejects_other_product(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    case = analysis_dsl_case_factory("j1")
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-    )
-    other = mv.time_grid(
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"), grain=mv.grain("day")
-    )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    receiver = members.each(grid)
-    members.each(other)
-    with pytest.raises(AnalysisError, match="foreign"):
-        receiver.observe(
-            ms.ref.metric("sales.revenue"),
-            during=other.window,
-            by=(ms.ref.entity("sales.customer"),),
-        )
-
-
 def _add_temporal_metrics(case: DslCase) -> None:
     path = case.root / "models" / "semantic" / "sales" / "models.py"
     path.write_text(
@@ -301,10 +279,10 @@ import marivo.semantic as ms
 ms.load(workspace_dir='.')
 session = mv.session.resume(sys.argv[1], by='id')
 grid = mv.time_grid(during=mv.time_scope(start='2026-08-01', end='2026-11-01'), grain=mv.grain('month'))
-result = session.members(ms.ref.entity('sales.customer')).each(grid).observe(
+result = session.members(ms.ref.entity('sales.customer')).observe(
     ms.ref.metric('sales.' + sys.argv[2]), via=ms.ref.relationship('sales.order_buyer'),
     by=(ms.ref.entity('sales.customer'),),
-    **({'at': grid.end} if sys.argv[2] == 'running' else {'during': grid.window})
+    **({'at': grid.end} if sys.argv[2] == 'running' else {'during': grid})
 ).execute()
 assert len(result.to_pandas()) == 12
 assert result.to_pandas().value.sum() == (3429 if sys.argv[2] == 'running' else 1099)
@@ -391,11 +369,10 @@ def test_grid_required_state_damage_revokes_continuation(
     )
     fixed = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
         .observe(
             ms.ref.metric("sales." + metric),
             at=grid.end if metric == "running" else None,
-            during=None if metric == "running" else grid.window,
+            during=None if metric == "running" else grid,
             via=ms.ref.relationship("sales.order_buyer"),
             by=(ms.ref.entity("sales.customer"),),
         )
@@ -471,25 +448,17 @@ def test_cumulative_anchors_ignore_display_start(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-15", end="2026-10-01"), grain=mv.grain("month")
     )
-    logical = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.running"),
-            at=grid.end,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
-        )
+    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.running"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     fixed = logical.execute()
-    overall = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.running"),
-            at=grid.end,
-            via=ms.ref.relationship("sales.order_buyer"),
-        )
+    overall = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.running"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
     )
     assert overall.execute().to_pandas().value.tolist() == expected
     if overlap:
@@ -705,15 +674,11 @@ def test_source_report_and_grid_timezones_are_independent(
         timezone="America/New_York" if civil_date else "Asia/Tokyo",
     )
     trace = capture_source(monkeypatch)
-    logical = (
-        session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid.window,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
-        )
+    logical = session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     original = logical.execute()
     result = logical.group_by(grid).rollup().execute()
@@ -812,15 +777,11 @@ running_ratio = ms.ratio(name='running_ratio', numerator=running_revenue, denomi
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-15", end="2026-10-01"), grain=mv.grain("month")
     )
-    observed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.running_ratio"),
-            at=grid.end,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
-        )
+    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.running_ratio"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert observed.group_by(grid).rollup().execute().to_pandas().value.tolist() == [269.25, 235.2]
     fixed = observed.execute()
@@ -967,20 +928,8 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
         .execute()
         .to_pandas()
     )
-    product = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric(f"sales.{metric}"),
-            during=window,
-            at=endpoint,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
-        )
-        .execute()
-        .to_pandas()
-    )
     assert direct.loc[direct.member == "A", "value"].tolist() == [10]
-    assert product.loc[product.member == "A", "value"].tolist() == [10, 10, 10]
+    assert grid._bound is None
 
 
 @pytest.mark.runtime

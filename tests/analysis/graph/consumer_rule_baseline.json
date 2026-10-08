@@ -877,7 +877,7 @@
   "metric.observe@v1": {
     "count": 251,
     "declarations": "130d45885cd47e02c6a65a2681906436b2e87535ecf0de967655c8ea56e9c7dc",
-    "specialization": "a1a47434475369866eb2c08ff4074cb9a280fb79db64b855d8f8ff1b75fbe37f",
+    "specialization": "2637e36dde71fd3155922c4b6218605f3fbf7c6de515481c0a54b948c7fd8392",
     "exact_indices": [],
     "prepared_indices": [],
     "subject_indices": [],

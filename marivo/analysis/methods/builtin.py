@@ -2066,6 +2066,21 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
     ):
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
+        key.method.name == "metric.observe"
+        and key.input_domains == implementation.key.input_domains == ("entity",)
+        and key.input_types == (ScalarType("float64"),)
+        and implementation.key.input_types == (ScalarType("int64"),)
+        and implementation.key.shape
+        in (
+            SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
+            SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
+        )
+        and implementation.key.route == "ibis"
+    ):
+        # Selected members retain the preceding mean's scalar marker, but this
+        # observation consumes their complete keys and its own amount column.
+        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
+    if (
         key.method.name == "anchor.observe"
         and key.input_domains == implementation.key.input_domains == ("anchor", "entity")
         and key.input_types[0] == implementation.key.input_types[0]

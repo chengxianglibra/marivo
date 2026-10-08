@@ -2946,7 +2946,7 @@ def _original_reduce(inputs: tuple[Signature, ...], params: OriginalReduce) -> R
         reject(
             "disjoint original contributions when removing time",
             "the fixed window repeats or cumulative windows overlap on time cells",
-            "Keep the time axis or observe each grid.window.",
+            "Keep the time axis or observe during=grid.",
             "core.original_reduce.time",
         )
     coverage = require_part(source, "coverage")
@@ -3285,7 +3285,7 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             reject(
                 "one original sum observation on a complete, non-partial TimeGrid",
                 repr(source.quantity),
-                "Use members.each(grid).observe(sum_metric, during=grid.window, complete_during=(scope,)).",
+                "Use members.observe(sum_metric, during=grid, complete_during=(scope,)).",
                 "core.business_coverage",
             )
         validate_windows(params.business_windows, grid)

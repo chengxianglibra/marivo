@@ -183,9 +183,5 @@ def test_sqlite_agent_native_authoring_journey(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-07-01", end="2026-07-03"), grain=mv.grain("day")
     )
-    daily = (
-        session.members(ms.ref.entity("sales.orders"))
-        .each(grid)
-        .observe(revenue, during=grid.window)
-    )
+    daily = session.members(ms.ref.entity("sales.orders")).observe(revenue, during=grid)
     assert daily.group_by(grid).rollup().execute().to_pandas().value.tolist() == [10.0, 20.0]

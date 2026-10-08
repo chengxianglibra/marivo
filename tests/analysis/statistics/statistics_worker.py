@@ -134,10 +134,9 @@ def run(root: Path, phase: str) -> None:
             during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
         )
         sources = [
-            members.each(grid)
-            .observe(
+            members.observe(
                 ms.ref.metric(f"sales.total_{i}"),
-                during=grid.window,
+                during=grid,
                 by=(ms.ref.entity("sales.order"),),
             )
             .group_by(grid)

@@ -97,6 +97,7 @@ def test_observation_preserves_population_windows_and_query_count(
                 ms.ref.metric("sales.revenue"),
                 during=mv.time_scope(start=start, end=end),
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
             )
             .execute()
             .to_pandas()
@@ -172,14 +173,15 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    population = case.session.members(ms.ref.entity("sales.customer")).each(grid)
+    population = case.session.members(ms.ref.entity("sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
             population.observe(
                 ms.ref.metric("sales.revenue"),
-                during=grid.window,
+                during=grid,
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
             )
             .execute()
             .to_pandas()
@@ -226,11 +228,11 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 
     def execute() -> pd.DataFrame:
         return (
-            population.each(grid)
-            .observe(
+            population.observe(
                 ms.ref.metric("sales.running"),
                 at=grid.end,
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
             )
             .group_by(grid)
             .rollup()
