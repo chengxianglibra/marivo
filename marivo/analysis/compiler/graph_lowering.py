@@ -77,6 +77,7 @@ from marivo.analysis.core.rules import (
     DeviationFit,
     DisplayRank,
     DisplayTable,
+    EntityObservationTarget,
     ForecastFit,
     ForecastRead,
     FunnelAttribute,
@@ -2877,6 +2878,41 @@ def _fold_samples(
     )
 
 
+def _identity_observation(
+    stage: SourceMethodStage,
+    members: LoweredRelation,
+    params: ObserveMetric | ObserveCount | ObserveWeightedMean,
+) -> bool:
+    """Recognize the unchanged complete member view of this exact contribution leaf."""
+    node = members.node
+    if (
+        isinstance(node, MethodNode)
+        and len(node.inputs) == 1
+        and not node.sources
+        and node.parameters
+        == PartsTransport("view", node.inputs[0].node.signature.domain, ("subject",), False)
+    ):
+        node = node.inputs[0].node
+    return (
+        isinstance(params.target, EntityObservationTarget)
+        and not params.path
+        and isinstance(node, SourceLeaf)
+        and any(node is source for source in stage.node.sources)
+        and node.definition.ref == params.contribution
+        and node.definition.version is None
+        and node.signature.domain == members.node.signature.domain
+        and node.signature.domain.version_selection is None
+        and node.signature.domain.time_grid is None
+        and all(key.role == "identity" for key in node.signature.domain.instance_key)
+        and any(
+            evidence.fact.kind == "unique_key"
+            and evidence.fact.binding == node.signature.domain.binding
+            and evidence.fact.subject_id == node.signature.domain.definition_id
+            for evidence in node.signature.evidence
+        )
+    )
+
+
 def _observe(
     stage: SourceMethodStage,
     members: LoweredRelation,
@@ -3010,7 +3046,14 @@ def _observe(
             )
         )
         target_fields = {"key_0": mapping[cell.value]}
-    targets = mapping.select(**target_fields).distinct()
+    targets = mapping.select(**target_fields)
+    if not isinstance(params.target, EntityObservationTarget) or not any(
+        evidence.fact.kind == "unique_key"
+        and evidence.fact.binding == members.node.signature.domain.binding
+        and evidence.fact.subject_id == members.node.signature.domain.definition_id
+        for evidence in members.node.signature.evidence
+    ):
+        targets = targets.distinct()
     member_keys = tuple(k.column for k in members.layout.keys if k.coordinate.role != "anchor")
     predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(member_keys)]
     grid = members.node.signature.domain.time_grid
@@ -3044,10 +3087,16 @@ def _observe(
                 )
             )
         predicates.append(ibis.cases(*conditions, else_=False))
-    joined = source.inner_join(mapping, predicates)
+    identity = _identity_observation(stage, members, params)
+    joined = source if identity else source.inner_join(mapping, predicates)
     target_keys = tuple(target_fields)
+    contribution_fields = (
+        {key: source[f"member_{i}"] for i, key in enumerate(target_keys)}
+        if identity
+        else target_fields
+    )
     values = joined.select(
-        **target_fields,
+        **contribution_fields,
         amount=source.amount,
         **(
             {"sample_time": source.event_time.cast("timestamp")}
@@ -3433,7 +3482,7 @@ def _observe(
         )
     else:
         actual = joined.aggregate(actual=joined.count())
-        selected = source.semi_join(mapping, predicates)
+        selected = source if identity else source.semi_join(mapping, predicates)
         expected = selected.aggregate(expected=selected.count())
         partition = actual.cross_join(expected)
     actual_coverage = table.aggregate(actual=table.count())
@@ -3448,7 +3497,7 @@ def _observe(
         elif check_id in ("source.complete_coverage@v1", "source.calendar_members@v1"):
             violations = coverage.filter(coverage.actual != coverage.expected)
         elif check_id == "source.calendar_contributions@v1":
-            violations = joined.filter(source.event_time.isnull()).select(**target_fields)
+            violations = joined.filter(source.event_time.isnull()).select(**contribution_fields)
         else:
             continue
         checks.append(SemanticCheck(requirement, violations, source_ids))
