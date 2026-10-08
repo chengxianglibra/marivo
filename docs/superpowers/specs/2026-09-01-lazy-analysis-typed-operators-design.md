@@ -4,9 +4,9 @@
 
 For the new single-quantity Relation API, correlation formulas, pairing/status/lag
 selection and normal_residual@v1 forecast equations now have one current owner:
-[Operators and frames](../../specs/analysis/operators-and-frames.md#r81-frozen-statistical-method-rules).
-Concrete receivers/views belong to [Python Analysis design](../../specs/analysis/python-analysis-design.md#r81-frozen-statistical-relation-api-target);
-graph publication/Findings and recovery belong to [Runtime](../../specs/analysis/session-state-and-runtime.md#r81-frozen-statistical-execution-and-disclosure).
+[Operators and frames](../../specs/analysis/operators-and-frames.md#statistical-methods).
+Concrete receivers/views belong to [Python Analysis design](../../specs/analysis/python-analysis-design.md#observation-and-composition);
+graph publication/Findings and recovery belong to [Runtime](../../specs/analysis/session-state-and-runtime.md#evidence-findings-and-interpretation).
 The correlate/forecast sections below describe historical Dataset behavior and
 provide migration counterexamples only. Their containers, float-only generated
 field rule, capacity guards and source-only Entity pair preparation do not

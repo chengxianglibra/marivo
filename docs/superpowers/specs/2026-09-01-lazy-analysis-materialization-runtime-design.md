@@ -1,6 +1,6 @@
 # Lazy Analysis Materialization Runtime and Authority Design
 
-Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#layer-ownership). Backend-specific preparation does not change operator semantics.
 
 
 Date: 2026-09-01
@@ -314,7 +314,7 @@ amendment and a new Evidence-envelope variant.
 
 The paragraphs below specify the current `DatasetExecutionKeyV1` behavior for
 methods not migrated to the accepted, inactive
-[S0 Analysis DSL protocol](../../specs/analysis/session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive).
+[S0 Analysis DSL protocol](../../specs/analysis/session-state-and-runtime.md#source-and-fixed-execution-identity).
 That protocol gives each admitted live-source evaluation its own Run-bound key
 while keeping exact fixed-input hits. It does not retroactively change this v1
 binding or migrate existing Artifacts.

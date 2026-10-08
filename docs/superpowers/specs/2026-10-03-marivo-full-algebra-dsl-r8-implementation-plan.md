@@ -87,7 +87,7 @@ concentration、通用 search/planner、跨源 mixed、任意 callback、因果/
 提供保留的方法、配对/选择规则和预测公式。R8.1 将其适用内容归入当前 owning specs，
 逐项处理新 Relation 输入与旧 Dataset/codec 的冲突；旧容器、family 分派和序列化不是保留要求。
 方法语义只保留一个权威，Help 不另建公式清单，本文中的摘要不形成第二份公式 owner。
-R8.1 冻结后的规范已归入 [Operators owner](../../specs/analysis/operators-and-frames.md#r81-frozen-statistical-method-rules)；
+R8.1 冻结后的规范已归入 [Operators owner](../../specs/analysis/operators-and-frames.md#statistical-methods)；
 旧文档顶部交接声明保留历史输入身份，不再拥有新 Relation 的方法规则。
 
 ## 2. 必须闭合的公开契约、状态与续算

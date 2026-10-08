@@ -1,5 +1,7 @@
 # Analysis Evidence Access
 
+Status: current Store 8 evidence read contract, 2026-10-08.
+
 Evidence records deterministic facts about a committed Dataset. It does not
 choose the next analysis step or make causal or business judgments. The owning
 Runtime publishes Artifact, Evidence and Findings in the same transaction.
@@ -51,8 +53,9 @@ reads preserve existing bytes.
 - Delta and Attribution are algebraic, not causal.
 - Association is descriptive and may reflect selected/search inputs.
 - Forecast is a model result, not an observed outcome or calibrated guarantee.
-- Candidate scores are evaluated leads, not confirmed anomalies or recommendations.
-- Event and Lifecycle reducers retain assignment/replay and completeness limits.
+- Deviation scores and runs retain explicit fit/condition scope; they do not
+  certify business anomalies or recommendations.
+- Journey and History reducers retain assignment/replay and completeness limits.
 
 Start at `marivo.help("analysis.evidence")` and follow its native focused routes.
 The packaged analysis skill owns investigation judgment; it does not duplicate

@@ -6,7 +6,7 @@ the backend adapter. Remote analysis activation separately requires compatibilit
 with read-only accounts; it does not globally disable DuckDB authoring.
 
 
-Status: draft design. This document describes the current design of
+Status: current datasource contract, 2026-10-08. This document describes
 `marivo.datasource` (`md`): the project-level connection and evidence layer that
 the semantic layer builds on. It is the ground-truth boundary between physical
 storage and business semantics.
@@ -399,11 +399,11 @@ gpu_servers = md.json(
 ```
 Authentication headers are resolved from the owning DuckDB datasource and are
 sent only when the final URL is inside its declared `http_scope`. The body shape
-stays in `md.json(...)`; only declared non-secret parameter values belong to
-analysis-session bindings.
+stays in `md.json(...)`; explicit reads supply declared non-secret parameter
+values without changing that declaration.
 
 For example, one change-focus page can declare its app and page number as
-analysis-scoped values without turning pagination into datasource behavior:
+request-scoped values without turning pagination into datasource behavior:
 
 ```python
 changes = md.json(
@@ -424,27 +424,27 @@ changes = md.json(
 Marivo executes one request for one binding. Automatic page traversal, app-list
 fanout, watermarks, and ingestion remain outside this physical-source contract.
 
-The binding belongs to the analysis execution scope, not to `observe(...)` and
-not to persisted `md.json(...)`:
+Explicit datasource discovery supplies parameters to the bounded read:
 
 ```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.samples"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    dataset = session.observe(ms.ref.metric("monitoring.pending_containers"))
+inspection = md.inspect(warehouse, prometheus)
+snapshot = inspection.sample(
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    columns=("metric", "value", "values"),
+    source_params={"start": "now-3600", "end": "now"},
+)
+snapshot.show()
 ```
-Bindings use exact `Ref[entity]` keys and must provide exactly the declared
-parameter names. They are nested, context-local, and keyed by the owning Session
-runtime, so concurrent agents and another Session in the same task cannot consume
-the values. Each binding is a scalar or a flat, non-empty scalar list. Non-secret
-bindings participate in analysis and snapshot identity.
-Discovery uses the same contract through
-`inspection.sample(..., source_params={...})`.
+`source_params` must provide exactly the declared parameter names. Each value is
+a scalar or flat, non-empty scalar list; the normalized binding enters snapshot
+identity. A discovery snapshot is bounded physical evidence, not a typed
+Analysis input.
+
+`session.source_bindings(...)` retains its context-local construction contract
+with exact Entity Ref keys. It does not grant graph admission to a datasource
+form. The current Analysis graph qualifies existing local, unparameterized GET
+JSON files on DuckDB; remote HTTP JSON, POST and runtime-parameterized JSON remain
+outside that route. Use the explicit datasource read above for those requests.
 
 ## Registration and state storage
 
@@ -620,9 +620,10 @@ does not certify business meaning. During the current milestone, scoped
 `catalog.preview(..., scope=...)` reads the current source directly. Ordinary
 preview does not persist an authoring checkpoint or affect readiness.
 
-### R0.3 target: Ibis-owned analysis reads and terminal raw SQL
+### Ibis-owned analysis reads and terminal raw SQL
 
-R1.2 implementation remains under qualification. The selected engine provider
+Provider operation support and exact Analysis method qualification are separate.
+The selected engine provider
 registry is lazy. `SourceSession` binds table and view relations on DuckDB,
 SQLite, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
 local JSON, and uncredentialed HTTP JSON. It checks exact source identity,
@@ -642,7 +643,7 @@ lost to a native float. Such reads raise `DatasourceSourceCapabilityError`
 without float-to-Decimal coercion. Use a qualified exact-Decimal datasource
 instead; other backends retain their exact precision/scale requirements.
 
-R3.4's private Analysis handoff explicitly declares join and union in addition
+The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The R1 basic physical requirement
 admits join/union only on DuckDB; other providers retain their existing operation
 set. This physical allowance does not grant method semantics or cross-datasource
@@ -721,8 +722,8 @@ obligation when control-close acknowledgement is unavailable; see
 limit: int = 100, timeout_seconds: int = 30, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
 terminal SQL escape hatch for questions outside its governed Analysis capability.
-The R1 public connection cutover removes backend-returning connection entry
-points; `md.raw_sql` is the only public raw SQL terminal entry.
+Backend-returning connection entry points are removed; `md.raw_sql` is the only
+public raw SQL terminal entry.
 It submits SQL text verbatim with a required nonempty reason, positive
 returned-row limit and enforceable timeout. The input is not parsed to classify
 SQL as a diagnostic. Read-only protection relies on connection and backend permissions
@@ -753,19 +754,18 @@ or required timezone facts block the affected execution cell. A required governe
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
 SQLite transactions have separate internal persistence authority.
 
-### R0.6 public connection cutover target
+### Public connection boundary
 
-R1 removes the backend-returning `md.connect`, `DatasourceCatalog.connect`,
-and public `DatasourceConnection` type and their Help targets. Connection
+The backend-returning `md.connect`, `DatasourceCatalog.connect`,
+public `DatasourceConnection` type and their Help targets are removed. Connection
 creation remains private to the datasource adapter. A caller checks
 connectivity with `md.test`, inspects
 physical facts with `md.inspect`, uses bound Ibis reads only through governed
 operations, and submits custom SQL only through terminal `md.raw_sql`.
 Existing calls that require a raw Ibis backend must change to one of those
 purpose-specific paths; they do not receive a compatibility alias or a wrapper
-that exposes `backend.sql`/`raw_sql`. R1 must migrate the current Help,
-docstrings, latest English and Chinese site examples, and public surface tests
-together. CLI doctor uses its bounded datasource test path; no public
+that exposes `backend.sql`/`raw_sql`. CLI doctor uses its bounded datasource test
+path; no public
 connection object provides the same bypass.
 
 ## Handoff to semantics

@@ -1,5 +1,11 @@
 # Analysis DSL S1 implementation record
 
+Archive status: historical evidence, moved 2026-10-08. Dates, paths, commands
+and acceptance claims below refer to the recorded revisions. Links to owning
+specifications lead to current successor documents; use Git at the recorded
+revision for the original specifications. This is not current DSL or release
+qualification.
+
 Date: 2026-09-24. Branch: `panda`.
 
 This is the versioned evidence location for the private S1 implementation. The

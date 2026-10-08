@@ -1,5 +1,12 @@
 # Agent-Facing Auditability V1
 
+Archive status: superseded HTTP/intent/Evidence Engine proposal, moved
+2026-10-08. Its statements about existing Session/step/proposition surfaces refer
+to the former architecture. It is not an implementation obligation or current
+public Analysis contract. Current Run/Artifact and evidence access are specified
+in [Runtime](../../specs/analysis/session-state-and-runtime.md) and
+[Analysis Evidence Access](../../specs/analysis/evidence-access-surface.md).
+
 本文档定义 Marivo 在 agent 数据分析场景中的一期可审计能力。
 
 状态：draft design。本文只定义一期最小可落地范围，不替代 Evidence Engine

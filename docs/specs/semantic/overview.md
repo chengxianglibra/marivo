@@ -1,9 +1,9 @@
 # Semantic and Datasource Layer — Design Overview
 
-Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
-identity, temporal-resolution, and aggregation boundaries are not implemented
-by this documentation change. Current eager APIs and live Help remain the
-executable surface until the coordinated public cutover.
+Status: current architecture, 2026-10-08. Semantic declarations and datasource
+access feed the typed, algebra-based Analysis DSL. This document specifies
+ownership and meaning; exact callable contracts are exposed by native Help.
+It does not certify all physical execution routes or release acceptance.
 
 This is the entry point for the design of Marivo's
 datasource and semantic layers (`marivo.datasource` and `marivo.semantic`). It
@@ -27,9 +27,8 @@ For the current cross-layer period-calendar, temporal-set, work-schedule,
 time-scope, and alignment contract, see
 [`../temporal-semantics.md`](../temporal-semantics.md).
 For the analysis layer, see [`../analysis/python-analysis-design.md`](../analysis/python-analysis-design.md).
-For the accepted lazy cutover, see the
-[design decomposition](../../superpowers/specs/2026-09-01-lazy-analysis-design-decomposition-plan.md)
-and [observation model](../../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md).
+Start at [Analysis Architecture](../analysis/README.md) for the current graph,
+algebra, method-registry, Runtime and Store 8 ownership chain.
 
 ## Audience and intent
 
@@ -37,7 +36,7 @@ These layers are consumed primarily by general coding agents (Claude Code, Codex
 through a write–run–read loop. The goal is not to make an agent memorize a private
 DSL, but to let it maintain business semantics like an ordinary Python project:
 read the existing objects, declare explicit models, express calculation caliber in
-Ibis, retain SQL provenance, run validation, and hand stable semantic refs to
+Ibis, retain business context, run validation, and hand stable semantic refs to
 `marivo.analysis`.
 
 ## Design goals
@@ -106,8 +105,9 @@ marivo.datasource   connection + physical source + evidence
         ↓ Ref[datasource] + TableSource + DiscoverySnapshot
 marivo.semantic     domain / entity / dimension / metric / relationship
         ↓ normalized business contracts + typed refs + Ibis construction
-marivo.analysis     observe / compare / attribute / correlate / ...
-        ↓ Logical/Materialized Datasets + persistence + lineage
+marivo.analysis     domains / relations / results + bound algebraic methods
+        ↓ qualified graph plan + explicit Runtime execution
+Store 8             immutable local Artifacts + retained continuation state
 ```
 
 - The **datasource** layer owns *how to reach the data and what it physically
@@ -119,21 +119,21 @@ marivo.analysis     observe / compare / attribute / correlate / ...
   expressions. This is not publication of an Analysis Dataset.
 - The **analysis** layer owns *what to do with those objects*. It reads through
   refs and never re-defines a caliber, guesses an entity/time dimension, or reads
-  a table behind the registry. It selects Population membership, observational
+  a table behind the registry. It selects member-domain membership, observational
   units, windows, coordinates, and exact contribution subsets; logical operators
   compose before explicit execution, while a materialized Artifact authorizes
   its committed rows and retained parts without semantic-origin replay.
 
 A Metric's computation root is distinct from the analysis Entity and reporting
 grain. A multi-root graph can be semantically coherent while requiring an
-explicit Population and a safe per-component mapping at the analysis boundary.
+explicit member domain and a safe per-component mapping at the analysis boundary.
 Relationship describes mapping facts; Metric-path semantics own contribution
 allocation. Shared intrinsic resolvers derive these requirements instead of
 adding author-set `rollup_safe`, `membership_stable`, or generic allocation
 switches.
 
 Event and StateModel retain business occurrence and normative transition
-meaning. Population membership, sampling, censoring, and scoped completeness
+meaning. Member-domain selection, sampling, censoring, and scoped completeness
 assumptions belong to Analysis and source evidence. Neither an Event declaration,
 a StateModel, nor a snapshot declaration establishes observed source completeness.
 
@@ -211,13 +211,12 @@ rather than leaking into the handoff. Blockers and warnings remain on the same
 report. No additional transfer object or hidden authoring API exists between
 readiness and ordinary analysis operations.
 
-The lazy cutover is accepted only when one coherent snapshot preserves identity
-without last-known substitution, validity resolution uses declared intervals, independent
-membership/observation periods compose, and multi-root observations preserve
-per-component contributions. Numerical acceptance must additionally reject
-overlapping-bucket sums and non-commuting semi-additive folds, preserve null and
-empty semantics, and prove admitted retained-state folds equal direct governed
-computation. Static design alignment alone does not satisfy those runtime gates.
+Current contracts preserve identity without last-known substitution, use
+declared validity intervals, keep membership/observation periods independent,
+and retain each multi-root component's contributions. Original-state admission
+rejects unsupported overlapping-bucket sums and non-commuting folds, preserving
+method-owned null/empty policies. Static contract alignment is distinct from
+observed execution and full backend/release qualification.
 
 ## Relationship to prior schema designs
 

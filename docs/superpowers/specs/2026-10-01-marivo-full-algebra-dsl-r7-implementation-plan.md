@@ -67,7 +67,7 @@ AttributionResult 是复用基础，不是 R7 领域生产者已经获准的证�
 | --- | --- |
 | [Python Analysis design](../../specs/analysis/python-analysis-design.md) | 公开闭合类型、签名、owned handles/read、领域与 Subject 映射、Logical/Materialized、C18 构造和 K |
 | [Operators and frames](../../specs/analysis/operators-and-frames.md) | matching/replay/reducer 方法、Cell、充分部件、量/单位、耗时精度、allocation、parts transport 与条件 K |
-| [Semantic object model](../../specs/semantic/semantic-object-model.md#business-order-and-simultaneous-events-r23-declaration-implemented) | R2 已实现的 Event occurrence/participant、StateModel、business_order 与版本/依赖；一次分析的覆盖不写回声明 |
+| [Semantic object model](../../specs/semantic/semantic-object-model.md#business-order-and-simultaneous-events) | R2 已实现的 Event occurrence/participant、StateModel、business_order 与版本/依赖；一次分析的覆盖不写回声明 |
 | [Session/Runtime](../../specs/analysis/session-state-and-runtime.md) | 显式依赖、一次实现共享、交换、资源、receipt、原子发布、恢复及求值身份 |
 | [Timezone/calendar](../../specs/analysis/timezone-and-calendar-design.md) | occurrence 时间、排他随访、end 左极限、elapsed/calendar、DST 和固定时间依据 |
 | 验收主记录 (historical record in Git history) | 逐方法资格、独立证据、失败/skip、删除及 R8–R10 交接 |
@@ -79,7 +79,7 @@ AttributionResult 是复用基础，不是 R7 领域生产者已经获准的证�
 matching、reach classification、计数、replay、轨迹和 dwell 的业务反例；其旧参数、类型、
 SQL、跨 Session 复用、源缓存和 codec 不是兼容要求。
 
-R0 已在[Analysis C18 owner](../../specs/analysis/python-analysis-design.md#relative-anchor-observation-and-retention-c18)
+R0 已在[Analysis C18 owner](../../specs/analysis/operators-and-frames.md#retention-truth-and-conditional-k)
 闭合 Anchor/retention；R7.1 只补实现所需精确类型、状态和消费规则，不重新把 C18 判为
 “未定研究”。出现冲突先在对应 owner 接受决定，再写产品代码；本计划不成为第二份 API registry。
 

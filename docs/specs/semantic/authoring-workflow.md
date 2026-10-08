@@ -1,7 +1,7 @@
 # Semantic Authoring Workflow
 
-Status: draft design. This document defines the current agent-native authoring
-workflow across `marivo.datasource` and `marivo.semantic`.
+Status: current authoring workflow, 2026-10-08. This document defines agent-native
+authoring across `marivo.datasource` and `marivo.semantic`.
 
 ## Outcome
 
@@ -86,7 +86,7 @@ fail explicitly, and unused columns do not add type restrictions.
 
 ### 3. Explore according to the question
 
-The R0.3 target has two governed evidence paths:
+Authoring has two governed evidence paths:
 
 - inspection only when schema and existing project context are sufficient;
 - optional explicitly scoped sampling when retained rows or generic profiles
