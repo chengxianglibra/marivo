@@ -3,6 +3,8 @@ title: 就绪检查
 description: 与快照无关的语义输入技术认证。
 ---
 
+示例需要约定的 `md`/`ms` 导入、已加载 `catalog`及下面所列确切 sales 字段。`revenue`是 catalog Metric 条目。
+
 ## 就绪检查判断什么
 
 `catalog.readiness(refs=[...])` 是面向当前目录条目、精确引用与封闭运行时指标
@@ -28,6 +30,8 @@ artifact 可用后才能放行。
 ## Preview 与 readiness 相互独立
 
 Preview 通过显式有界 scope 直接读取当前数据源：
+
+{/* example: readiness-1 */}
 
 ```python
 import marivo.datasource as md
@@ -56,10 +60,12 @@ Marivo 会在 scope 的 `max_rows + 1` 边界内读取全部必需列；只有 s
 `catalog.source_health(...)`。它不会在 load、preview、readiness 或分析中被隐式
 调用，也不保存 checkpoint 或历史。
 
+{/* example: readiness-2 */}
+
 ```python
 from datetime import timedelta
 
-health = catalog.source_health([revenue])  # 只检查连接与 metadata
+health = catalog.source_health([revenue])  # connectivity and metadata only
 
 health = catalog.source_health(
     [revenue],
@@ -126,6 +132,8 @@ state model，以及不可观测的 snapshot fold 仍然 fail closed。
 scope 被截断时不会发布替代 artifact。
 
 ## 继续进入分析
+
+{/* example: readiness-3 */}
 
 ```python
 import marivo.semantic as ms

@@ -1,0 +1,233 @@
+---
+title: 生命周期、Anchor 与留存
+description: 重放已治理状态历史，保留事件相对观察与留存。
+---
+
+StateModel 定义规范状态与转换含义。分析选择成员、replay 窗口、seed 和范围内完整性。
+Anchor 将跟踪绑定到每次发生项，不能与一个固定群体日期互换。
+
+## 声明 StateModel
+
+导入 `ms`，继续[可复用 Event 声明](/zh-cn/docs/latest/guides/events-and-funnels/#声明可复用-event)，其中已绑定 `orders`、`order_id`、`order_date` 和 `order_created`。Orders 来源还需要物理 `paid_at` 和 `status` 列。六笔订单教程没有这些附加字段。
+
+{/* example: state-model-declaration */}
+
+```python
+paid_at = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders,
+    column="paid_at",
+    granularity="second",
+)
+order_status = ms.dimension_column(
+    name="order_status",
+    entity=orders,
+    column="status",
+)
+
+@ms.event(
+    name="order_paid",
+    identity=(order_id,),
+    occurred_at=paid_at,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order entered the paid state."
+    ),
+)
+def order_paid(order_rows):
+    return ms.bind(order_status, order_rows) == "paid"
+
+created = ms.lifecycle_state(name="created", initial=True)
+paid = ms.lifecycle_state(name="paid", terminal=True)
+
+order_business_order = ms.business_order(
+    name="order_business_order",
+    subject=orders,
+    conflicts=(
+        ms.precedes(
+            ms.participant_role(event=order_created, name="order"),
+            ms.participant_role(event=order_paid, name="order"),
+        ),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="Creation precedes payment for the same order."
+    ),
+)
+
+order_lifecycle = ms.state_model(
+    name="order_lifecycle",
+    subject=orders,
+    states=(created, paid),
+    transitions=(
+        ms.inception(on=order_created),
+        ms.transition(
+            from_state=created,
+            on=order_paid,
+            to_state=paid,
+        ),
+    ),
+    business_order=order_business_order,
+    ai_context=ms.ai_context(
+        business_definition="Normative commercial order lifecycle."
+    ),
+)
+```
+
+Seed 建立 replay 的初始依据。Event 覆盖和来源完整性与规范转换图保持分离。
+使用前检查模型当前认证及确切 replay 要求。
+
+## 重放并恢复 History
+
+这套独立 commerce 模型声明 subjects 与 StateModel。`window`是带时区 TimeScope；`lifecycle_completeness`是有明确依据的覆盖 tuple。
+
+{/* example: history-replay */}
+
+```python
+members = session.members(ms.ref.entity("commerce.subjects"))
+history = session.lifecycle.replay(
+    ms.ref.state_model("commerce.model"),
+    population=members,
+    window=window,
+    seed=mv.from_inception(),
+    completeness=lifecycle_completeness,
+)
+retained_history = history.execute()
+retained_history.show()
+retained_history.contract().show()
+recovered = session.artifact(retained_history.state.artifact_ref)
+recovered.show()
+```
+
+结果保留 replay truth、未知覆盖及违规。恢复读取保存状态，不重放 Event，
+也不打开当前模型或来源文件。新后续操作使用保留状态及当前后继准入。
+
+## 读取六种 History 视图
+
+`history`、`window`来自 replay 示例。Commerce 模型另声明 done、revenue 和 participant 映射。
+
+{/* example: history-views */}
+
+```python
+checkpoint = window.end
+done = ms.model_state(model=ms.ref.state_model("commerce.model"), name="done")
+truth = history.read(mv.in_state(done, at=checkpoint))
+distribution = history.distribution(at=(window.start, checkpoint))
+transitions = history.transitions()
+violations = history.violations()
+intervals = history.intervals()
+dwell = history.dwell()
+
+truth.where(truth.value.eq(True)).members().observe(
+    ms.ref.metric("commerce.revenue"),
+    during=window,
+    via=ms.ref.relationship("commerce.participant"),
+).execute().show()
+
+retained_intervals = intervals.execute()
+interval_ref = retained_intervals.evidence_digest().artifact_ref
+session.artifact(interval_ref).state.execute().show()
+completed = retained_intervals.where(retained_intervals.status.value.eq("completed"))
+completed.members(through=retained_intervals.subjects()).execute().show()
+duration_result = completed.observed_duration.summarize(mv.mean()).execute()
+duration_result.show()
+duration_seconds = duration_result.to_pandas()["value"].dt.total_seconds()
+distribution.execute().known_state_count.execute().show()
+transitions.execute().count.execute().show()
+violations.execute().kind.execute().show()
+dwell.execute().p90_duration.execute().show()
+```
+
+读取 in-state truth、distribution、transitions、violations、intervals 与 dwell。
+Truth 是 Unknown 时 known-state count 不是总 Subject count。Interval 区分 observed duration、
+完成与删失。Fixed Subject image 需要保留的完整 Subject map，标量无法重建该映射。
+
+## 相对每个 Anchor 观察
+
+Commerce 模型声明了 started.subject、revenue、participant 映射及已治理业务顺序。
+
+{/* example: anchor-observation */}
+
+```python
+from zoneinfo import ZoneInfo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-revenue", report_timezone="UTC")
+customers = session.members(ms.ref.entity("commerce.subjects"))
+anchors = session.anchors(
+    ms.participant_role(event=ms.ref.event("commerce.started"), name="subject"),
+    population=customers,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+elapsed_week = mv.elapsed(mv.duration(hours=168))
+civil_week = mv.calendar_days(7, ZoneInfo("America/New_York"))
+relative = anchors.observe(
+    ms.ref.metric("commerce.revenue"),
+    within=elapsed_week,
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+relative.show()
+relative.contract().show()
+relative.rank(order="descending", ties="ordinal").execute().show()
+row_count = relative.where(relative.value.is_defined()).summarize(mv.count()).execute()
+row_count.contract().show()
+row_count.ratio(row_count).execute().show()
+selected = relative.where(relative.value.is_defined()).execute()
+selected.members().execute().show()
+```
+{/* example: anchor-runtime-slice */}
+
+```python
+filtered_revenue = mv.runtime_metric.slice(
+    ms.ref.metric("commerce.revenue"),
+    by={ms.ref.dimension("commerce.facts.kind"): "finished"},
+    label="finished_only",
+)
+filtered_anchor = anchors.observe(
+    filtered_revenue,
+    within=mv.elapsed(mv.duration(seconds=10)),
+    via=ms.ref.relationship("commerce.participant"),
+).execute()
+```
+
+Slice 示例还需要 commerce.facts.kind。Elapsed 窗口使用精确 duration，civil 窗口
+使用明确日历时区，跨夏令时边界可能不同。Rank 与行统计针对表示的 Anchor 发生项，
+不推断为去重 Subject 群体。
+
+## 保留固定 Anchor 群体
+
+同一 commerce 模型声明 finished.subject 作为 returning participant。
+
+{/* example: anchor-retention */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create("anchor-retention", report_timezone="UTC")
+population = session.members(ms.ref.entity("commerce.subjects"))
+starting = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
+returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+anchors = session.anchors(
+    starting,
+    population=population,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    business_order=ms.ref.business_order("commerce.order"),
+)
+retention = anchors.retention(
+    returning, within=mv.elapsed(mv.duration(hours=168))
+).execute()
+retention.show()
+retention.contract().show()
+selected = retention.known_true().execute()
+selected.members(through=selected.subject_binding).execute().show()
+subjects = retention.by_subject(rule=mv.any_anchor()).execute()
+subjects.known_true().members().execute().show()
+```
+
+True、false、unknown retention 含义不同。没有返回 Event，只有在所需跟踪覆盖完整时
+才能证明 false。by_subject 需要明确 any/every Anchor 规则，不静默改变发生项层面的 truth。
+Fixed 选择不引入新的 live-source 依赖。

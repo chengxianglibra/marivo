@@ -537,14 +537,13 @@ def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monk
 @pytest.mark.runtime
 @pytest.mark.parametrize("edition", ["docs", "zh-cn/docs"])
 def test_executed_latest_history_example(tmp_path, edition):
-    import re
 
     import marivo.semantic as ms
 
     session, _, window, claims, _ = build_lifecycle_public(tmp_path)
-    source = Path("site/src/content/docs") / edition / "latest/concepts/analysis-workflow.mdx"
-    blocks = re.findall(r"```python\n(.*?)```", source.read_text(), re.S)
-    code = next(block for block in blocks if "history = session.lifecycle.replay(" in block)
+    from tests.support.documentation import _example
+
+    code = _example(edition, "history-replay")
     namespace = {
         "session": session,
         "window": window,

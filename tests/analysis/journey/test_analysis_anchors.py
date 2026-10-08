@@ -552,13 +552,12 @@ def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, cale
 
 @pytest.mark.runtime
 def test_latest_anchor_example_executes(tmp_path, monkeypatch):
-    import re
 
     session, _, _, _, values = build_anchors(tmp_path)
     monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
-    page = Path("site/src/content/docs/docs/latest/concepts/analysis-workflow.mdx").read_text()
-    section = page.split("## Observe relative to each Anchor", 1)[1].split("\n## ", 1)[0]
-    code = re.findall(r"```python\n(.*?)```", section, re.DOTALL)[0]
+    from tests.support.documentation import _example
+
+    code = _example("en", "anchor-observation")
     code = code.replace(
         'start="2026-08-01", end="2026-09-01"',
         'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',

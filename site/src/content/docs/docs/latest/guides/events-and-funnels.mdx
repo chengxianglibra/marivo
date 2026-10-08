@@ -1,0 +1,152 @@
+---
+title: Events, journeys and funnels
+description: Declare occurrences and analyze matching, duration, dropout and funnel change.
+---
+
+Use Events when the unit is an occurrence or a participant journey. One Subject
+can have multiple occurrences; do not silently change the denominator to subjects.
+Declare event identity, participants, event-time meaning and business order
+before matching. A declaration alone does not prove observed source completeness.
+
+## Declare a reusable Event
+
+The model already declares orders, order_date and its physical order_id column.
+
+{/* example: event-declaration */}
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+Event bodies keep the restricted expression contract. Simultaneous occurrences
+need governed business order where matching depends on it. An Entity key and
+an Event occurrence identity serve different roles.
+
+## Match a Journey and measure elapsed time
+
+This independent sales model declares customers, started/finished Events with a buyer participant, revenue and an order_customer relationship. The coverage rationale must describe verified facts.
+
+{/* example: journey-duration */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+from datetime import datetime, timezone
+
+members = session.members(ms.ref.entity("sales.customers"))
+start = mv.step(participant=ms.participant_role(
+    event=ms.ref.event("sales.started"), name="buyer"), key="start")
+finish = mv.step(participant=ms.participant_role(
+    event=ms.ref.event("sales.finished"), name="buyer"), key="finish")
+window = mv.time_scope(start="2026-02-01T00:00:00Z", end="2026-02-02T00:00:00Z")
+end = datetime(2026, 2, 3, tzinfo=timezone.utc)
+journeys = session.events.match(
+    mv.sequence(start, finish), population=members, cohort_window=window,
+    completion_through=end, matching=mv.first_per_subject(),
+    completeness=(mv.BoundedCompletenessDeclarationV1(
+        inputs=(start.event, finish.event), complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        complete_through=end, rationale="Verified source coverage"),),
+)
+elapsed = journeys.time_to_event(from_step=start, to_step=finish)
+mean = elapsed.completed().duration.summarize(mv.mean()).execute()
+dropped = journeys.read(mv.dropped_before(step=finish))
+selected = dropped.where(dropped.value.eq(True)).members(
+    through=journeys.subjects(start.participant))
+revenue = selected.observe(
+    ms.ref.metric("sales.revenue"), during=window,
+    via=ms.ref.relationship("sales.order_customer"),
+).execute()
+```
+
+Cohort membership and completion follow-up have distinct windows. The matching
+policy chooses assignments explicitly. Incomplete follow-up or unknown coverage
+cannot prove dropout. Completed duration statistics exclude censored occurrences
+only through explicit selection; the result records that scope.
+
+Current limitation: using a Journey dropout predicate in a Subject cohort with
+`rule=mv.any_instance()` and a Journey Subject binding can reject with
+`DomainPreparationError` naming `source.complete_coverage@v1`, including DuckDB
+table and local Parquet inputs. The example above selects Journey rows and
+projects their Subjects through `members(through=...)`. A completeness declaration
+does not guarantee every downstream cohort operation can execute; preserve the
+rejection rather than broadening the coverage claim.
+
+## Compare and allocate funnel loss
+
+`journeys` and `baseline_journeys` are comparable logical matches; `finish_step` is the same owned pattern step, and customers.region is an admitted axis.
+
+{/* example: funnel-attribution */}
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+Read cohort, reached, lost and censored counts with each rate’s denominator.
+The initial step and zero denominators keep explicit Undefined reasons. Fixed
+funnel results can continue over their retained counts and assignment parts.
+An allocation of loss-rate change remains algebraic.
+
+## Use direct and historical axes
+
+These alternatives assume the exact Dimensions below are declared, with complete typed identities and any required snapshot/time mapping.
+
+{/* example: direct-funnel-axes */}
+
+```python
+direct_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.subjects.code"),
+    ms.ref.dimension("sales.subjects.channel"),
+)
+current = journeys.funnel(axes=direct_axes).execute()
+baseline = baseline_journeys.funnel(axes=direct_axes).execute()
+three_axis_change = current.compare(baseline).execute()
+```
+{/* example: historical-funnel-axes */}
+
+```python
+history_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.snapshots.code"),
+    ms.ref.dimension("sales.leaf.channel"),
+)
+history_current = journeys.funnel(axes=history_axes).execute()
+history_baseline = baseline_journeys.funnel(axes=history_axes).execute()
+history_change = history_current.compare(history_baseline).execute()
+```
+
+A same-named axis is not sufficient correspondence. Inspect the resulting
+contract before selecting retained Subject projections or building subsequent
+live observations. See [lifecycle and retention](/docs/latest/guides/lifecycle-and-retention/)
+for replay and event-relative follow-up.

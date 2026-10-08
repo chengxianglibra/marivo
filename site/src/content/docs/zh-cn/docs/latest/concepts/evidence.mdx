@@ -1,10 +1,16 @@
 ---
-title: Evidence
-description: 检查精确图 Artifact、保留契约与生产 Run。
+title: 证据与恢复
+description: 检查已提交事实并恢复确切 Store 8 结果。
 ---
 
-已提交的图 Artifact 拥有保留行、必要部件与已验证的续算契约，生产 Run 记录执行身份。
+Artifact 管理保存的行、保留状态与执行证据；Run 记录执行身份及成功或失败。
 跨结果综合、业务判断与因果解释由 Agent 负责。
+
+## 读取产生结果的 Run
+
+`current`与 `baseline`是同一 Session 中兼容的 Logical 数值观察。
+
+{/* example: evidence-producing-run */}
 
 ```python
 artifact = current.compare(baseline).execute()
@@ -14,14 +20,33 @@ run = session.get_run(artifact.state.producing_run_ref)
 run.show()
 ```
 
-示例假设同一 Session 内有两个兼容的数值观察。`show()` 提供有界检查，
-`contract()` 校验精确 Artifact 并披露当前续算操作。必要部件缺失或损坏时明确拒绝；
-Logical relation 在执行前没有保留行。
+`contract()`描述保留状态与准入后续操作，不认证文件字节未改变。Logical 值在执行之前没有已提交 Evidence。
 
-通过 `artifact.findings()` 或 `artifact.finding(finding_id)` 选择 Finding。
-通过 `session.artifact(ref)` 恢复结果并查看当前 contract。
+## 读取有界 Findings
 
-## 冷恢复
+`artifact`是前述示例的已提交结果。
+
+{/* example: evidence-findings */}
+
+```python
+digest = artifact.evidence_digest()
+print(digest.finding_count)
+findings = artifact.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
+```
+
+Evidence/Findings 与结果共同发布。Finding cursor 属于确切 owning Artifact，
+通过 `has_more`、`next_cursor`分页。空 Findings 表示空的已提交集合。
+Findings 报告确定性计算事实，不是生成叙事或因果解释。
+
+## 恢复确切成功结果
+
+已有 `session`、`mv`与记录的 `run_id`。读取成功专属字段前先检查 Run variant。
+
+{/* example: evidence-recovery */}
 
 ```python
 run = session.get_run(run_id)
@@ -30,12 +55,18 @@ if isinstance(run, mv.SucceededRun):
     artifact.show()
 ```
 
-Run 历史与图展示已提交事实。精确恢复验证冻结 snapshot、主表及部件 receipt，
-不查询当前来源、不加载当前 Semantic 定义，也不重放来源构造。
-旧 Store 代际在不迁移的情况下拒绝读取。这些检查不证明来源新鲜度或业务适用性。
-重复执行来源定义会创建新求值；使用 `session.artifact(ref)` 恢复指定的成功结果。
+Store 8 将项目本地 Parquet 和 SQLite 元数据保存在
+`.marivo/analysis/generations/v8/`。信任本地已提交结果、Evidence 和 Findings；
+读取解码所需 typed data，不比较内容哈希、不重放 producer、不重新提取 Findings。
+缺失或不可读 part、格式不兼容和跨 Session/cursor ownership 仍明确失败。
 
-Difference 是代数比较，Spearman association 是描述性关联。解释结果时保留其域、
-单位、Cell 状态与方法限制。终端自定义 DataFrame 或 raw SQL 结果不能重新进入受管分析。
+Store 7 及更早代拒绝读取，不迁移、不修改。保留旧字节，并为当前代使用新项目根。
+没有 revalidation 或自动重建入口。新的 live 执行创建新结果；恢复保留原结果的确切范围与时间依据。
 
-从 `marivo.help("analysis")` 开始，跟随结果 contract 提供的精确 Help 目标执行已准入的下一步。
+## 在证据范围内解释
+
+观察描述保留范围。比较与归因是代数的，关联是描述性的，预测是模型输出。
+筛选与 Journey/History 汇总保留拟合、assignment、覆盖和删失限制。
+它们本身都不建立业务依据、新鲜度或因果结论。
+
+跟随 `marivo.help("analysis.evidence")`，或运行[本地恢复教程](/zh-cn/docs/latest/guides/python-quick-start/)。

@@ -1,0 +1,236 @@
+---
+title: 连接与检查数据
+description: 声明连接，检查物理事实并选择有界来源证据。
+---
+
+先安装所选后端 extra，使用项目约定的 `md`、`ms`、`mv` 导入别名。
+声明放在 `models/datasources/`，loader 收集时不需要显式注册。
+以下示例是不同选择，不是要在所有 provider 上运行的一份脚本。
+
+## 声明本地连接
+
+先按 Python 教程创建 DuckDB 文件。路径绑定到项目。
+
+{/* example: duckdb-declaration */}
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+# The loader collects this declaration without md.register().
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+在模型加载之外显式注册时使用 `md.register(spec, workspace_dir=...)`。远程账户应具备所需只读权限。连接成功不等于分析方法得到支持。
+
+## 声明远程访问
+
+此 Trino 声明使用 catalog、schema 和环境变量凭据。在本地提供真实项目值。
+
+{/* example: trino-declaration */}
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake",
+    host="trino.example.internal",
+    catalog="hive",
+    user_env="TRINO_USER",
+    auth_env="TRINO_AUTH",
+)
+```
+
+仅以 `*_env`引用编写凭据。验证成功的 round-trip 可能将解析后的明文 secret
+缓存到用户全局 `~/.marivo/secrets.toml`。该文件和项目 `.marivo/`状态都不属于共享声明。
+来源凭据、元数据发现与业务依据是不同问题。
+
+## 先检查，再赋予含义
+
+`warehouse`是已声明 Datasource Ref。此 inspection 示例需要按 `dt` 分区、包含物理 `order_id`、`region`、`created_at` 和 `amount` 列的 orders 表；它不是教程的六笔订单表。Inspection 解析实际物理列名，不替你选择主键或业务含义。
+
+{/* example: source-inspection */}
+
+```python
+warehouse = ms.ref.datasource("warehouse")
+orders = md.table("orders")
+
+inspection = md.inspect(warehouse, orders)
+inspection.show()
+inspection.partitions(limit=1, order="asc").show()  # ascending edge
+inspection.partitions(limit=100, order="desc").show()  # descending edge
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+scope.show()  # scope kind, guards, and a bounded predicate preview
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+    persist_values=True,
+)
+snapshot.show()
+snapshot.contract().show()
+profiles = {profile.name: profile for profile in snapshot.profiles}
+profiles["order_id"].sample_distinct_count
+snapshot.retained_values[0]["order_id"]
+```
+{/* example: physical-source-column */}
+
+```python
+inspection = md.inspect(warehouse, md.table("orders"), workspace_dir=".")
+physical_name = inspection.source_column("order_id")
+orders_source = md.table("orders", columns={"order_key": physical_name})
+```
+
+用权威 schema 事实确定类型和键。仅为未解决的建模问题读取有界数据行。
+
+## 限制行数据证据
+
+被检查的表包含物理 `created_at`列。使用明确且为正的行数和超时限制。
+
+{/* example: bounded-source-preview */}
+
+```python
+scope = md.time_range(
+    "created_at",
+    start="2026-07-10T00:00:00+00:00",
+    end="2026-07-11T00:00:00+00:00",
+    max_rows=1000,
+    timeout_seconds=30,
+)
+```
+
+返回行数限制不是扫描预算。读取结果的实际范围、截断与警告。
+Inspection 无法表达的物理问题可用 `md.raw_sql(...)`：通过 focused Help 获取
+datasource、reason 和预算参数。返回行是终端结果，没有 `contract()`，不能进入 typed analysis。
+
+## 选择物理来源
+
+Entity 在 datasource 准入的来源契约下接受 `md.table`、`md.parquet`、`md.csv` 或 `md.json`。投影字段时保留真实物理拼写。
+
+{/* example: source-projection */}
+
+```python
+events = ms.entity(
+    name="events",
+    datasource=warehouse,
+    source=md.table(
+        "raw.events",
+        columns={
+            "event_time": "event.timestamp",
+            "score": "generated.score",
+        },
+    ),
+    primary_key=["event_time"],
+)
+```
+
+CSV/JSON 来源适配器的分析准入比 datasource 发现能力更窄。参见[后端限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+
+## 参数化 JSON
+
+这些定义需要对应本地文件或带 scope 的 HTTP datasource。绑定请求参数时使用所选 Entity 的确切 ref。
+
+{/* example: http-token-scope */}
+
+```python
+md.duckdb(
+    name="hawkeye",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+{/* example: http-header-scope */}
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+{/* example: json-sources */}
+
+```python
+events = md.json("data/events/*.json", columns={"event_id": "event_id"}, format="newline_delimited")
+api_events = md.json(
+    "https://api.example.com/events",
+    columns={"event_id": "event_id", "occurred_at": "occurred_at"},
+    records_path="$.result.items",
+    query_params={
+        "query": "sum(pending_containers) by (cluster)",
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv", columns={"order_id": "order_id"})
+
+md.inspect(warehouse, events).show()
+```
+{/* example: json-post-source */}
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    columns={
+        "change_id": "change_id",
+        "title": "title",
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+{/* example: source-bindings */}
+
+```python
+with session.source_bindings({
+    ms.ref.entity("monitoring.api_events"): {
+        "start": "now-3600",
+        "end": "now",
+    },
+}):
+    dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
+        ms.ref.metric("monitoring.pending_containers")
+    )
+```
+
+HTTP scope 约束声明的端点；header/token secret 仍是环境引用。
+结果路径与 JSON 字段投影不认证分页或业务完整性。在构造图之前声明当前问题的绑定，
+再跟随执行契约。Preview 和 raw SQL 结果支持有界
+`show(n=..., max_output_bytes=...)`及其原生 `render()`操作。

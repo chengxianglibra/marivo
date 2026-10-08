@@ -27,7 +27,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.support.documentation import _blocks
+from tests.support.documentation import _example
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -277,11 +277,7 @@ def test_long_path_sum_and_count(
                     assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]
         if depth == 4:
             namespace = {"mv": mv, "ms": ms, "population": population}
-            code = next(
-                block
-                for block in _blocks("en", "analysis-workflow")
-                if block.startswith("long_routes =")
-            )
+            code = _example("en", "long-metric-routes")
             exec(compile(code, "latest-long-route-example", "exec"), namespace)
             documented = namespace["long_count"]
             assert isinstance(documented, mv.MaterializedNumericRelation)

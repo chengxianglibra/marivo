@@ -1,0 +1,81 @@
+---
+title: 后端与执行限制
+description: 区分 datasource 访问与确切分析执行准入。
+---
+
+Backend extra 安装 driver，连接证明可访问，二者都不授予全部分析方法。
+准入依赖实际 backend、source form、有序物理类型、domain、时间依据、保留状态与 method。
+当前 relation contract 和 focused Help 是操作依据。
+
+## 仅安装所选 driver
+
+| 后端 | Extra | 配置事实 |
+| --- | --- | --- |
+| DuckDB | <code style="white-space: nowrap">duckdb</code> | 本地表及准入文件来源；教程无需服务器 |
+| SQLite | <code style="white-space: nowrap">sqlite</code> | 原生 SQLite 表契约；DATE 与 UTC timestamp 路径分别准入 |
+| PostgreSQL | <code style="white-space: nowrap">postgres</code> | 只读账户及原生 libpq 前提 |
+| MySQL | <code style="white-space: nowrap">mysql</code> | 原生客户端与构建前提，以及自有取消权限 |
+| Trino | <code style="white-space: nowrap">trino</code> | 显式 catalog/schema、只读访问与查询取消 |
+| ClickHouse | <code style="white-space: nowrap">clickhouse</code> | 准入 scalar types，分析要求有效 `join_use_nulls=1` |
+
+基础包包含本地结果所需 Arrow。发现未选择 provider 不导入其 driver。
+所选依赖缺失时，typed repair 指明所需 extra。
+
+## 明确选择来源形态
+
+DuckDB 表与本地 Parquet 是主要本地分析路径。CSV 和本地 JSON 适配器具有更窄的
+原始 sum-zero 路径：完整 typed keys、准入数值和明确 UTC 事件轴。
+HTTP JSON 声明与 preview 不授予 HTTP 分析执行能力。不能从另一适配器成功推断能力。
+
+{/* example: csv-semantic-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
+                  source=md.csv("data/facts.csv"),
+                  primary_key=["tenant", "id", "revision"])
+amount = ms.measure_column(name="amount", entity=facts, column="amount",
+                           additivity=ms.additive_all())
+happened = ms.time_dimension_column(name="happened", entity=facts,
+                                    column="happened", granularity="second",
+                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
+total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
+                     empty=ms.empty.zero())
+```
+{/* example: csv-observation */}
+
+```python
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
+result = session.members(ms.ref.entity("sales.facts")).observe(
+    ms.ref.metric("sales.total")
+).execute()
+result.show()
+```
+
+本例需要 warehouse、`data/facts.csv`和所列字段。将声明保存在 sales 模型根，执行使用该确切文件 Entity。
+
+## 理解执行路径
+
+| 输入 | 行为 |
+| --- | --- |
+| Live sources | 已治理 Ibis 在来源执行，或为已注册本地算法准备输入 |
+| Fixed Artifacts | 受控保留数据进入已注册本地 consumer |
+| 混合 source 与 fixed | 在 Run 准入或任一业务输入读取前拒绝 |
+
+原生关系工作保留在 Ibis 中。Matching、replay 与统计可能为本地算法捕获完整输入。
+Batch transport 不承诺流式执行。失败不切换实现，也不通过其他 executor 重试。
+远程来源配置使用只读权限，来源取消和执行 deadline 仍由 provider 契约负责。
+
+## 遵守数值与方法限制
+
+确切 Decimal scale、timestamp precision、Duration unit、原始组成状态、完整网格和
+各根路径都参与准入。Ibis 编译成功或 Readiness 通过不足以证明物理执行。
+Quantile 精确性属于定义，不支持的精确聚合不回退到近似计算。
+统计、Event、History 方法不能继承普通 scalar Metric 的后端支持。
+
+跟随确切 structured repair 和[问题排查](/zh-cn/docs/latest/reference/troubleshooting/)。本页描述实现范围，不宣称完整发布验收或所有远程组合均得到验证。

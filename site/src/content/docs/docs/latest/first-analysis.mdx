@@ -1,270 +1,40 @@
 ---
-title: First agent-guided analysis
-description: Give an agent a business question, then review the analysis and its evidence.
+title: Your first Agent analysis
+description: Give an agent the decision and scope, then review its evidence-backed answer.
 ---
 
-## Start the analysis
+Use a project whose relevant semantic definitions are approved and loadable. You do not need to prescribe Python operators or a fixed sequence of checks.
 
-Use a project metric whose business meaning is approved and that the current
-catalog can load. If the metric is missing or disputed, typed analysis stops;
-the agent may use bounded terminal `md.raw_sql(...)` with disclosed temporary
-semantics, but hands a reusable gap to semantic authoring and asks only about
-unresolved business meaning.
+## Give the agent a bounded question
 
-You do not need to write Python, select operators, or prescribe checks. State
-the question, metric, comparison, and initial investigation focus:
+> Use `marivo-analysis` to explain the change in approved `sales.revenue`
+> between July and August 2026. Compare the same completed-order scope, inspect
+> region first, and report the conclusion, key evidence and limitations.
 
-> Use `marivo-analysis` to explain why revenue decreased in 2026 Q4 compared
-> with the same period in 2025. Use the approved `sales.revenue` metric,
-> compare by month, and inspect region first.
-> Finish with the conclusion, key evidence, and limitations.
+Specify the decision, meaningful baseline, included/excluded population and
+initial focus. If the definition is missing, ask for the smallest semantic gap
+to be resolved rather than a silently substituted Metric.
 
-The agent uses the current typed graph for time-scoped observation and comparison.
-It checks the returned contract for the exact source, method and continuation
-boundary; unsupported combinations produce a structured repair.
+## Understand the agent’s work
 
-## What Marivo handles
+The agent verifies its selected environment, reads existing catalog objects,
+constructs explicit analysis in one Session and executes when the next decision
+needs results. It reads `.show()` for committed rows, follows `.contract()` for
+legal continuations and uses focused Help for unfamiliar calls.
 
-The agent reads the relevant definitions, resolves and validates the live
-semantic inputs, performs appropriate typed analysis in one analysis session,
-and preserves the material results and evidence. A semantic gap never permits
-the agent to change definitions during analysis. Terminal raw SQL may provide a
-provisional answer, but it remains separate from canonical Marivo evidence; the
-agent hands the smallest reusable gap to `marivo-semantic` automatically and
-resumes the affected analysis branch after readiness.
+For a missing reusable definition, it hands off to `marivo-semantic`, certifies
+the changed roots and returns to the original question. Terminal raw SQL may
+answer a disclosed temporary question; those rows cannot enter typed analysis.
+Readiness, connectivity and successful execution prove different things.
 
-Catalog navigation returns typed entries. Analysis consumes each entry's exact
-`.ref`; configuration and recovery also retain exact references. Semantic
-callers follow their own focused Help contracts.
+## Review the answer
 
-The agent selects a project interpreter and verifies the live environment once with
-`<selected-python> -m marivo doctor`. A conventional project-local installation uses
-`.venv/bin/python` on macOS, Linux, and WSL or `.venv/Scripts/python.exe` on Windows.
-After entry, it works from the public object already
-in hand: a materialized analysis result's `.show()` reports committed state, and a
-relation's `.contract()` guides unfamiliar
-composition, and focused `marivo.help(...)` after `import marivo` is needed only
-when that contract is insufficient or before first use of an unfamiliar
-capability. After a failure, the agent follows the structured repair. Focused
-help is not a prerequisite for every API call.
+Confirm the Metric meaning, population, periods, comparison direction and
+breakdowns. Check that material claims have results or Evidence, and that
+coverage, missingness, censoring and method limits are visible. Algebraic
+allocation and association do not by themselves prove cause.
 
-For the admitted J1–J4 Entity-domain slice, the agent can begin with
-`session.members(ms.ref.entity(...))`, observe a governed Metric, execute a
-logical relation, and recover it later with `session.artifact(ref)`. Other
-capabilities retain their existing typed entry points. Export through
-`materialized.to_pandas()` remains a terminal presentation boundary.
-`relation.contract().actions` lists only mechanically admitted calls, each
-with the exact `marivo.help(...)` target; `materialized.show()` masks Entity
-member keys in its bounded preview.
-`RawSqlResult.shape` and `.row_count` describe returned bounded rows only; the
-result has no `.contract()` or typed re-entry. Typed regression is not a Marivo
-capability yet and remains explicit terminal custom analysis.
+Continue only for a remaining material question. Reuse an exact saved result
+when the question is historical; execute current sources when freshness matters.
 
-Those mechanics are owned by live Help, relation contracts, and structured errors — they do
-not need to appear in your prompt.
-
-## What to review
-
-Before accepting the conclusion or asking for a deeper investigation, confirm that:
-
-- the metric meaning matches the business outcome you intended;
-- the period and population, including exclusions, are correct;
-- the comparison and initial investigation focus are meaningful;
-- each material claim is supported by Marivo results or evidence;
-- limitations, quality issues, and unresolved questions are explicit; and
-- the agent did not silently change the semantic layer.
-
-## Next steps
-
-- [Frame a business question](/docs/latest/guides/business-question/) before a broader investigation.
-- [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) explains how Marivo structures analysis.
-- [Readiness](/docs/latest/concepts/readiness/) explains how semantic changes receive explicit technical certification.
-- [Evidence](/docs/latest/concepts/evidence/) explains what supports the final recap.
-
-Public execution and recovery use the typed graph, method registry, Runtime and Store 7. Construction may perform schema-only preflight; business reads follow admission. Unsupported exact input/method combinations reject explicitly. Old-generation projects are rejected without modification.
-
-
-## Observe a runtime metric on the graph
-
-With `session` bound to the project, construct a runtime expression from approved
-catalog refs and observe it over an Entity domain. For example, this slice uses
-int64 revenue and count metrics on a DuckDB source with a UTC event axis:
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-customers = session.members(ms.ref.entity("sales.customer"))
-rate = mv.runtime_metric.ratio(
-    ms.ref.metric("sales.revenue"),
-    ms.ref.metric("sales.order_count"),
-    label="revenue_per_order",
-)
-observed = customers.observe(rate, via=ms.ref.relationship("sales.order_buyer"))
-assert isinstance(observed, mv.LogicalRatioRelation)
-fixed = observed.execute()
-total = fixed.rollup().execute()
-```
-
-Omitting `during` adds no time restriction and does not certify historical
-completeness. Each contribution root reduces independently; use `mv.routes` with
-one `mv.route` per distinct root when roots differ. Runtime `aggregate` and
-`weighted_mean` require an explicitly declared default event axis. The five
-factories reach the graph within the current numeric/time qualification:
-int64 sum/count, leaf slices, ratios, nested signed linear sum/count terms, and
-paired int64 weighted means. Weighted means return numeric relations, keep both
-original sums plus pair/row counts, and roll up those components. Other numeric
-types and nested nonlinear finishes require further
-qualification. Read the returned relation's `contract()` for its valid next calls.
-
-## Observe a bounded time grid
-
-For an approved sum/count Metric on the qualified DuckDB table or Parquet UTC
-microsecond event route, keep the complete member/time product:
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
-    grain=mv.grain("month"),
-)
-monthly = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.revenue"),
-    during=grid.window,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-fixed = monthly.execute()
-totals = fixed.group_by(grid).rollup().execute()
-```
-
-`grid.window` selects each row's contribution interval. A fixed `TimeScope`
-repeats that one interval on every cell and cannot be summed across time. Empty
-cells remain present with the Metric's declared empty policy. A carried daily
-axis may be coarsened with `group_by(mv.grain("month"))` only when every original
-cell fits wholly inside one month; a crossing week rejects. The default grid
-zone binds to the consuming Session's report timezone.
-
-Endpoint handles now have explicit consumers:
-
-```python
-from datetime import datetime, timezone
-
-accounts = session.members(
-    ms.ref.entity("sales.account"), at=datetime(2026, 8, 1, tzinfo=timezone.utc),
-)
-balances = accounts.each(grid).read(
-    ms.ref.measure("sales.account.balance"), at=grid.before_end,
-)
-running = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.running_revenue"), at=grid.end,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-```
-
-The fields and metrics must be declared in the catalog. Attribute versions are
-independent of membership versions. Cumulative endpoints read from their declared
-anchor, including history before the displayed grid. Overlapping accumulated
-windows cannot be summed across time. A declared first/last/mean/min/max status
-fold aggregates spatially at each sample before folding time; later original
-rollup needs aligned retained samples. Fixed continuation uses retained state,
-including after source/model files are offline. DuckDB supports governed civil
-dates and explicitly zoned microsecond timestamps; SQLite's required routes use
-UTC timestamps or civil dates. Unqualified routes reject without fallback.
-
-## Select from multiple relations and complete opportunities
-
-Bind conditions from each relation's `value`. Every input must cover the complete
-receiver domain; a retained ancestor may be restricted to an already selected
-receiver. All child consumption checks run before `all_of`, `any_of`, or `not_`.
-
-```python
-members = session.members(ms.ref.entity("sales.customer"))
-region = members.read(ms.ref.dimension("sales.customer.region"))
-revenue = members.observe(
-    ms.ref.metric("sales.revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-defined = revenue.where(revenue.value.is_defined())
-defined.contract().show()
-selected = defined.where(
-    mv.all_of(defined.value.gt(0), region.value.eq("east"))
-)
-```
-
-`is_defined()` is a total label check. Combining it with a numeric comparison
-does not protect that comparison from Null, Undefined, or Unknown. Select first
-when the comparison should consume only Defined values. Numeric comparisons
-also require finite values and compatible types and units.
-Selected logical and fixed relations disclose further `where` calls through
-their `.contract()`.
-
-For cohort selection, keep the complete opportunity grid, including cells with
-no contributions. Count Metrics retain Defined zero for those cells:
-
-```python
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-    grain=mv.grain("month"),
-)
-activity = members.each(grid).observe(
-    ms.ref.metric("sales.order_count"),
-    during=grid.window,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
-cohort.contract().show()
-```
-
-`any_instance()` requires one true opportunity; `at_least(k)` requires a positive
-integer excluding bool. `all_instances(empty=mv.empty_opportunity.false())`
-requires an explicit true, false, or undefined empty policy. Existing Unknown
-Cells use three-valued quantification, but every target must be decidable before
-an exact cohort is returned. Null/Undefined comparisons and missing opportunity
-keys reject. Fixed target and predicate Artifacts can continue without sources;
-source-selected members can feed a new observation. `relation.subject_binding`
-provides the producer-owned mapping for an explicit `through=` argument.
-
-## Exact funnel comparison and evidence
-
-Use first-per-subject Journeys from the same explicit population for both periods.
-The pattern, matching and definitions must match; start windows and follow-up
-lengths must be equal and coverage complete. The example continues existing
-`journeys`, `baseline_journeys` and the exact `finish_step` from their pattern.
-
-```python
-funnel = journeys.funnel()
-fixed_funnel = funnel.execute()
-lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
-change = funnel.compare(baseline_journeys.funnel())
-allocation = change.attribute(
-    target=mv.funnel_loss_rate(step=finish_step),
-    axes=(ms.ref.dimension("sales.customers.region"),),
-    mode="joint",
-    top_k=5,
-).execute()
-allocation.contract().show()
-page = allocation.findings(limit=20)
-if page.items:
-    finding = allocation.finding(page.items[0].finding_id)
-```
-
-Funnel axes capture all eligible starts at their entry time before local matching
-consumes the original assignment. Snapshot/validity versions and full axis tuples
-preserve real Null categories. Counts remain exact int64; zero denominators and
-the initial loss rate are Undefined. Owned handles belong to their receiver.
-
-Allocation separates loss and denominator mix, uses one Top-K based on both
-periods' resolved entries, and preserves typed Other masks. Every joint or
-hierarchy resolution reconciles both allocated sides and the target difference.
-Filtering preserves the original reconciliation scope and revokes completeness.
-Fixed results require retained axes/components and never consult current semantics,
-connect sources or rematch. Materialized results expose Evidence, bounded Finding
-pages and exact individual Findings; all reads verify the entire frozen collection.
-Compare/allocation cap emission at 1000 and retain eligible/emitted/truncated counts.
-
-The qualified placement is explicit Ibis source preparation followed by local
-consumption, or source-free `artifact_python` for fixed continuation. No native
-funnel route, remote backend, same-wheel or full R7 qualification is claimed here.
+Next: [business questions](/docs/latest/guides/business-question/), [analysis workflow](/docs/latest/concepts/analysis-workflow/), or [the complete Python tutorial](/docs/latest/guides/python-quick-start/).

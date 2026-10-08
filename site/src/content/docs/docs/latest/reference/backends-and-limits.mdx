@@ -1,0 +1,89 @@
+---
+title: Backends and execution limits
+description: Distinguish datasource access from exact analysis execution admission.
+---
+
+A backend extra installs its driver; a connection proves access. Neither grants
+all analysis methods. Admission depends on the actual backend, source form,
+ordered physical types, domain, time authority, retained state and method.
+The current relation contract and focused Help are the operational guide.
+
+## Install only the selected driver
+
+| Backend | Extra | Setup facts |
+| --- | --- | --- |
+| DuckDB | <code style="white-space: nowrap">duckdb</code> | Local tables and admitted file sources; tutorial requires no server |
+| SQLite | <code style="white-space: nowrap">sqlite</code> | Native SQLite table contracts; DATE/UTC timestamp routes are distinct |
+| PostgreSQL | <code style="white-space: nowrap">postgres</code> | Read-only account and native libpq prerequisite |
+| MySQL | <code style="white-space: nowrap">mysql</code> | Native client/build prerequisites and owned cancellation authority |
+| Trino | <code style="white-space: nowrap">trino</code> | Explicit catalog/schema, read-only access and query cancellation |
+| ClickHouse | <code style="white-space: nowrap">clickhouse</code> | Qualified scalar types and effective `join_use_nulls=1` for admitted analysis |
+
+The base package includes Arrow for local results. Discovery of an unselected
+provider does not import its driver. Missing selected dependencies produce a
+typed repair naming the required extra.
+
+## Choose a source form deliberately
+
+DuckDB tables and local Parquet are the main local analysis paths. CSV and
+local JSON adapters have a narrower original sum-zero path: complete typed keys,
+admitted numeric values and an explicit UTC event axis. HTTP JSON declaration
+and preview do not grant HTTP analysis execution. Do not infer one adapter’s
+capability from another’s success.
+
+{/* example: csv-semantic-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+facts = ms.entity(name="facts", datasource=ms.ref.datasource("warehouse"),
+                  source=md.csv("data/facts.csv"),
+                  primary_key=["tenant", "id", "revision"])
+amount = ms.measure_column(name="amount", entity=facts, column="amount",
+                           additivity=ms.additive_all())
+happened = ms.time_dimension_column(name="happened", entity=facts,
+                                    column="happened", granularity="second",
+                                    parse=ms.timestamp(timezone="UTC"), is_default=True)
+total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
+                     empty=ms.empty.zero())
+```
+{/* example: csv-observation */}
+
+```python
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
+result = session.members(ms.ref.entity("sales.facts")).observe(
+    ms.ref.metric("sales.total")
+).execute()
+result.show()
+```
+
+The example requires warehouse, `data/facts.csv` and the listed columns. Save its declarations under the sales model root; execution uses that exact file-backed Entity.
+
+## Understand execution routes
+
+| Inputs | Behavior |
+| --- | --- |
+| Live sources | Governed Ibis executes on the source, or prepares input for a registered local algorithm |
+| Fixed Artifacts | Controlled retained data feeds registered local consumers |
+| Mixed source and fixed | Reject before Run admission or either business input read |
+
+Native relational work remains in Ibis. Matching, replay and statistics may
+capture full inputs for local algorithms. Batch transport is not a promise of
+streaming execution. A failure does not switch implementation or retry through
+another executor. Remote-source configuration uses read-only access; source
+cancellation and execution deadlines remain provider-owned requirements.
+
+## Respect numerical and method limits
+
+Exact Decimal scale, timestamp precision, Duration unit, original components,
+complete grids and per-root routes participate in admission. Compiling an Ibis
+expression or passing Readiness is insufficient physical execution evidence.
+Quantile exactness is definition-owned; unsupported exact aggregation never
+falls back to approximation. Statistical, Event and History methods do not
+inherit ordinary scalar Metric backend support.
+
+Follow the exact structured repair and [troubleshooting](/docs/latest/reference/troubleshooting/). Support described here is implementation scope, not a claim of full release or every remote combination qualification.

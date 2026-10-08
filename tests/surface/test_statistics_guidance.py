@@ -117,7 +117,7 @@ def test_cli_and_api_documentation_use_current_entry() -> None:
 def test_latest_examples_cover_nine_methods_and_continuations() -> None:
     for edition in ("docs", "zh-cn/docs"):
         source = (
-            ROOT / "site/src/content/docs" / edition / "latest/concepts/analysis-workflow.mdx"
+            ROOT / "site/src/content/docs" / edition / "latest/guides/statistics.mdx"
         ).read_text()
         for token in (
             'method="zscore"',
@@ -145,7 +145,7 @@ def test_bilingual_nine_method_example_executes_with_current_continuations(
     import marivo.analysis as mv
     import marivo.semantic as ms
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
-    from tests.support.documentation import _blocks
+    from tests.support.documentation import _example
 
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(case, "KC", "table", "us", "UTC", False, followup=True)
@@ -167,16 +167,8 @@ def test_bilingual_nine_method_example_executes_with_current_continuations(
         "daily": daily,
     }
     english, chinese = (
-        next(
-            block
-            for block in _blocks("en", "analysis-workflow")
-            if block.startswith('zscore = revenue.deviation(method="zscore")')
-        ),
-        next(
-            block
-            for block in _blocks("zh", "analysis-workflow")
-            if block.startswith('zscore = revenue.deviation(method="zscore")')
-        ),
+        _example("en", "nine-statistical-methods"),
+        _example("zh", "nine-statistical-methods"),
     )
     assert english == chinese and english.startswith('zscore = revenue.deviation(method="zscore")')
     exec(compile(english, "bilingual-nine-method-example", "exec"), namespace)

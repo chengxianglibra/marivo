@@ -1,0 +1,100 @@
+---
+title: Calendars and work schedules
+description: Certify period boundaries, named occurrences and business-day schedules.
+---
+
+These declarations consume governed time/dimension fields from calendar,
+campaign and schedule Entities. They require their dedicated certified artifacts;
+ordinary preview history does not establish those artifacts.
+
+Import `date` from `datetime`, `marivo.datasource as md`, `marivo.semantic as ms`
+and `marivo.analysis as mv`. Each declaration belongs to an existing sales domain;
+`catalog = ms.load()` loads its models. Analysis examples additionally require
+an existing Session and the admitted Metric/relationship named below.
+
+## Certify a period calendar
+
+The sales.calendar Entity declares calendar_date and all named period fields in the example. `catalog` loads that project.
+
+{/* example: period-calendar */}
+
+```python
+calendar_ref = ms.period_calendar(
+    name="fiscal",
+    date=ms.ref.time_dimension("sales.calendar.calendar_date"),
+    boundary_timezone="UTC",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
+)
+catalog.require(calendar_ref)
+catalog.preview(
+    calendar_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+calendar = catalog.period_calendars.get("sales.fiscal")
+grain = calendar.grain("week")
+week_scope = calendar.period("week", "FY2026-W01")
+assert week_scope.kind == "calendar_period"
+week_scope.contract().show()  # exact bounds and certified snapshot identity
+```
+
+Calendar identity governs boundaries and membership. Analysis alignment uses
+those certified facts, not equal-looking period labels. A failed or truncated
+certification does not publish a replacement artifact.
+
+## Name temporal occurrences
+
+The sales.campaigns Entity declares campaign identity and start/end boundaries with their exact time meaning. The observation also requires `sales.customer`, the `sales.order_buyer` relationship and `revenue = ms.ref.metric("sales.revenue")`.
+
+{/* example: temporal-set */}
+
+```python
+campaigns_ref = ms.temporal_set(
+    name="campaigns",
+    occurrence_id=ms.ref.dimension("sales.campaigns.campaign_id"),
+    start=ms.ref.time_dimension("sales.campaigns.starts_at"),
+    end=ms.ref.time_dimension("sales.campaigns.ends_at"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    category=ms.ref.dimension("sales.campaigns.category"),
+)
+catalog.preview(
+    campaigns_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+campaigns = catalog.temporal_sets.get("sales.campaigns")
+launch = campaigns.occurrence("spring-2026")
+members = session.members(ms.ref.entity("sales.customer"))
+dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
+```
+
+Keep occurrence identity and interval semantics explicit; a selected occurrence is not a global time filter for every unrelated quantity.
+
+## Define a work schedule
+
+The calendar Entity declares date and is_working, and the datasource contains the exhaustive schedule scope.
+
+{/* example: work-schedule */}
+
+```python
+schedule_ref = ms.work_schedule(
+    name="cn_sales_schedule",
+    date=ms.ref.time_dimension("sales.calendar.date"),
+    is_working=ms.ref.dimension("sales.calendar.is_working"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+)
+catalog.preview(
+    schedule_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
+```
+
+Certification reads required columns with a positive bounded scope and only
+publishes when exhaustive input satisfies the declaration. Display limits do not
+bound certification input. Readiness reports missing/stale/invalid artifacts;
+follow its typed repair to preview and recertify. Business authority for working
+and non-working dates remains with the project definition.

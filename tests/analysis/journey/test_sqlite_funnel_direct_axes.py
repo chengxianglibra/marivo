@@ -33,7 +33,7 @@ from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import run_ids
-from tests.support.documentation import _blocks
+from tests.support.documentation import _example
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 
@@ -366,18 +366,7 @@ def test_sqlite_three_axis_independent_recovery(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session, journeys, database = _build(tmp_path, semantic_project_factory, history=history)
-    examples: list[str] = []
-    for locale in ("docs", "zh-cn/docs"):
-        page = (
-            PROJECT_ROOT
-            / "site/src/content/docs"
-            / locale
-            / "latest/concepts/analysis-workflow.mdx"
-        )
-        text = page.read_text()
-        marker = "```python\ndirect_axes = (\n"
-        assert text.count(marker) == 1
-        examples.append("direct_axes = (\n" + text.split(marker, 1)[1].split("```", 1)[0])
+    examples = [_example(locale, "direct-funnel-axes") for locale in ("en", "zh")]
     assert examples[0] == examples[1]
     if history:
         axes = tuple(
@@ -390,11 +379,7 @@ def test_sqlite_three_axis_independent_recovery(
             "journeys": journeys(START),
             "baseline_journeys": journeys(BASELINE),
         }
-        code = next(
-            block
-            for block in _blocks("en", "analysis-workflow")
-            if block.startswith("history_axes =")
-        )
+        code = _example("en", "historical-funnel-axes")
         exec(compile(code, "latest-history-axes-example", "exec"), namespace)
         current, baseline, change = (
             namespace["history_current"],

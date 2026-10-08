@@ -608,16 +608,9 @@ def test_latest_funnel_example_executes(funnel_public):
     import marivo.semantic as ms
 
     _, journeys, pattern, _ = funnel_public
-    root = PROJECT_ROOT / "site/src/content/docs"
-    examples = []
-    for locale in ("docs", "zh-cn/docs"):
-        for page in ("first-analysis.mdx", "concepts/analysis-workflow.mdx"):
-            text = (root / locale / "latest" / page).read_text()
-            marker = "```python\nfunnel = journeys.funnel()\n"
-            assert text.count(marker) == 1
-            examples.append(
-                "funnel = journeys.funnel()\n" + text.split(marker, 1)[1].split("```", 1)[0]
-            )
+    from tests.support.documentation import _example
+
+    examples = [_example(locale, "funnel-attribution") for locale in ("en", "zh")]
     assert len(set(examples)) == 1
     namespace = {
         "mv": mv,

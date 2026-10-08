@@ -1,0 +1,336 @@
+---
+title: Author reusable semantics
+description: Define entities, fields, metrics and relationships with explicit business meaning.
+---
+
+This guide shows declaration patterns. Use [the local tutorial](/docs/latest/guides/python-quick-start/)
+for a complete runnable model. Larger examples assume the companion entities,
+fields and metrics named in their prerequisites. Never infer those definitions
+from column names. Start at `marivo.help("authoring")` for exact callable contracts.
+
+## Declare one coherent model
+
+The `warehouse` datasource and an orders table with the listed columns already exist. Save this combined example as `models/semantic/sales/_domain.py`. Each domain directory requires that entrypoint; additional model files inherit the loaded domain.
+
+{/* example: semantic-model-basics */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+sales = ms.domain(name="sales", owner="Mina Zhang")
+warehouse = ms.ref.datasource("warehouse")
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+```
+
+Domain membership is explicit or uses an explicit default domain, never a file-path
+inference. Primary keys identify instances; snapshot/validity coordinates identify
+versions without replacing that key. Preserve every ordered key component.
+
+## Define fields and numeric meaning
+
+`orders` is the Entity above; these declarations illustrate individual replacements, not additional duplicate definitions.
+
+{/* example: dimension-declaration */}
+
+```python
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
+)
+```
+{/* example: measure-declaration */}
+
+```python
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+```
+
+Use Dimension for classification and Measure for governed row values. Measures own
+units and additivity. Native integers, floats and Decimal inputs preserve their
+admitted carriers; a conversion or equal unit does not make distinct quantities
+interchangeable. Weighted arithmetic retains exact components where required and
+finishes only under the consuming method’s numerical contract.
+
+## Choose the Metric equation
+
+Bind every named input first. The sum example uses `amount` and `order_date`; the filtered Count needs a physical `state` column. The derived examples additionally require governed Metric objects bound as `gross_revenue`, `refunds`, `total_amount` and `orders_count`.
+
+{/* example: aggregate-declarations */}
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
+```
+{/* example: count-declaration */}
+
+```python
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+state = ms.dimension_column(name="state", entity=orders, column="state")
+failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
+```
+{/* example: derived-metrics */}
+
+```python
+net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
+aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
+```
+
+Count counts governed contributions, not an inferred number of subjects. Ratio
+rollup merges numerator and denominator components; it does not average displayed
+ratios. `mv.runtime_metric` builds question-specific aggregate/weighted_mean/ratio/linear/
+slice expressions over governed inputs without persisting new reusable meaning.
+
+## Weighted means and precision
+
+`latency` and `request_count` are governed numeric Measures. The price example additionally assumes declared `price`, `units` and `tax` Measures.
+
+{/* example: weighted-mean-declaration */}
+
+```python
+avg_latency = ms.weighted_mean(
+    name="avg_latency",
+    value=latency,
+    weight=request_count,
+)
+```
+{/* example: native-numeric-arithmetic */}
+
+```python
+average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
+# price can be Decimal and units can be integer.
+```
+
+Preserve the paired weighted sums and counts. Null, empty, nonfinite and overflow policies remain explicit; do not silently turn missing values into zero or force all numeric inputs to float.
+
+## Exactness belongs to the definition
+
+This amount Metric chooses exact or approximate percentile explicitly. `ordered_at` is its governed time axis.
+
+{/* example: quantile-declarations */}
+
+```python
+p95_amount = ms.aggregate(
+    name="p95_amount", measure=amount, agg=("percentile", 0.95), time=ordered_at
+)
+p95_estimate = ms.aggregate(
+    name="p95_estimate", measure=amount, agg=("approx_percentile", 0.95), time=ordered_at
+)
+```
+
+Readiness blocks known unsupported aggregate/backend definitions. It does not
+silently substitute an approximate function. Direct-only quantiles/distinct
+aggregates cannot gain an original rollup from a scalar result; follow the exact
+returned contract and [backend limits](/docs/latest/reference/backends-and-limits/).
+
+## Declare relationships
+
+`orders`, `customers`, `order_customer_id` and `customer_id` are already declared. Join keys are semantic Dimensions with authoritative key meaning.
+
+{/* example: relationship-declaration */}
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+{/* example: aggregate-time-route */}
+
+```python
+line_revenue = ms.aggregate(
+    name="line_revenue", measure=line_amount, agg="sum",
+    time=ordered_at, time_via=(line_order,),
+    nulls=ms.nulls.ignore(), empty=ms.empty.zero(),
+)
+order_count = ms.count(name="order_count", entity=orders, time=ordered_at)
+aov = ms.ratio(
+    name="aov", numerator=line_revenue, denominator=order_count,
+    zero_denominator=ms.zero_denominator.undefined(),
+)
+```
+
+The second example assumes `line_amount`, `ordered_at` and `line_order`:
+`time_via` connects the contribution root to its declared time root. Analysis
+routes must be contiguous, explicitly keyed and directed to-one; ordinary
+Metric/Count routes have no fixed hop count limit. Multi-root Metrics require
+one admitted mapping per distinct contribution root.
+
+## Use Ibis for custom expressions
+
+The following custom Metric replaces the simple revenue declaration; it consumes the governed `amount` Measure.
+
+{/* example: custom-ibis-metric */}
+
+```python
+@ms.metric(
+    entities=[orders],
+    additivity=ms.additive_all(),
+    time=order_date,
+    unit="CNY",
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
+    name="revenue",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds; historically calculated from paid orders."
+    ),
+)
+def revenue(table):
+    return ms.bind(amount, table).sum()
+```
+{/* example: local-expression-bindings */}
+
+```python
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
+def net_amount(rows):
+    gross = rows["price"] * rows["quantity"]
+    discount = rows["discount"].fill_null(0)
+    return gross - discount
+```
+
+Expression bodies return Ibis expressions only. Fresh sequential local bindings
+are allowed; reassignment, shadowing and control flow remain restricted by the
+validator. SQL belongs in provenance value objects, never executable decorator
+bodies. The local Measure example assumes physical price, quantity and discount columns.
+
+## Load, discover and hand off
+
+Run these reads in a project containing the declared sales model. A Session supplies its own catalog.
+
+{/* example: catalog-loading */}
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()                       # SemanticCatalog
+catalog.show()                            # non-empty collections plus one empty summary
+catalog.domains.show()                    # top-level domains
+catalog.metrics.show()                    # just metrics across all domains
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
+region = orders.dimensions.get("region")  # one dimension object
+```
+{/* example: catalog-monthly-observation */}
+
+```python
+revenue_entry = catalog.metrics.get("sales.revenue")
+revenue_entry.details().show()
+grid = mv.time_grid(during=mv.time_scope(start='2026-01-01', end='2026-04-01'), grain=mv.grain('month'))
+dataset = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window)
+    .group_by(grid).rollup())
+```
+{/* example: catalog-regional-observation */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create(
+    name="revenue-investigation",
+    question="Why did Q4 revenue drop?",
+    report_timezone="UTC",
+)
+catalog = session.catalog
+revenue_entry = catalog.metrics.get("sales.revenue")
+region_entry = catalog.dimensions.get("sales.orders.region")
+
+revenue_entry.details().show()
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(revenue_entry.ref, during=grid.window, coordinates=(region_entry.ref,))
+    .group_by(grid, region_entry.ref).rollup())
+```
+{/* example: catalog-discovery */}
+
+```python
+import marivo
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
+collection.show()                              # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)                             # identity, usage navigation, kind-level handoff
+grid = mv.time_grid(during=mv.time_scope(start='2026-10-01', end='2027-01-01'), grain=mv.grain('month'))
+current = (session.members(ms.ref.entity("sales.orders")).each(grid)
+    .observe(entry.ref, during=grid.window)
+    .group_by(grid).rollup())
+```
+
+The three observation examples assume `session`, `mv` and `ms`, the orders
+Entity’s region/date fields, and the displayed periods. Catalog entries carry
+exact typed `.ref` values. Construction does not publish results. Certify new or
+changed roots through [Readiness](/docs/latest/concepts/readiness/), then hand the
+ready inputs to analysis. Use [time and cohorts](/docs/latest/guides/time-and-cohorts/)
+for versions, status folds and cumulative Metrics.
+
+## Longer declared routes
+
+Import `mv` and `ms`. This independent sales model declares `sales.facts`, `sales.number` and the four relationships `sales.hop0` through `sales.hop3`. Bind `population` as the logical member domain reached by that route. Each directed to-one hop is contiguous. These declarations are absent from the local tutorial.
+
+{/* example: long-metric-routes */}
+
+```python
+long_routes = mv.routes(mv.route(
+    ms.ref.entity("sales.facts"),
+    through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
+))
+long_count = population.observe(
+    ms.ref.metric("sales.number"),
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=long_routes,
+).execute()
+```
+
+The result contract admits only transformations supported by the captured state; a direct distinct scalar does not reconstruct original membership.
+
+## Question-specific runtime expressions
+
+Import `mv` and `ms`. These alternative expressions require the exact governed Measures, Metrics and Dimension below; the tutorial’s model does not declare latency, request_count, order_count or refunds. Bind their approved definitions first.
+
+{/* example: runtime-expression-families */}
+
+```python
+runtime_sum = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.orders.amount"), agg="sum", label="question_revenue",
+)
+runtime_mean = mv.runtime_metric.weighted_mean(
+    ms.ref.measure("sales.orders.latency"),
+    ms.ref.measure("sales.orders.request_count"), label="question_latency",
+)
+runtime_rate = mv.runtime_metric.ratio(
+    ms.ref.metric("sales.revenue"), ms.ref.metric("sales.order_count"),
+    label="question_revenue_per_order",
+)
+runtime_net = mv.runtime_metric.linear(
+    add=[ms.ref.metric("sales.revenue")],
+    subtract=[ms.ref.metric("sales.refunds")], label="question_net",
+)
+runtime_east = mv.runtime_metric.slice(
+    runtime_sum, by={ms.ref.dimension("sales.orders.region"): "east"},
+    label="question_east",
+)
+```
+
+These are closed expressions, not executed results. Observe one through an explicit member domain and admitted per-root route. The five factories are aggregate, weighted_mean, ratio, linear and slice; Count is supplied by a governed Count Metric. A runtime expression does not persist a new organizational definition.

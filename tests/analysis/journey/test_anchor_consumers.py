@@ -19,7 +19,7 @@ from marivo.refs import MetricKind, Ref
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from tests.analysis.journey.retention_fixtures import build_retention
 from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_public
-from tests.support.documentation import _blocks
+from tests.support.documentation import _example
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
 
@@ -286,11 +286,7 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
         business_order=ms.ref.business_order("commerce.order"),
     )
     namespace = {"mv": mv, "ms": ms, "anchors": anchors}
-    code = next(
-        block
-        for block in _blocks("en", "analysis-workflow")
-        if block.startswith("filtered_revenue =")
-    )
+    code = _example("en", "anchor-runtime-slice")
     exec(compile(code, "latest-filtered-anchor-example", "exec"), namespace)
     documented = namespace["filtered_anchor"]
     assert isinstance(documented, mv.MaterializedNumericRelation)
