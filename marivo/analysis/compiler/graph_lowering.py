@@ -111,6 +111,7 @@ from marivo.analysis.core.rules import (
     captured_mapping_fact,
     group_consumption_facts,
 )
+from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.core.time_grid import GridVersionSelection
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.consumer_rules import prepared_numeric
@@ -2561,7 +2562,7 @@ def _contribution_rows(
     *,
     prepared: bool = False,
     captured_columns: tuple[tuple[str, str], ...] = (),
-) -> tuple[ir.Table, tuple[str, ...]]:
+) -> tuple[ir.Table, tuple[str, ...], SourceTimeAuthority]:
     owned_sources = {source.identity for source in stage.node.sources}
     by_entity = {
         binding.leaf.definition.ref.path: binding
@@ -2677,8 +2678,11 @@ def _contribution_rows(
             from marivo.analysis.compiler.domain_preparation import capture_time
             from marivo.analysis.compiler.source_time import source_time
 
+            event_time = rows.event_time
+            if isinstance(event_time, ir.TimestampValue):
+                event_time = capture_time(event_time)
             point, _ = source_time(
-                capture_time(rows.event_time),
+                event_time,
                 params.event,
                 boundary_timezone="UTC",
                 read_timezone=params.event.timezone,
@@ -2744,17 +2748,15 @@ def _contribution_rows(
         if prepared and isinstance(rows.event_time, ir.TimestampValue)
         else rows.event_time
     )
-    normalized, _authority = source_time(
+    normalized, authority = source_time(
         raw_time,
         params.event,
         boundary_timezone="UTC",
         read_timezone=params.event.timezone,
         engine=root_binding.leaf.definition.shape.backend,
     )
-    if prepared:
-        rows = rows.mutate(__raw_event_time=raw_time)
-    rows = rows.mutate(event_time=normalized)
-    return rows, source_ids
+    rows = rows.mutate(__raw_event_time=raw_time, event_time=normalized)
+    return rows, source_ids, authority
 
 
 def _owner_predicate(
@@ -2883,11 +2885,15 @@ def _observe(
     admitted: GraphPlan,
     relations: tuple[LoweredRelation, ...],
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
-    from datetime import datetime
+    from datetime import date, datetime
+
+    from marivo.analysis.compiler.source_time import encoded_time_predicate
 
     params = stage.node.parameters
     assert isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean))
-    source, contribution_ids = _contribution_rows(stage, params, bindings, relations, checks)
+    source, contribution_ids, authority = _contribution_rows(
+        stage, params, bindings, relations, checks
+    )
     event_type = source.event_time.type()
     if (
         tuple(
@@ -2911,7 +2917,7 @@ def _observe(
     ):
         _fail("exact observation key and UTC timestamp precision s/ms/us/ns", "schema drift")
 
-    def bound(value: datetime) -> ir.Scalar:
+    def boundary(value: datetime) -> date | datetime:
         from marivo.datasource.timezone import parse_timezone
 
         grid = members.node.signature.domain.time_grid
@@ -2922,30 +2928,71 @@ def _observe(
             if params.cumulative is not None
             else params.window_timezone
         )
-        normalized = (
+        return (
             value.astimezone(parse_timezone(zone)[1]).date()
             if isinstance(event_type, dt.Date)
             else value.replace(tzinfo=None)
         )
+
+    def bound(value: datetime) -> ir.Scalar:
         bound_type = (
             dt.Timestamp(timezone=event_type.timezone, scale=max(event_type.scale or 6, 6))
             if isinstance(event_type, dt.Timestamp)
             else event_type
         )
-        return ibis.literal(normalized, type=bound_type)
+        return ibis.literal(boundary(value), type=bound_type)
+
+    def condition(start: datetime | None, end: datetime) -> ir.BooleanValue:
+        raw = encoded_time_predicate(
+            source.__raw_event_time,
+            params.event,
+            authority,
+            start=None if start is None else boundary(start),
+            end=boundary(end),
+        )
+        if raw is not None:
+            return raw
+        predicate = source.event_time < bound(end)
+        return predicate if start is None else (source.event_time >= bound(start)) & predicate
 
     if params.start is not None and params.end is not None:
-        start = bound(datetime.fromisoformat(params.start))
-        end = bound(datetime.fromisoformat(params.end))
-        source = source.filter((source.event_time >= start) & (source.event_time < end))
+        source = source.filter(
+            condition(datetime.fromisoformat(params.start), datetime.fromisoformat(params.end))
+        )
     if params.cumulative is not None and params.cumulative.grid_identity is None:
         window = params.cumulative.windows[0]
-        condition = source.event_time < bound(datetime.fromisoformat(window.end))
-        if window.start is not None:
-            condition = condition & (
-                source.event_time >= bound(datetime.fromisoformat(window.start))
+        source = source.filter(
+            condition(
+                None if window.start is None else datetime.fromisoformat(window.start),
+                datetime.fromisoformat(window.end),
             )
-        source = source.filter(condition)
+        )
+    if params.grid_window or (
+        params.cumulative is not None and params.cumulative.grid_identity is not None
+    ):
+        # A literal envelope can reach the scan even when per-cell conditions
+        # depend on a joined grid key. The exact cell predicates stay below.
+        start: datetime | None
+        if params.grid_window:
+            grid = members.node.signature.domain.time_grid
+            assert grid is not None
+            start = min(cell.start for cell in grid.cells)
+            end = max(cell.end for cell in grid.cells)
+        else:
+            assert params.cumulative is not None
+            windows = params.cumulative.windows
+            starts = tuple(datetime.fromisoformat(w.start) for w in windows if w.start is not None)
+            end = max(datetime.fromisoformat(w.end) for w in windows)
+            start = min(starts) if len(starts) == len(windows) else None
+        envelope = encoded_time_predicate(
+            source.__raw_event_time,
+            params.event,
+            authority,
+            start=None if start is None else boundary(start),
+            end=boundary(end),
+        )
+        if envelope is not None:
+            source = source.filter(envelope)
     mapping = members.expression
     keys = tuple(k.column for k in members.layout.keys)
     source_ids = _source_ids(members.source_ids, contribution_ids)
@@ -2975,8 +3022,7 @@ def _observe(
                 *(
                     (
                         (mapping[time_key] == cell.identity),
-                        (source.event_time >= bound(cell.start))
-                        & (source.event_time < bound(cell.end)),
+                        condition(cell.start, cell.end),
                     )
                     for cell in grid.cells
                 ),
@@ -2988,12 +3034,15 @@ def _observe(
         time_key = next(k.column for k in members.layout.keys if k.coordinate.role == "anchor")
         conditions: list[tuple[ir.BooleanValue, ir.BooleanValue]] = []
         for window in params.cumulative.windows:
-            condition = source.event_time < bound(datetime.fromisoformat(window.end))
-            if window.start is not None:
-                condition = condition & (
-                    source.event_time >= bound(datetime.fromisoformat(window.start))
+            conditions.append(
+                (
+                    mapping[time_key] == window.key,
+                    condition(
+                        None if window.start is None else datetime.fromisoformat(window.start),
+                        datetime.fromisoformat(window.end),
+                    ),
                 )
-            conditions.append((mapping[time_key] == window.key, condition))
+            )
         predicates.append(ibis.cases(*conditions, else_=False))
     joined = source.inner_join(mapping, predicates)
     target_keys = tuple(target_fields)

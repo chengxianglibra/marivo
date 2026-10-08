@@ -432,6 +432,24 @@ template pattern via `python_to_postgres_strptime`, ClickHouse
 expressible there, SQLite parses in a connection-local deterministic scalar, and
 DuckDB receives Python strptime unchanged.
 
+`ms.strptime(format)` also declares canonical source encoding for every field,
+not just partition columns: directive widths and zero padding, literal separators,
+and valid calendar values must match the format. `%Y%m%d` requires eight digits
+such as `20260701`; `2026071` is outside the contract even if a backend accepts it.
+An integer encoding must have the same base-ten digits without losing leading
+zeros. Format validation does not certify source rows, and analysis does not add
+partition enumeration, validation queries, transactions or per-row round trips.
+Values excluded by a generated range are not checked for violations.
+
+For an explicit half-open consumer window, analysis can invert `%Y%m%d`,
+`%Y-%m-%d`, `%Y%m%d%H`, `%Y-%m-%d %H`, `%Y%m%d%H%M`, `%Y-%m-%d %H:%M`,
+`%Y%m%d%H%M%S`, and `%Y-%m-%d %H:%M:%S` into raw-column comparisons. Integer
+columns admit only the compact all-digit formats. Civil dates keep their date
+semantics; clock inverses require an existing UTC or fixed-offset authority.
+Other formats, non-integral representations, `hour_prefix`, and named-zone
+conversions without a fixed offset retain parsed filtering. Native parser
+support and precision restrictions still apply. No new parse parameter is needed.
+
 The critical divergence is `%M`:
 
 | Specifier | Python strptime | MySQL |

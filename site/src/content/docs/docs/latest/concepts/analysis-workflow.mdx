@@ -660,6 +660,15 @@ is lenient toward format-mismatched text. A well-formed cell that its format
 misreads can produce a wrong instant there. Trino accepts `%f` with `date_parse`'s native
 millisecond result precision; a six-digit fraction can lose its final three digits.
 
+The format also declares canonical storage (width, zero padding, separators and
+valid calendar values). Supported ordered string/integer encodings use bare-column
+window predicates when the existing time authority has an exact inverse. Both
+endpoints round up to the next representable event point; civil-date consumers
+retain date bounds. Unsupported inverses keep parsed filtering. This adds no
+partition enumeration, validation query, transaction or row-format check. The
+guarantee assumes canonical data, including rows excluded by the predicate.
+Population membership, relation checks and version selection keep their own scopes.
+
 A multi-unit bucket (`mv.grain(unit, count=...)` with `count > 1`) is anchored on
 the civil midnight of its own day, and only counts whose width divides one civil
 day are admitted; `mv.grain("hour", count=7)` therefore fails rather than picking

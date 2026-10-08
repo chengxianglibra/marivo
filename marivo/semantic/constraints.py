@@ -515,9 +515,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_dimension_pushdown_advisory",
         "assembly",
         ("time_dimension",),
-        "Partition time dimensions should preserve raw sortable encodings when possible.",
-        "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
-        "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer string or integer format with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
+        "ms.strptime(format) requires canonical source encoding: directive widths, zero padding, exact separators and valid calendar values. Ordered encodings permit bare-column ranges without partition enumeration or validation queries; excluded values are not inspected for violations.",
+        "Ordered calendar encodings permit equivalent bare-column time ranges without partition enumeration or validation queries; unqualified inverses retain parsed filtering.",
+        "Declare the raw string/integer column with ms.strptime(format). Keep its values canonical; excluded values are not inspected for violations. Use UTC or a fixed offset for supported clock inverses; named-zone conversion retains parsed filtering.",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,

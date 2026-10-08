@@ -41,7 +41,7 @@ passing one does not qualify the others.
 
 | Profile | Host endpoint | Runtime scope |
 | --- | --- | --- |
-| `trino` | `127.0.0.1:18080` | Trino 483; one coordinator/worker; Iceberg JDBC V1; local warehouse and table format v2 |
+| `trino` | `127.0.0.1:18080` | Trino 483; one coordinator/worker; Iceberg JDBC V1 / table format v2; Hive file metastore; local warehouse |
 | `postgres-analysis` | `127.0.0.1:15432` | PostgreSQL 17; database `analysis`; reader `analysis_reader`; administrator `analysis_admin` |
 | `mysql-analysis` | `127.0.0.1:23306` | MySQL 8.4; InnoDB; database `analysis`; SELECT-only reader `analysis_reader` |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
@@ -56,8 +56,10 @@ Starting any of `trino`, `clickhouse`, or `clickhouse-cluster` stops the other t
 in this Compose project. Stopping a profile stops only the named group.
 PostgreSQL analysis and MySQL analysis have separate services and volumes.
 The cluster has no Keeper, replicated engines, or `ON CLUSTER` Distributed DDL;
-setup creates fixtures on each node directly. This topology supplies no S3,
-REST/Hive catalog, multi-worker Trino, or cross-table atomicity evidence.
+setup creates fixtures on each node directly. Hive uses the real Hive connector
+with Trino's file metastore at `local:///hive`, separate from Iceberg data in the
+same persistent warehouse volume. This test-only topology supplies no S3,
+REST catalog, remote Thrift metastore, multi-worker Trino, or cross-table atomicity evidence.
 
 ## Initial setup on ARM64 macOS
 
@@ -135,6 +137,23 @@ bash tests/datasource/environment/manage.sh stop mysql-analysis
 
 Smoke verifies environment setup, exact Decimal aggregation, effective settings,
 and Trino snapshot reads; it is separate from product execution acceptance.
+
+Encoded event-time filtering has focused native scan acceptance:
+
+```bash
+MARIVO_TRINO_ANALYSIS_TEST=1 make runtime-test TESTS='tests/analysis/temporal/test_encoded_time_trino.py'
+```
+
+This creates and removes UUID-named partitioned fixtures, compares canonical
+string/integer range results with parsed filtering, and checks test-only
+`EXPLAIN (TYPE IO)` constraints and scanned rows. Iceberg uses the existing
+catalog. Hive uses the configured `hive` catalog (override with
+`MARIVO_TRINO_HIVE_CATALOG`), with qualifier writes and analysis_reader SELECT
+permissions. Both catalogs create the `analysis` schema as needed. The tests
+also compare grid-dependent CASE joins with and without a literal scan envelope.
+An absent catalog explicitly skips its cases. No scan inspection or extra query
+is added to library execution. Restart the Trino profile with the manager after
+adding the Hive catalog mount; existing warehouse data is preserved.
 Stop the dedicated VM with `colima stop marivo-multisource` only after all of its
 profiles are no longer in use. Stopping preserves data volumes; volume deletion
 is an explicit reset.
@@ -148,7 +167,7 @@ connection is query-only. Native driver buffering, SQLite busy-handler waits,
 and SQLite internal statement recompilation remain driver behavior, rather than
 Marivo replay or retry policies. `fetchmany` limits rows, not cell bytes.
 
-Trino file rules restrict `analysis_reader` to Iceberg/system metadata and the
+Trino file rules restrict `analysis_reader` to Iceberg/Hive/system metadata and the
 `noniceberg` memory catalog. The loopback service does not authenticate identities;
 these tests verify authorization only. Memory tables disappear on restart, so
 `trino_analysis.setup_non_iceberg()` runs before those reader journeys. Completed

@@ -599,12 +599,23 @@ and timezone-aware timestamps do not receive a speculative timezone repair.
 `sample_interval` like `(5, "minute")` marks a
 periodically-sampled axis used by semi-additive folds.
 
+`ms.strptime(format)` declares canonical storage as well as parsing: directive
+widths, zero padding, separators and calendar values must match. `%Y%m%d` requires
+`20260701`; `2026071` is outside the contract even if a parser accepts it. Integers
+must preserve the same base-ten digits. Supported ordered date/hour/minute/second
+formats compile half-open observation windows to bare-column comparisons using
+existing type and time authority. Civil dates do not shift; clock inverses require
+UTC or a fixed offset. Other formats, floating values, `hour_prefix`, and named
+zones without a fixed offset retain parsed filtering. No partition enumeration,
+extra query, transaction or row-format validation is added. Values excluded by
+the filter are not inspected for violations; correctness assumes canonical data.
+
 A bound TimeGrid retains complete UTC cell boundaries and its report timezone.
 Read time coordinates through the typed relation; its contract and bounded
 `show()` output own the current fields and presentation.
 
 ```python
-# Day partition stored as the string "20260131"
+# Canonical day partition: exactly eight digits, e.g. "20260131"
 log_date = ms.time_dimension_column(
     name="log_date",
     entity=orders,
@@ -623,6 +634,12 @@ event_ts = ms.time_dimension_column(
     parse=ms.timestamp(timezone="UTC"),
 )
 ```
+
+For an observation over `[2026-07-01, 2026-08-01)`, the encoded day predicate
+uses `dt >= '20260701' AND dt < '20260801'`. It restricts event contributions;
+members outside the window remain in the population. An hourly encoding over
+`[10:30, 11:30)` instead uses `>= 11` and `< 12`, because encoded values are
+event points. `granularity` and `sample_interval` do not change encoding precision.
 #### Measure
 
 A measure is a row-level quantitative fact you intend to aggregate (e.g. an

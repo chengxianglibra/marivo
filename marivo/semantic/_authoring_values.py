@@ -348,11 +348,20 @@ def strptime(
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a string or integer that must be parsed with a Python
     strptime format. The physical column type (string or integer) is inferred
-    from the ibis expression at analysis time.
+    from the ibis expression at analysis time. Source values must use the
+    format's canonical encoding: fixed directive widths, zero padding, exact
+    separators and valid calendar values. For example, ``%Y%m%d`` requires
+    ``20260701``, not ``2026071``. Integer encodings use the corresponding
+    base-ten digits without losing leading zeros.
+
+    Analysis can invert ordered calendar encodings into bare-column range
+    predicates without additional queries or source validation. Unsupported
+    inverses keep the parsed predicate. This guarantee assumes compliant source
+    values; values excluded by the range are not inspected for contract violations.
 
     Args:
-        format: Canonical Python strptime format string (e.g. ``"%Y%m%d"``,
-            ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
+        format: Python strptime format and canonical source encoding contract
+            (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         timezone: Optional IANA timezone for time-bearing formats.
         sample_interval: Optional periodic sampling interval for sampled time
             dimensions, e.g. ``(5, "minute")`` or ``(1, "hour")``.
