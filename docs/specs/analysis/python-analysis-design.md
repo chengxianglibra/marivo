@@ -267,6 +267,18 @@ training scope. Their equations and conditional continuations are owned by
 
 ## Local execution optimization
 
+Source observation lowering projects complete Entity instance keys without
+`DISTINCT` when the exact member Signature carries their uniqueness evidence.
+Projection to Group keys still constructs a distinct target set. A direct
+observation of an unchanged, unversioned complete member domain can aggregate
+contributions under their own identity keys without joining them back to the
+same SourceLeaf. This rewrite requires the exact shared leaf, complete identity
+keys and declared uniqueness; selected members, foreign routes and time products
+retain their contribution mapping. The complete target domain, empty-contribution
+Cells, retained parts, source provenance and pending checks remain unchanged.
+Observation windows and Metric slice predicates restrict contributions only;
+these rewrites do not restrict the member domain or guarantee one source scan.
+
 Local laws L1/L7/L8/L9 state conditional equivalences. Registration does not
 grant arbitrary semantic rewrites, source pushdown or additional public K.
 The explicit fixed sum StateEquation helpers keep their own narrow premises.
