@@ -1,229 +1,33 @@
 ---
-title: 让智能体完成第一次分析
-description: 向智能体说明业务问题，然后检查分析过程与证据。
+title: 首次 Agent 分析
+description: 向 Agent 提供决策与范围，再审阅其有证据支持的回答。
 ---
 
-## 开始分析
+使用相关语义定义已确认且可加载的项目，不需要指定 Python 算子或固定检查顺序。
 
-使用项目中已经确认业务含义、并且当前目录可以加载的指标。如果指标缺失或口径仍有
-疑问，类型化分析会停止；智能体可以使用有界的终端 `md.raw_sql(...)` 和明确披露的
-临时口径继续分析，但会把可复用缺口交给语义编写，只对尚未确定的业务含义提问。
+## 向 Agent 提供明确范围的问题
 
-你不需要编写 Python、选择算子或安排检查步骤。只要说明问题、指标、比较范围，以及希望
-优先检查的因素：
+> 使用 `marivo-analysis`解释已确认 `sales.revenue`在 2026 年 7 月与 8 月间的变化。
+> 比较同一已完成订单范围，先看地区，最后报告结论、关键证据与限制。
 
-> 使用 `marivo-analysis`，分析 2026 年第四季度收入相比 2025 年同期下降的原因。
-> 使用已经确认的 `sales.revenue` 指标，按月比较，并优先检查地区差异。
-> 最后给出结论、关键证据和限制。
+说明决策、有意义的基准、纳入和排除群体及初始重点。定义缺失时，先解决最小语义缺口，
+不要静默替换 Metric。
 
-智能体使用当前类型化图完成带时间范围的观察与比较，并通过返回对象的 contract
-确认精确来源、方法及续算边界；不支持的组合会给出结构化修复指引。
+## 理解 Agent 的工作
 
-## Marivo 会处理什么
+Agent 验证所选环境、读取已有 catalog 对象，在一个 Session 中构造明确分析，
+并在下一决策需要结果时执行。通过 `.show()`读取已提交行，通过 `.contract()`跟随合法
+后续操作，对不熟悉的调用使用 focused Help。
 
-智能体会读取相关语义定义，解析并验证实时语义输入，在同一个分析会话中
-执行合适的类型化分析，并保留支持结论的结果和证据。语义缺口不允许智能体在分析过程中
-修改口径。终端原始 SQL 可以提供临时答案，但必须和规范 Marivo 证据分开；智能体
-会自动把最小可复用缺口交给 `marivo-semantic`，并在 readiness 后恢复受影响的分析分支。
+可复用定义缺失时交给 `marivo-semantic`，认证修改的根，再回到原问题。
+终端 raw SQL 可回答已披露临时口径的问题，但其行不能进入 typed analysis。
+Readiness、连接和执行成功证明不同事实。
 
-目录导航返回类型化条目。分析使用每个条目的精确 `.ref`，配置与恢复同样保留
-精确引用。语义调用遵循各自的专项 Help 契约。
+## 审阅回答
 
-智能体先选择项目解释器，并运行一次 `<selected-python> -m marivo doctor` 验证实时环境。
-常规项目本地安装在 macOS、Linux 和 WSL 使用 `.venv/bin/python`，在 Windows 使用
-`.venv/Scripts/python.exe`。
-进入分析后，智能体优先使用手中已有的公开对象：用 物化分析结果的 `.show()`
-读取已提交状态，在不熟悉的组合操作前读取 关系的 `.contract()`；只有当对象契约不足，或第一次使用不熟悉的能力时，才查询专项
-`marivo.help(...)`（先 `import marivo`）。发生失败后，智能体按照结构化修复指引继续。
-专项帮助并不是每次 API 调用的前置步骤。
+确认 Metric 含义、群体、时期、比较方向与拆分。检查重要主张具有结果或 Evidence 支持，
+并明确覆盖、缺失、删失和方法限制。代数分配与关联本身不证明原因。
 
-对于已准入的 J1–J4 Entity 域，智能体可从
-`session.members(ms.ref.entity(...))` 开始，观测受治理的 Metric、执行逻辑关系，
-并通过 `session.artifact(ref)` 恢复精确结果。其他能力仍使用原有类型化入口。
-`materialized.to_pandas()` 导出仍是终端展示边界。
-`relation.contract().actions` 只列机械上可执行的调用及各自精确的
-`marivo.help(...)` 目标；`materialized.show()` 的有界预览会遮蔽 Entity 成员键。
-`RawSqlResult.shape` 和 `.row_count` 只表示有界返回行；该结果没有 `.contract()`，也不能
-回到类型化分析。Marivo 目前不提供类型化 regression；需要回归时仍使用显式的终端
-custom 分析。
+仅为仍有意义的问题继续。历史问题复用确切保存结果，新鲜度重要时执行当前来源。
 
-这些执行细节由实时 Help、关系契约和结构化错误负责，不需要写进你的提示词。
-
-## 继续之前需要检查什么
-
-接受结论或要求进一步调查前，请确认：
-
-- 指标含义与你关心的业务结果一致；
-- 时间范围和分析群体（包括排除范围）正确；
-- 比较方式和优先检查的因素具有业务意义；
-- 每项重要判断都有 Marivo 结果或证据支持；
-- 限制、质量问题和未解决的问题都已明确说明；
-- 智能体没有悄悄修改语义层。
-
-## 下一步
-
-- 开始更广泛的调查前，先[梳理业务问题](/zh-cn/docs/latest/guides/business-question/)。
-- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)介绍 Marivo 如何组织分析。
-- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)说明语义变更如何获得显式技术认证。
-- [证据](/zh-cn/docs/latest/concepts/evidence/)说明最终回顾中的结论由什么支持。
-
-当前公共执行和恢复统一使用类型化图、方法 registry、Runtime 和 Store 7；构造允许仅 schema 预检，业务读取在准入后进行。未支持的精确输入与方法组合结构化拒绝，旧代际项目拒绝且保持原文件不变。
-
-
-## 在图上观察运行时指标
-
-在项目已有 `session` 的前提下，从已批准的目录 Ref 构造运行时表达式，再在实体域上
-观察。下面示例使用 DuckDB 来源、UTC 事件时间轴和 int64 收入、计数指标：
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-customers = session.members(ms.ref.entity("sales.customer"))
-rate = mv.runtime_metric.ratio(
-    ms.ref.metric("sales.revenue"),
-    ms.ref.metric("sales.order_count"),
-    label="revenue_per_order",
-)
-observed = customers.observe(rate, via=ms.ref.relationship("sales.order_buyer"))
-assert isinstance(observed, mv.LogicalRatioRelation)
-fixed = observed.execute()
-total = fixed.rollup().execute()
-```
-
-省略 `during` 表示不增加时间限制，不代表历史数据完整。各贡献根先独立归约；有多个
-根时，用 `mv.routes` 为每个不同的根提供一条 `mv.route`。运行时 `aggregate` 和
-`weighted_mean` 要求实体显式声明默认事件时间轴。五工厂在当前数值与时间资格内
-进入同一图：int64 sum/count、叶分支 slice、ratio、嵌套正负 linear sum/count 项，
-以及 int64 数值/权重配对的 weighted_mean。加权均值返回 numeric relation，保留
-原始两项和以及配对数、行数，上卷合并原组件。外层 slice 会下推到 ratio/linear 的各叶分支；其他数值类型
-和嵌套非线性 finish 仍需进一步资格。通过结果的 `contract()` 查看可执行的下一步。
-
-## 观察有界时间网格
-
-对已批准的 sum/count 指标，在已取得资格的 DuckDB table 或 Parquet UTC 微秒事件
-时间路线上，保留完整的成员与时间乘积：
-
-```python
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
-    grain=mv.grain("month"),
-)
-monthly = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.revenue"),
-    during=grid.window,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-fixed = monthly.execute()
-totals = fixed.group_by(grid).rollup().execute()
-```
-
-`grid.window` 选择各行自己的贡献区间。固定 `TimeScope` 会在每格重复同一区间，
-不能跨时间求和。空格仍保留，并遵守指标声明的空贡献规则。携带的日轴可通过
-`group_by(mv.grain("month"))` 粗化，但每个原始格必须完整落在一个月内；跨月周会
-拒绝。默认网格时区绑定到消费它的 Session 的报告时区。
-
-端点句柄现在有明确的消费方式：
-
-```python
-from datetime import datetime, timezone
-
-accounts = session.members(
-    ms.ref.entity("sales.account"), at=datetime(2026, 8, 1, tzinfo=timezone.utc),
-)
-balances = accounts.each(grid).read(
-    ms.ref.measure("sales.account.balance"), at=grid.before_end,
-)
-running = session.members(ms.ref.entity("sales.customer")).each(grid).observe(
-    ms.ref.metric("sales.running_revenue"), at=grid.end,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-```
-
-字段和指标需要先在 Catalog 声明。属性时点独立于成员版本；累计端点从声明的
-anchor 读取，包括展示网格之前的历史。重叠累计窗口不能跨时间求和。声明的
-first/last/mean/min/max 状态 fold 先在每个采样时点做空间聚合，再折叠时间；
-后续原量上卷需要对齐的保留样本。固定续算使用保留状态，来源和模型文件离线后
-也可执行。DuckDB 支持 civil date 和具有明确时区权威的微秒 timestamp；SQLite
-本阶段所需路线使用 UTC timestamp 或 civil date。不具备资格的路线明确拒绝，
-不会失败后换路。
-
-## 多输入选择与完整机会域 cohort
-
-从各 Relation 的 `value` 构造条件。全部输入必须覆盖接收者的完整域；已保留的祖先输入可限制到当前选中域。`all_of`、`any_of`、`not_` 组合真值前会检查每个子条件的消费前提。
-
-```python
-members = session.members(ms.ref.entity("sales.customer"))
-region = members.read(ms.ref.dimension("sales.customer.region"))
-revenue = members.observe(
-    ms.ref.metric("sales.revenue"),
-    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-defined = revenue.where(revenue.value.is_defined())
-defined.contract().show()
-selected = defined.where(
-    mv.all_of(defined.value.gt(0), region.value.eq("east"))
-)
-```
-
-`is_defined()` 对全部 Cell 标签有定义，但与数值条件合取不能免除数值条件的前提。需要只消费 Defined 时，先筛选标签，再做数值比较。数值还必须有限、类型及单位相容。
-逻辑及固定的筛选结果通过 `.contract()` 披露后续可调用的 `where`。
-
-cohort 保留完整机会网格，包括没有贡献的格子。Count Metric 在这些格子保留 Defined 零：
-
-```python
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-    grain=mv.grain("month"),
-)
-activity = members.each(grid).observe(
-    ms.ref.metric("sales.order_count"),
-    during=grid.window,
-    via=ms.ref.relationship("sales.order_buyer"),
-)
-cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
-cohort.contract().show()
-```
-
-`any_instance()` 要求至少一个真机会；`at_least(k)` 的 k 是排除 bool 的正整数。`all_instances(empty=mv.empty_opportunity.false())` 必须明确选择 true、false 或 undefined 空机会政策。已存在的 Unknown 可参加三值量化，但输出精确 cohort 前全部主体资格必须可决定。Null/Undefined 普通比较和缺机会键会拒绝。固定目标及谓词 Artifact 可断源续算；来源选择出的成员可继续观察。需要显式 `through=` 时，从 `relation.subject_binding` 获取生产者拥有的映射。
-
-## 精确漏斗比较与证据
-
-两期使用同一显式总体上的 first-per-subject Journey。pattern、matching 和定义必须
-一致，开始窗口及随访长度相同，并具有完整覆盖。下面继续已有的 `journeys`、
-`baseline_journeys`，以及其 pattern 中精确的 `finish_step`。
-
-```python
-funnel = journeys.funnel()
-fixed_funnel = funnel.execute()
-lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
-change = funnel.compare(baseline_journeys.funnel())
-allocation = change.attribute(
-    target=mv.funnel_loss_rate(step=finish_step),
-    axes=(ms.ref.dimension("sales.customers.region"),),
-    mode="joint",
-    top_k=5,
-).execute()
-allocation.contract().show()
-page = allocation.findings(limit=20)
-if page.items:
-    finding = allocation.finding(page.items[0].finding_id)
-```
-
-漏斗轴在本地 matching 前，按全部合格开始 occurrence 的入口时点准备；计算消费同一
-canonical assignment。snapshot/validity 版本和完整轴元组保留真实 Null 类别。
-七项计数使用精确 int64；零分母和初始步骤流失率为 Undefined。字段 handle 绑定 receiver。
-
-归因分别计算 loss 和 denominator mix，以两期 resolved-entry 合计建立统一 Top-K，
-保留 typed Other 与 masks。joint/hierarchy 的每个 resolution 都核对两侧项和目标差值。
-筛选保留原 reconciliation scope，并撤销完整分区承诺。fixed 必须具有 retained 轴及
-组件，不读取当前 Semantic、不连接来源，也不重新 matching。
-
-物化结果提供 Evidence、分页 Findings 和单条读取；每次读取都验证整个冻结集合。
-compare/归因的发射上限为 1000，保留 eligible/emitted/truncated 权威。
-来源路线为显式 Ibis 准备后本地消费，固定续算为 `artifact_python`。
-此处不授予 native funnel、远端、same-wheel 或完整 R7 资格。
+下一步：[业务问题](/zh-cn/docs/latest/guides/business-question/)、[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)，或[完整 Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)。

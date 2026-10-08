@@ -1,0 +1,146 @@
+---
+title: 事件、Journey 与漏斗
+description: 声明发生项并分析匹配、耗时、流失与漏斗变化。
+---
+
+分析单位是发生项或参与者 Journey 时使用 Event。一个 Subject 可对应多次发生项，
+不能静默将分母改为 Subject。匹配前声明事件身份、参与者、事件时间含义与业务顺序。
+声明本身不证明来源观测完整。
+
+## 声明可复用 Event
+
+模型已声明 orders、order_date 及物理 order_id 列。
+
+{/* example: event-declaration */}
+
+```python
+order_id = ms.dimension_column(
+    name="order_id",
+    entity=orders,
+    column="order_id",
+)
+
+@ms.event(
+    name="order_created",
+    identity=(order_id,),
+    occurred_at=order_date,
+    participants=(
+        ms.participant(name="order", cardinality="one"),
+    ),
+    ai_context=ms.ai_context(
+        business_definition="An order creation occurrence."
+    ),
+)
+def order_created(order_rows):
+    return ms.all_rows()
+```
+
+Event 函数体遵守受限表达式契约。同时发生项在匹配依赖顺序时需要已治理业务顺序。
+Entity key 与 Event occurrence identity 负责不同含义。
+
+## 匹配 Journey 并测量耗时
+
+这套独立 sales 模型声明了 customers、带 buyer participant 的 started/finished Event、revenue 和 order_customer 关系。覆盖理由必须描述已验证事实。
+
+{/* example: journey-duration */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+from datetime import datetime, timezone
+
+members = session.members(ms.ref.entity("sales.customers"))
+start = mv.step(participant=ms.participant_role(
+    event=ms.ref.event("sales.started"), name="buyer"), key="start")
+finish = mv.step(participant=ms.participant_role(
+    event=ms.ref.event("sales.finished"), name="buyer"), key="finish")
+window = mv.time_scope(start="2026-02-01T00:00:00Z", end="2026-02-02T00:00:00Z")
+end = datetime(2026, 2, 3, tzinfo=timezone.utc)
+journeys = session.events.match(
+    mv.sequence(start, finish), population=members, cohort_window=window,
+    completion_through=end, matching=mv.first_per_subject(),
+    completeness=(mv.BoundedCompletenessDeclarationV1(
+        inputs=(start.event, finish.event), complete_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        complete_through=end, rationale="Verified source coverage"),),
+)
+elapsed = journeys.time_to_event(from_step=start, to_step=finish)
+mean = elapsed.completed().duration.summarize(mv.mean()).execute()
+dropped = journeys.read(mv.dropped_before(step=finish))
+selected = dropped.where(dropped.value.eq(True)).members(
+    through=journeys.subjects(start.participant))
+revenue = selected.observe(
+    ms.ref.metric("sales.revenue"), during=window,
+    via=ms.ref.relationship("sales.order_customer"),
+).execute()
+```
+
+Cohort 成员与完成跟踪使用不同窗口，matching policy 显式选择 assignment。
+跟踪不完整或覆盖未知不能证明流失。Completed duration 统计仅通过显式选择排除删失发生项，
+结果保留该范围。
+
+当前限制：把 Journey dropout predicate 用于 Subject cohort，并指定
+`rule=mv.any_instance()` 与 Journey Subject binding 时，可能被
+`DomainPreparationError` 拒绝，错误指出 `source.complete_coverage@v1`；
+DuckDB 表和本地 Parquet 输入均可能受影响。上面的示例选择 Journey 行，
+再用 `members(through=...)` 投影其 Subject。完整性声明不保证每项下游 cohort
+操作都可执行；保留拒绝结果，不扩大覆盖声明来绕过检查。
+
+## 比较并分配漏斗流失
+
+`journeys`与 `baseline_journeys`是可比较的逻辑匹配；`finish_step`是同一自有 pattern step，customers.region 是准入 axis。
+
+{/* example: funnel-attribution */}
+
+```python
+funnel = journeys.funnel()
+fixed_funnel = funnel.execute()
+lost = fixed_funnel.read(fixed_funnel.lost_count).execute()
+change = funnel.compare(baseline_journeys.funnel())
+allocation = change.attribute(
+    target=mv.funnel_loss_rate(step=finish_step),
+    axes=(ms.ref.dimension("sales.customers.region"),),
+    mode="joint",
+    top_k=5,
+).execute()
+allocation.contract().show()
+page = allocation.findings(limit=20)
+if page.items:
+    finding = allocation.finding(page.items[0].finding_id)
+```
+
+结合各 rate 分母读取 cohort、reached、lost、censored count。
+初始步骤与零分母保留明确的 Undefined 原因。Fixed 漏斗结果可通过保留计数和 assignment
+状态继续。损失率变化的分配仍是代数结果。
+
+## 使用直接与历史 axes
+
+以下备选需要所列确切 Dimension 已声明，具有完整 typed identity 和所需 snapshot/time 映射。
+
+{/* example: direct-funnel-axes */}
+
+```python
+direct_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.subjects.code"),
+    ms.ref.dimension("sales.subjects.channel"),
+)
+current = journeys.funnel(axes=direct_axes).execute()
+baseline = baseline_journeys.funnel(axes=direct_axes).execute()
+three_axis_change = current.compare(baseline).execute()
+```
+{/* example: historical-funnel-axes */}
+
+```python
+history_axes = (
+    ms.ref.dimension("sales.subjects.region"),
+    ms.ref.dimension("sales.snapshots.code"),
+    ms.ref.dimension("sales.leaf.channel"),
+)
+history_current = journeys.funnel(axes=history_axes).execute()
+history_baseline = baseline_journeys.funnel(axes=history_axes).execute()
+history_change = history_current.compare(history_baseline).execute()
+```
+
+同名 axis 不能证明对应关系充分。选择保留 Subject 投影或构造后续 live 观察前，
+先检查结果 contract。Replay 与事件相对跟踪参见
+[生命周期与留存](/zh-cn/docs/latest/guides/lifecycle-and-retention/)。

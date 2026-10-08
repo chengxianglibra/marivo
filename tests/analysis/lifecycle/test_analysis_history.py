@@ -694,18 +694,13 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
 
 @pytest.mark.runtime
 def test_latest_english_chinese_history_examples_execute_identically(tmp_path):
-    import re
 
     from tests.analysis.lifecycle.history_fixtures import build_history_public
 
     session, _, window, completeness, _ = build_history_public(tmp_path)
-    snippets = []
-    for locale in ("docs", "zh-cn/docs"):
-        text = Path(
-            "site/src/content/docs" + "/" + locale + "/latest/concepts/analysis-workflow.mdx"
-        ).read_text()
-        blocks = re.findall(r"```python\n(.*?)```", text, re.S)
-        snippets.append(next(block for block in blocks if "checkpoint = window.end" in block))
+    from tests.support.documentation import _example
+
+    snippets = [_example(locale, "history-views") for locale in ("en", "zh")]
     assert snippets[0] == snippets[1]
     environment = {
         "mv": mv,

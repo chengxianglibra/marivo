@@ -1,0 +1,154 @@
+---
+title: 统计分析
+description: 筛选值、识别连续区间、描述关联并预测完整时间网格。
+---
+
+这些示例需要同一 Session 中兼容的数值 relation。这里 `revenue`和 `order_count`
+是观察 relation，不是语义 ref；`daily`是完整等间隔数值时间网格 relation。
+拟合范围、配对、lag、Cell 状态与选择决定结果如何解释。
+
+## 读取有符号偏离
+
+`current`、`baseline`是兼容数值 relation。仅在本节中，`revenue`是已治理 Metric Ref，`buyer`是后续观察所用 Relationship Ref；已导入 `marivo`、`mv`、`ms`。变化值在明确群体上拟合偏离。
+
+{/* example: signed-deviation */}
+
+```python
+scored = current.compare(baseline).deviation(method="mad")
+defined = scored.where(scored.score.value.is_defined())
+positive = defined.where(defined.score.value.gt(0))
+followup = positive.observed.members().observe(
+    revenue, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer
+)
+followup.summarize(method=mv.count_defined()).execute().show()
+fixed = scored.execute()
+fixed.contract().show()
+ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()
+ranking.ranks.contract().show()
+mv.table(score=ranking.values, rank=ranking.ranks).execute().show()
+marivo.help("analysis.dsl.NumericComparison.deviation")
+```
+
+正负评分保留方向。评分不是概率，也不证明业务异常。先选择 Defined score 再做数值过滤；
+过滤已保留结果不会重新拟合原参照群体。
+
+## 寻找最大连续区间
+
+`daily`具有完整、准入的网格和兼容阈值。
+
+{/* example: complete-grid-runs */}
+
+```python
+segments = daily.runs(where=daily.value.gt(20))
+fixed = segments.execute()
+selected = fixed.where(fixed.count.value.gt(1)).execute()
+mv.table(start=selected.start, end=selected.end, count=selected.count,
+         duration=selected.duration).execute().show()
+```
+
+Run 是在条件、分区与保留网格顺序下的最大连续段。Unknown 或缺失机会不静默算作 false。
+Duration 使用确切 ticks 与单位，不通过行数猜测。
+
+## 使用九种方法
+
+按上述说明绑定 `revenue`、`order_count`、`daily`。预测输入需要足够的规则历史，满足模型及季节周期要求。
+
+{/* example: nine-statistical-methods */}
+
+```python
+zscore = revenue.deviation(method="zscore")
+mad = revenue.deviation(method="mad")
+fixed = zscore.execute()
+chosen = fixed.where(fixed.score.value.is_defined())
+chosen = chosen.where(chosen.score.value.gt(0)).execute()
+chosen.contract().show()
+mv.table(observed=chosen.observed, reference=chosen.reference,
+         deviation=chosen.deviation, score=chosen.score).execute().show()
+chosen.score.rank(order="descending", ties="dense").limit(2).execute().show()
+mad.execute().show()
+
+segments = daily.runs(where=daily.value.gt(0)).execute()
+segments.where(segments.count.value.gt(1)).execute().show()
+
+pearson = revenue.correlate(order_count, method="pearson")
+spearman = revenue.correlate(order_count, method="spearman")
+kendall = revenue.correlate(order_count, method="kendall")
+for associations in (pearson, spearman, kendall):
+    fixed_associations = associations.execute()
+    selected = fixed_associations.where(fixed_associations.selected.value.eq(True)).execute()
+    mv.table(coefficient=selected.coefficient, selected=selected.selected).execute().show()
+    selected.coefficient.rank(order="descending", ties="dense").limit(1).execute().show()
+
+naive = daily.forecast(horizon=mv.periods(2), model=mv.naive())
+drift = daily.forecast(horizon=mv.periods(2), model=mv.drift())
+seasonal = daily.forecast(horizon=mv.periods(2), model=mv.seasonal_naive(periods=2))
+for future in (naive, drift, seasonal):
+    fixed_future = future.execute()
+    selected = fixed_future.where(fixed_future.prediction.value.gt(0)).execute()
+    mv.table(prediction=selected.prediction, lower=selected.lower,
+             upper=selected.upper).execute().show()
+    selected.contract().show()
+```
+
+zscore、mad 保留拟合参照。Pearson、Spearman、Kendall 保留配对域、状态和选择；
+关联是描述性的，不证明因果。Naive、drift、seasonal-naive 预测保留模型假设、horizon
+和区间输出；区间不是校准后的业务保证。各视图的保留状态决定原始 rollup、rank、where
+和终端 table 是否准入，显示标量本身不能证明这些操作可用。
+
+## 检查 focused 后续操作
+
+关联输入具有相同准入域，预测输入是满足当前模型契约的时间网格 relation。
+
+{/* example: association-forecast */}
+
+```python
+import marivo.analysis as mv
+
+association = revenue.correlate(order_count, method="spearman")
+selected = association.where(association.selected.value.eq(True))
+coefficients = selected.coefficient.execute()
+coefficients.show()
+
+future = daily.forecast(horizon=mv.periods(3), model=mv.drift())
+report = mv.table(prediction=future.prediction, lower=future.lower, upper=future.upper)
+report.execute().show()
+```
+{/* example: customer-association */}
+
+```python
+order_count = customers.observe(
+    ms.ref.metric("sales.order_count"), during=august, via=buyer
+)
+association = august_revenue.correlate(order_count, method="spearman").execute()
+coefficient = association.coefficient
+negative = coefficient.where(coefficient.value.lt(0)).execute()
+```
+{/* example: deviation-original-rollup */}
+
+```python
+local_total = values.deviation(method="zscore").observed.rollup().execute()
+```
+
+customer association 示例另需 `customers`、`august_revenue`、`august`、`buyer`
+和已治理 order-count Metric。最后的原始 rollup 示例需要有保留原始组成状态的 `values`。
+本地统计准备可能捕获完整向量；batch transport 不等于算法是流式的。
+不支持的数值或来源组合直接拒绝，不切换备用实现。
+
+## 直接分布聚合
+
+此独立 sales 模型声明了具有默认事件轴的 `sales.facts.amount`、`sales.subjects`，以及有向 to-one 的 `sales.facts_subject` 关系。导入 `mv` 和 `ms`，为该模型打开 Session。本地教程没有这些声明。
+
+{/* example: runtime-distinct */}
+
+```python
+scalar_distinct = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.facts.amount"), agg="count_distinct", label="distinct_values",
+)
+distribution = session.members(ms.ref.entity("sales.subjects")).observe(
+    scalar_distinct,
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=ms.ref.relationship("sales.facts_subject"),
+).execute()
+```
+
+结果 contract 仅准入捕获状态支持的转换；直接 distinct 标量不能重建原始成员。

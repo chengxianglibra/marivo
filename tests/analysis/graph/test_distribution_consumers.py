@@ -28,7 +28,7 @@ from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_carrier_worker import parts
 from tests.datasource.source_cases import Case, datasource, source_case
 from tests.shared_fixtures import run_ids
-from tests.support.documentation import _blocks
+from tests.support.documentation import _example
 from tests.support.json import key_json
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -257,11 +257,7 @@ def test_native_distribution(
         source_trace.record(fixed)
         if backend == "sqlite" and kind == "distinct" and carrier == "float64":
             namespace = {"mv": mv, "ms": ms, "session": session}
-            code = next(
-                block
-                for block in _blocks("en", "analysis-workflow")
-                if block.startswith("scalar_distinct =")
-            )
+            code = _example("en", "runtime-distinct")
             exec(compile(code, "latest-scalar-distribution-example", "exec"), namespace)
             documented = namespace["distribution"]
             assert isinstance(documented, mv.MaterializedNumericRelation)

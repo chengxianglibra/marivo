@@ -13,9 +13,20 @@ const commonDocs = [
 export const latestOnlyDocs = [
   'first-analysis.mdx',
   'guides/business-question.mdx',
+  'guides/python-quick-start.mdx',
+  'guides/datasources.mdx',
+  'guides/semantic-modeling.mdx',
+  'guides/time-and-cohorts.mdx',
+  'guides/comparison-and-attribution.mdx',
+  'guides/statistics.mdx',
+  'guides/events-and-funnels.mdx',
+  'guides/lifecycle-and-retention.mdx',
+  'guides/calendars-and-schedules.mdx',
   'reference/project-configuration.mdx',
   'reference/telemetry.mdx',
   'reference/deployment.mdx',
+  'reference/backends-and-limits.mdx',
+  'reference/troubleshooting.mdx',
 ];
 export const docsByVersion = {
   latest: [

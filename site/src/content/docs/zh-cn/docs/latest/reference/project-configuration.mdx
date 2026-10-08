@@ -34,6 +34,8 @@ Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加�
 都保留这个项目边界。注册和删除只影响本地数据源文件。新的读取会看到文件修改；已有语义目录
 保留加载时的定义，需要再次调用 `ms.load()` 才能更新。
 
+{/* example: project-configuration-1 */}
+
 ```python
 import marivo.datasource as md
 import marivo.semantic as ms

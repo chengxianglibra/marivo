@@ -1,0 +1,80 @@
+---
+title: Troubleshooting
+description: Use concrete errors and owning contracts to repair configuration and analysis.
+---
+
+Start with the structured error’s expected input, received facts and concrete
+repair. Keep the original business meaning while repairing the stated boundary.
+Use exact Help only when the next call is unfamiliar.
+
+## Select the correct environment and project
+
+Run your selected interpreter’s `-m marivo doctor --project-root <project>`.
+Doctor is read-only. Missing optional config uses defaults; invalid TOML or
+configured missing layer roots require repair. Install the selected datasource
+extra in that same environment. Keep secrets in environment references and
+validate the requested datasource without displaying their values.
+
+## Repair semantic inputs
+
+Unknown refs require catalog discovery, not guessed names. Readiness blockers
+belong to the selected semantic closure; follow their exact repairs. Richness
+warnings are advisory. Bounded preview and source-health failures do not change
+Readiness, and successful connectivity cannot authorize a Metric equation.
+
+## Repair mixed inputs
+
+After the Python tutorial has bound `current` and `baseline`, this deliberately failing example combines a saved input with a live definition.
+
+{/* example: mixed-input-setup */}
+
+```python
+saved_current = current.execute()
+```
+
+{/* example: mixed-input-error */}
+
+```python
+# This intentionally combines fixed and live inputs and must fail.
+saved_current.compare(baseline).execute()
+```
+
+Choose one question: compare current live definitions as in the tutorial, or
+execute both sides and compare their compatible retained results. Do not upload
+saved rows to bypass admission. Construct a downstream live observation before
+materializing its selection, or follow the receiver’s required execution boundary.
+
+## Repair predicates and correspondence
+
+This independent commerce model declares order amount, customer region and the order_customer relationship. `current` and `reference` are compatible quantities.
+
+{/* example: verification-premises */}
+
+```python
+orders = session.members(ms.ref.entity("commerce.order"))
+amounts = orders.read(ms.ref.measure("commerce.order.amount"))
+regions = orders.read(
+    ms.ref.dimension("commerce.customer.region"),
+    via=ms.ref.relationship("commerce.order_customer"),
+    match_verification="assume",
+)
+quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
+change = current.compare(
+    reference, design=mv.TimeChange(pairing=mv.ExactKeys(verification="check"))
+)
+quotient.contract().show()
+```
+
+Select Defined values before numeric predicates. Complete typed key tuples,
+Session ownership and units must match. `verification="assume"` and
+`match_verification="assume"` are explicit caller premises, not successful
+validation; use them only with an actual independent basis. Failed checked
+premises require fixing the input or alignment, not changing the claim to assume.
+
+## Repair recovery and output
+
+Keep the exact Session ID, Artifact ref and project-local state. Old generations
+reject without migration; unreadable/missing required data cannot be repaired by
+replaying an origin through recovery. If current data is needed, create a new
+explicit live result. `show(n=0)` helps inspect metadata; increase a display budget
+only when needed. A display limit does not change query or execution budgets.

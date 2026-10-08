@@ -42,28 +42,47 @@ function docsItems(version, isLatest = false) {
           { slug: `${versionSlug}/installation` },
           { slug: `${versionSlug}/quick-start` },
           { slug: `${versionSlug}/first-analysis` },
+          { slug: `${versionSlug}/guides/python-quick-start` },
         ],
       },
       {
-        label: 'Work with an agent',
+        label: 'Common workflows',
         translations: {
-          'zh-CN': '与智能体协作',
+          'zh-CN': '常用工作流',
         },
         items: [
           { slug: `${versionSlug}/guides/business-question` },
           { slug: `${versionSlug}/concepts/semantic-layer` },
           { slug: `${versionSlug}/concepts/analysis-workflow` },
-          { slug: `${versionSlug}/concepts/readiness` },
-          { slug: `${versionSlug}/concepts/evidence` },
+          { slug: `${versionSlug}/guides/datasources` },
+          { slug: `${versionSlug}/guides/semantic-modeling` },
         ],
       },
       {
-        label: 'Integration and reference',
+        label: 'Complete guides',
         translations: {
-          'zh-CN': '集成与参考',
+          'zh-CN': '完整专题',
+        },
+        items: [
+          { slug: `${versionSlug}/guides/time-and-cohorts` },
+          { slug: `${versionSlug}/guides/comparison-and-attribution` },
+          { slug: `${versionSlug}/guides/statistics` },
+          { slug: `${versionSlug}/guides/events-and-funnels` },
+          { slug: `${versionSlug}/guides/lifecycle-and-retention` },
+          { slug: `${versionSlug}/guides/calendars-and-schedules` },
+        ],
+      },
+      {
+        label: 'Reference',
+        translations: {
+          'zh-CN': '参考',
         },
         items: [
           { slug: `${versionSlug}/concepts` },
+          { slug: `${versionSlug}/concepts/readiness` },
+          { slug: `${versionSlug}/concepts/evidence` },
+          { slug: `${versionSlug}/reference/backends-and-limits` },
+          { slug: `${versionSlug}/reference/troubleshooting` },
           { slug: `${versionSlug}/reference/project-configuration` },
           { slug: `${versionSlug}/reference/telemetry` },
           { slug: `${versionSlug}/reference/deployment` },

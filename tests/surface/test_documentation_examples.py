@@ -1,5 +1,7 @@
 """Execute current bilingual workflow and evidence examples against public APIs."""
 
+import ast
+import re
 from pathlib import Path
 
 import duckdb
@@ -8,18 +10,40 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory, DslScenario, analysis_dsl_rows
-from tests.support.documentation import _blocks
+from tests.support.documentation import _example, _examples
 from tests.support.paths import PROJECT_ROOT
 
 ROOT = PROJECT_ROOT
 
 
-@pytest.mark.parametrize(
-    "page,count", [("analysis-workflow", 35), ("evidence", 2), ("semantic-layer", 51)]
-)
-def test_bilingual_examples_have_identical_executable_contracts(page: str, count: int) -> None:
-    assert len(_blocks("en", page)) == count
-    assert _blocks("en", page) == _blocks("zh", page)
+def test_bilingual_examples_have_identical_executable_contracts() -> None:
+    english = _examples("en")
+    assert english
+    assert english == _examples("zh")
+    root = ROOT / "site/src/content/docs/docs/latest"
+    for path in root.rglob("*.mdx"):
+        if "release-notes" in path.parts or path.name == "contributing.mdx":
+            continue
+        page = path.relative_to(root).with_suffix("").as_posix()
+        assert _examples("en", page) == _examples("zh", page), page
+
+
+def test_latest_usage_examples_are_named_valid_python_and_current() -> None:
+    examples = _examples("en")
+    for identifier, source in examples.items():
+        assert not re.search(r"[\u4e00-\u9fff]", source), identifier
+        ast.parse(source, filename=identifier)
+    for edition in ("docs", "zh-cn/docs"):
+        root = ROOT / "site/src/content/docs" / edition / "latest"
+        for page in root.rglob("*.mdx"):
+            if "release-notes" in page.parts or page.name == "contributing.mdx":
+                continue
+            text = page.read_text()
+            relative = page.relative_to(root).with_suffix("").as_posix()
+            fences = re.findall(r"(?m)^(```|~~~)python\n", text)
+            assert len(fences) == len(_examples(edition, relative)), relative
+            prose = re.sub(r"(?ms)^(```|~~~).*?^\1\s*$", "", text)
+            assert not re.search(r"\b(?:R\d+(?:\.\d+)?|J[1-4]|r8_numeric_v1)\b", prose), relative
 
 
 @pytest.mark.runtime
@@ -28,9 +52,7 @@ def test_grouped_same_entity_workflow_example_executes(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
-    code = next(
-        block for block in _blocks("en", "analysis-workflow") if block.startswith("orders =")
-    )
+    code = _example("en", "same-entity-grouping")
     exec(compile(code, "grouped-same-entity-example", "exec"), namespace)
     result = namespace["channel_revenue"]
     assert isinstance(result, mv.MaterializedGroupedNumericRelation)
@@ -55,24 +77,16 @@ def test_first_round_workflow_examples_execute(
 ) -> None:
     case = analysis_dsl_case_factory(scenario)
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
-    first = next(
-        block for block in _blocks("en", "analysis-workflow") if block.startswith("customers =")
-    )
+    first = _example("en", "customer-original-rollup")
     exec(compile(first, "first-round-entry-example", "exec"), namespace)
     assert isinstance(namespace["total"], mv.MaterializedRolledNumericRelation)
 
-    followup = next(
-        block for block in _blocks("en", "analysis-workflow") if block.startswith("july =")
-    )
-    change, remainder = followup.split("ratio_routes =", 1)
-    ratio, association = remainder.split("order_count =", 1)
-    selected = (
-        change
-        if part == "change"
-        else "ratio_routes =" + ratio
-        if part == "ratio_routes"
-        else "order_count =" + association
-    )
+    identifier = {
+        "change": "selected-next-month",
+        "ratio_routes": "multi-root-ratio",
+        "order_count": "customer-association",
+    }[part]
+    selected = _example("en", identifier)
     exec(compile(selected, "first-round-continuation-example", "exec"), namespace)
     output = {
         "change": "next_month_mean",
@@ -98,9 +112,7 @@ def test_workflow_mean_rollup_merges_retained_components(
     )
     ms.load(workspace_dir=case.root)
     namespace: dict[str, object] = {"session": case.session, "ms": ms, "mv": mv}
-    code = next(
-        block for block in _blocks("en", "analysis-workflow") if block.startswith("mean_amount =")
-    )
+    code = _example("en", "mean-original-rollup")
     exec(compile(code, "mean-rollup-example", "exec"), namespace)
     overall = namespace["overall"]
     assert isinstance(overall, mv.MaterializedRolledNumericRelation)
@@ -150,17 +162,12 @@ def test_semantic_monthly_observation_example_executes(
         "session": session,
         "catalog": session.catalog,
     }
-    code = next(
-        block
-        for block in _blocks("en", "semantic-layer")
-        if (
-            block.startswith('revenue_entry = catalog.metrics.get("sales.revenue")')
-            if example == "monthly"
-            else 'question="Why did Q4 revenue drop?"' in block
-            if example == "regional"
-            else 'entry = collection.get("metric:sales.revenue")' in block
-        )
-    )
+    identifier = {
+        "monthly": "catalog-monthly-observation",
+        "regional": "catalog-regional-observation",
+        "collection": "catalog-discovery",
+    }[example]
+    code = _example("en", identifier)
     exec(compile(code, "semantic-observation-example", "exec"), namespace)
     logical = namespace["dataset" if example == "monthly" else "current"]
     assert isinstance(logical, mv.LogicalRolledNumericRelation)
@@ -189,7 +196,7 @@ def test_workflow_evidence_and_cold_recovery_examples(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     namespace: dict[str, object] = {}
-    exec(compile(_blocks("en", "analysis-workflow")[0], "workflow-example", "exec"), namespace)
+    exec(compile(_example("en", "customer-period-change"), "workflow-example", "exec"), namespace)
     change = namespace["change"]
     assert isinstance(change, mv.MaterializedDifferenceRelation)
     expected = {"A": -40, "B": 20, "C": -50, "D": 0}
@@ -197,7 +204,7 @@ def test_workflow_evidence_and_cold_recovery_examples(
     session = namespace["session"]
     assert isinstance(session, mv.Session)
     assert len(session.runs().items) == 1
-    exec(compile(_blocks("en", "evidence")[0], "evidence-example", "exec"), namespace)
+    exec(compile(_example("en", "evidence-producing-run"), "evidence-example", "exec"), namespace)
     # Repeated source definitions must create a new evaluation and immutable Artifact.
     assert len(session.runs().items) == 2
     second = namespace["artifact"]
@@ -206,7 +213,7 @@ def test_workflow_evidence_and_cold_recovery_examples(
     case.database_path.unlink()
     namespace["session"] = mv.session.resume(session.id, by="id")
     namespace["run_id"] = change.state.producing_run_ref
-    exec(compile(_blocks("en", "evidence")[1], "recovery-example", "exec"), namespace)
+    exec(compile(_example("en", "evidence-recovery"), "recovery-example", "exec"), namespace)
     recovered = namespace["artifact"]
     assert isinstance(recovered, mv.MaterializedDifferenceRelation)
     assert recovered.state.artifact_ref == change.state.artifact_ref
@@ -220,7 +227,7 @@ def test_coordinate_row_statistic_workflow_example(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
-    block = next(b for b in _blocks("en", "analysis-workflow") if b.startswith("all_members ="))
+    block = _example("en", "complete-target-groups")
     exec(compile(block, "coordinate-example", "exec"), namespace)
     counts = namespace["category_counts"]
     targets = namespace["fixed_targets"]
@@ -259,9 +266,7 @@ def test_display_workflow_example_executes(
             via=ms.ref.relationship("sales.order_buyer"),
         ),
     }
-    code = next(
-        block for block in _blocks("en", "analysis-workflow") if block.startswith("ranking =")
-    )
+    code = _example("en", "ranking-table")
     exec(compile(code, "display-example", "exec"), namespace)
     result = namespace["result"]
     assert isinstance(result, mv.MaterializedTable)
@@ -284,12 +289,8 @@ def test_attribution_workflow_example_executes(
         export_dsl_parquet_models(case, case.root)
         ms.load(workspace_dir=case.root)
     namespace = {"session": case.session, "mv": mv, "ms": ms}
-    code = next(
-        block
-        for block in _blocks("en", "analysis-workflow")
-        if block.startswith("attribution_members =")
-    )
-    assert code in _blocks("zh-cn", "analysis-workflow")
+    code = _example("en", "absolute-attribution")
+    assert code == _example("zh", "absolute-attribution")
     exec(compile(code, "attribution-example", "exec"), namespace)
     allocation = namespace["allocation"]
     restored = namespace["restored_allocation"]
@@ -318,13 +319,9 @@ def test_scalar_channel_workflow_examples_execute(
     from tests.shared_fixtures import DSL_NAMES
 
     case = analysis_dsl_case_factory("j1", names=replace(DSL_NAMES, order="orders"))
-    blocks = tuple(
-        block
-        for block in _blocks("en", "analysis-workflow")
-        if block.startswith('revenue = ms.ref.metric("sales.revenue")')
+    code = _example(
+        "en", "scoped-channel-observation" if scoped else "unscoped-channel-observation"
     )
-    assert len(blocks) == 2
-    code = next(block for block in blocks if ("during=" in block) == scoped)
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     exec(compile(code, "channel-ranking-example", "exec"), namespace)
     by_channel = namespace["by_channel"]
@@ -345,9 +342,7 @@ def test_hourly_and_daily_source_workflow_examples_execute(
     case = analysis_dsl_case_factory("j2", names=replace(DSL_NAMES, order="orders"))
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE orders SET ordered_at=TIMESTAMPTZ '2026-07-01 00:00:00+00:00'")
-    code = next(
-        block for block in _blocks("en", "analysis-workflow") if "orders_by_hour =" in block
-    )
+    code = _example("en", "hourly-daily-source")
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     exec(compile(code, "hourly-daily-source-example", "exec"), namespace)
     hourly = namespace["orders_by_hour"]

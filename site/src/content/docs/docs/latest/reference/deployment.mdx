@@ -26,12 +26,14 @@ the environment is not activated, invoke the `marivo` executable belonging to
 that environment. The CLI is a bootstrap check only. After entry, use Python
 for focused live contracts:
 
+{/* example: deployment-connection-check */}
+
 ```python
 import marivo
 
-marivo.help("datasource.<target>")
-marivo.help("semantic.<target>")
-marivo.help("analysis.<target>")
+marivo.help("authoring")
+marivo.help("semantic.objects")
+marivo.help("analysis")
 ```
 
 For a project using a published release, install the required backend extra as

@@ -3,6 +3,8 @@ title: Readiness
 description: Snapshot-independent technical certification for semantic inputs.
 ---
 
+Examples assume the conventional `md`/`ms` imports, a loaded `catalog`, and the exact sales fields named below. `revenue` is a catalog Metric entry.
+
 ## What readiness checks
 
 `catalog.readiness(refs=[...])` is Marivo's explicit, zero-query certification
@@ -33,6 +35,8 @@ them with `ms.richness()`; they do not block readiness.
 ## Preview is independent
 
 Preview reads the current datasource through an explicit bounded scope:
+
+{/* example: readiness-1 */}
 
 ```python
 import marivo.datasource as md
@@ -65,6 +69,8 @@ the displayed result rows, not certification input.
 Use `catalog.source_health(...)` when the current question is whether a source
 or declared data expectation has drifted. It never runs implicitly during load,
 preview, readiness, or analysis, and it stores no checkpoint or history.
+
+{/* example: readiness-2 */}
 
 ```python
 from datetime import timedelta
@@ -143,6 +149,8 @@ bounded scope. Failed or truncated certification does not publish a replacement
 artifact.
 
 ## Continue to analysis
+
+{/* example: readiness-3 */}
 
 ```python
 import marivo.semantic as ms

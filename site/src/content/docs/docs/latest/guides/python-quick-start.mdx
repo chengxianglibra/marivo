@@ -1,0 +1,208 @@
+---
+title: Your first local Python analysis
+description: Run a six-order DuckDB project from declarations to saved results and recovery.
+---
+
+This tutorial runs against the current development implementation documented by
+`latest`. Use [source installation](/docs/latest/installation/#current-development-source)
+when your released package lacks these APIs. Run every command from a new demo
+project directory with your selected environment. No remote datasource or
+credential is required.
+
+## Create six completed orders
+
+Save as `seed.py`, then run `.venv/bin/python seed.py` (Windows: `.venv/Scripts/python.exe seed.py`). This script replaces only the demo orders table when rerun.
+
+{/* example: demo-seed */}
+
+```python
+from datetime import date
+from pathlib import Path
+import duckdb
+
+Path("models/datasources").mkdir(parents=True, exist_ok=True)
+Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("""
+        CREATE OR REPLACE TABLE orders (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            region VARCHAR,
+            amount BIGINT
+        )
+    """)
+    connection.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?, ?)",
+        [
+            (1, date(2026, 7, 5), "east", 100),
+            (2, date(2026, 7, 15), "east", 200),
+            (3, date(2026, 7, 20), "west", 700),
+            (4, date(2026, 8, 5), "east", 100),
+            (5, date(2026, 8, 15), "east", 100),
+            (6, date(2026, 8, 20), "west", 600),
+        ],
+    )
+```
+
+The approved demo meaning is revenue from exactly these six completed orders,
+in CNY, without refund or currency conversion. July totals 1,000 and August 800.
+East changes from 300 to 200; west from 700 to 600. This synthetic definition is
+not a template for deciding production revenue meaning.
+
+## Declare the datasource
+
+Save as `models/datasources/warehouse.py`. The database exists before the read-only connection is loaded.
+
+{/* example: demo-datasource */}
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
+```
+
+## Declare the semantic model
+
+Save as `models/semantic/sales/_domain.py`. Native DATE is the reporting axis; BIGINT retains integer amounts.
+
+{/* example: demo-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Demo team")
+orders = ms.entity(
+    name="orders", datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"), primary_key=["order_id"],
+    ai_context=ms.ai_context(
+        business_definition="One completed order per row in the demo dataset.",
+        guardrails=["Demo rows are complete; this is not production coverage evidence."],
+    ),
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date",
+    granularity="day", is_default=True,
+)
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="CNY",
+)
+revenue = ms.aggregate(
+    name="revenue", measure=amount, agg="sum", time=order_date,
+    ai_context=ms.ai_context(
+        business_definition="Completed-order revenue in CNY for the six demo orders.",
+        guardrails=["Use only the supplied demo orders; no refund or currency conversion."],
+    ),
+)
+```
+
+Keep `models/` in version control. Ignore `.marivo/`, `warehouse.duckdb` and `demo-result.json`. `marivo.toml` is optional; the directory is the project root. Local telemetry defaults to on; use `MARIVO_TELEMETRY=off` if desired.
+
+## Load and certify the selected root
+
+Start `analyze.py` with this block. Run the complete script after adding the following analysis, evidence and save blocks.
+
+{/* example: demo-readiness */}
+
+```python
+import marivo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+catalog = ms.load(workspace_dir=".")
+revenue_entry = catalog.metrics.get("sales.revenue")
+revenue_entry.details().show()
+report = catalog.readiness(refs=[revenue_entry])
+report.show()
+if report.status == "blocked":
+    raise RuntimeError("Repair the reported semantic blockers before analysis.")
+```
+
+Readiness certifies the selected semantic closure without querying business rows. It does not replace the approved definition or guarantee all future operations.
+
+## Observe and compare
+
+Append to `analyze.py`. Current minus baseline is the comparison direction. All dependencies below stay logical until their explicit execution.
+
+{/* example: demo-analysis */}
+
+```python
+session = mv.session.get_or_create("local-revenue-demo", report_timezone="UTC")
+members = session.members(ms.ref.entity("sales.orders"))
+revenue = revenue_entry.ref
+july = mv.time_scope(start="2026-07-01", end="2026-08-01")
+august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+current = members.observe(revenue, during=august).rollup()
+baseline = members.observe(revenue, during=july).rollup()
+current_total = current.execute()
+baseline_total = baseline.execute()
+change = current.compare(baseline).execute()
+change.show()
+change.contract().show()
+
+groups = members.group_by(ms.ref.dimension("sales.orders.region"))
+regional_current = groups.observe(revenue, during=august).rollup()
+regional_baseline = groups.observe(revenue, during=july).rollup()
+regional_change = regional_current.compare(regional_baseline).execute()
+regional_change.show()
+```
+
+Expected values: current total **800**, baseline total **1,000**, change **−200**;
+regional changes **east: −100**, **west: −100**. Grouped comparison partitions the
+same additive quantity; it does not establish causality. We compare the logical
+definitions rather than mixing a saved current result with a live baseline.
+
+## Read evidence and save a reference
+
+Append both blocks to `analyze.py`, then run `.venv/bin/python analyze.py`. Empty Findings are a valid committed set, not missing Evidence.
+
+{/* example: demo-evidence */}
+
+```python
+digest = change.evidence_digest()
+print(digest.finding_count)
+findings = change.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(change.state.producing_run_ref)
+run.show()
+```
+{/* example: demo-save */}
+
+```python
+import json
+from pathlib import Path
+
+Path("demo-result.json").write_text(json.dumps({
+    "session_id": session.id,
+    "artifact_ref": str(regional_change.state.artifact_ref),
+}))
+```
+
+## Recover in a fresh process
+
+Save as `recover.py`, then run `.venv/bin/python recover.py` from the same project. Keep `.marivo/` and the saved reference.
+
+{/* example: demo-recovery */}
+
+```python
+import json
+from pathlib import Path
+import marivo.analysis as mv
+
+saved = json.loads(Path("demo-result.json").read_text())
+session = mv.session.resume(saved["session_id"], by="id")
+restored = session.artifact(saved["artifact_ref"])
+restored.show()
+restored.contract().show()
+rows = restored.to_pandas()
+print(rows[["group", "value"]].sort_values("group").to_string(index=False))
+```
+
+Recovery reads the exact saved Artifact; it does not load current semantic
+models, read the warehouse or run the original comparison. The two regional
+values remain −100. Recovered results can continue only through retained parts
+and current admitted successors. Recovery establishes neither freshness nor
+suitability for a different question.

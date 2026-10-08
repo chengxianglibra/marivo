@@ -400,7 +400,6 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         business_order=None,
         completeness=(),
     )
-    import re
 
     import marivo.analysis as mv
 
@@ -440,14 +439,11 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         via=ref.relationship("sales.order_customer"),
     )
 
-    page = PROJECT_ROOT / "site/src/content/docs/docs/latest/concepts/analysis-workflow.mdx"
-    example = next(
-        block
-        for block in re.findall(r"```python\n(.*?)```", page.read_text(), re.S)
-        if "journeys = session.events.match" in block
-    )
+    from tests.support.documentation import _example
+
+    example = _example("en", "journey-duration")
     namespace = {"session": public_session}
-    exec(compile(example, str(page), "exec"), namespace)
+    exec(compile(example, "journey-duration-example", "exec"), namespace)
     assert namespace["revenue"].to_pandas()["member"].tolist() == [subject(2)]
     assert namespace["mean"].to_pandas()["value"].tolist() == [timedelta(hours=3)]
 

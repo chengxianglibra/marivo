@@ -206,7 +206,7 @@ def test_local_csv_workflow_example_executes(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from tests.support.documentation import _blocks
+    from tests.support.documentation import _example
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -216,17 +216,9 @@ def test_local_csv_workflow_example_executes(
         directory = tmp_path / "data"
         directory.mkdir()
         (directory / "facts.csv").write_bytes(file.read_bytes())
-        declarations = next(
-            block
-            for block in _blocks("en", "analysis-workflow")
-            if 'source=md.csv("data/facts.csv")' in block
-        )
+        declarations = _example("en", "csv-semantic-model")
         (tmp_path / "models/semantic/sales/models.py").write_text(declarations)
-        analysis = next(
-            block
-            for block in _blocks("en", "analysis-workflow")
-            if 'get_or_create("file-analysis"' in block
-        )
+        analysis = _example("en", "csv-observation")
         namespace: dict[str, object] = {}
         exec(compile(analysis, "local-csv-workflow-example", "exec"), namespace)
         result = namespace["result"]

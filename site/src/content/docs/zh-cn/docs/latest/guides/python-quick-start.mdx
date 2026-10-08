@@ -1,0 +1,203 @@
+---
+title: 首个本地 Python 分析
+description: 运行六笔订单的 DuckDB 项目，从声明到结果保存与恢复。
+---
+
+本教程使用 `latest`所描述的当前开发实现。如果已发布包缺少这些 API，
+采用[源码安装](/zh-cn/docs/latest/installation/#当前开发源码)。
+从新的 demo 项目目录使用所选环境运行所有命令，不需要远程数据源或凭据。
+
+## 创建六笔已完成订单
+
+保存为 `seed.py`，运行 `.venv/bin/python seed.py`（Windows：`.venv/Scripts/python.exe seed.py`）。再次运行只替换 demo orders 表。
+
+{/* example: demo-seed */}
+
+```python
+from datetime import date
+from pathlib import Path
+import duckdb
+
+Path("models/datasources").mkdir(parents=True, exist_ok=True)
+Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("""
+        CREATE OR REPLACE TABLE orders (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            region VARCHAR,
+            amount BIGINT
+        )
+    """)
+    connection.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?, ?)",
+        [
+            (1, date(2026, 7, 5), "east", 100),
+            (2, date(2026, 7, 15), "east", 200),
+            (3, date(2026, 7, 20), "west", 700),
+            (4, date(2026, 8, 5), "east", 100),
+            (5, date(2026, 8, 15), "east", 100),
+            (6, date(2026, 8, 20), "west", 600),
+        ],
+    )
+```
+
+Demo 的已确认含义是仅这六笔已完成订单的人民币收入，不处理退款或汇率转换。
+7 月总额 1,000，8 月 800；east 从 300 变为 200，west 从 700 变为 600。
+此合成定义不是决定生产收入口径的模板。
+
+## 声明 datasource
+
+保存为 `models/datasources/warehouse.py`。在加载只读连接之前数据库已存在。
+
+{/* example: demo-datasource */}
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=True)
+```
+
+## 声明语义模型
+
+保存为 `models/semantic/sales/_domain.py`。原生 DATE 是报告时间轴，BIGINT 保留整数金额。
+
+{/* example: demo-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Demo team")
+orders = ms.entity(
+    name="orders", datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"), primary_key=["order_id"],
+    ai_context=ms.ai_context(
+        business_definition="One completed order per row in the demo dataset.",
+        guardrails=["Demo rows are complete; this is not production coverage evidence."],
+    ),
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date",
+    granularity="day", is_default=True,
+)
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="CNY",
+)
+revenue = ms.aggregate(
+    name="revenue", measure=amount, agg="sum", time=order_date,
+    ai_context=ms.ai_context(
+        business_definition="Completed-order revenue in CNY for the six demo orders.",
+        guardrails=["Use only the supplied demo orders; no refund or currency conversion."],
+    ),
+)
+```
+
+将 `models/`纳入版本控制，忽略 `.marivo/`、`warehouse.duckdb`与 `demo-result.json`。
+`marivo.toml`是可选的，该目录就是项目根。Local telemetry 默认开启，按需使用 `MARIVO_TELEMETRY=off`。
+
+## 加载并认证所选根
+
+用此代码块开始 `analyze.py`。添加后面的分析、证据与保存代码块后运行完整脚本。
+
+{/* example: demo-readiness */}
+
+```python
+import marivo
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+catalog = ms.load(workspace_dir=".")
+revenue_entry = catalog.metrics.get("sales.revenue")
+revenue_entry.details().show()
+report = catalog.readiness(refs=[revenue_entry])
+report.show()
+if report.status == "blocked":
+    raise RuntimeError("Repair the reported semantic blockers before analysis.")
+```
+
+Readiness 不查询业务行，认证所选语义依赖闭包；它不替代已确认定义，也不保证所有后续操作。
+
+## 观察与比较
+
+追加到 `analyze.py`。比较方向为当前值减去基准值；所有依赖保留 Logical 状态直到显式执行。
+
+{/* example: demo-analysis */}
+
+```python
+session = mv.session.get_or_create("local-revenue-demo", report_timezone="UTC")
+members = session.members(ms.ref.entity("sales.orders"))
+revenue = revenue_entry.ref
+july = mv.time_scope(start="2026-07-01", end="2026-08-01")
+august = mv.time_scope(start="2026-08-01", end="2026-09-01")
+current = members.observe(revenue, during=august).rollup()
+baseline = members.observe(revenue, during=july).rollup()
+current_total = current.execute()
+baseline_total = baseline.execute()
+change = current.compare(baseline).execute()
+change.show()
+change.contract().show()
+
+groups = members.group_by(ms.ref.dimension("sales.orders.region"))
+regional_current = groups.observe(revenue, during=august).rollup()
+regional_baseline = groups.observe(revenue, during=july).rollup()
+regional_change = regional_current.compare(regional_baseline).execute()
+regional_change.show()
+```
+
+预期值：当前总额 **800**，基准总额 **1,000**，变化 **−200**；地区变化为
+**east：−100**、**west：−100**。分组比较拆分相同可加数量，不证明因果。
+这里比较 Logical 定义，不混用保存的 current 与 live baseline。
+
+## 读取证据并保存引用
+
+将两块代码追加到 `analyze.py`，运行 `.venv/bin/python analyze.py`。空 Findings 是合法的已提交集合，不表示 Evidence 缺失。
+
+{/* example: demo-evidence */}
+
+```python
+digest = change.evidence_digest()
+print(digest.finding_count)
+findings = change.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(change.state.producing_run_ref)
+run.show()
+```
+{/* example: demo-save */}
+
+```python
+import json
+from pathlib import Path
+
+Path("demo-result.json").write_text(json.dumps({
+    "session_id": session.id,
+    "artifact_ref": str(regional_change.state.artifact_ref),
+}))
+```
+
+## 在新进程中恢复
+
+保存为 `recover.py`，从同一项目运行 `.venv/bin/python recover.py`。保留 `.marivo/`和保存的引用。
+
+{/* example: demo-recovery */}
+
+```python
+import json
+from pathlib import Path
+import marivo.analysis as mv
+
+saved = json.loads(Path("demo-result.json").read_text())
+session = mv.session.resume(saved["session_id"], by="id")
+restored = session.artifact(saved["artifact_ref"])
+restored.show()
+restored.contract().show()
+rows = restored.to_pandas()
+print(rows[["group", "value"]].sort_values("group").to_string(index=False))
+```
+
+恢复读取确切保存的 Artifact，不加载当前语义模型、不读取 warehouse，也不运行原比较。
+两个地区值仍为 −100。恢复结果只能通过保留状态及当前准入后继继续。
+恢复不证明新鲜度，也不证明适合其他问题。

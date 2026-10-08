@@ -1,149 +1,37 @@
 ---
-title: Quick Start
-description: Reuse an existing semantic-layer project, or ask an agent to draft the first semantic layer for a new project.
+title: Choose a project path
+description: Reuse an existing semantic project or author only the missing business definitions.
 ---
 
-## Start with the project state
+An empty directory is a valid project. An existing governed project is usually the shortest path to a useful analysis. `marivo init` is optional.
 
-If your team already maintains a project containing `marivo.toml` and `models/`,
-clone it and reuse its semantic layer. Enter authoring only for a new project or
-a confirmed gap.
+## Reuse an existing project
 
-An empty directory is also a valid Marivo project. It uses the directory name,
-no external semantic layers, and local telemetry enabled until an optional
-`marivo.toml` overrides those defaults. `marivo init` is not required.
+Clone the project, install its dependencies and configure datasource environment
+references locally. Ask the agent to inspect configuration and existing definitions:
 
-## Existing semantic-layer project
+> Use this project’s existing Marivo semantic layer for completed-order revenue
+> analysis. Report configuration problems and any required missing or disputed
+> definitions. Reuse definitions that already fit the question.
 
-1. Clone the project and install its dependencies.
-2. Configure datasource environment variables locally.
-3. Ask the agent to check project configuration and whether existing semantic objects fit the current analysis.
-4. If the catalog loads and there is no semantic gap, continue to the [first analysis](/docs/latest/first-analysis/).
+If the model fits, continue to [first Agent analysis](/docs/latest/first-analysis/).
+Reading an existing definition does not require preview or a fresh authoring
+certification. Check only what the current question needs.
 
-> Use this project's existing Marivo semantic layer and check whether it can
-> support completed-order revenue analysis. Tell me which configuration,
-> semantic objects, or business definitions are missing or need confirmation.
-> If nothing blocks analysis, do not rebuild existing definitions.
+## Start a new business project
 
-Use `marivo-semantic` only for a missing object, a requested definition change,
-or fresh certification of an authored change.
+Complete [installation](/docs/latest/installation/), then give the datasource,
+decision and established business rules to `marivo-semantic`:
 
-## New project
+> Build the smallest reusable semantic slice for completed-order revenue.
+> Use this request and approved project definitions as authority. Ask only when
+> a material reusable business choice remains unresolved; then return to analysis.
 
-Complete [Installation](/docs/latest/installation/), then provide the datasource,
-business goal, and rules already decided:
+Settle population, cancellations/refunds, reporting time, currency, aggregation,
+permitted breakdowns and ownership. Metadata and samples help model the source;
+they cannot establish business meaning. Follow [semantic modeling](/docs/latest/guides/semantic-modeling/)
+and scoped [Readiness](/docs/latest/concepts/readiness/).
 
-> Use `marivo-semantic` to build the semantic layer this project needs for
-> completed-order revenue analysis. Use the rules in this request and existing
-> non-conflicting project documentation as authority. Ask one question and stop
-> before analysis only when a reusable business choice remains unresolved.
+## Try the library without production data
 
-## Business definitions to settle
-
-Settle inclusions and exclusions, cancellation and refund treatment, time axis,
-currency and additivity, allowed breakdowns, limitations, and ownership through
-the current request, an approved project definition, attributable non-conflicting
-documentation, or one focused answer. Schema and samples help the agent draft;
-they do not establish business meaning.
-
-## What the agent writes to the project
-
-The Python declarations below are agent-generated project files maintained by
-the team, not a tutorial that you must type line by line.
-
-```python
-# models/datasources/warehouse.py
-import marivo.datasource as md
-import marivo.semantic as ms
-
-md.duckdb(
-    name="warehouse",
-    path="warehouse.duckdb",
-    ai_context=ms.ai_context(
-        business_definition="Local DuckDB warehouse for approved sales analysis.",
-        guardrails=["Use only for development or approved local analysis."],
-    ),
-)
-```
-
-```python
-# models/semantic/sales/_domain.py
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(
-    name="sales",
-    owner="Mina Zhang",
-    ai_context=ms.ai_context(
-        business_definition="Completed-order sales analysis domain.",
-        guardrails=["Use only the authority-backed completed-order population."],
-    ),
-)
-
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"),
-    primary_key=["order_id"],
-    ai_context=ms.ai_context(
-        business_definition="One row per completed sales order.",
-        guardrails=["Cancelled orders are excluded; refunds remain reflected in amount."],
-    ),
-)
-
-region = ms.dimension_column(
-    name="region",
-    entity=orders,
-    column="region",
-    ai_context=ms.ai_context(
-        business_definition="Sales region assigned to the completed order.",
-        guardrails=["Do not treat missing region as a real region."],
-    ),
-)
-
-order_date = ms.time_dimension_column(
-    name="order_date",
-    entity=orders,
-    column="order_date",
-    granularity="day",
-    is_default=True,
-    ai_context=ms.ai_context(
-        business_definition="Approved reporting date for completed-order revenue.",
-        guardrails=["Use this as the default time axis for this revenue metric."],
-    ),
-)
-
-amount = ms.measure_column(
-    name="amount",
-    entity=orders,
-    column="amount",
-    additivity=ms.additive_all(),
-    unit="CNY",
-    ai_context=ms.ai_context(
-        business_definition="Completed-order amount in CNY, net of cancellations and refunds.",
-        guardrails=["Do not use for gross bookings or pre-refund revenue."],
-    ),
-)
-
-revenue = ms.aggregate(
-    name="revenue",
-    measure=amount,
-    agg="sum",
-    time=order_date,
-    ai_context=ms.ai_context(
-        business_definition="Total completed-order revenue in CNY.",
-        guardrails=["For this example, break down only by sales region."],
-    ),
-)
-```
-
-## What to review before continuing
-
-- The definition, population, exclusions, time axis, unit, and breakdowns match the business need.
-- `ai_context` and `guardrails` state important limits clearly.
-- Current authority establishes every reusable business choice in the definition.
-- The agent reports no blocker in the new model's scoped authoring certification.
-
-Readiness certifies the newly authored model; it is not business authority and is
-not rerun before every analysis. Once no reusable choice remains unresolved, continue to the
-[first agent-guided analysis](/docs/latest/first-analysis/).
+Run [the six-order Python tutorial](/docs/latest/guides/python-quick-start/). It provides every file, the data and exact expected results. Keep the synthetic demo meaning separate from production definitions.

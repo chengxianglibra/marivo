@@ -368,19 +368,12 @@ def test_known_true_subject_image_then_source_preparation(tmp_path, empty, filte
 @pytest.mark.runtime
 @pytest.mark.parametrize("language", ["docs", "zh-cn/docs"])
 def test_latest_retention_example_executes(tmp_path, monkeypatch, language, capsys):
-    import re
-    from pathlib import Path
 
     session, _, _, _ = build_retention(tmp_path)
     monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
-    page = Path(
-        f"site/src/content/docs/{language}/latest/concepts/analysis-workflow.mdx"
-    ).read_text()
-    code = next(
-        code
-        for code in re.findall(r"```python\n(.*?)```", page, re.DOTALL)
-        if '"anchor-retention"' in code
-    )
+    from tests.support.documentation import _example
+
+    code = _example(language, "anchor-retention")
     code = code.replace(
         'start="2026-08-01", end="2026-09-01"',
         'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',

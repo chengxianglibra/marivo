@@ -1,11 +1,17 @@
 ---
-title: Evidence
-description: Inspect exact graph Artifacts, retained contracts and producing Runs.
+title: Evidence and recovery
+description: Inspect committed facts and recover exact Store 8 results.
 ---
 
-A committed graph Artifact owns its retained rows, required parts and verified
-continuation contract. Its producing Run records execution identity. The agent
-owns cross-result synthesis, business judgment and causal interpretation.
+Artifacts own saved rows, retained parts and execution evidence. Runs record
+execution identity and success or failure. The agent owns cross-result synthesis,
+business judgment and causal interpretation.
+
+## Read the producing Run
+
+`current` and `baseline` are compatible logical numeric observations in the same Session.
+
+{/* example: evidence-producing-run */}
 
 ```python
 artifact = current.compare(baseline).execute()
@@ -15,15 +21,34 @@ run = session.get_run(artifact.state.producing_run_ref)
 run.show()
 ```
 
-This example assumes two compatible numeric observations in one Session.
-`show()` provides bounded inspection; `contract()` verifies the exact Artifact
-and exposes its current continuations. Missing or corrupt required parts fail
-explicitly. A Logical relation has no retained rows before execution.
+`contract()` describes retained state and admitted continuations; it does not certify unchanged file bytes. Logical values have no committed Evidence before execution.
 
-Select Findings through `artifact.findings()` or `artifact.finding(finding_id)`.
-Recover a result through `session.artifact(ref)` and inspect its current contract.
+## Read bounded Findings
 
-## Cold recovery
+`artifact` is a committed result from the preceding example.
+
+{/* example: evidence-findings */}
+
+```python
+digest = artifact.evidence_digest()
+print(digest.finding_count)
+findings = artifact.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
+```
+
+Evidence/Findings publish with the result. A finding cursor belongs to its exact
+owning Artifact; use `has_more` and `next_cursor` for pagination. Empty Findings
+mean an empty committed set. Findings report deterministic computation facts,
+not a generated narrative or causal explanation.
+
+## Recover an exact successful result
+
+`session`, `mv` and a recorded `run_id` are available. Check the Run variant before reading success-only fields.
+
+{/* example: evidence-recovery */}
 
 ```python
 run = session.get_run(run_id)
@@ -32,16 +57,22 @@ if isinstance(run, mv.SucceededRun):
     artifact.show()
 ```
 
-Run history and graphs project committed facts. Exact recovery verifies the frozen
-snapshot and primary/part receipts; it does not query current sources, load current
-Semantic definitions or replay an origin recipe. Old Store generations are
-rejected without migration. This does not prove datasource freshness or business
-suitability. Repeating a live source definition creates a new evaluation; use
-`session.artifact(ref)` to recover a specific successful result.
+Store 8 keeps project-local Parquet and SQLite metadata under
+`.marivo/analysis/generations/v8/`. Committed local results, Evidence and Findings
+are trusted: reads decode required typed data without content-hash comparison,
+producer replay or re-extracting Findings. Missing/unreadable parts, incompatible
+formats and foreign Session/cursor ownership still fail explicitly.
 
-Difference is algebraic and Spearman association is descriptive. Preserve the
-retained domain, units, Cell states and method limits in the final interpretation.
-A terminal custom DataFrame or raw SQL result cannot re-enter governed analysis.
+Store 7 and earlier reject without migration or modification. Preserve old
+bytes and use a fresh project root for the current generation. There is no
+revalidation or automatic reconstruction path. A new live execution creates a
+new result; recovery preserves the prior result’s exact scope and time authority.
 
-Start at `marivo.help("analysis")` and follow the exact Help targets supplied by
-the result's contract for its admitted next actions.
+## Interpret evidence within its scope
+
+Observation describes its retained scope. Comparison/attribution are algebraic;
+association is descriptive; a forecast is a model output. Screening and Journey/
+History summaries retain fit, assignment, coverage and censoring limits. None
+establishes business authority, freshness or causal conclusions by itself.
+
+Follow `marivo.help("analysis.evidence")`, or run [the local recovery tutorial](/docs/latest/guides/python-quick-start/).

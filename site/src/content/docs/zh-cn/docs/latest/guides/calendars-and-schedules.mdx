@@ -1,0 +1,95 @@
+---
+title: 日历与工作计划
+description: 认证周期边界、命名发生项与业务日计划。
+---
+
+这些声明消费 calendar、campaign、schedule Entity 的已治理时间和维度字段。
+它们需要自身专用认证 artifact，普通 preview 历史不能建立这些 artifact。
+
+从 `datetime` 导入 `date`，并导入 `marivo.datasource as md`、
+`marivo.semantic as ms` 和 `marivo.analysis as mv`。每项声明属于已有 sales domain；
+`catalog = ms.load()` 加载其模型。分析示例另需要已有 Session 和下文指定的已准入 Metric、关系。
+
+## 认证周期日历
+
+Sales.calendar Entity 声明了示例中的 calendar_date 及所有命名周期字段。`catalog`加载该项目。
+
+{/* example: period-calendar */}
+
+```python
+calendar_ref = ms.period_calendar(
+    name="fiscal",
+    date=ms.ref.time_dimension("sales.calendar.calendar_date"),
+    boundary_timezone="UTC",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
+)
+catalog.require(calendar_ref)
+catalog.preview(
+    calendar_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+calendar = catalog.period_calendars.get("sales.fiscal")
+grain = calendar.grain("week")
+week_scope = calendar.period("week", "FY2026-W01")
+assert week_scope.kind == "calendar_period"
+week_scope.contract().show()  # exact bounds and certified snapshot identity
+```
+
+Calendar identity 管理边界与成员。分析对齐使用这些认证事实，不使用看似相同的周期标签。
+认证失败或截断时不发布替代 artifact。
+
+## 命名时间发生项
+
+Sales.campaigns Entity 声明了 campaign identity 和具有确切时间含义的起止边界。观察还需要 `sales.customer`、`sales.order_buyer` 关系，以及 `revenue = ms.ref.metric("sales.revenue")`。
+
+{/* example: temporal-set */}
+
+```python
+campaigns_ref = ms.temporal_set(
+    name="campaigns",
+    occurrence_id=ms.ref.dimension("sales.campaigns.campaign_id"),
+    start=ms.ref.time_dimension("sales.campaigns.starts_at"),
+    end=ms.ref.time_dimension("sales.campaigns.ends_at"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+    category=ms.ref.dimension("sales.campaigns.category"),
+)
+catalog.preview(
+    campaigns_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+
+campaigns = catalog.temporal_sets.get("sales.campaigns")
+launch = campaigns.occurrence("spring-2026")
+members = session.members(ms.ref.entity("sales.customer"))
+dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
+```
+
+明确 occurrence identity 和区间语义；选中的 occurrence 不是所有无关数量的全局时间过滤器。
+
+## 定义工作计划
+
+Calendar Entity 声明了 date、is_working，datasource 包含完整 schedule 范围。
+
+{/* example: work-schedule */}
+
+```python
+schedule_ref = ms.work_schedule(
+    name="cn_sales_schedule",
+    date=ms.ref.time_dimension("sales.calendar.date"),
+    is_working=ms.ref.dimension("sales.calendar.is_working"),
+    boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)),
+)
+catalog.preview(
+    schedule_ref,
+    scope=md.unpruned(max_rows=400, timeout_seconds=30),
+)
+schedule = catalog.work_schedules.get("sales.cn_sales_schedule")
+```
+
+认证在正数有界 scope 下读取所需列，仅在完整输入满足声明时发布。
+展示限制不限制认证输入。Readiness 报告 artifact 缺失、过时或无效；
+跟随 typed repair preview 并重新认证。工作日与非工作日的业务依据仍属于项目定义。
