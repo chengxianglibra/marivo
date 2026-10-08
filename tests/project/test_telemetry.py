@@ -1096,3 +1096,28 @@ def test_datasource_authoring_error_preserves_code_and_stage() -> None:
     )
     assert error.code == "scope_missing"
     assert error.stage == "preflight"
+
+
+def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telemetry(
+    telemetry_project: Path,
+) -> None:
+    from marivo import _execution_log
+    from marivo.telemetry import track_operation
+    from tests.support.execution_logs import execution_records
+
+    with (
+        track_operation(
+            surface="datasource",
+            capability_kind="boundary",
+            capability_id="raw_sql",
+            project_root=telemetry_project,
+        ),
+        _execution_log.QueryLog(
+            "SELECT 'query-canary'", backend="duckdb", purpose="datasource.raw_sql"
+        ),
+    ):
+        pass
+    operation = _attrs(_capability_records(_event_path(telemetry_project), "raw_sql")[0])
+    records = execution_records(telemetry_project)
+    assert {record["operation_id"] for record in records} == {operation["marivo.operation.id"]}
+    assert "query-canary" not in _event_path(telemetry_project).read_text()

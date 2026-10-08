@@ -799,3 +799,17 @@ integers through float64. Typed inspection does not normalize PostgreSQL/MySQL/T
 fixed CHAR to logical string, because its padding semantics differ. Bind a
 variable-length text column instead; SQLite's qualified BINARY text convention
 continues to admit CHAR declarations.
+
+
+## Execution logging side effects
+
+Actual governed reads, connectivity probes, registered provider statements and
+`md.raw_sql()` write always-on diagnostics to project-local `.marivo/logs/`.
+Submission records contain verbatim SQL; completion records describe actual
+consumption and cursor-release outcomes. Parameterized credential statements
+record their fixed template only and never record bound values or sensitive
+failure messages. Logging is independent of the usage telemetry switch and
+cannot change query results, typed failure propagation or connection cleanup.
+See the Analysis session/runtime specification for correlation and rolling.
+`marivo doctor` without `--connect` remains read-only and produces no execution
+logs; explicitly requested connection probes log their SQL without caching secrets.

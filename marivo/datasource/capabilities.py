@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, runtime_checkable
 
+from marivo import _execution_log
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 
 if TYPE_CHECKING:
@@ -249,6 +250,13 @@ def execute_provider_statement(
     )
     log = _submissions(backend)
     log.append(submission)
+    query = _execution_log.QueryLog(
+        sql,
+        backend=profile.name,
+        purpose=purpose,
+        sensitive=statement.parameterized,
+        statement_id=statement_id,
+    )
     try:
         cursor = (
             backend.raw_sql(sql, parameters=parameters)
@@ -261,20 +269,26 @@ def execute_provider_statement(
         connection_local = getattr(backend, "name", None) == "duckdb"
         try:
             frame = decode_cursor_frame(cursor, include_types=False, max_rows=None)
+            query.rows = len(frame.rows)
         finally:
             if not connection_local:
                 close = getattr(cursor, "close", None)
                 if callable(close):
                     close()
-    except Exception as exc:
+    except BaseException as exc:
+        query.error = exc
+        query.finish("failed")
         submission.state = "failed"
         submission.failure_summary = (
             "Parameterized provider statement failed"
             if statement.parameterized
             else _backend_failure_summary(exc).message
+            if isinstance(exc, Exception)
+            else type(exc).__name__
         )
         raise
     submission.state = "succeeded"
+    query.finish("succeeded")
     return frame.rows
 
 

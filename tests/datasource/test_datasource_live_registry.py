@@ -76,7 +76,7 @@ EXPECTED_EFFECTS = {
     "test": AuthoringEffects(
         data_access="local_metadata_read",
         connection="opens_connection",
-        mutations=("user_global_state",),
+        mutations=("user_global_state", "project_state"),
         flags=("may_cache_resolved_secret",),
     ),
     "table": AuthoringEffects(data_access="none", connection="none"),
@@ -87,10 +87,15 @@ EXPECTED_EFFECTS = {
     "partition": AuthoringEffects(data_access="none", connection="none"),
     "time_range": AuthoringEffects(data_access="none", connection="none"),
     "unpruned": AuthoringEffects(data_access="none", connection="none"),
-    "inspect": AuthoringEffects(data_access="live_metadata_read", connection="opens_connection"),
+    "inspect": AuthoringEffects(
+        data_access="live_metadata_read",
+        connection="opens_connection",
+        mutations=("project_state",),
+    ),
     "raw_sql": AuthoringEffects(
         data_access="potentially_unbounded_read",
         connection="opens_connection",
+        mutations=("project_state",),
         flags=("requires_positive_row_guard", "requires_positive_timeout_guard"),
     ),
     "DatasourceCatalog.list": AuthoringEffects(
@@ -103,11 +108,13 @@ EXPECTED_EFFECTS = {
     "DatasourceCatalog.test": AuthoringEffects(
         data_access="local_metadata_read",
         connection="opens_connection",
-        mutations=("user_global_state",),
+        mutations=("user_global_state", "project_state"),
         flags=("may_cache_resolved_secret",),
     ),
     "SourceInspection.partitions": AuthoringEffects(
-        data_access="live_metadata_read", connection="opens_connection"
+        data_access="live_metadata_read",
+        connection="opens_connection",
+        mutations=("project_state",),
     ),
     "SourceInspection.source_column": AuthoringEffects(data_access="none", connection="none"),
     "SourceInspection.sample": AuthoringEffects(

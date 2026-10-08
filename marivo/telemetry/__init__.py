@@ -12,16 +12,16 @@ import threading
 import types
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from importlib import import_module
 from pathlib import Path
 from time import monotonic
 from typing import Literal, ParamSpec, TypeVar, cast
 
-from marivo import __version__
+from marivo import __version__, _execution_log, _jsonl
 from marivo._compat import UTC
 from marivo.config import STATE_DIR, load_project_config
 from marivo.project import resolve_project_root
@@ -37,7 +37,6 @@ _STARTED_EVENT = "marivo.operation.started"
 _COMPLETED_EVENT = "marivo.operation.completed"
 _INSTALLATION_FILE = "project_instance_id"
 _EVENT_FILE_PREFIX = "events-"
-_EVENT_FILE_SUFFIX = ".jsonl"
 _MAX_EVENT_FILE_BYTES = 128 * 1024 * 1024
 _MAX_HISTORICAL_TELEMETRY_BYTES = 1024 * 1024 * 1024
 _RETENTION_DAYS = 14
@@ -191,83 +190,25 @@ def _entry_date(entry: dict[str, object]) -> date:
     return datetime.fromtimestamp(int(timestamp) // 1_000_000_000, UTC).date()
 
 
-def _managed_event_files(directory: Path, event_date: date | None = None) -> list[Path]:
-    date_part = event_date.isoformat() if event_date is not None else "????-??-??"
-    return sorted(directory.glob(f"{_EVENT_FILE_PREFIX}{date_part}.*{_EVENT_FILE_SUFFIX}"))
-
-
-def _segment_number(path: Path) -> int | None:
-    stem = path.name.removesuffix(_EVENT_FILE_SUFFIX)
-    raw_segment = stem.rpartition(".")[2]
-    return int(raw_segment) if raw_segment.isdigit() else None
-
-
 def _output_path(root: Path, *, event_date: date, payload_bytes: int) -> Path:
-    directory = _output_dir(root)
-    candidates = [
-        (segment, path)
-        for path in _managed_event_files(directory, event_date)
-        if (segment := _segment_number(path)) is not None
-    ]
-    if not candidates:
-        segment = 0
-    else:
-        current_segment, current = max(candidates)
-        try:
-            current_size = current.stat().st_size
-        except OSError:
-            current_size = 0
-        segment = (
-            current_segment + 1
-            if current_size > 0 and current_size + payload_bytes > _MAX_EVENT_FILE_BYTES
-            else current_segment
-        )
-    return (
-        directory
-        / f"{_EVENT_FILE_PREFIX}{event_date.isoformat()}.{segment:03d}{_EVENT_FILE_SUFFIX}"
+    return _jsonl.output_path(
+        _output_dir(root),
+        _EVENT_FILE_PREFIX,
+        event_date=event_date,
+        payload_bytes=payload_bytes,
+        max_bytes=_MAX_EVENT_FILE_BYTES,
     )
 
 
 def _prune_historical_files(directory: Path, *, current_date: date) -> None:
-    resolved_directory = directory.resolve()
-    if _LAST_PRUNED_DATE.get(resolved_directory) == current_date:
-        return
-
-    files: list[tuple[date, Path, int]] = []
-    for path in _managed_event_files(directory):
-        if _segment_number(path) is None:
-            continue
-        raw_date = path.name.removeprefix(_EVENT_FILE_PREFIX).split(".", 1)[0]
-        try:
-            file_date = date.fromisoformat(raw_date)
-            size = path.stat().st_size
-        except (OSError, ValueError):
-            continue
-        if file_date >= current_date:
-            continue
-        files.append((file_date, path, size))
-
-    cutoff = current_date - timedelta(days=_RETENTION_DAYS - 1)
-    retained: list[tuple[date, Path, int]] = []
-    for file_date, path, size in files:
-        if file_date < cutoff:
-            try:
-                path.unlink()
-            except OSError:
-                retained.append((file_date, path, size))
-        else:
-            retained.append((file_date, path, size))
-
-    total_size = sum(size for _, _, size in retained)
-    for _, path, size in retained:
-        if total_size <= _MAX_HISTORICAL_TELEMETRY_BYTES:
-            break
-        try:
-            path.unlink()
-        except OSError:
-            continue
-        total_size -= size
-    _LAST_PRUNED_DATE[resolved_directory] = current_date
+    _jsonl.prune(
+        directory,
+        _EVENT_FILE_PREFIX,
+        current_date=current_date,
+        retention_days=_RETENTION_DAYS,
+        max_historical_bytes=_MAX_HISTORICAL_TELEMETRY_BYTES,
+        last_pruned=_LAST_PRUNED_DATE,
+    )
 
 
 def _instance_id(root: Path) -> str:
@@ -381,14 +322,7 @@ def _write_entry(root: Path, entry: dict[str, object]) -> None:
             payload = (json.dumps(entry, separators=(",", ":")) + "\n").encode()
             event_date = _entry_date(entry)
             path = _output_path(root, event_date=event_date, payload_bytes=len(payload))
-            path.parent.mkdir(parents=True, exist_ok=True)
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            try:
-                written = os.write(descriptor, payload)
-                if written != len(payload):
-                    raise OSError("short telemetry append")
-            finally:
-                os.close(descriptor)
+            _jsonl.append(path, payload)
             _DROPPED_EVENTS = 0
             with suppress(Exception):
                 _prune_historical_files(path.parent, current_date=event_date)
@@ -731,6 +665,7 @@ class _Operation:
     started: float = field(default_factory=monotonic)
     phase_durations_ms: dict[str, int] = field(default_factory=dict)
     result: object = None
+    _log_scope: AbstractContextManager[_execution_log.ExecutionContext] | None = None
     _stack_token: Token[tuple[_ActiveOperation, ...]] | None = None
     _current_token: Token[object | None] | None = None
     _start_entry: dict[str, object] | None = None
@@ -741,6 +676,20 @@ class _Operation:
     enabled: bool = False
 
     def __enter__(self) -> _Operation:
+        parent = _execution_log.snapshot(self.root).fields.get("operation_id")
+        self._log_scope = _execution_log.scope(
+            self.root,
+            operation_id=self.operation_id,
+            parent_operation_id=parent,
+            session_id=(
+                value
+                if isinstance(value := self.attributes.get("marivo.session.id"), str)
+                else None
+            ),
+            capability=self.capability_id,
+            surface=self.surface,
+        )
+        self._log_scope.__enter__()
         self.enabled = _enabled(self.root)
         if not self.enabled:
             return self
@@ -793,7 +742,8 @@ class _Operation:
         exc: BaseException | None,
         traceback: types.TracebackType | None,
     ) -> Literal[False]:
-        del exc_type, traceback
+        if self._log_scope is not None:
+            self._log_scope.__exit__(exc_type, exc, traceback)
         if not self.enabled:
             return False
         if self._current_token is not None:

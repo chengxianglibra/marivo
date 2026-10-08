@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -622,3 +623,38 @@ def test_clickhouse_cancel_requires_both_nonempty_owned_identity_parameters(
             purpose="analysis.cancel_owned_query",
         )
     assert backend.queries == []
+
+
+def test_parameterized_credential_failure_logs_template_without_bound_values(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ibis
+
+    from marivo import _execution_log
+    from tests.support.execution_logs import execution_records
+
+    secret = "credential-log-canary"
+    backend = ibis.duckdb.connect()
+
+    def fail(sql: str, **kwargs: object) -> None:
+        assert sql == provider_statement("duckdb", "duckdb.http_secret_bearer").template
+        assert kwargs["parameters"] == [secret, "https://example.test/"]
+        raise RuntimeError(secret)
+
+    monkeypatch.setattr(backend, "raw_sql", fail)
+    try:
+        with _execution_log.scope(tmp_path), pytest.raises(RuntimeError, match=secret):
+            execute_provider_statement(
+                backend,
+                ENGINE_PROFILES["duckdb"],
+                "duckdb.http_secret_bearer",
+                purpose="datasource.http_credentials",
+                parameters=[secret, "https://example.test/"],
+            )
+    finally:
+        backend.disconnect()
+    submitted, completed = execution_records(tmp_path)
+    assert submitted["sql"] == provider_statement("duckdb", "duckdb.http_secret_bearer").template
+    assert completed["state"] == "failed" and completed["error_type"] == "RuntimeError"
+    assert "error_message" not in completed
+    assert secret not in str([submitted, completed])

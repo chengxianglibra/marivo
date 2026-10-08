@@ -19,6 +19,7 @@ from decimal import Decimal
 from importlib import import_module
 from itertools import islice
 from math import isfinite
+from pathlib import Path
 from threading import Event, Lock, get_ident
 from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
 from uuid import uuid4
@@ -30,6 +31,7 @@ import ibis.expr.types as ir
 import pyarrow as pa
 from ibis.backends import BaseBackend
 
+from marivo import _execution_log
 from marivo.datasource.capabilities import (
     ProviderStatementSubmission,
     execute_provider_statement,
@@ -93,13 +95,33 @@ def provider_names() -> tuple[str, ...]:
 def _probe_backend(backend_name: str, backend: BaseBackend) -> None:
     expression = ibis.literal(1).name("probe").as_table()
     sql = backend.compile(expression, limit=None)
-    cursor = _native_cursor(backend, backend_name, sql)
+    query: _execution_log.QueryLog | None = None
+
+    def submitted() -> None:
+        nonlocal query
+        query = _execution_log.QueryLog(
+            sql, backend=backend_name, purpose="datasource.connectivity"
+        )
+
+    token = _BEFORE_SUBMIT.set(submitted)
     try:
-        rows = cursor.fetchmany(2)
-        if len(rows) != 1 or len(rows[0]) != 1 or rows[0][0] != 1:
-            raise _invalid("one Ibis literal result equal to 1", repr(rows))
+        cursor = _native_cursor(backend, backend_name, sql)
+        try:
+            rows = cursor.fetchmany(2)
+            if query is not None:
+                query.rows = len(rows)
+            if len(rows) != 1 or len(rows[0]) != 1 or rows[0][0] != 1:
+                raise _invalid("one Ibis literal result equal to 1", repr(rows))
+        finally:
+            cursor.close()
+    except BaseException as error:
+        if query is not None:
+            query.error = error
+        raise
     finally:
-        cursor.close()
+        _BEFORE_SUBMIT.reset(token)
+        if query is not None:
+            query.finish("failed" if query.error is not None else "succeeded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +208,9 @@ class _ControlPool(Protocol):
 
 _CURSOR_OWNER: ContextVar[Callable[[_Cursor], None] | None] = ContextVar(
     "source_cursor_owner", default=None
+)
+_BEFORE_SUBMIT: ContextVar[Callable[[], None] | None] = ContextVar(
+    "source_before_submit", default=None
 )
 
 _CLICKHOUSE_DEADLINE: ContextVar[dict[str, str | float | int] | None] = ContextVar(
@@ -309,6 +334,7 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
         execute = getattr(connection, "execute", None)
         if not callable(execute) or not isinstance(connection, _DuckDBNativeResult):
             raise _invalid("a DuckDB connection-local result", "connection unavailable")
+        _log_native_submission()
         execute(sql)
         return _DuckDBCursor(connection)
     if backend_name == "clickhouse":
@@ -316,6 +342,7 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
         if not callable(stream):
             raise _invalid("a ClickHouse row stream", "stream unavailable")
         settings = _CLICKHOUSE_DEADLINE.get()
+        _log_native_submission()
         cursor = _ClickHouseCursor(
             stream(sql, settings=settings) if settings is not None else stream(sql)
         )
@@ -354,6 +381,7 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
     try:
         if backend_name in ("mysql", "trino") and pending is not None and owner is not None:
             owner(pending)
+        _log_native_submission()
         cursor.execute(sql)
     except BaseException:
         if backend_name == "mysql" and owner is not None:
@@ -374,6 +402,12 @@ def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor
         if converter is not None and original is not None and pending is not None
         else cursor
     )
+
+
+def _log_native_submission() -> None:
+    before_submit = _BEFORE_SUBMIT.get()
+    if before_submit is not None:
+        before_submit()
 
 
 def _exact_array(
@@ -532,6 +566,7 @@ class SourceBatchStream:
         self._schema = schema
         self._chunk_size = chunk_size
         self._submission = submission
+        self._query_log = session._query_logs.get(id(submission))
         self._started = False
         self._closed = False
         self._active: Iterator[pa.RecordBatch] | None = None
@@ -563,19 +598,52 @@ class SourceBatchStream:
                     )
                     for index, field in enumerate(self._schema)
                 ]
-                yield pa.RecordBatch.from_arrays(arrays, schema=self._schema)
+                batch = pa.RecordBatch.from_arrays(arrays, schema=self._schema)
+                if self._query_log is not None:
+                    self._query_log.rows += batch.num_rows
+                    self._query_log.arrow_bytes = (self._query_log.arrow_bytes or 0) + batch.nbytes
+                yield batch
             check()
             self._submission.state = "succeeded"
         except GeneratorExit:
             raise
-        except BaseException:
+        except BaseException as error:
             self._submission.state = "failed"
+            if self._query_log is not None:
+                self._query_log.error = error
             raise
         finally:
             self._active = None
             self.close()
 
     def close(self) -> None:
+        if self._closed:
+            return
+        query = self._query_log
+        failed = False
+        try:
+            self._close()
+        except BaseException as error:
+            failed = True
+            if query is not None:
+                query.error = error
+            raise
+        finally:
+            if query is not None:
+                state: _execution_log.QueryState = (
+                    "failed"
+                    if failed or self._submission.state == "failed"
+                    else "succeeded"
+                    if self._submission.state == "succeeded"
+                    else "closed_early"
+                )
+                query.finish(
+                    state,
+                    cursor_state=self._submission.cursor_state,
+                    termination=self._submission.termination,
+                )
+
+    def _close(self) -> None:
         if not self._closed:
             self._closed = True
             if (
@@ -595,8 +663,10 @@ class SourceBatchStream:
             finally:
                 try:
                     self._session._release_cursor(self._cursor, self._submission)
-                except BaseException:
+                except BaseException as error:
                     self._submission.state = "failed"
+                    if self._query_log is not None:
+                        self._query_log.error = error
                     raise
                 finally:
                     self._session._streams.discard(self)
@@ -759,11 +829,14 @@ class SourceSession:
         backend: BaseBackend,
         *,
         owns_backend: bool = True,
+        project_root: Path | None = None,
     ):
         if datasource.backend_type != provider.name:
             raise _invalid(provider.name, datasource.backend_type)
         if backend.name != provider.name:
             raise _invalid(provider.name, backend.name)
+        self._log_context = _execution_log.snapshot(project_root)
+        self._log_root = self._log_context.root
         self.provider = provider
         self.datasource = datasource
         self._backend = backend
@@ -778,6 +851,7 @@ class SourceSession:
         self._streams: set[SourceBatchStream] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
+        self._query_logs: dict[int, _execution_log.QueryLog] = {}
         self._interrupted_submissions: tuple[SourceSubmission, ...] = ()
         self._pending_cursor: _Cursor | None = None
         self._cancel_control: BaseBackend | None = None
@@ -1187,13 +1261,33 @@ class SourceSession:
                 self._clickhouse_active = (submission, native_id)
                 self._clickhouse_cancel_requested = False
                 self._clickhouse_cancel_failure = None
+
+        query: _execution_log.QueryLog | None = None
+
+        def submitted() -> None:
+            nonlocal query
+            query = _execution_log.QueryLog(
+                proof.sql,
+                backend=self.provider.name,
+                purpose=proof.purpose,
+                project_root=self._log_root,
+                datasource=self.datasource.name,
+                source_identity=proof.source_identity,
+                native_query_id=native_settings.get("query_id") if native_settings else None,
+            )
+            query.arrow_bytes = 0
+            self._query_logs[id(submission)] = query
+
         cursor: _Cursor | None = None
         owner_token = _CURSOR_OWNER.set(self._own_pending_cursor)
         deadline_token = _CLICKHOUSE_DEADLINE.set(native_settings)
+        log_token = _BEFORE_SUBMIT.set(submitted)
         try:
             cursor = _native_cursor(self._backend, self.provider.name, proof.sql)
             self._checkpoint()
         except BaseException as error:
+            if query is not None:
+                query.error = error
             if (
                 self.provider.name == "mysql" and isinstance(error, KeyboardInterrupt)
             ) or self.provider.name == "clickhouse":
@@ -1226,13 +1320,24 @@ class SourceSession:
             self._pending_cursor = None
             _CURSOR_OWNER.reset(owner_token)
             _CLICKHOUSE_DEADLINE.reset(deadline_token)
+            _BEFORE_SUBMIT.reset(log_token)
+            if query is not None and query.error is not None:
+                query.finish(
+                    "failed",
+                    cursor_state=submission.cursor_state,
+                    termination=submission.termination,
+                )
         if not isinstance(cursor, _Cursor):
             close = getattr(cursor, "close", None)
             if callable(close):
                 close()
             submission.state = "failed"
             submission.cursor_state = "closed"
-            raise _invalid("a closable native batch cursor", type(cursor).__name__)
+            error = _invalid("a closable native batch cursor", type(cursor).__name__)
+            if query is not None:
+                query.error = error
+                query.finish("failed", cursor_state=submission.cursor_state)
+            raise error
         stream = SourceBatchStream(self, cursor, proof.schema, chunk_size, submission)
         self._streams.add(stream)
         return stream
@@ -1283,6 +1388,34 @@ class SourceSession:
 
     def _request_interrupt(self) -> None:
         """Request native cancellation; leave resource cleanup on the owner thread."""
+        query = next(
+            (
+                self._query_logs[id(item)]
+                for item in reversed(self.submissions)
+                if id(item) in self._query_logs
+            ),
+            None,
+        )
+        context = query.context if query is not None else self._log_context
+        if (
+            query is not None
+            and not query.finished
+            and not context.fields.get("interrupt_requested")
+        ):
+            context.fields["interrupt_requested"] = True
+            _execution_log.emit("query.interrupt_requested", context=context)
+        fields = {
+            key: value
+            for key, value in context.fields.items()
+            if key
+            not in {"query_id", "backend", "purpose", "interrupt_requested", "native_query_id"}
+        }
+        if query is not None:
+            fields["parent_query_id"] = context.fields["query_id"]
+        with _execution_log.scope(context.root, **fields):
+            self._interrupt_native()
+
+    def _interrupt_native(self) -> None:
         if self.provider.name == "clickhouse":
             with self._cancel_lock:
                 active = self._clickhouse_active
@@ -1664,3 +1797,12 @@ class SourceSession:
                     if self.provider.name in {"duckdb", "sqlite"}
                     else "remote_unknown"
                 )
+                query = self._query_logs.get(id(submission))
+                if query is not None:
+                    _execution_log.emit(
+                        "query.cleanup",
+                        context=query.context,
+                        termination=submission.termination,
+                        connection_disconnected=True,
+                        cursor_state=submission.cursor_state,
+                    )

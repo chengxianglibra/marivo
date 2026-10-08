@@ -8,6 +8,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast
@@ -15,6 +16,7 @@ from typing import Any, Literal, TypeAlias, cast
 import pandas as pd
 from pandas.api.types import is_object_dtype
 
+from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
 from marivo._data_render import _DataCard, _DataResult
 from marivo.datasource import backends as _backends
@@ -724,7 +726,7 @@ def _run_roundtrip_with_deadline(
                 with suppress(Exception):
                     disconnect()
 
-    thread = threading.Thread(target=worker, daemon=True)
+    thread = threading.Thread(target=copy_context().run, args=(worker,), daemon=True)
     started = time.perf_counter()
     state["started"] = started
     thread.start()
@@ -812,7 +814,8 @@ def test(
         On success, env-sourced secrets that resolved correctly are
         offered to the user-global plaintext cache. Cache write failures
         emit a warning without changing the successful result. The backend
-        is always disconnected.
+        is always disconnected. Actual probe SQL and execution diagnostics are
+        always written to project-local ``.marivo/logs/`` independently of telemetry.
 
         Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; neither depends on the backend's
@@ -854,11 +857,12 @@ def _test_in_project(
             repair=None,
         )
 
-    return _run_roundtrip_with_deadline(
-        roundtrip,
-        timeout_seconds=timeout_seconds,
-        datasource_name=datasource_name,
-    )
+    with _execution_log.scope(project_root, datasource=datasource_name):
+        return _run_roundtrip_with_deadline(
+            roundtrip,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+        )
 
 
 def test_no_persist(
@@ -886,7 +890,7 @@ def test_no_persist(
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.
         Does not write ``~/.marivo/secrets.toml``. The backend is always
-        disconnected.
+        disconnected. Actual probe SQL is recorded in project-local execution logs.
 
         Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; if the deadline is exceeded the
@@ -915,11 +919,12 @@ def test_no_persist(
             repair=None,
         )
 
-    return _run_roundtrip_with_deadline(
-        roundtrip,
-        timeout_seconds=timeout_seconds,
-        datasource_name=datasource_name,
-    )
+    with _execution_log.scope(project_root, datasource=datasource_name):
+        return _run_roundtrip_with_deadline(
+            roundtrip,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+        )
 
 
 def _require_raw_sql_reason(reason: str) -> str:
@@ -1008,7 +1013,9 @@ def raw_sql(
         Any execution failure (including a write attempt) surfaces as a
         ``DatasourceRawSqlError``; the backend is always disconnected. The result
         is terminal custom analysis — it carries no metric, time-scope, slice,
-        lineage, or canonical analysis contract.
+        lineage, or canonical analysis contract. The submitted SQL text and query
+        outcome are always written to project-local ``.marivo/logs/``; disabling
+        telemetry does not disable execution logs.
     """
     if limit < 1:
         raise ValueError("limit must be positive.")
@@ -1060,17 +1067,25 @@ def raw_sql(
         try:
             with timeout(backend, timeout_seconds):
                 query_started = True
-                cursor = backend.raw_sql(statement)
-                try:
-                    columns, extracted_rows, types = _extract_raw_sql_frame(
-                        cursor,
-                        include_types,
-                        limit=fetch_limit,
-                    )
-                finally:
-                    close = getattr(cursor, "close", None)
-                    if callable(close):
-                        close()
+                with _execution_log.QueryLog(
+                    statement,
+                    backend=backend_type,
+                    purpose="datasource.raw_sql",
+                    project_root=project_root,
+                    datasource=datasource_id,
+                ) as query:
+                    cursor = backend.raw_sql(statement)
+                    try:
+                        columns, extracted_rows, types = _extract_raw_sql_frame(
+                            cursor,
+                            include_types,
+                            limit=fetch_limit,
+                        )
+                        query.rows = len(extracted_rows)
+                    finally:
+                        close = getattr(cursor, "close", None)
+                        if callable(close):
+                            close()
         except DatasourceError:
             raise
         except Exception as exc:

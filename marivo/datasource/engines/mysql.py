@@ -6,6 +6,7 @@ import socket
 import warnings
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
+from contextvars import copy_context
 from threading import Event, Timer
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -581,7 +582,8 @@ def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[No
                 owned_socket.shutdown(socket.SHUT_RDWR)
 
     with owned_socket:
-        timer = Timer(timeout_seconds, cancel)
+        context = copy_context()
+        timer = Timer(timeout_seconds, lambda: context.run(cancel))
         timer.daemon = True
         try:
             timer.start()

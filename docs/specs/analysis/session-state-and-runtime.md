@@ -475,3 +475,36 @@ Attribution is algebraic, association is descriptive, forecast is conditional
 model output, and deviation/runs retain chosen fit/condition scope.
 Publication and numerical admission do not establish causality, business
 authority, calibration or release qualification.
+
+
+## Execution diagnostics and usage telemetry
+
+Execution diagnostics are always-on, project-local JSONL in
+`.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record actual Marivo-owned SQL
+submissions before driver calls, consumption/cleanup outcomes, Analysis execution
+phases and retained Artifact reuse. Generated-only SQL, third-party driver/Ibis
+bootstrap SQL and Store persistence SQL are outside their coverage. Local
+Python/Arrow stages record timing and result counts without inventing SQL.
+
+Diagnostic records share available operation/session IDs with usage telemetry;
+Run admission adds the actual Run ID. Project-root and operation contexts are
+propagated into connectivity workers and captured by query records, so completion
+still refers to the original project after ambient context changes. Diagnostics
+observe execution facts; they do not admit operations, prove remote termination,
+authorize publication or restore Artifacts. Runtime/Store remain the authority.
+
+The telemetry sink retains its independently configurable operation-level usage
+contract and excludes SQL text and exception messages. Turning it off does not
+disable diagnostics. SQL stays verbatim and complete; bound credential values,
+result rows and exception locals are excluded. Parameterized credential failures
+retain the error type without their potentially sensitive message. Other errors
+use the existing bounded, redacted backend summary.
+
+Both sinks use the shared private JSONL append/rolling primitives with separate
+content, directories and enablement. Execution logs roll by UTC day and an
+approximate 128 MiB size threshold; individual records are never truncated. Daily
+cleanup preserves the current day and unrelated files, retains 14 UTC days, and
+caps managed historical files at 1 GiB. This is not a whole-directory hard cap.
+Execution log directories/files use 0700/0600 permissions. Write and cleanup
+failures never replace execution results/errors; rate-limited warnings and
+per-project recovered-write drop counts expose logging failures.

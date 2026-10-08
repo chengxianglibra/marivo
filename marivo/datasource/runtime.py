@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 import pandas as pd
 from ibis.backends import BaseBackend
 
+from marivo import _execution_log
 from marivo.datasource import backends, store
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.authoring import _storage_name
@@ -117,18 +118,19 @@ class DatasourceConnectionService:
     ) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
         datasource_name = _storage_name(name)
-        backend = _build_backend_from_store(
-            datasource_name,
-            self._project_root,
-            read_only=read_only,
-            terminal_timeout_seconds=terminal_timeout_seconds,
-        )
-        try:
-            yield backend
-        finally:
-            disconnected = _disconnect(backend)
-            if on_disconnect is not None:
-                on_disconnect(disconnected)
+        with _execution_log.scope(self._project_root, datasource=datasource_name):
+            backend = _build_backend_from_store(
+                datasource_name,
+                self._project_root,
+                read_only=read_only,
+                terminal_timeout_seconds=terminal_timeout_seconds,
+            )
+            try:
+                yield backend
+            finally:
+                disconnected = _disconnect(backend)
+                if on_disconnect is not None:
+                    on_disconnect(disconnected)
 
     def _build_session_backend(self, name: str) -> Any:
         datasource_name = _storage_name(name)
@@ -198,7 +200,8 @@ class DatasourceConnectionService:
         datasource_name = _storage_name(name)
         backend = self._session_backends.get(datasource_name)
         if backend is None:
-            backend = self._build_session_backend(datasource_name)
+            with _execution_log.scope(self._project_root, datasource=datasource_name):
+                backend = self._build_session_backend(datasource_name)
             self._session_backends[datasource_name] = backend
         return backend
 
@@ -211,7 +214,11 @@ class DatasourceConnectionService:
             if not isinstance(backend, BaseBackend):
                 raise TypeError("a live Ibis backend is required for governed source reads")
             session = SourceSession(
-                provider_for(datasource.backend_type), datasource, backend, owns_backend=False
+                provider_for(datasource.backend_type),
+                datasource,
+                backend,
+                owns_backend=False,
+                project_root=self._project_root,
             )
             self._source_sessions[datasource_name] = session
         return session
