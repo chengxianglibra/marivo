@@ -615,13 +615,16 @@ aov = ms.ratio(
 ```
 省略政策时保留原有构建器含义。时间路径必须由有序、连续、单值的 Relationship 组成；
 不完整路径会在加载时被拒绝。
-`agg="median"` 和 `agg=("percentile", q)` 会按后端能力执行。在 Trino 上，两者都会
-编译为 `APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。
+`agg="median"` 和 `agg=("percentile", q)` 要求精确的源端原生操作。Marivo 的 Trino
+路径不支持它们：加载保留合法声明，但 scoped readiness 会报告
+`aggregate_backend_unsupported`。只有业务允许近似时，才显式声明
+`agg="approx_median"` 或 `agg=("approx_percentile", q)`；它们编译为
+`APPROX_PERCENTILE`，其中 median 使用 `q=0.5`。执行不会替换精确聚合定义。
 
 空间可加性与时间 fold 相互独立。尤其是 `agg="mean"` 仍为 `non_additive`；但当输入
 度量为半可加时，会先在每个采样点计算空间 mean，再执行继承或显式指定的时间 fold。
-Trino 的 sampled percentile fold 使用近似 `APPROX_PERCENTILE`，DuckDB 则保持精确
-percentile。若度量不是半可加，传入 `fold=` 会被拒绝。
+时间 fold 有自己的操作级准入检查；聚合与后端的 readiness 检查通过，并不授予
+时间 fold 的执行资格。若度量不是半可加，传入 `fold=` 会被拒绝。
 
 #### Count 指标 —— `ms.count`
 
@@ -914,6 +917,11 @@ if report.status == "blocked":
 ```
 这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
 不创建 authoring checkpoint，也不会影响 readiness。
+
+就绪检查还会检查请求依赖闭包和嵌套 runtime expression 中已知的 direct-only
+聚合与后端不兼容。它只编译独立的合成 Ibis 表达式，不连接来源、不需要凭据或可选
+后端客户端驱动，也不读取物理 schema。Blocker 保留原聚合及 q，并将受影响的根
+排除在 `analysis_ready_inputs` 之外。`scope="semantic_static"` 仍不保证特定操作可执行。
 
 scope 使用 `md.unpruned`（无裁剪谓词）、`md.time_range`（物理时间范围）或
 `md.partition`（物理分区值）构造；三者都要求正数的行数和超时限制。

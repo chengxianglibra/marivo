@@ -17,6 +17,16 @@ from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.shared_fixtures import DslCaseFactory
 
 
+def test_runtime_aggregate_help_discloses_static_backend_check() -> None:
+    text, _, _ = render_help_text("analysis.runtime_metric.aggregate")
+    callable_text, _, _ = render_help_text(mv.runtime_metric.aggregate)
+    assert text == callable_text
+    assert "count_distinct, median and percentile require exact operations" in text
+    assert "approx_* explicitly permits approximation" in text
+    assert "catalog.readiness() blocks known backend incompatibilities without connecting" in text
+    assert "execution never substitutes the definition" in text
+
+
 def test_parameter_semantics_and_real_producers() -> None:
     text, _, _ = render_help_text(mv.LogicalNumericRelation.correlate)
     assert "Input method: pearson, spearman, or kendall." in text

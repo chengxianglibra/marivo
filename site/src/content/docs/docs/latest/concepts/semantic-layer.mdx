@@ -699,14 +699,18 @@ aov = ms.ratio(
 ```
 An omitted policy keeps the existing builder behavior. The declared time path
 must resolve through ordered, functional Relationships; incomplete paths fail at load.
-`agg="median"` and `agg=("percentile", q)` follow backend support. On Trino,
-both compile to `APPROX_PERCENTILE`, with median using `q=0.5`.
+`agg="median"` and `agg=("percentile", q)` require exact source-native operations.
+Marivo's Trino route does not support them: loading preserves a valid declaration,
+but scoped readiness reports `aggregate_backend_unsupported`. When approximation
+is acceptable, explicitly declare `agg="approx_median"` or
+`agg=("approx_percentile", q)`; these compile to `APPROX_PERCENTILE`, with median
+using `q=0.5`. Execution never substitutes an exact definition.
 
 Spatial additivity and temporal folding are independent. In particular,
 `agg="mean"` remains `non_additive`, but on a semi-additive measure it executes
 the spatial mean at each sample point and then applies the inherited or explicit
-time fold. Trino sampled percentile folds use approximate
-`APPROX_PERCENTILE`; DuckDB sampled percentile folds remain exact. Supplying
+time fold. Temporal folds have their own operation-specific admission checks;
+passing aggregate/backend readiness does not qualify a temporal fold. Supplying
 `fold=` for a measure that is not semi-additive is rejected.
 
 #### Count metrics — `ms.count`
@@ -1031,6 +1035,13 @@ if report.status == "blocked":
 These runtime calls accept the current entry or its exact ref and normalize to
 the ref immediately. Ordinary preview creates no authoring checkpoint and does
 not affect readiness.
+
+Readiness also checks known direct-only aggregate/backend incompatibilities for
+the requested dependency closures and nested runtime expressions. It uses an
+independent synthetic Ibis expression without a connection, credentials, optional
+backend client drivers, or physical schema inspection. A blocker preserves the
+aggregate and q and excludes affected roots from `analysis_ready_inputs`.
+`scope="semantic_static"` still does not promise operation-specific execution.
 
 Build the scope with `md.unpruned` (no pruning predicate), `md.time_range`
 (physical time range), or `md.partition` (physical partition values); each

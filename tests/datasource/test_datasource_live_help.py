@@ -12,6 +12,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
+from marivo._help.render import render_help_text
 from marivo.datasource.catalog import DatasourceCatalog
 from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.inspection import (
@@ -22,6 +23,25 @@ from marivo.datasource.inspection import (
 )
 from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
 from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+
+
+def test_trino_help_matches_source_native_quantile_capability() -> None:
+    from marivo.datasource.engines import require_profile_for_backend_type
+    from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+    profile = require_profile_for_backend_type("trino")
+    assert not profile.exact_quantile
+    assert aggregate_repair(("percentile", 0.95), profile.name) is not None
+    assert aggregate_repair(("approx_percentile", 0.95), profile.name) is None
+    text, _, _ = render_help_text("datasource.trino")
+    callable_text, _, _ = render_help_text(md.trino)
+    assert text == callable_text
+    assert "does not support exact median/percentile" in text
+    assert "approx_median" in text and "('approx_percentile', q)" in text
+    assert "readiness blocks incompatible aggregates" in text
+    assert "execution never substitutes them" in text
+    assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
+    assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
 
 
 @pytest.mark.parametrize(

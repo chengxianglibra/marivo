@@ -2781,6 +2781,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_declarations.aggregate",
             (
                 "Declare an aggregate Metric; agg owns exact/approximate intent. "
+                "count_distinct, median and percentile require exact operations; approx_* "
+                "explicitly permits approximation. Backend support is required: scoped "
+                "readiness blocks known incompatibilities without connecting, and execution "
+                "never substitutes the definition. "
                 "Filters name dimensions on the Measure's Entity. unit= overrides the "
                 "derived unit; omitted units inherit the Measure's unit for value aggregates "
                 "and derive '1' for count/count_distinct/approx_count_distinct. ms.count "
@@ -2812,7 +2816,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "
                 "filter=ms.where(region='US'))"
             ),
-            see_also=(_target("count"), _target("where")),
+            see_also=(_target("count"), _target("where"), _target("readiness")),
         ),
         _capability(
             "count",
@@ -3587,7 +3591,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Statically certify requested inputs through the compiled dependency closure and fixed graph budgets; unrelated load warnings are excluded, and operation-specific executability remains with analysis.",
+            "Statically certify requested inputs through the compiled dependency closure, fixed graph budgets and declared aggregate/backend support without connecting or querying. Known incompatibilities block affected roots; unrelated load warnings are excluded. Physical types and operation-specific executability remain with analysis.",
             kind="method",
             output="ReadinessReport",
             inputs=_inputs(

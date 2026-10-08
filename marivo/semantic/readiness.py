@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, ClassVar, Literal, cast
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
@@ -18,6 +19,7 @@ from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
     from marivo.semantic._metric_resolution import MetricTemporalContract
+    from marivo.semantic.ir import AggKind
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.validator import Registry
 
@@ -31,6 +33,7 @@ ReadinessIssueKind = Literal[
     "time_dimension_pushdown_advisory",
     "undeclared_naive_time_axis",
     "metric_graph_invalid",
+    "aggregate_backend_unsupported",
     "snapshot_fold_unobservable",
     "state_model_seed_missing",
     "business_order_values_unverified",
@@ -424,6 +427,43 @@ def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
 
 
+def _aggregate_backend_issue(
+    *,
+    path: str,
+    agg: AggKind,
+    target: RefPayloadV1,
+    registry: Registry,
+    help_target: LiveHelpTarget,
+) -> ReadinessIssue | None:
+    """Check a declared Measure/Entity aggregate without binding its source."""
+    from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+    entity_id = registry.measures[target.path].entity if target.kind == "measure" else target.path
+    entity = registry.entities[entity_id]
+    datasource = registry.datasources[entity.datasource]
+    action = aggregate_repair(agg, datasource.backend_type)
+    if action is None:
+        return None
+    expected = f"source-native agg={agg!r} with its declared exactness"
+    received = f"backend={datasource.backend_type}"
+    return _issue(
+        "aggregate_backend_unsupported",
+        "blocker",
+        (path,),
+        f"{path} requires {expected}, but datasource {entity.datasource!r} has {received} "
+        "with no implementation satisfying that definition.",
+        AuthoringRepair(kind="reauthor", help_target=help_target, action=action),
+        details={
+            "agg": list(agg) if isinstance(agg, tuple) else agg,
+            "target_ref": target.to_dict(),
+            "datasource": entity.datasource,
+            "backend": datasource.backend_type,
+            "expected": expected,
+            "received": received,
+        },
+    )
+
+
 def _undeclared_naive_time_axis_issues(
     checked_refs: Iterable[str],
     kinds: Mapping[str, SemanticKind],
@@ -607,7 +647,7 @@ def build_readiness_report(
     """Build a semantic-static readiness report from current loaded state.
 
     Uses the compiled definition graph for dependency closure, then performs
-    pure in-memory checks: load errors, unknown refs,
+    static checks: load errors, unknown refs, declared aggregate backend support,
     cross-datasource unfederated metrics, certified temporal artifact
     integrity, and load warnings. It never reads ordinary
     discovery or preview history and never executes a datasource query.
@@ -727,6 +767,28 @@ def build_readiness_report(
                         },
                     )
                 )
+
+        for ref in checked_refs:
+            if kinds.get(ref) != SemanticKind.METRIC:
+                continue
+            path = _display_path(ref)
+            metric = reg.metrics[path]
+            if metric.aggregation is None or metric.aggregation_target is None:
+                continue
+            target_kind = (
+                SemanticKind.MEASURE
+                if metric.aggregation_target_kind == "measure"
+                else SemanticKind.ENTITY
+            )
+            issue = _aggregate_backend_issue(
+                path=path,
+                agg=metric.aggregation,
+                target=RefPayloadV1.from_ref(_exact_ref(metric.aggregation_target, target_kind)),
+                registry=reg,
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="aggregate"),
+            )
+            if issue is not None:
+                blockers.append(issue)
 
     for ref in unknown_refs:
         path = _display_path(ref)

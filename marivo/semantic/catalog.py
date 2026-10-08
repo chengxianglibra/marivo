@@ -76,6 +76,7 @@ from marivo.refs import (
     MetricKind,
     PeriodCalendarKind,
     Ref,
+    RefPayloadV1,
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
@@ -124,6 +125,7 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
+    AggKind,
     BusinessOrderIR,
     CumulativeComposition,
     DateParse,
@@ -5568,7 +5570,10 @@ class SemanticCatalog(RenderableResult):
 
         Reads only current loaded semantic state and dedicated certified
         artifact state without acquiring, refreshing, or querying ordinary
-        datasource evidence.
+        datasource evidence. Declared aggregate/backend incompatibilities are
+        checked with an independent synthetic Ibis expression, without opening
+        a source or requiring optional backend client drivers. Passing this
+        check does not certify physical types or operation-specific execution.
 
         ``analysis_ready_inputs`` preserves directly selected refs and runtime
         expressions whose full dependency closures have no blocker.
@@ -5622,9 +5627,11 @@ class SemanticCatalog(RenderableResult):
                     refs=tuple(ref.key for ref in duplicate_refs),
                 )
 
+        from marivo.introspection.live.model import LiveHelpTarget
         from marivo.semantic.metric_graph_canonical import fingerprint
         from marivo.semantic.readiness import (
             ReadinessIssue,
+            _aggregate_backend_issue,
             _temporal_contract_unobservable_issue,
         )
         from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
@@ -5759,11 +5766,32 @@ class SemanticCatalog(RenderableResult):
                 valid_forest_inputs.append(expression)
                 valid_forest_indices.append(index)
                 root_key = runtime_key(expression, index=index)
+                checked_aggregates: set[tuple[str, AggKind]] = set()
                 checked_temporal_contracts: set[tuple[str, str, str]] = set()
                 for aggregate in runtime_aggregates(expression):
                     measure = registry.measures.get(aggregate.measure.path)
                     if measure is None:
                         continue
+                    aggregate_key = (aggregate.measure.path, aggregate.agg)
+                    if aggregate_key not in checked_aggregates:
+                        checked_aggregates.add(aggregate_key)
+                        issue = _aggregate_backend_issue(
+                            path=root_key,
+                            agg=aggregate.agg,
+                            target=RefPayloadV1.from_ref(aggregate.measure),
+                            registry=registry,
+                            help_target=LiveHelpTarget(
+                                surface="analysis", canonical_id="runtime_metric.aggregate"
+                            ),
+                        )
+                        if issue is not None:
+                            graph_blocked.add(index)
+                            graph_issues.append(
+                                replace(
+                                    issue,
+                                    catalog_definition_fingerprint=self.definition_fingerprint,
+                                )
+                            )
                     temporal_contract = resolve_aggregate_temporal_contract(
                         measure.additivity,
                         fold_override=fold_input_to_ir(aggregate.fold),

@@ -195,7 +195,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "trino",
             "marivo.datasource.authoring.trino",
-            "Build a Trino datasource specification.",
+            "Build a Trino datasource specification. Marivo's source-native route does not "
+            "support exact median/percentile; explicitly declare approx_median or "
+            "('approx_percentile', q) when approximation is acceptable. Scoped semantic "
+            "readiness blocks incompatible aggregates; execution never substitutes them.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],

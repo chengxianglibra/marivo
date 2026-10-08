@@ -157,6 +157,9 @@ def aggregate(
             approximation. Observation never overrides this definition.
             Unsupported exact operations report the corresponding approximate
             definition and whether the datasource supports it; no automatic substitution.
+            Loading preserves valid declarations. Scoped catalog.readiness()
+            blocks known aggregate/backend incompatibilities without opening
+            the datasource; passing does not certify a particular analysis operation.
         time: Business event-time dimension for windowed observation.
         time_via: Ordered to-one relationships from the measure Entity to the time Entity.
         nulls: Declared input-Null policy for admitted Analysis methods.
@@ -178,10 +181,18 @@ def aggregate(
         domain: Override the active domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
+    Returns:
+        A stable ``Ref[metric]`` for the aggregate declared in the active loader context.
+
     Example:
         >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
         >>> inventory = ms.aggregate(name="inventory", measure=quantity, agg="sum", fold="last")
         >>> p95_latency = ms.aggregate(name="p95_latency", measure=latency, agg=("percentile", 0.95))
+
+    Constraints:
+        Declare inside a loaded domain module. Aggregate exactness belongs to
+        this definition; static readiness checks known backend incompatibilities,
+        while the consuming analysis operation owns physical-type and shape checks.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

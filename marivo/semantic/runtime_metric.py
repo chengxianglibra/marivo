@@ -645,6 +645,9 @@ def aggregate(
             observation cannot change the declared aggregate.
             Unsupported exact operations report the corresponding approximate
             definition and whether the datasource supports it; no automatic substitution.
+            Scoped catalog.readiness() checks known aggregate/backend incompatibilities
+            without opening a datasource. Passing does not certify physical types or
+            operation-specific execution.
         fold: Optional temporal-fold override. A semi-additive measure supplies
             the governed status-time axis and default fold when this is omitted.
         slice_by: Optional branch-local typed slice copied into the descriptor.
