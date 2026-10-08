@@ -238,9 +238,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="DatasourceSummary",
             inputs=_inputs(("subject", "DatasourceSpec")),
             effects=_effects("local_metadata_read", mutations=("project_state",)),
-            constraints=("datasource_secret_env_ref",),
+            constraints=("datasource_secret_env_ref", "datasource_register_outside_loader"),
             example='md.register(md.duckdb(name="warehouse", path=":memory:"))',
-            preconditions=("a validated DatasourceSpec",),
+            preconditions=("a validated DatasourceSpec", "execution outside model loading"),
         ),
         _capability(
             "remove",

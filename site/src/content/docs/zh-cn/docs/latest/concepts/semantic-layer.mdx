@@ -264,12 +264,18 @@ Dataset 比较遵循原生注册的显式窗口对齐契约。
 辅助函数返回类型化 spec，并在数据源 loader 执行时自动声明。语义文件通过精确的
 `ms.ref.datasource("warehouse")` factory 引用数据源。
 
+声明文件直接调用数据源构造器。`md.register(spec)` 用于模型加载之外的初始化脚本，
+负责创建或替换数据源文件。在数据源或语义加载期间调用它（包括同步导入）会在任何
+文件写入之前报错；去掉 `md.register(...)` 包装，保留构造器调用即可。
+显式指定 `project_root` 也不能绕过这一限制。
+
 ```python
 # models/datasources/warehouse.py
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.analysis as mv
 
+# The loader collects this declaration without md.register().
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",

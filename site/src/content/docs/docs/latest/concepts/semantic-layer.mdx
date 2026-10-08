@@ -304,12 +304,20 @@ backend. The helper returns a typed spec and auto-declares it while the datasour
 loader runs. Semantic files refer to it through the exact
 `ms.ref.datasource("warehouse")` factory.
 
+Declaration files call the datasource constructor directly. Use
+`md.register(spec)` only in setup scripts outside model loading to create or
+replace a datasource file. Calling it during datasource or semantic loading,
+including synchronous imports, fails before any file is written; remove the
+`md.register(...)` wrapper and keep the constructor call. An explicit
+`project_root` does not bypass this boundary.
+
 ```python
 # models/datasources/warehouse.py
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.analysis as mv
 
+# The loader collects this declaration without md.register().
 md.duckdb(
     name="warehouse",
     path="warehouse.duckdb",

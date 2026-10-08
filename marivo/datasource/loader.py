@@ -9,6 +9,7 @@ from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 
+from marivo._authoring.loading import _source_loading
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -60,7 +61,8 @@ def _execute_file(
         module = importlib_util.module_from_spec(spec)
         module.__package__ = package_name
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        with _source_loading(filepath):
+            spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, DatasourceError):
             errors.append(exc)
