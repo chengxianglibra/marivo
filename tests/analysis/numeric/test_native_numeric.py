@@ -70,25 +70,41 @@ def test_native_weighted_and_mean(
     session = mv.session.get_or_create("native", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.facts"))
     scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
-    observed = members.observe(ms.ref.metric("sales.weighted"), during=scope)
+    observed = members.observe(
+        ms.ref.metric("sales.weighted"), during=scope, by=(ms.ref.entity("sales.facts"),)
+    )
     assert observed.rollup().execute().to_pandas().value.tolist() == pytest.approx([expected])
     saved = observed.execute()
     assert saved.rollup().execute().to_pandas().value.tolist() == pytest.approx([expected])
     coordinate = ms.ref.dimension("sales.facts.category")
     with_coordinates = members.observe(
-        ms.ref.metric("sales.weighted"), during=scope, coordinates=(coordinate,)
+        ms.ref.metric("sales.weighted"),
+        during=scope,
+        by=(
+            ms.ref.entity("sales.facts"),
+            coordinate,
+        ),
     )
     for relation in (with_coordinates, with_coordinates.execute()):
         rows = relation.group_by(coordinate).rollup().execute().to_pandas()
         assert rows.value.dropna().tolist() == pytest.approx([expected])
     grouped = (
-        members.observe(ms.ref.metric("sales.mean"), during=scope, coordinates=(coordinate,))
+        members.observe(
+            ms.ref.metric("sales.mean"),
+            during=scope,
+            by=(
+                ms.ref.entity("sales.facts"),
+                coordinate,
+            ),
+        )
         .group_by(coordinate)
         .rollup()
     )
     grouped_mean = grouped.execute()
     assert grouped_mean.to_pandas().value.tolist() == [row[0] for row in expected_mean]
-    mean = members.observe(ms.ref.metric("sales.mean"), during=scope)
+    mean = members.observe(
+        ms.ref.metric("sales.mean"), during=scope, by=(ms.ref.entity("sales.facts"),)
+    )
     assert float(mean.rollup().execute().to_pandas().value.iloc[0]) == pytest.approx(2.34, abs=0.01)
     assert float(mean.execute().rollup().execute().to_pandas().value.iloc[0]) == pytest.approx(
         2.34, abs=0.01
@@ -205,7 +221,9 @@ def _remote_weighted(
         session = mv.session.get_or_create("native_remote", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
-        observed = members.observe(ms.ref.metric("sales.weighted"), during=scope)
+        observed = members.observe(
+            ms.ref.metric("sales.weighted"), during=scope, by=(ms.ref.entity("sales.facts"),)
+        )
         if overflow:
             from marivo.analysis.materialization.errors import MaterializationError
 
@@ -275,7 +293,7 @@ def _remote_weighted(
             (mv.runtime_metric.ratio(total, weights, label="rate"), 7.03 / 103, 1e-12),
             (mv.runtime_metric.linear(add=[total], subtract=[weights], label="net"), -95.97, 1e-9),
         ):
-            logical = members.observe(metric, during=scope)
+            logical = members.observe(metric, during=scope, by=(ms.ref.entity("sales.facts"),))
             for relation in (logical, logical.execute()):
                 value = relation.rollup().execute().to_pandas().value.iloc[0]
                 assert float(value) == pytest.approx(expected, rel=0, abs=tolerance)
@@ -328,7 +346,10 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     observed = session.members(ms.ref.entity("sales.facts")).observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-07-02"),
-        coordinates=(coordinate,),
+        by=(
+            ms.ref.entity("sales.facts"),
+            coordinate,
+        ),
     )
     for relation in (observed, observed.execute()):
         result = relation.group_by(coordinate).rollup().execute()
@@ -417,13 +438,19 @@ def test_mixed_component_attribution_source_and_fixed(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.link"),
-        coordinates=(axis,),
+        by=(
+            ms.ref.entity("sales.people"),
+            axis,
+        ),
     ).rollup()
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.link"),
-        coordinates=(axis,),
+        by=(
+            ms.ref.entity("sales.people"),
+            axis,
+        ),
     ).rollup()
     change = current.compare(baseline)
     for relation in (change, change.execute()):
@@ -475,7 +502,9 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
         label="result",
     )
     logical = session.members(ms.ref.entity("sales.facts")).observe(
-        metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01")
+        metric,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(ms.ref.entity("sales.facts"),),
     )
     fixed = logical.execute()
     for result in (fixed, logical.rollup().execute(), fixed.rollup().execute()):
@@ -513,13 +542,19 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.link"),
-        coordinates=(axis,),
+        by=(
+            ms.ref.entity("sales.people"),
+            axis,
+        ),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.link"),
-        coordinates=(axis,),
+        by=(
+            ms.ref.entity("sales.people"),
+            axis,
+        ),
     )
     change = current.compare(baseline)
     fixed = change.execute()
@@ -558,7 +593,9 @@ def test_linear_still_rejects_final_carrier_overflow(
         add=[ms.ref.metric("sales.total"), ms.ref.metric("sales.weights")], label="total"
     )
     logical = session.members(ms.ref.entity("sales.facts")).observe(
-        metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01")
+        metric,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(ms.ref.entity("sales.facts"),),
     )
     fixed = logical.execute()
     for relation in (logical, fixed):
@@ -588,11 +625,13 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.link"),
+        by=(ms.ref.entity("sales.people"),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.link"),
+        by=(ms.ref.entity("sales.people"),),
     )
     for change in (
         current.compare(baseline, value="relative_change"),

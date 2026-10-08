@@ -8,7 +8,12 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal
 
-from marivo.analysis.core.model import OriginalStatePart, RowStatisticQuantity, Signature
+from marivo.analysis.core.model import (
+    ObservedQuantity,
+    OriginalStatePart,
+    RowStatisticQuantity,
+    Signature,
+)
 
 
 def _numeric(value: object) -> bool:
@@ -690,6 +695,16 @@ def empty_reduction_cell(signature: Signature) -> tuple[int | None, str, str | N
         if method in ("row.mean@v1", "row.min@v1", "row.max@v1"):
             return None, "undefined", "empty_" + method.removeprefix("row.").removesuffix("@v1")
     original = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
+    if isinstance(quantity, ObservedQuantity) and original is None:
+        if quantity.method_version in ("count_distinct@v1", "approx_count_distinct@v1"):
+            return 0, "defined", None
+        if quantity.method_version in (
+            "median@v1",
+            "percentile@v1",
+            "approx_median@v1",
+            "approx_percentile@v1",
+        ):
+            return None, "null", "empty_contribution"
     if original is not None:
         if original.method_version in ("sum_zero@v1", "count@v1"):
             return 0, "defined", None

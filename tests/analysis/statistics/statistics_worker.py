@@ -135,7 +135,11 @@ def run(root: Path, phase: str) -> None:
         )
         sources = [
             members.each(grid)
-            .observe(ms.ref.metric(f"sales.total_{i}"), during=grid.window)
+            .observe(
+                ms.ref.metric(f"sales.total_{i}"),
+                during=grid.window,
+                by=(ms.ref.entity("sales.order"),),
+            )
             .group_by(grid)
             .rollup()
             for i in (0, 1, 5)

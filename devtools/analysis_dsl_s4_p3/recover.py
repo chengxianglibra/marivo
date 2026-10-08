@@ -23,6 +23,7 @@ def main(root: Path, journey: str, session_id: str, reference: str) -> None:
                 ms.ref.metric("sales.revenue"),
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
             ).execute()
         except Exception as exc:
             failed_source = type(exc).__name__

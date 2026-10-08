@@ -107,7 +107,7 @@ def _observe(
     result = (
         session.members(ms.ref.entity("sales.orders"))
         .each(grid)
-        .observe(ms.ref.metric(metric), at=grid.end)
+        .observe(ms.ref.metric(metric), at=grid.end, by=(ms.ref.entity("sales.orders"),))
         .group_by(grid)
         .rollup()
         .execute()

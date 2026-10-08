@@ -20,12 +20,18 @@ def main(root: Path) -> None:
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 
-    change = customers.observe(revenue, during=august, via=buyer).compare(
-        customers.observe(revenue, during=july, via=buyer)
+    change = customers.observe(
+        revenue, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    ).compare(
+        customers.observe(revenue, during=july, via=buyer, by=(ms.ref.entity("sales.customer"),))
     )
     selected = change.where(change.value.lt(0)).members()
     september_mean = (
-        selected.observe(revenue, during=september, via=buyer).summarize(mv.mean()).execute()
+        selected.observe(
+            revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),)
+        )
+        .summarize(mv.mean())
+        .execute()
     )
     fixed_change = change.execute()
     fixed_selected = fixed_change.where(fixed_change.value.lt(0)).execute()

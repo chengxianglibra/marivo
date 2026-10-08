@@ -55,7 +55,7 @@ def test_grouped_same_entity_workflow_example_executes(
     code = _example("en", "same-entity-grouping")
     exec(compile(code, "grouped-same-entity-example", "exec"), namespace)
     result = namespace["channel_revenue"]
-    assert isinstance(result, mv.MaterializedGroupedNumericRelation)
+    assert isinstance(result, mv.MaterializedNumericRelation)
     rows = result.to_pandas()
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
@@ -79,7 +79,7 @@ def test_first_round_workflow_examples_execute(
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     first = _example("en", "customer-original-rollup")
     exec(compile(first, "first-round-entry-example", "exec"), namespace)
-    assert isinstance(namespace["total"], mv.MaterializedRolledNumericRelation)
+    assert isinstance(namespace["total"], mv.MaterializedNumericRelation)
 
     identifier = {
         "change": "selected-next-month",
@@ -170,16 +170,16 @@ def test_semantic_monthly_observation_example_executes(
     code = _example("en", identifier)
     exec(compile(code, "semantic-observation-example", "exec"), namespace)
     logical = namespace["dataset" if example == "monthly" else "current"]
-    assert isinstance(logical, mv.LogicalRolledNumericRelation)
+    assert isinstance(logical, mv.LogicalNumericRelation)
     assert session.runs().items == ()
     assert not session._runtime.statistics.statements
     rows = logical.execute().to_pandas()
     if example == "regional":
         assert not rows.duplicated(["group", "coord_0"]).any()
-        assert len(rows) == 3
+        assert len(rows) == 6
         positive = rows.loc[rows["value"] > 0]
         assert set(
-            zip(positive["group"].str[:7], positive["coord_0"], positive["value"], strict=True)
+            zip(positive["coord_0"].str[:7], positive["group"], positive["value"], strict=True)
         ) == {
             ("2026-10", "moon-base", 10),
             ("2026-11", "orbital", 20),
@@ -264,6 +264,7 @@ def test_display_workflow_example_executes(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         ),
     }
     code = _example("en", "ranking-table")
@@ -325,10 +326,10 @@ def test_scalar_channel_workflow_examples_execute(
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     exec(compile(code, "channel-ranking-example", "exec"), namespace)
     by_channel = namespace["by_channel"]
-    assert isinstance(by_channel, mv.LogicalRolledNumericRelation)
+    assert isinstance(by_channel, mv.LogicalNumericRelation)
     rows = by_channel.execute().to_pandas()
     expected = {"web": 77} if scoped else {"web": 450 + 400 + 77, "mobile": 150 + 99}
-    assert rows.set_index("group")["value"].to_dict() == expected
+    assert rows.set_index("group")["value"].dropna().to_dict() == expected
 
 
 @pytest.mark.runtime
@@ -346,12 +347,12 @@ def test_hourly_and_daily_source_workflow_examples_execute(
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
     exec(compile(code, "hourly-daily-source-example", "exec"), namespace)
     hourly = namespace["orders_by_hour"]
-    assert isinstance(hourly, mv.MaterializedGroupedNumericRelation)
+    assert isinstance(hourly, mv.MaterializedNumericRelation)
     hourly_rows = hourly.to_pandas()
     daily_run = case.session.runs().items[0]
     assert isinstance(daily_run, mv.SucceededRun)
     daily = case.session.artifact(daily_run.output_artifact_ref)
-    assert isinstance(daily, mv.MaterializedGroupedNumericRelation)
+    assert isinstance(daily, mv.MaterializedNumericRelation)
     daily_rows = daily.to_pandas()
     assert len(hourly_rows) == 48 and len(daily_rows) == 2
     expected = 100 + 100 + 50 + 0 + 60 + 120 + 0 + 0 + 30 + 200 + 0

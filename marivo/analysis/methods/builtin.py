@@ -1237,6 +1237,29 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    """Bind component composition to member, group or overall observation grains."""
+    declarations = _grain_implementations(method)
+    if method.name not in ("metric.ratio", "metric.linear") and not method.name.startswith(
+        "state_rollup."
+    ):
+        return declarations
+    existing = {item.key for item in declarations}
+    additions: list[Implementation] = []
+    for item in declarations:
+        if not isinstance(item.key.shape, SourceShape) or not set(item.key.input_domains) <= {
+            "entity",
+            "group",
+        }:
+            continue
+        for kind in ("group", "singleton"):
+            key = replace(item.key, input_domains=(kind,) * len(item.key.input_domains))
+            if key not in existing:
+                existing.add(key)
+                additions.append(replace(item, key=key))
+    return (*declarations, *additions)
+
+
+def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Version typed folds and once-rounded numeric consumers in Store 8."""
     if method.name.startswith(("association.", "forecast.")):
         from marivo.analysis.methods.statistical_physical import implementations as statistics
@@ -1538,7 +1561,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 or (isinstance(shape, FixedShape) and isinstance(shape.time, NoTime))
             ):
                 continue
-            for zone in ("UTC", "America/New_York"):
+            for zone in ("UTC", "America/New_York", "Asia/Shanghai", "America/Los_Angeles"):
                 units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
                 for unit in units:
                     if isinstance(shape, SourceShape) and shape.form == "table" and unit != "us":

@@ -30,6 +30,7 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     BindProject,
     CellDerive,
+    CompleteGroups,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -58,6 +59,8 @@ def combine_linear_occurrences(
     quantities: tuple[ObservedQuantity, ...],
     signs: tuple[int, ...],
     quantity: ObservedQuantity,
+    *,
+    union_targets: bool = False,
 ) -> MemberGraph:
     """Combine N independently reduced occurrences under ordered signed terms."""
     if len(occurrences) < 2 or not len(occurrences) == len(signs) == len(quantities):
@@ -120,6 +123,7 @@ def combine_linear_occurrences(
             domain,
             "source.exact_pairing@v1",
             "source.finite_numeric@v1",
+            union_targets,
         ),
         value_type=linear_type(tuple(item.value_type for item in methods)),
     )
@@ -246,6 +250,15 @@ def _comparison_template(
         params = params.observation
     if isinstance(params, PartsTransport) and params.keep_quantity:
         return visit(comparison_endpoints(node)[0])
+    if isinstance(params, CompleteGroups):
+        return (
+            "complete_groups",
+            tuple(
+                replace(key, field="time") if period and key.role == "anchor" else key
+                for key in params.output_domain.instance_key
+            ),
+            visit(comparison_endpoints(node)[0]),
+        )
     if isinstance(params, ReferenceDerive):
         return (
             "reference",
@@ -403,6 +416,8 @@ def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tupl
         params = params.observation
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
         target = node.inputs[0].node
+        while isinstance(target, MethodNode) and isinstance(target.parameters, AttachCategory):
+            target = target.inputs[0].node
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):
             target = target.inputs[0].node
         return ((target.identity, params.quantity.time_scope),)
@@ -411,7 +426,7 @@ def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tupl
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):
             target = target.inputs[0].node
         return ((target.identity, params.attribute_time),)
-    if isinstance(params, AttachCategory):
+    if isinstance(params, (AttachCategory, CompleteGroups)):
         return comparison_bindings(comparison_endpoints(node)[0], period=period)
     if isinstance(
         params, (CellDerive, OriginalReduce, RowState, OriginalRatio, OccurrenceCombine)
@@ -463,6 +478,7 @@ def combine_observations(
     pairing: Literal["exact", "keep", "metric_empty"] = "exact",
     relationship: TargetRelationshipContract | None = None,
     verification: Literal["check", "assume"] = "check",
+    union_targets: bool = False,
 ) -> MemberGraph:
     """Share identical frozen nodes, preserving independent ordered endpoints."""
 
@@ -527,7 +543,9 @@ def combine_observations(
             raise invalid("missing exact original ratio definition")
         root = method_node(
             (Edge("quantity", first), Edge("quantity", second)),
-            OriginalRatio(ratio, quantity.metric_ref, second.signature.quantity.metric_ref),
+            OriginalRatio(
+                ratio, quantity.metric_ref, second.signature.quantity.metric_ref, union_targets
+            ),
             value_type=ScalarType("float64"),
         )
     elif method in ("difference", "relative_change", "relation_ratio"):

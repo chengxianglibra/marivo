@@ -101,12 +101,18 @@ def test_source_and_retained(
         current = members.observe(
             ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-            coordinates=axes,
+            by=(
+                ms.ref.entity("sales.facts"),
+                *axes,
+            ),
         ).rollup()
         baseline = members.observe(
             ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
             during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
-            coordinates=axes,
+            by=(
+                ms.ref.entity("sales.facts"),
+                *axes,
+            ),
         ).rollup()
         change = current.compare(baseline)
         if axis_kind == "null":

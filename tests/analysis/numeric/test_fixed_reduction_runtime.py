@@ -68,6 +68,7 @@ def _saved(case: DslCase, method: Method = "sum") -> Saved:
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .execute()
     )
@@ -305,6 +306,7 @@ def test_time_coarsening_and_ordered_fold_keep_ordinary_execution(
                 ms.ref.metric("sales.revenue"),
                 during=grid.window,
                 via=ms.ref.relationship("sales.order_buyer"),
+                by=(customer,),
             )
             .execute()
         )
@@ -321,6 +323,7 @@ def test_time_coarsening_and_ordered_fold_keep_ordinary_execution(
             ms.ref.metric("sales.folded"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(customer,),
         ).execute()
         chain = saved.group_by(customer).rollup().rollup()
     _forbid_source(monkeypatch)

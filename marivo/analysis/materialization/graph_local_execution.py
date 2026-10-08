@@ -2616,7 +2616,7 @@ def _attach_category_stage(
         match = (
             tuple(row[f"subject__key_{i}"] for i in range(len(category_keys)))
             if params.subject_mapping
-            else tuple(row[k] for k in source.contract.key_fields)
+            else tuple(row[k] for k in source.contract.key_fields[: len(category_keys)])
         )
         classified = category_rows.get(match)
         if (
@@ -2820,6 +2820,14 @@ def _complete_groups_stage(
         )
         return from_arrow(target.primary, contract, validate=False)
     value, tag, reason = empty_reduction_cell(source.contract.signature)
+    fold = next(
+        (
+            part.fold_kind
+            for part in source.contract.signature.parts
+            if isinstance(part, OriginalStatePart)
+        ),
+        None,
+    )
     primary_rows = [
         rows[key]
         if key in rows
@@ -2853,6 +2861,10 @@ def _complete_groups_stage(
                     if name == "coverage__complete"
                     else None
                     if name in ("row_state__min", "row_state__max")
+                    else ""
+                    if name == "original_state__samples" and fold is not None
+                    else fold
+                    if name == "original_state__fold_kind" and fold is not None
                     else 0
                     for name in part.table.column_names
                     if name not in keys

@@ -13,6 +13,7 @@ def _values(case: DslCase) -> mv.LogicalNumericRelation:
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(result, mv.LogicalNumericRelation)
     return result

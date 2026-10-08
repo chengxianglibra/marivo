@@ -200,6 +200,7 @@ def test_native_distribution(
                     metric,
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=ms.ref.relationship("sales.facts_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 )
             assert not submissions
             assert len(source_trace.native_sql) == native_before
@@ -217,6 +218,7 @@ def test_native_distribution(
                     metric,
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=ms.ref.relationship("sales.facts_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 )
             assert not submissions
             assert len(source_trace.native_sql) == native_before
@@ -234,6 +236,7 @@ def test_native_distribution(
                     if kind == "unbounded"
                     else mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=ms.ref.relationship("sales.facts_subject"),
+                    by=(ms.ref.entity("sales.subjects"),),
                 ).execute()
             assert not submissions
             assert len(source_trace.native_sql) == native_before
@@ -244,6 +247,7 @@ def test_native_distribution(
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
             via=ms.ref.relationship("sales.facts_subject"),
+            by=(ms.ref.entity("sales.subjects"),),
         )
         if kind == "distinct_nonfinite":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))

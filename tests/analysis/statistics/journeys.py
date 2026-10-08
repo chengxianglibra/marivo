@@ -99,7 +99,9 @@ def inputs(
     )
     timed = (
         members.each(grid)
-        .observe(ms.ref.metric("sales.total_0"), during=grid.window)
+        .observe(
+            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        )
         .group_by(grid)
         .rollup()
     )

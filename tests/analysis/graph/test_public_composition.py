@@ -37,7 +37,10 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.LogicalRat
                 through=(ms.ref.relationship(f"{n.domain}.{n.buyer}"),),
             ),
         ),
-        coordinates=tuple(ms.ref.dimension(f"{n.domain}.{n.order}.{name}") for name in coordinates),
+        by=(
+            ms.ref.entity(f"{n.domain}.{n.customer}"),
+            *tuple(ms.ref.dimension(f"{n.domain}.{n.order}.{name}") for name in coordinates),
+        ),
     )
 
 
@@ -48,10 +51,16 @@ def _observations(case: DslCase) -> tuple[mv.LogicalNumericRelation, mv.LogicalN
     via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
     return (
         members.observe(
-            metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=via
+            metric,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         ),
         members.observe(
-            metric, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=via
+            metric,
+            during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         ),
     )
 
@@ -64,7 +73,7 @@ def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status))
     saved = observed.execute()
     frame = saved.to_pandas()
-    assert frame.set_index(["member", "coord_0", "coord_1"])["value"].to_dict() == {
+    assert frame.set_index(["group", "coord_0", "coord_1"])["value"].to_dict() == {
         ("A", "web", "paid"): 40.0,
         ("A", "mobile", "cancelled"): 0.0,
     }
@@ -230,9 +239,17 @@ def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
         members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
         window = mv.time_scope(start="2026-08-01", end="2026-09-01")
         via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
-        revenue = members.observe(ms.ref.metric(f"{n.domain}.{n.revenue}"), during=window, via=via)
+        revenue = members.observe(
+            ms.ref.metric(f"{n.domain}.{n.revenue}"),
+            during=window,
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        )
         count = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.order_count}"), during=window, via=via
+            ms.ref.metric(f"{n.domain}.{n.order_count}"),
+            during=window,
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         )
         saved = revenue.correlate(count, method="spearman").execute()
     reference = saved.state.artifact_ref.ref
@@ -300,8 +317,12 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
         mv.time_scope(start="2026-08-01", end="2026-09-01"),
         mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
-    first = first_members.observe(metric, during=august, via=via)
-    second = second_members.observe(metric, during=july, via=via)
+    first = first_members.observe(
+        metric, during=august, via=via, by=(ms.ref.entity(f"{n.domain}.{n.customer}"),)
+    )
+    second = second_members.observe(
+        metric, during=july, via=via, by=(ms.ref.entity(f"{n.domain}.{n.customer}"),)
+    )
     current, baseline = _observations(case)
     fixed = current.execute()
     second_fixed = second.execute()
@@ -384,9 +405,17 @@ def test_public_parquet_journeys_have_separate_source_evidence(
             mv.time_scope(start="2026-08-01", end="2026-09-01"),
             ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         )
-        revenue = members.observe(ms.ref.metric(f"{n.domain}.{n.revenue}"), during=during, via=via)
+        revenue = members.observe(
+            ms.ref.metric(f"{n.domain}.{n.revenue}"),
+            during=during,
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        )
         count = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.order_count}"), during=during, via=via
+            ms.ref.metric(f"{n.domain}.{n.order_count}"),
+            during=during,
+            via=via,
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         )
         saved = revenue.correlate(count, method="spearman").execute()
         import pandas as pd

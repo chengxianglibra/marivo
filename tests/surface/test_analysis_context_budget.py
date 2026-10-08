@@ -95,7 +95,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     metric = ms.ref.metric("sales.order_count")
     buyer = ms.ref.relationship("sales.order_buyer")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    values = members.observe(metric, during=august, via=buyer)
+    values = members.observe(
+        metric, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    )
     assert isinstance(values, mv.LogicalNumericRelation)
     traces: dict[str, Trace] = {}
 
@@ -137,11 +139,19 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     )
     trace.help(compare_action.help_target)
     earlier = members.observe(
-        metric, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=buyer
+        metric,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        via=buyer,
+        by=(ms.ref.entity("sales.customer"),),
     )
     change = values.compare(earlier)
     trace.help(values.ratio)
-    revenue = members.observe(ms.ref.metric("sales.revenue"), during=august, via=buyer)
+    revenue = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity("sales.customer"),),
+    )
     quotient = values.ratio(revenue)
     assert isinstance(change, mv.LogicalDifferenceRelation)
     assert isinstance(quotient, mv.LogicalNumericRelation)
@@ -183,7 +193,12 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help("analysis.methods")
     trace.help("analysis.methods.association")
     trace.help(values.correlate)
-    revenue = members.observe(ms.ref.metric("sales.revenue"), during=august, via=buyer)
+    revenue = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity("sales.customer"),),
+    )
     association = values.correlate(revenue, method="spearman")
     assert isinstance(association, mv.LogicalAssociationResult)
     trace.read("association contract", association.contract().show)
@@ -210,7 +225,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     )
     daily = (
         orders.each(grid)
-        .observe(ms.ref.metric("sales.total_0"), during=grid.window)
+        .observe(
+            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        )
         .group_by(grid)
         .rollup()
     )

@@ -49,7 +49,9 @@ def run(root: Path, phase: str) -> None:
         scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
         records = {}
         for name in ("weighted", "mean"):
-            fixed = members.observe(ms.ref.metric("sales." + name), during=scope).execute()
+            fixed = members.observe(
+                ms.ref.metric("sales." + name), during=scope, by=(ms.ref.entity("sales.facts"),)
+            ).execute()
             records[name] = {
                 "ref": fixed.state.artifact_ref.ref,
                 "rows": fixed.to_pandas().to_dict(orient="records"),

@@ -21,18 +21,23 @@ def main(root: Path) -> None:
     line_order = ms.ref.relationship("sales.line_order")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 
-    observed = customers.observe(
-        ms.ref.metric("sales.aov_from_lines"),
-        during=august,
-        via=mv.routes(
-            mv.route(line, through=(line_order, buyer)),
-            mv.route(order, through=(buyer,)),
-        ),
-        coordinates=(channel,),
+    metric = ms.ref.metric("sales.aov_from_lines")
+    routes = mv.routes(
+        mv.route(line, through=(line_order, buyer)),
+        mv.route(order, through=(buyer,)),
     )
-    overall = observed.rollup().execute()
+    observed = customers.observe(
+        metric,
+        during=august,
+        via=routes,
+        by=(
+            ms.ref.entity("sales.customer"),
+            channel,
+        ),
+    )
+    overall = customers.observe(metric, during=august, via=routes).execute()
     current_mean = observed.summarize(mv.mean()).execute()
-    by_channel = observed.group_by(channel).rollup().execute()
+    by_channel = customers.observe(metric, during=august, via=routes, by=(channel,)).execute()
     fixed = observed.execute()
     emit(
         {

@@ -81,10 +81,20 @@ def test_direct_score_runs_and_blocked_next_round(
     axis = ms.ref.dimension("sales.order.channel")
     metric = ms.ref.metric("sales.total_0")
     previous = members.observe(
-        metric, during=mv.time_scope(start="2026-08-01", end="2026-08-04"), coordinates=(axis,)
+        metric,
+        during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
+        by=(
+            ms.ref.entity("sales.order"),
+            axis,
+        ),
     )
     following = members.observe(
-        metric, during=mv.time_scope(start="2026-08-04", end="2026-08-07"), coordinates=(axis,)
+        metric,
+        during=mv.time_scope(start="2026-08-04", end="2026-08-07"),
+        by=(
+            ms.ref.entity("sales.order"),
+            axis,
+        ),
     )
     comparison = following.compare(previous)
     with pytest.raises(AnalysisError) as failure:
@@ -215,7 +225,10 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
                 ms.ref.metric("sales.order_count"),
                 during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
-                coordinates=axes,
+                by=(
+                    ms.ref.entity("sales.customer"),
+                    *axes,
+                ),
             )
             endpoints.append(observed.group_by(ms.ref.entity("sales.customer")).rollup())
         changed = endpoints[0].compare(endpoints[1])
@@ -268,10 +281,14 @@ def test_score_select_members_followup_one_dag(
     session = prepare(case, form)
     members = session.members(ms.ref.entity("sales.order"))
     current = members.observe(
-        ms.ref.metric("sales.total_0"), during=mv.time_scope(start="2026-08-01", end="2026-08-04")
+        ms.ref.metric("sales.total_0"),
+        during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
+        by=(ms.ref.entity("sales.order"),),
     )
     baseline = members.observe(
-        ms.ref.metric("sales.total_0"), during=mv.time_scope(start="2026-07-29", end="2026-08-01")
+        ms.ref.metric("sales.total_0"),
+        during=mv.time_scope(start="2026-07-29", end="2026-08-01"),
+        by=(ms.ref.entity("sales.order"),),
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
@@ -281,7 +298,9 @@ def test_score_select_members_followup_one_dag(
     selected = positive.observed.members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
     followup = selected.observe(
-        ms.ref.metric("sales.total_0"), during=mv.time_scope(start="2026-08-03", end="2026-08-04")
+        ms.ref.metric("sales.total_0"),
+        during=mv.time_scope(start="2026-08-03", end="2026-08-04"),
+        by=(ms.ref.entity("sales.order"),),
     )
     trace: list[str] = []
     iterate, compute = SourceBatchStream._iterate, deviation_execution.execute
@@ -336,7 +355,11 @@ def test_category_time_three_methods_three_models(
     category = timed_members.read(ms.ref.dimension("sales.order.channel"))
     assert isinstance(category, mv.LogicalCategoryRelation)
     values = tuple(
-        timed_members.observe(ms.ref.metric(f"sales.total_{i}"), during=grid.window)
+        timed_members.observe(
+            ms.ref.metric(f"sales.total_{i}"),
+            during=grid.window,
+            by=(ms.ref.entity("sales.order"),),
+        )
         .group_by(category, grid)
         .rollup()
         for i in (0, 1, 5)

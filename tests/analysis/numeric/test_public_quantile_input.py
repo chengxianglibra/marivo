@@ -45,7 +45,11 @@ def test_defined_quantile_survives_source_offline_recovery(
     ms.load(workspace_dir=case.root)
     output = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .observe(ms.ref.metric("sales.median_amount"), via=ms.ref.relationship("sales.order_buyer"))
+        .observe(
+            ms.ref.metric("sales.median_amount"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
+        )
         .execute()
     )
     assert output.to_pandas().set_index("member").loc["A", "value"] == 187.875

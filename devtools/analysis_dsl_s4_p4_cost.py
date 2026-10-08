@@ -145,8 +145,18 @@ def run_one(facts: int) -> dict[str, object]:
         customers = session.members(ms.ref.entity("sales.customer"))
         buyer = ms.ref.relationship("sales.order_buyer")
         august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        revenue = customers.observe(ms.ref.metric("sales.revenue"), during=august, via=buyer)
-        count = customers.observe(ms.ref.metric("sales.order_count"), during=august, via=buyer)
+        revenue = customers.observe(
+            ms.ref.metric("sales.revenue"),
+            during=august,
+            via=buyer,
+            by=(ms.ref.entity("sales.customer"),),
+        )
+        count = customers.observe(
+            ms.ref.metric("sales.order_count"),
+            during=august,
+            via=buyer,
+            by=(ms.ref.entity("sales.customer"),),
+        )
         association = revenue.correlate(count, method="spearman")
 
         source_start = time.perf_counter()

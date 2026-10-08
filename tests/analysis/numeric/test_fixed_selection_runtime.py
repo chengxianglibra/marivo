@@ -36,6 +36,7 @@ def _saved(case: DslCase) -> mv.MaterializedNumericRelation:
             ms.ref.metric(f"{n.domain}.{n.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
         )
         .execute()
     )
@@ -246,11 +247,13 @@ def test_fixed_difference_endpoints_follow_selected_complete_keys(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     ).execute()
     baseline = members.observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     ).execute()
     difference = current.compare(baseline).execute()
     _forbid_source(monkeypatch)

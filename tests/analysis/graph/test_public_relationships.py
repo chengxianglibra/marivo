@@ -129,7 +129,10 @@ def test_authored_relationship_keys_execute_metric_and_event(relationship_projec
             ms.ref.metric("sales.event_count"),
             during=mv.time_scope(start="2026-01-01", end="2026-02-01"),
             via=ms.ref.relationship("sales.event_order"),
-            coordinates=(ms.ref.dimension("sales.orders.region"),),
+            by=(
+                ms.ref.entity("sales.orders"),
+                ms.ref.dimension("sales.orders.region"),
+            ),
         )
         .group_by(ms.ref.dimension("sales.orders.region"))
         .rollup()

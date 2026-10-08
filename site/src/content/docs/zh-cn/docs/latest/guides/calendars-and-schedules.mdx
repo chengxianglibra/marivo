@@ -64,7 +64,12 @@ catalog.preview(
 campaigns = catalog.temporal_sets.get("sales.campaigns")
 launch = campaigns.occurrence("spring-2026")
 members = session.members(ms.ref.entity("sales.customer"))
-dataset = members.observe(revenue, during=launch, via=ms.ref.relationship("sales.order_buyer"))
+dataset = members.observe(
+    revenue,
+    during=launch,
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
 ```
 
 明确 occurrence identity 和区间语义；选中的 occurrence 不是所有无关数量的全局时间过滤器。

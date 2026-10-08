@@ -70,6 +70,7 @@ def members_session(
         )
     definitions.append(
         "to_snapshot = ms.relationship(name='to_snapshot', from_entity=plain, to_entity=snapshot, keys=[ms.join_on(plain_tenant, snapshot_tenant), ms.join_on(plain_id, snapshot_id)])\n"
+        "observed_total = ms.aggregate(name='observed_total', measure=plain_amount, agg='sum', time=plain_moment)\n"
     )
     definitions.append(
         "@ms.measure(name='discounted', entity=plain, additivity=ms.additive_all())\n"
@@ -142,6 +143,28 @@ def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
     assert numeric.where(numeric.value.gt(10)).members().execute().to_pandas()[
         "coord_0"
     ].tolist() == ["B"]
+
+
+@pytest.mark.runtime
+def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
+    session = members_session
+    prefix = _domain(session)
+    members = session.members(ms.ref.entity(f"{prefix}.plain"))
+    metric = ms.ref.metric(f"{prefix}.observed_total")
+    field = ms.ref.dimension(f"{prefix}.snapshot.category")
+    route = ms.ref.relationship(f"{prefix}.to_snapshot")
+    category = members.read(field, at=datetime(2026, 8, 1, tzinfo=timezone.utc), via=route)
+    assert isinstance(category, mv.LogicalCategoryRelation)
+    observed = members.observe(metric, by=(category,)).execute()
+    assert observed.to_pandas().set_index("group")["value"].to_dict() == {"west": 10, "east": 20}
+    own = members.read(ms.ref.dimension(f"{prefix}.plain.category"))
+    assert isinstance(own, mv.LogicalCategoryRelation)
+    selected = own.where(own.value.eq("west")).members()
+    later = selected.read(field, at=datetime(2026, 9, 1, tzinfo=timezone.utc), via=route)
+    assert isinstance(later, mv.LogicalCategoryRelation)
+    assert selected.observe(metric, by=(later,)).execute().to_pandas().set_index("group")[
+        "value"
+    ].to_dict() == {"east": 10}
 
 
 @pytest.mark.runtime

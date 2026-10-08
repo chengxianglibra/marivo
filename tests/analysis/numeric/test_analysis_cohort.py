@@ -69,6 +69,7 @@ def test_full_entity_time_cohort(
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
         during=grid.window,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     facts = analysis_dsl_rows("j2")
     months: dict[str, set[str]] = {}
@@ -110,6 +111,7 @@ def test_cold_full_opportunity_continuation(analysis_dsl_case_factory: DslCaseFa
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
         during=grid.window,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
     saved_targets, saved_values = targets.execute(), values.execute()
     result = saved_targets.cohort(saved_values.value.gt(0), rule=mv.any_instance()).execute()
@@ -186,6 +188,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
         ms.ref.metric("sales.order_count"),
         during=grid.window,
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     saved_targets, saved_values = targets.execute(), values.execute()
     target = saved_targets._dataset.verified()

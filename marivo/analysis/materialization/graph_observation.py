@@ -18,14 +18,12 @@ from marivo.analysis.core.graph import (
     method_node,
     topology,
 )
-from marivo.analysis.core.model import ObservedQuantity, SubjectPart
+from marivo.analysis.core.model import Coordinate, DomainSignature, ObservedQuantity, SubjectPart
 from marivo.analysis.core.rules import (
-    BindProject,
     DeviationFit,
     DirectMetricDefinition,
     EntityObservationTarget,
     GroupObservationTarget,
-    MapCorrespond,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -55,7 +53,6 @@ from marivo.refs import (
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
-    DIRECT_ONLY_AGGREGATES,
     DateParse,
     DatetimeParse,
     StrptimeParse,
@@ -216,6 +213,7 @@ def observe_members(
     component_index: int = 0,
     at: datetime | GridPoint | None = None,
     relative: bool = False,
+    target_keys: tuple[Coordinate, ...] | None = None,
 ) -> MemberGraph:
     """Resolve schema only and capture one component's observation before admission.
 
@@ -236,6 +234,7 @@ def observe_members(
         component_index=component_index,
         at=at,
         relative=relative,
+        target_keys=target_keys,
     )
 
 
@@ -252,6 +251,7 @@ def _observe_component(
     component_index: int = 0,
     at: datetime | GridPoint | None = None,
     relative: bool = False,
+    target_keys: tuple[Coordinate, ...] | None = None,
 ) -> MemberGraph:
     """Bind one occurrence of the contract resolved by this observation's entry."""
     registry = members.registry
@@ -263,7 +263,7 @@ def _observe_component(
     if component.computation_root.path != (
         path[0].from_entity_ref.path if path else members.entity_schema.contract.ref.path
     ):
-        raise _reject("a route bound to this occurrence's distinct contribution root")
+        raise _reject("a relationship path bound to this occurrence's distinct contribution root")
     if metric.cumulative and at is None:
         # A cumulative occurrence consumes [anchor(e), e) per endpoint, so an
         # omitted window cannot degrade to an unrestricted read.
@@ -301,11 +301,6 @@ def _observe_component(
     )
     quantile = aggregate_spec[1] if isinstance(aggregate_spec, tuple) else None
     aggregate_kind = aggregate_spec[0] if isinstance(aggregate_spec, tuple) else aggregate_spec
-    direct_only = aggregate_kind in DIRECT_ONLY_AGGREGATES
-    if direct_only and coordinates:
-        raise _reject(
-            "direct distribution observations do not retain contribution-coordinate state"
-        )
     if aggregate_kind not in (
         "sum",
         "mean",
@@ -597,18 +592,19 @@ def _observe_component(
     target: EntityObservationTarget | GroupObservationTarget = EntityObservationTarget(
         member_root.signature.domain
     )
-    if isinstance(member_root.parameters, MapCorrespond) and member_root.parameters.mode == "group":
-        projection = member_root.inputs[0].node
-        if (
-            not isinstance(projection, MethodNode)
-            or not isinstance(projection.parameters, BindProject)
-            or projection.parameters.field_contract is None
-        ):
-            raise _reject("Group has no exact member field projection")
+    if target_keys is not None and target_keys != member_root.signature.domain.instance_key:
+        domain = member_root.signature.domain
         target = GroupObservationTarget(
-            member_root.signature.domain, projection.parameters.field_contract
+            DomainSignature(
+                domain.binding,
+                "group" if target_keys else "singleton",
+                target_keys,
+                target_keys,
+                digest("observe-target:" + repr(target_keys) + member_root.fingerprint),
+                time_grid=domain.time_grid,
+            ),
+            target_keys,
         )
-        member_root = projection
     contribution_ref = ref.entity(contribution_schema.contract.ref.path)
     binding = member_root.signature.domain.binding
     source_entries = [(member_schema, member_leaf)]
@@ -957,6 +953,7 @@ def observe_ratio_members(
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
     relative: bool = False,
+    target_keys: tuple[Coordinate, ...] | None = None,
 ) -> MemberGraph:
     """Bind a closed ratio to its independently aggregated ordered components."""
     from marivo.analysis.materialization.graph_composition import combine_observations
@@ -988,6 +985,7 @@ def observe_ratio_members(
             component_index=index,
             at=at,
             relative=relative,
+            target_keys=target_keys,
         )
         for index, component in enumerate(metric.components)
     )
@@ -1008,7 +1006,9 @@ def observe_ratio_members(
         "strict",
         "ratio@v1",
     )
-    return combine_observations(observed[0], observed[1], "ratio", ratio=quantity)
+    return combine_observations(
+        observed[0], observed[1], "ratio", ratio=quantity, union_targets=target_keys is not None
+    )
 
 
 def observe_linear_members(
@@ -1023,6 +1023,7 @@ def observe_linear_members(
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
     relative: bool = False,
+    target_keys: tuple[Coordinate, ...] | None = None,
 ) -> MemberGraph:
     """Bind a signed linear combination to its independently reduced occurrences."""
     from marivo.analysis.materialization.graph_composition import combine_linear_occurrences
@@ -1050,6 +1051,7 @@ def observe_linear_members(
             component_index=index,
             at=at,
             relative=relative,
+            target_keys=target_keys,
         )
         for index, component in enumerate(metric.components)
     )
@@ -1089,7 +1091,9 @@ def observe_linear_members(
         "strict",
         "linear@v1",
     )
-    return combine_linear_occurrences(observed, quantities, signs, quantity)
+    return combine_linear_occurrences(
+        observed, quantities, signs, quantity, union_targets=target_keys is not None
+    )
 
 
 def observed_quantities(observed: tuple[MemberGraph, ...]) -> tuple[ObservedQuantity, ...]:

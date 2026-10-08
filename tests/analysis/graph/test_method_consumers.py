@@ -333,13 +333,19 @@ def test_source_statistic(
         session = mv.session.get_or_create("r93", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         during = mv.time_scope(start="2026-08-01", end="2026-08-02")
-        a = members.observe(ms.ref.metric("sales.a"), during=during)
-        b = members.observe(ms.ref.metric("sales.b"), during=during)
+        a = members.observe(
+            ms.ref.metric("sales.a"), during=during, by=(ms.ref.entity("sales.facts"),)
+        )
+        b = members.observe(
+            ms.ref.metric("sales.b"), during=during, by=(ms.ref.entity("sales.facts"),)
+        )
         if method in ("naive", "drift", "seasonal_naive", "runs"):
             grid = mv.time_grid(
                 during=mv.time_scope(start="2026-08-01", end="2026-08-07"), grain=mv.grain("day")
             )
-            daily = members.each(grid).observe(ms.ref.metric("sales.b"), during=grid.window)
+            daily = members.each(grid).observe(
+                ms.ref.metric("sales.b"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+            )
             if method == "runs":
                 runs = daily.runs(where=daily.value.gt(0))
                 segments = runs.execute()

@@ -672,13 +672,13 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
             "source",
             "0a1e646715c236c47868c100789678b876bce40c8b6018eb31462ba56266a8c3",
             "68d1d6b5b8190d853a306077ba1f09802cf9ac3fe5cc3063cfa68b54c7078880",
-            "f7764d3ad04ebb8d87f5057dce3ee0b63519252fba5c58d238dc139fef1b4cb2",
+            "cb35f54a0a181d2e61ec9aa45026713ccad74ea8e66077b4ada5c8f9908aac9c",
         ),
         (
             "fixed",
             "a066402e9a43f7286a25b22db241d28aba0fb7037013ba63bf5afb750d341ed7",
             "bf7c4925e75955ca428974a0cb21dbd7345eb14d9b71623a1696341e95a7d80d",
-            "1f48b83cc37984d37095fc0d7912909053ed415afb0ab502fa9c53aeff70f2ec",
+            "148cea8d77b7bd5703318d7ab1f537cdc4a324755b28dac400f78d2d32b53bc8",
         ),
     ],
 )

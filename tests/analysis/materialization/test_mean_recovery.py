@@ -62,7 +62,7 @@ def test_native_original_mean_independent_fixed_and_cold(
         members = session.members(ms.ref.entity("sales.facts"))
         bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
         assert isinstance(bucket, mv.LogicalCategoryRelation)
-        values = members.observe(ms.ref.metric("sales.average"))
+        values = members.observe(ms.ref.metric("sales.average"), by=(ms.ref.entity("sales.facts"),))
         assert isinstance(values, mv.LogicalNumericRelation)
         source = values.group_by(bucket).rollup().execute()
         assert isinstance(source, mv.MaterializedGroupedNumericRelation)

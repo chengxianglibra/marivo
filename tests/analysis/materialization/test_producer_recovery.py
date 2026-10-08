@@ -68,7 +68,7 @@ def producer_recovery(
         session = mv.session.get_or_create("r94-producer", report_timezone="UTC")
         try:
             values = session.members(ms.ref.entity("sales.facts")).observe(
-                ms.ref.metric("sales.total")
+                ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
             )
         except AnalysisError as error:
             if profile in ("parquet", "csv", "local-json"):
@@ -254,7 +254,9 @@ def test_http_source_remains_a_datasource_boundary(
         author_http_case(case, semantic_project_factory)
         session = mv.session.get_or_create("http-boundary", report_timezone="UTC")
         with pytest.raises(DatasetConstructionError) as failure:
-            session.members(ms.ref.entity("sales.facts")).observe(ms.ref.metric("sales.total"))
+            session.members(ms.ref.entity("sales.facts")).observe(
+                ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
+            )
         error = failure.value
         assert error.expected and error.received
         assert "existing local CSV or unparameterized GET JSON file" in error.expected

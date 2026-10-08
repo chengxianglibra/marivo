@@ -408,6 +408,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
         via=ref.relationship("sales.order_customer"),
+        by=(runtime,),
     )
     metric_members = revenue.where(revenue.value.is_defined()).members()
     assert metric_members.execute().to_pandas()["member"].tolist() == [
@@ -437,6 +438,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
         via=ref.relationship("sales.order_customer"),
+        by=(runtime,),
     )
 
     from tests.support.documentation import _example
@@ -457,6 +459,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=COHORT_END.isoformat()),
         via=ref.relationship("sales.order_customer"),
+        by=(runtime,),
     )
     import marivo.analysis.materialization.journey_execution as local_journey
     import marivo.datasource.adapters as adapters
@@ -525,6 +528,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             ref.metric("sales.revenue"),
             during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
             via=ref.relationship("sales.order_customer"),
+            by=(runtime,),
         )
         trace.clear()
         with monkeypatch.context() as traced:
@@ -558,6 +562,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             ref.metric("sales.revenue"),
             during=time_scope(start=COHORT_START.isoformat(), end=COHORT_END.isoformat()),
             via=ref.relationship("sales.order_customer"),
+            by=(runtime,),
         ).execute()
         empty_components = next(
             part.table

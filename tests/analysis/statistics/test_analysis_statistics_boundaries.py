@@ -36,6 +36,7 @@ def test_ratio_statistics_require_original_coverage(
             ms.ref.metric("sales.order_count"),
             during=grid.window,
             via=ms.ref.relationship("sales." + case.names.buyer),
+            by=(ms.ref.entity("sales.customer"),),
         )
         .group_by(grid)
         .rollup()
@@ -51,6 +52,7 @@ def test_ratio_statistics_require_original_coverage(
                     ms.ref.metric("sales.revenue"),
                     during=grid.window,
                     via=ms.ref.relationship("sales." + case.names.buyer),
+                    by=(ms.ref.entity("sales.customer"),),
                 )
                 .group_by(grid)
                 .rollup()
@@ -146,8 +148,18 @@ def test_statistical_rank_projection_and_tables(
     )
     if family == "association":
         during = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        a = members.observe(ms.ref.metric("sales.revenue"), during=during, via=via)
-        b = members.observe(ms.ref.metric("sales.order_count"), during=during, via=via)
+        a = members.observe(
+            ms.ref.metric("sales.revenue"),
+            during=during,
+            via=via,
+            by=(ms.ref.entity("sales.customer"),),
+        )
+        b = members.observe(
+            ms.ref.metric("sales.order_count"),
+            during=during,
+            via=via,
+            by=(ms.ref.entity("sales.customer"),),
+        )
         logical = a.correlate(b, method="spearman")
         numeric = logical.execute().coefficient if fixed else logical.coefficient
     else:
@@ -155,7 +167,10 @@ def test_statistical_rank_projection_and_tables(
             during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
         )
         history = members.each(grid).observe(
-            ms.ref.metric("sales.order_count"), during=grid.window, via=via
+            ms.ref.metric("sales.order_count"),
+            during=grid.window,
+            via=via,
+            by=(ms.ref.entity("sales.customer"),),
         )
         logical = history.forecast(horizon=mv.periods(2))
         numeric = logical.execute().prediction if fixed else logical.prediction

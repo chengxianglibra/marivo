@@ -97,7 +97,10 @@ def test_public_full_grid_unknown(
         mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
     )
     logical = members.each(grid).observe(
-        ms.ref.metric("sales.total_0"), during=grid.window, complete_during=windows
+        ms.ref.metric("sales.total_0"),
+        during=grid.window,
+        complete_during=windows,
+        by=(ms.ref.entity("sales.order"),),
     )
     fixed = logical.execute()
     frame = fixed.to_pandas()
@@ -258,6 +261,7 @@ def test_public_duration_business_coverage(
                 mv.time_scope(start=START, end=START + timedelta(days=1)),
                 mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
             ),
+            by=(ms.ref.entity("sales.order"),),
         )
         .execute()
     )
@@ -300,6 +304,7 @@ def test_business_coverage_source_selection_keeps_original_support(
                 mv.time_scope(start=START, end=START + timedelta(days=1)),
                 mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
             ),
+            by=(ms.ref.entity("sales.order"),),
         )
     )
     assert isinstance(observed, LogicalNumericRelation)

@@ -32,7 +32,11 @@ if TYPE_CHECKING:
     )
     for metric in (approximate_count, approximate_median, approximate_percentile):
         assert_type(
-            members.observe(metric, via=ms.ref.relationship("sales.order_buyer")),
+            members.observe(
+                metric,
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(ms.ref.entity("sales.customer"),),
+            ),
             mv.LogicalNumericRelation | mv.LogicalRatioRelation,
         )
     grid = mv.time_grid(
@@ -53,7 +57,9 @@ if TYPE_CHECKING:
         mv.LogicalNumericRelation,
     )
     assert_type(
-        product.observe(ms.ref.metric("sales.running"), at=grid.end),
+        product.observe(
+            ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.customer"),)
+        ),
         mv.LogicalNumericRelation | mv.LogicalRatioRelation,
     )
     category = members.read(ms.ref.dimension("sales.customer.region"))
@@ -69,6 +75,7 @@ if TYPE_CHECKING:
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert_type(observed, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
     assert isinstance(observed, mv.LogicalNumericRelation)
@@ -97,6 +104,7 @@ if TYPE_CHECKING:
                 ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)
             ),
         ),
+        by=(ms.ref.entity("sales.customer"),),
     )
     assert_type(ratio, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
     assert isinstance(ratio, mv.LogicalRatioRelation)

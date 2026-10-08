@@ -30,7 +30,16 @@ def test_public_j1_total_uses_registered_source(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 
-    result = customers.observe(revenue, during=august, via=buyer).rollup().execute()
+    result = (
+        customers.observe(
+            revenue,
+            during=august,
+            via=buyer,
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        )
+        .rollup()
+        .execute()
+    )
 
     assert isinstance(result, mv.MaterializedRolledNumericRelation)
     assert result.to_pandas().iloc[0]["value"] == 1000
@@ -54,11 +63,29 @@ def test_public_j1_scope_uses_persisted_report_timezone(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 
-    member_total = customers.observe(revenue, during=august, via=buyer).rollup().execute()
+    member_total = (
+        customers.observe(
+            revenue,
+            during=august,
+            via=buyer,
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        )
+        .rollup()
+        .execute()
+    )
     assert member_total.to_pandas().iloc[0]["value"] == expected
 
     utc_instants = mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-09-01T00:00:00+00:00")
-    absolute_total = customers.observe(revenue, during=utc_instants, via=buyer).rollup().execute()
+    absolute_total = (
+        customers.observe(
+            revenue,
+            during=utc_instants,
+            via=buyer,
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        )
+        .rollup()
+        .execute()
+    )
     assert absolute_total.to_pandas().iloc[0]["value"] == 1000
 
 
@@ -91,6 +118,7 @@ def test_public_contract_actions_and_result_card(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
     saved = observed.execute()
     assert ".show()" in repr(saved)
@@ -158,6 +186,7 @@ def test_public_empty_and_undefined_cards(
                 through=(ms.ref.relationship(f"{names.domain}.{names.buyer}"),),
             ),
         ),
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
     undefined = observed.rollup().execute()
     undefined.show()
@@ -182,20 +211,18 @@ def test_public_member_read_and_category_selection(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
         )
         .rollup()
         .execute()
     )
     assert east_total.to_pandas().iloc[0]["value"] == 600
-    by_region = (
-        members.group_by(region)
-        .observe(
-            ms.ref.metric(f"{names.domain}.{names.revenue}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        )
-        .execute()
-    )
+    by_region = members.observe(
+        ms.ref.metric(f"{names.domain}.{names.revenue}"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+        by=(region,),
+    ).execute()
     assert by_region.to_pandas().set_index("group").loc["east", "value"] == 600
     selected = read.where(read.value.eq("west")).execute()
 
@@ -219,6 +246,7 @@ def test_public_member_read_and_category_selection(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
         )
     assert len(case.session.runs().items) == before
 
@@ -237,12 +265,12 @@ def test_public_grouped_same_entity_observation_allows_omitted_route(
     grouped = orders.group_by(channel)
 
     observed = (
-        grouped.observe(revenue, during=august, via=None)
+        orders.observe(revenue, during=august, via=None, by=(channel,))
         if explicit_none
-        else grouped.observe(revenue, during=august)
+        else orders.observe(revenue, during=august, by=(channel,))
     )
-    assert isinstance(observed, mv.GroupedNumericRelation)
-    rows = observed.rollup().execute().to_pandas()
+    assert isinstance(observed, mv.LogicalNumericRelation)
+    rows = observed.execute().to_pandas()
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
 
@@ -253,9 +281,10 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     case = analysis_dsl_case_factory("j1")
     names = case.names
     orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
-    observed = orders.group_by().observe(
+    observed = orders.observe(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(),
     )
 
     assert observed.rollup().execute().to_pandas()["value"].tolist() == [1000]
@@ -276,7 +305,11 @@ def test_public_grouped_foreign_entity_observation_requires_route(
     before = case.session.runs().items
 
     with pytest.raises(AnalysisError, match="distinct contribution root") as missing:
-        grouped.observe(revenue, during=august)
+        customers.observe(
+            revenue,
+            during=august,
+            by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
+        )
 
     assert missing.value.expected
     assert missing.value.received
@@ -284,10 +317,12 @@ def test_public_grouped_foreign_entity_observation_requires_route(
     assert missing.value.repair.action
     assert case.session.runs().items == before
     rows = (
-        grouped.observe(
-            revenue, during=august, via=ms.ref.relationship(f"{names.domain}.{names.buyer}")
+        customers.observe(
+            revenue,
+            during=august,
+            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+            by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
         )
-        .rollup()
         .execute()
         .to_pandas()
     )
@@ -308,8 +343,7 @@ def test_public_target_only_groups_cannot_observe_without_members(
     targets = category.group_by()
     before = case.session.runs().items
 
-    with pytest.raises(AnalysisError, match="target-only group domain"):
-        targets.observe(ms.ref.metric(f"{names.domain}.{names.revenue}"))
+    assert not hasattr(targets, "observe")
 
     assert case.session.runs().items == before
 
@@ -326,7 +360,10 @@ def test_public_fixed_coordinate_rollup_uses_retained_group_state(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        coordinates=(channel,),
+        by=(
+            ms.ref.entity(f"{names.domain}.{names.customer}"),
+            channel,
+        ),
     )
     source_group = observed.group_by(channel).execute()
     fixed_group = observed.execute().group_by(channel).execute()
@@ -346,8 +383,12 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     july = mv.time_scope(start="2026-07-01", end="2026-08-01")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    fixed = members.observe(revenue, during=july, via=buyer).execute()
-    live = members.observe(revenue, during=august, via=buyer)
+    fixed = members.observe(
+        revenue, during=july, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
+    ).execute()
+    live = members.observe(
+        revenue, during=august, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
+    )
     count_before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match="mixed live and materialized"):
@@ -369,9 +410,9 @@ def test_public_comparison_rejects_different_members_and_metric_units(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     count = ms.ref.metric(f"{names.domain}.{names.order_count}")
-    current = first_members.observe(revenue, during=august, via=buyer)
-    separate = separate_members.observe(revenue, during=july, via=buyer)
-    different_metric = first_members.observe(count, during=july, via=buyer)
+    current = first_members.observe(revenue, during=august, via=buyer, by=(entity,))
+    separate = separate_members.observe(revenue, during=july, via=buyer, by=(entity,))
+    different_metric = first_members.observe(count, during=july, via=buyer, by=(entity,))
     before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match=r"endpoints|Metric|metric"):
@@ -391,6 +432,7 @@ def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
     first = logical.execute()
     second = logical.execute()
@@ -422,11 +464,24 @@ def test_public_j2_selected_members_and_next_month_mean(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 
-    change = customers.observe(revenue, during=august, via=buyer).compare(
-        customers.observe(revenue, during=july, via=buyer)
+    change = customers.observe(
+        revenue, during=august, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
+    ).compare(
+        customers.observe(
+            revenue, during=july, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
+        )
     )
     selected = change.where(change.value.lt(0)).members()
-    result = selected.observe(revenue, during=september, via=buyer).summarize(mv.mean()).execute()
+    result = (
+        selected.observe(
+            revenue,
+            during=september,
+            via=buyer,
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        )
+        .summarize(mv.mean())
+        .execute()
+    )
 
     assert result.to_pandas().iloc[0]["value"] == 15
 
@@ -453,7 +508,10 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
             mv.route(line, through=(line_order, buyer)),
             mv.route(order, through=(buyer,)),
         ),
-        coordinates=(channel,),
+        by=(
+            ms.ref.entity(f"{names.domain}.{names.customer}"),
+            channel,
+        ),
     )
 
     overall = observed.rollup().execute()
@@ -501,10 +559,16 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     revenue = customers.observe(
-        ms.ref.metric(f"{names.domain}.{names.revenue}"), during=august, via=buyer
+        ms.ref.metric(f"{names.domain}.{names.revenue}"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
     count = customers.observe(
-        ms.ref.metric(f"{names.domain}.{names.order_count}"), during=august, via=buyer
+        ms.ref.metric(f"{names.domain}.{names.order_count}"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     )
 
     association = revenue.correlate(count, method="spearman").execute()
@@ -570,8 +634,18 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     devices = case.session.members(ms.ref.entity("telemetry.device"))
     buyer = ms.ref.relationship("telemetry.reading_device")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    signal = devices.observe(ms.ref.metric("telemetry.signal_sum"), during=august, via=buyer)
-    readings = devices.observe(ms.ref.metric("telemetry.reading_count"), during=august, via=buyer)
+    signal = devices.observe(
+        ms.ref.metric("telemetry.signal_sum"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity("telemetry.device"),),
+    )
+    readings = devices.observe(
+        ms.ref.metric("telemetry.reading_count"),
+        during=august,
+        via=buyer,
+        by=(ms.ref.entity("telemetry.device"),),
+    )
 
     association = signal.correlate(readings, method="spearman").execute()
     selected = association.coefficient.where(association.coefficient.value.lt(0)).execute()
@@ -633,6 +707,7 @@ def test_public_missing_key_and_wrong_relationship_reject(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.line_order}"),
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
         )
     assert route.value.repair is not None
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
@@ -650,6 +725,7 @@ def test_public_missing_retained_part_blocks_recovery(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
         )
         .execute()
     )
@@ -683,6 +759,7 @@ def test_public_cold_process_continues_from_retained_parts(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
+        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
     ).execute()
     saved_ref = observed.state.artifact_ref.ref
     offline = case.database_path.with_suffix(".offline")

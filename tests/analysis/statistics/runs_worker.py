@@ -127,7 +127,9 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             else mv.grain("day"),
         )
         members = session.members(ms.ref.entity("sales.order"))
-        raw = members.each(grid).observe(ms.ref.metric("sales.maximum_0"), during=grid.window)
+        raw = members.each(grid).observe(
+            ms.ref.metric("sales.maximum_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        )
         daily = raw.group_by(grid).rollup()
         captured_original = daily.execute()
         assert captured_original.to_pandas().value.tolist() == [1, 2, 7]
@@ -139,6 +141,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             during=mv.time_scope(
                 start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"
             ),
+            by=(ms.ref.entity("sales.order"),),
         ).execute()
         assert sorted(next_result.to_pandas().value.tolist()) == [2, 7]
         fixed_entity_runs = entity_runs.execute()

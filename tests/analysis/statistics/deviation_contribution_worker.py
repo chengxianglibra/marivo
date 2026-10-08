@@ -239,10 +239,12 @@ def run(
         receiver = members.each(grid) if domain == "entity_time" else members
         during = grid.window if domain == "entity_time" else window
         metric = ms.ref.metric(f"sales.total_{index}")
-        current = receiver.observe(metric, during=during)
+        current = receiver.observe(metric, during=during, by=(ms.ref.entity("sales.order"),))
         baseline_receiver = members.each(baseline_grid) if domain == "entity_time" else members
         baseline = baseline_receiver.observe(
-            metric, during=baseline_grid.window if domain == "entity_time" else baseline_window
+            metric,
+            during=baseline_grid.window if domain == "entity_time" else baseline_window,
+            by=(ms.ref.entity("sales.order"),),
         )
         assert isinstance(current, mv.LogicalNumericRelation)
         assert isinstance(baseline, mv.LogicalNumericRelation)

@@ -44,10 +44,10 @@ members = session.members(ms.ref.entity("sales.orders"))
 revenue = ms.ref.metric("sales.revenue")
 current = members.observe(
     revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01")
-).rollup()
+)
 baseline = members.observe(
     revenue, during=mv.time_scope(start="2026-06-01", end="2026-07-01")
-).rollup()
+)
 change = current.compare(baseline).execute()
 change.show()
 ```
@@ -246,7 +246,27 @@ before combination. Component domains combine as complete tuples, never as a
 Cartesian product of projected columns, root intersection or row-order alignment.
 Only proven empty contributions receive their method's empty state.
 
-`group_by` binds classification; `rollup` merges sufficient original state;
+First member observation directly computes the complete Metric at the requested
+`by` grain. The default `by=()` produces Singleton, or one overall value per
+retained time bucket after `each(grid)`. Membership decides which contributions
+participate; `by` selects only spatial keys. It accepts an ordered tuple of the
+receiver's member Entity (all primary-key components), categorical member or
+contribution-path Dimensions, and same-Session logical classifications, including
+explicit version reads. Duplicate or unbound axes and mismatched classifications
+reject. `groups` binds an exact same-Session logical target domain and retains
+empty groups. Public `coordinates` and grouped-domain observation are removed.
+Only retained full Subject identity permits a subsequent `members()`.
+Multiple member classifications align on the complete member/time key before
+their group axes are attached. Explicit target completion preserves comparison
+continuations and initializes empty temporal-fold samples with the retained fold
+kind in both source and fixed execution.
+
+Time grain is expressed by `each(time_grid(..., grain=grain("day")))` with
+`during=grid.window`. Every bucket remains, including empty buckets; `by` never
+removes time. Existing result grouping and original `rollup` express time
+coarsening. Relative Anchor observation keeps its per-Anchor window contract.
+
+`group_by` on existing results binds classification; `rollup` merges sufficient original state;
 `summarize` creates a new current-row statistic. Means retain sum/count, ratios
 retain all original components, and linear expressions retain signed ordered
 occurrences. Averaging finished means/ratios is not original rollup. Direct

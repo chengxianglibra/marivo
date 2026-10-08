@@ -41,12 +41,14 @@ change and ratio retain zero-denominator and Cell policies.
 ```python
 july = mv.time_scope(start="2026-07-01", end="2026-08-01")
 september = mv.time_scope(start="2026-09-01", end="2026-10-01")
-baseline = customers.observe(revenue, during=july, via=buyer)
+baseline = customers.observe(revenue, during=july, via=buyer, by=(ms.ref.entity("sales.customer"),))
 change = august_revenue.compare(baseline)
 falling = change.where(change.value.lt(0)).members()
-next_month_mean = falling.observe(
-    revenue, during=september, via=buyer
-).summarize(mv.mean()).execute()
+next_month_mean = (
+    falling.observe(revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),))
+    .summarize(mv.mean())
+    .execute()
+)
 ```
 
 Only Defined finite compatible values can enter numeric predicates. Follow the receiver contract if an intermediate local algorithm requires execution before continuation.
@@ -67,8 +69,10 @@ ratio_routes = mv.routes(
 )
 channel = ms.ref.dimension("sales.order.channel")
 aov = customers.observe(
-    ms.ref.metric("sales.aov_from_lines"), during=august, via=ratio_routes,
-    coordinates=(channel,),
+    ms.ref.metric("sales.aov_from_lines"),
+    during=august,
+    via=ratio_routes,
+    by=(ms.ref.entity("sales.customer"), channel),
 )
 overall_aov = aov.rollup().execute()
 channel_aov = aov.group_by(channel).rollup().execute()
@@ -91,15 +95,14 @@ counts = members.observe(
     ms.ref.metric("sales.order_count"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
 )
 shares = counts.share_of(counts.rollup())
 selected_shares = shares.where(shares.value.gt(0)).execute()
 penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
 stratum_counts = counts.group_by(region).rollup()
 composition = stratum_counts.share_of(stratum_counts.rollup())
-weights = mv.reference_weights(
-    composition, strata=(region,), unit=ms.ref.entity("sales.order")
-)
+weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
 standardized = stratum_counts.standardize(reference=weights).execute()
 standardized.contract().show()
 ```
@@ -121,13 +124,13 @@ current_counts = attribution_members.observe(
     ms.ref.metric("sales.order_count"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
-    coordinates=(channel,),
+    by=(channel,),
 ).rollup()
 baseline_counts = attribution_members.observe(
     ms.ref.metric("sales.order_count"),
     during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     via=ms.ref.relationship("sales.order_buyer"),
-    coordinates=(channel,),
+    by=(channel,),
 ).rollup()
 change = current_counts.compare(baseline_counts)
 allocation = change.attribute(axes=(channel,), top_k=3).execute()
@@ -166,10 +169,14 @@ restored = session.artifact(result.artifact_ref)
 
 ```python
 revenue = ms.ref.metric("sales.revenue")
-by_channel = session.members(ms.ref.entity("sales.orders")).observe(
-    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-    coordinates=(ms.ref.dimension("sales.orders.channel"),),
-).group_by(ms.ref.dimension("sales.orders.channel")).rollup()
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
 top_channels = by_channel.rank(order="descending", ties="ordinal").limit(5).execute()
 top_channels.show()
 ```
@@ -177,11 +184,13 @@ top_channels.show()
 
 ```python
 revenue = ms.ref.metric("sales.revenue")
-by_channel = session.members(ms.ref.entity("sales.orders")).observe(
-    revenue, coordinates=(ms.ref.dimension("sales.orders.channel"),),
-).group_by(
-    ms.ref.dimension("sales.orders.channel")
-).rollup()
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
 by_channel.rank(order="descending", ties="ordinal").limit(5).execute().show()
 ```
 

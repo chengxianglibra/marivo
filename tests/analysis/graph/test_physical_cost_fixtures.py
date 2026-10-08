@@ -71,6 +71,7 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         logical = work.session.members(ms.ref.entity("cost.facts")).observe(
             ms.ref.metric("cost.facts_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=(ms.ref.entity("cost.facts"),),
         )
         assert isinstance(logical, mv.LogicalNumericRelation)
         captured = logical.execute()
