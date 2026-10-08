@@ -516,7 +516,7 @@ class _BindingCollector(ast.NodeVisitor):
                     ),
                     refs=(self._owning_ref.key, legacy_ref.key),
                     expected="ms.bind(field_ref, entity_parameter)",
-                    received="field_ref(entity_parameter)",
+                    received=ast.unparse(node),
                 )
             self.generic_visit(node)
             return
@@ -528,20 +528,31 @@ class _BindingCollector(ast.NodeVisitor):
                     "ms.bind(field_ref, entity_parameter) with two direct arguments."
                 ),
                 refs=(self._owning_ref.key,),
-                expected="ms.bind(field_ref, entity_parameter)",
-                received=ast.dump(node, include_attributes=False),
+                expected="ms.bind(field_ref, entity_parameter) with two positional bare names",
+                received=ast.unparse(node),
+                hint=(
+                    "Assign the exact field Ref to a "
+                    "module-level name before the decorator, then bind that name to a direct "
+                    "Entity parameter; do not construct refs or call factories inside ms.bind."
+                ),
             )
         value = self._symbols.get(node.args[0].id)
         if type(value) is not Ref:
             raise SemanticLoadError(
                 kind=ErrorKind.INVALID_BINDING_REF,
                 message=(
-                    f"Expression body {self._owning_ref.key!r} binds a value that is not "
-                    "an exact field ref."
+                    f"Expression body {self._owning_ref.key!r} binds name "
+                    f"{node.args[0].id!r}, which does not resolve to an exact field Ref."
                 ),
                 refs=(self._owning_ref.key,),
                 expected="a dimension, time_dimension, or measure Ref",
-                received=type(value).__name__,
+                received=f"{node.args[0].id}: {type(value).__name__}",
+                hint=(
+                    f"Define {node.args[0].id} before the decorator from a declared field "
+                    "or ms.ref.<kind>(path) with its exact existing "
+                    "path. Cross-file fields do not require importing the declaration module."
+                ),
+                details={"binding_ref_name": node.args[0].id, "binding_call": ast.unparse(node)},
             )
         field_ref = cast("Ref[SemanticKindTag]", value)
         if field_ref.kind not in _FIELD_KINDS:
@@ -553,7 +564,11 @@ class _BindingCollector(ast.NodeVisitor):
                 ),
                 refs=(self._owning_ref.key, field_ref.key),
                 expected="a dimension, time_dimension, or measure Ref",
-                received=field_ref.kind.value,
+                received=f"{node.args[0].id}: {field_ref.kind.value}",
+                hint=(
+                    f"Replace {node.args[0].id} with a bare name holding the exact field "
+                    "Ref to bind; Entity and Metric refs are not row-level fields."
+                ),
             )
         if (
             not isinstance(node.args[1], ast.Name)
@@ -567,7 +582,13 @@ class _BindingCollector(ast.NodeVisitor):
                 ),
                 refs=(self._owning_ref.key, field_ref.key),
                 expected="ms.bind(field_ref, entity_parameter)",
-                received=ast.dump(node, include_attributes=False),
+                received=ast.unparse(node),
+                hint=(
+                    f"Bind {node.args[0].id} to one of the "
+                    "direct Entity parameters: "
+                    + ", ".join(self._parameter_positions)
+                    + ". Move table filtering or transformation out of the binding argument."
+                ),
             )
         entity_position = self._parameter_positions[node.args[1].id]
         key = (field_ref.kind, field_ref.path, entity_position)
@@ -917,7 +938,9 @@ def bind(field: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
     ----------
     field:
         Exact dimension, time-dimension, or measure ref declared in the loaded
-        semantic project.
+        semantic project, passed as a bare name resolvable before decoration.
+        For cross-file fields, assign ``ms.ref.<kind>(exact_path)`` to a
+        module-level name; the declaration need not be in this file.
     entity_alias:
         Direct entity parameter of the active decorated expression body.
 
@@ -928,14 +951,20 @@ def bind(field: Ref[FieldKind], entity_alias: ir.Table, /) -> ir.Value:
 
     Example
     -------
+    >>> orders = ms.ref.entity("sales.orders")
+    >>> amount = ms.ref.measure("sales.orders.amount")
     >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
-    ... def revenue(orders):
-    ...     return ms.bind(amount, orders).sum()
+    ... def revenue(rows):
+    ...     return ms.bind(amount, rows).sum()
 
     Constraints
     -----------
     Only valid inside a loaded semantic expression body. The field must belong
-    to the bound entity and must be captured as a direct ``ms.bind`` argument.
+    to the bound entity. Both arguments are direct positional names. Inline
+    attribute access, factory/ref construction, transformed tables, and local
+    Entity aliases are rejected so the loader can capture static dependencies
+    and prove ownership. ``rows.amount`` reads a physical column; ``bind``
+    evaluates the declared semantic field expression.
     """
     ref = field
     if type(ref) is not Ref:

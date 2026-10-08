@@ -260,8 +260,9 @@ read; remote JSON is not fetched only to inspect its schema.
 
 ### Source projections and observed types
 
-Supplying `columns=` to `md.table(...)` selects and renames physical columns. It
-does not declare their types. Physical identifiers are quoted atomically, so
+Supplying `columns=` to `md.table(...)` selects and renames physical columns. Its
+type is `Mapping[str, str]`: output name to physical column name. It does not
+declare types or accept column descriptor objects. Physical identifiers are quoted atomically, so
 dots, spaces, reserved words, and punctuation are treated as one identifier:
 
 ```python

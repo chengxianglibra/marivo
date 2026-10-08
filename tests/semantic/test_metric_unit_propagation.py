@@ -64,6 +64,11 @@ def latency(orders): return orders.latency_ms
 revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
 avg_latency = ms.aggregate(measure=latency, agg="mean", name="avg_latency")
 order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
+entity_count = ms.count(entity=orders, name="entity_count")
+distinct_count = ms.aggregate(measure=amount, agg="count_distinct", name="distinct_count")
+approx_count = ms.aggregate(measure=amount, agg="approx_count_distinct", name="approx_count")
+custom_count = ms.aggregate(measure=amount, agg="count", name="custom_count", unit="{order}")
+count_share = ms.ratio(name="count_share", numerator=order_count, denominator=entity_count)
 margin = ms.ratio(name="margin", numerator=revenue, denominator=revenue)
 arpu = ms.ratio(name="arpu", numerator=revenue, denominator=order_count)
 net = ms.linear(name="net", add=[revenue, revenue])
@@ -77,7 +82,11 @@ def test_tier1_unit_preserves_measure_unit() -> None:
         reg = result.registry
         assert reg.metrics["test.revenue"].unit == "CNY"  # sum preserves
         assert reg.metrics["test.avg_latency"].unit is None  # measure unannotated
-        assert reg.metrics["test.order_count"].unit is None  # count -> no noun
+        assert reg.metrics["test.order_count"].unit == "1"
+        assert reg.metrics["test.entity_count"].unit == "1"
+        assert reg.metrics["test.distinct_count"].unit == "1"
+        assert reg.metrics["test.approx_count"].unit == "1"
+        assert reg.metrics["test.custom_count"].unit == "{order}"
 
 
 def test_derived_unit_algebra() -> None:
@@ -86,7 +95,8 @@ def test_derived_unit_algebra() -> None:
     with load_inline_semantic(_INLINE_UNITS) as result:
         reg = result.registry
         assert reg.metrics["test.margin"].unit == "1"  # CNY / CNY cancels
-        assert reg.metrics["test.arpu"].unit is None  # CNY / None -> no compound
+        assert reg.metrics["test.count_share"].unit == "1"
+        assert reg.metrics["test.arpu"].unit == "CNY"  # CNY / 1
         assert reg.metrics["test.net"].unit == "CNY"  # CNY + CNY
 
 

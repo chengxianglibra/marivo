@@ -273,8 +273,7 @@ def _normalize_additivity(
         _raise(
             ErrorKind.INVALID_REF,
             f"{semantic_id!r}: additivity requires ms.additive(...), "
-            "ms.additive_all(...), or ms.non_additive(); old strings and "
-            "ms.semi_additive(...) are no longer authoring values.",
+            "ms.additive_all(...), or ms.non_additive().",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )

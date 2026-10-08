@@ -458,6 +458,9 @@ events = ms.entity(
 `dataset.contract()` 不访问数据源。必需列缺失、全空而无法推断或类型不支持时会明确报错，
 未使用字段不会增加类型约束。投影表仍是一个物理来源，别名不是独立来源。
 
+`columns` 的类型为 `Mapping[str, str]`，每个值都是物理列名，不能是描述列或其类型
+的对象。下面的 inspection 方法返回观测到的字段名，不是类型声明。
+
 检查表时，可以通过 `md.inspect` 中保留的元数据复制物理字段名到投影：
 
 ```python
@@ -626,13 +629,21 @@ percentile。若度量不是半可加，传入 `fold=` 会被拒绝。
 只接受引用，并会从实体引用推断指标所属领域。传入 `filter=ms.where(...)` 可对子集
 计数（如失败数），无需手写指标请求体。
 
+`ms.count` 不接受 `unit=`，其单位固定为 `"1"`（单位一）。Entity 与指标定义说明
+计数对象。`ms.aggregate` 接受单位覆盖；省略时，值聚合继承 Measure 的单位，
+`count`、`count_distinct` 和 `approx_count_distinct` 推导为 `"1"`。因此计数相除
+可推导为 `"1"`，收入除以计数保留收入单位。`None` 仍表示未知或未声明的单位。
+
 ```python
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+state = ms.dimension_column(name="state", entity=orders, column="state")
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
 `ms.where(**conditions)` 构建 AND 组合的等值或成员过滤。键必须是指标目标实体
 上已声明的本地语义维度名，而不是任意物理列。标量
 `str` / `int` / `float` / `bool` 表示等值；非空元组/list 会统一为成员过滤。
+`count` 的目标是其 Entity，`aggregate` 的目标是 Measure 所属 Entity；其他实体
+（包括关联实体）上的维度不能用作过滤参数名。
 加载会拒绝缺失的 filter 维度，预览/分析在提交查询前根据已解析的 Ibis
 类型检查 literal 是否可比较。
 若合法已编写 literal 无法与物理 dtype 比较，两条路径都会在查询提交前返回
@@ -904,6 +915,12 @@ if report.status == "blocked":
 这些运行时调用接受当前条目或它的精确引用，并立即归一化为引用。普通 preview
 不创建 authoring checkpoint，也不会影响 readiness。
 
+scope 使用 `md.unpruned`（无裁剪谓词）、`md.time_range`（物理时间范围）或
+`md.partition`（物理分区值）构造；三者都要求正数的行数和超时限制。
+对应的 Help 目标为 `datasource.unpruned`、`datasource.time_range` 和
+`datasource.partition`。若 preview 依赖多个实体，应传入每个精确 Entity Ref
+到其 scope 的映射，恰好覆盖全部依赖实体。
+
 Trino、PostgreSQL 和 MySQL 的 preview 会在解析来源前，自动按归一化后的 scope 超时
 打开独立 reader。批量行组和 Metric 组分别使用自己的超时；成功或失败后都会关闭
 reader 并恢复原连接缓存。PostgreSQL 使用带 `statement_timeout` 的只读事务，Trino
@@ -1029,6 +1046,28 @@ Marivo 会先加载中央项目的 `models/`，再按配置顺序加载外部 `m
 记录到编译后的目录。若在请求体外绑定、使用错误 alias，或绑定非字段引用，都会得到
 带修复提示的错误。
 
+`ms.bind` 的第一个参数必须是装饰前可解析为精确字段 Ref 的裸名字，第二个参数
+必须是直接 Entity 参数。`ms.bind(rows.amount, rows)`、
+`ms.bind(factory("x"), rows)` 和
+`ms.bind(ms.ref.measure("sales.orders.amount"), rows)` 这类内联写法均无效。
+跨文件引用应在模块顶层构造，无需把声明放进同一文件，也无需导入声明模块：
+
+```python
+# models/semantic/trino_query/query_history_segments.py
+query_info = ms.ref.entity("trino_query.trino_query_info")
+state = ms.ref.dimension("trino_query.trino_query_info.state")
+
+@ms.metric(entities=[query_info], additivity=ms.additive_all())
+def failed_segments(rows):
+    return (ms.bind(state, rows) == "FAILED").cast("int64").sum()
+```
+
+目标必须存在于加载后的项目中，并属于 `query_info`。
+`ms.ref.measure(...)` 和 `ms.ref.time_dimension(...)` 使用同一模式。
+Loader 据此捕获静态依赖并校验 Entity 所有权。`rows.amount` 读取物理列，
+`ms.bind(amount, rows)` 执行语义字段定义及其计算；变换后的表或局部 Entity
+alias 不能替代直接参数。
+
 编写引用可以直接传给分析。如果从字面身份开始，先做一次精确目录 membership
 校验，再直接传入当前条目：
 
@@ -1100,7 +1139,7 @@ structured repair 的唯一来源。
     ),
 )
 def revenue(table):
-    return table.amount.sum()
+    return ms.bind(amount, table).sum()
 ```
 ### 分析正确性的约束
 
@@ -1116,12 +1155,23 @@ def revenue(table):
 - `ms.ai_context(business_definition=..., guardrails=[...])` —— 记录业务解释与可选
   的历史背景。迁移后的行为应在声明外对照独立来源。
 
+单纯固定坐标不要求声明 status 时间。采样 status 时间必须指定 fold，非采样状态
+事实可以省略 fold；fold 必须有对应 status 轴，该轴必须包含在 `except_=` 中。
+
+| 状态事实 | Measure 或 Metric 上的声明 |
+| --- | --- |
+| 非采样 | `additivity=ms.additive_all(except_=(axis,))`、`status_time_dimension=axis`；省略 `status_time_fold` |
+| 采样 | 固定同一 status 轴，增加 `status_time_fold="last"` 或其他支持的 fold；在时间解析值上声明 `sample_interval` |
+
+采样状态事实在时间解析值上声明采样间隔：
+
 ```python
 snapshot_date = ms.time_dimension_column(
     name="snapshot_date",
     entity=inventory_daily,
     column="snapshot_date",
-    granularity="day",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
 )
 
 on_hand_units = ms.measure_column(

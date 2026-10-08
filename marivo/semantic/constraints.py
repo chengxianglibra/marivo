@@ -765,11 +765,13 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_binding_ref",
         "runtime",
         ("bind", "dimension", "time_dimension", "measure", "metric"),
-        "Semantic fields bind explicitly inside an active expression body.",
+        "ms.bind takes a bare field-Ref name and a direct Entity parameter inside an active expression body.",
         "Ref values carry identity only; the loaded expression context owns field bodies, "
         "entity ownership, and cycle checks.",
         "Use ms.bind(field_ref, entity_alias) with a dimension, time_dimension, or measure "
-        "and one direct decorated-body entity parameter.",
+        "and one direct decorated-body entity parameter. Assign cross-file refs from "
+        "ms.ref.<kind>(exact_path) at module scope before decoration; inline attributes, "
+        "factories, ref construction, and locally aliased Entity arguments are invalid.",
     ),
     ConstraintId.SINGLE_DATASOURCE_METRIC: _constraint(
         ConstraintId.SINGLE_DATASOURCE_METRIC,
@@ -839,9 +841,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_time_fold",
         "decorator",
         ("metric",),
-        "time_fold must be a supported fold kind with valid parameters.",
+        "status_time_fold or aggregate fold must be a supported fold kind with valid parameters.",
         "Fold kinds define how sampled time series are compressed into a single representative value.",
-        "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('percentile', q) with 0 < q < 1.",
+        "Use status_time_fold= (or aggregate fold=) with 'mean', 'min', 'max', 'first', 'last', or ('percentile', q) where 0 < q < 1.",
     ),
     ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
         ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
@@ -865,10 +867,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.TIME_FOLD_MISSING,
         "missing_time_fold",
         "assembly",
-        ("metric",),
-        "Semi-additive metrics on sampled entities must declare a time_fold.",
+        ("measure", "metric"),
+        "Sampled status-time declarations require status_time_fold.",
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
-        "Add time_fold='mean' (or another fold kind) to the metric declaration.",
+        "Set status_time_fold to the business fold on the Measure or Metric declaration.",
     ),
     ConstraintId.STATUS_TIME_DIMENSION_REQUIRED: _constraint(
         ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,

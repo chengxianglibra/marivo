@@ -173,7 +173,8 @@ def aggregate(
             rows matching local semantic dimensions (e.g. a subset sum).
             ``None`` aggregates all rows.
         unit: Override the unit derived from ``measure`` at load. Leave None to
-            inherit the measure's unit (count/count_distinct derive nothing).
+            inherit the measure's unit for value aggregates. Count,
+            count_distinct, and approx_count_distinct derive unit ``"1"``.
         domain: Override the active domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
@@ -334,6 +335,8 @@ def where(
     """Build an AND-joined filter for ``ms.count`` / ``ms.aggregate``.
 
     Each keyword is a local semantic dimension name on the target entity.
+    For ``count``, this is its Entity; for ``aggregate``, the Measure's Entity.
+    Physical columns and dimensions on related Entities are not filter names.
     A scalar value means equality; a non-empty tuple/list means membership.
     Use this to express subset counts and aggregates without a hand-written
     metric body.
@@ -347,10 +350,11 @@ def where(
         A :class:`WhereFilter` to pass as ``filter=``.
 
     Example:
+        >>> state = ms.dimension_column(name="state", entity=queries, column="state")
         >>> terminal = ms.count(
         ...     name="terminal_count",
         ...     entity=queries,
-        ...     filter=ms.where(type=(2, 4)),
+        ...     filter=ms.where(state=("FAILED", "ERROR")),
         ... )
     """
     if not conditions:
@@ -429,10 +433,13 @@ def count(
     Example:
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
+        >>> state = ms.dimension_column(name="state", entity=orders, column="state")
         >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 
     Constraints:
-        Counts rows of the target entity. Use ``ms.aggregate(...)`` for measure
+        Counts rows of the target entity with fixed unit ``"1"`` (unit one).
+        No ``unit=`` parameter is accepted. The Entity and metric definition
+        identify what is counted. Use ``ms.aggregate(...)`` for measure
         aggregation and ``@ms.metric(...)`` for custom expressions.
     """
     ctx = _require_ctx()
@@ -467,6 +474,7 @@ def count(
         root_entity=entity_id,
         aggregation_target=entity_id,
         aggregation_target_kind="entity",
+        unit="1",
         filter=filter_pairs,
         event_time_dimension=event_time_id,
     )
@@ -513,9 +521,19 @@ def metric(
         A decorator that returns a ``Ref[metric]``.
 
     Example:
+        >>> @ms.measure(entity=orders, additivity=ms.additive_all())
+        ... def amount(rows):
+        ...     return rows.price * rows.quantity
         >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
-        ... def gmv(orders):
-        ...     return (orders.price * orders.qty).sum()
+        ... def revenue(rows):
+        ...     return ms.bind(amount, rows).sum()
+
+    Constraints:
+        Use ``ms.bind(field_ref, rows)`` to consume a semantic field's definition;
+        ``rows.amount`` accesses the physical column. A status-time axis must
+        appear in ``additive_all(except_=...)``. ``status_time_fold`` requires
+        that axis and is required for sampled status time; non-sampled status
+        declarations may omit the fold.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

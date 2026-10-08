@@ -523,6 +523,10 @@ restrictions. Constructors, loading, and contract inspection remain source-I/O
 free. A projected table remains one physical source; its aliases are not
 separate sources.
 
+The `columns` contract is `Mapping[str, str]`: each value is a physical column
+name, not an object describing a column or its type. The inspection method below
+returns an observed name rather than a type declaration.
+
 For a table inspected through `md.inspect`, use retained metadata to copy an
 exact physical field name into a projection:
 
@@ -712,8 +716,16 @@ rows. The helper accepts refs only and infers the metric domain from the entity
 ref. Pass `filter=ms.where(...)` to count a subset (e.g. failures) without a
 hand-written metric body.
 
+`ms.count` accepts no `unit=` parameter: its unit is always `"1"` (unit one).
+The Entity and metric definition identify what is counted. `ms.aggregate`
+accepts a unit override; without one, value aggregates inherit their Measure's
+unit and `count`, `count_distinct`, and `approx_count_distinct` derive `"1"`.
+This lets count/count ratios derive `"1"` and revenue/count ratios retain the
+revenue unit. `None` remains an unknown or undeclared unit.
+
 ```python
 order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+state = ms.dimension_column(name="state", entity=orders, column="state")
 failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 ```
 `ms.where(**conditions)` builds AND-joined equality
@@ -721,7 +733,9 @@ failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(stat
 semantic dimensions declared on the metric's target entity, not arbitrary
 physical columns. Scalar values are `str` / `int` / `float` / `bool`; non-empty
 tuple/list values are normalized to membership. Multiple conditions are
-AND-joined. Load rejects missing filter dimensions, and preview/analysis checks
+AND-joined. For `count`, the target is its Entity; for `aggregate`, it is the
+Measure's Entity. Dimensions on another Entity, including related Entities,
+cannot be used as filter keywords. Load rejects missing filter dimensions, and preview/analysis checks
 literal compatibility against the resolved Ibis type before query submission.
 If a valid authored literal cannot be compared with the physical dtype, both
 paths raise `filter_value_runtime_incompatible` with
@@ -1018,6 +1032,13 @@ These runtime calls accept the current entry or its exact ref and normalize to
 the ref immediately. Ordinary preview creates no authoring checkpoint and does
 not affect readiness.
 
+Build the scope with `md.unpruned` (no pruning predicate), `md.time_range`
+(physical time range), or `md.partition` (physical partition values); each
+requires positive row and timeout guards. Their focused Help targets are
+`datasource.unpruned`, `datasource.time_range`, and `datasource.partition`.
+For a preview with multiple dependency Entities, pass a mapping from each exact
+Entity Ref to its scope, covering precisely those Entities.
+
 Trino, PostgreSQL, and MySQL previews automatically open isolated readers with
 the normalized scope timeout before resolving the source. Each batch row or
 Metric group uses its own timeout; readers close on success or failure and the
@@ -1160,6 +1181,30 @@ The loader records that binding against the compiled catalog. Binding outside
 that body, with the wrong alias, or binding a non-field ref fails with a
 teaching error.
 
+The first argument of `ms.bind` must be a bare name resolving to an exact field
+Ref before decoration; the second must be a direct Entity parameter. Inline
+`ms.bind(rows.amount, rows)`, `ms.bind(factory("x"), rows)`, and
+`ms.bind(ms.ref.measure("sales.orders.amount"), rows)` are invalid. Construct
+cross-file refs at module scope instead; neither co-locating the declarations
+nor importing the declaration module is required:
+
+```python
+# models/semantic/trino_query/query_history_segments.py
+query_info = ms.ref.entity("trino_query.trino_query_info")
+state = ms.ref.dimension("trino_query.trino_query_info.state")
+
+@ms.metric(entities=[query_info], additivity=ms.additive_all())
+def failed_segments(rows):
+    return (ms.bind(state, rows) == "FAILED").cast("int64").sum()
+```
+
+The target must exist in the loaded project and belong to `query_info`.
+`ms.ref.measure(...)` and `ms.ref.time_dimension(...)` follow the same pattern.
+This lets the loader capture dependencies and prove Entity ownership.
+`rows.amount` reads a physical column, while `ms.bind(amount, rows)` evaluates
+the semantic field definition, including its calculations. A transformed table
+or a local Entity alias cannot replace the direct parameter.
+
 An authoring ref can be passed directly to analysis. When starting from a
 literal identity, require catalog membership once and then pass the current
 entry.ref:
@@ -1238,7 +1283,7 @@ fanout constraints, AI context, and structured repairs.
     ),
 )
 def revenue(table):
-    return table.amount.sum()
+    return ms.bind(amount, table).sum()
 ```
 ### Correctness rules for analysis
 
@@ -1257,12 +1302,24 @@ recorded in `ai_context`, but it does not verify the metric or enter execution.
   business interpretation and optional historical context. Confirm migrated
   behavior against an independent source outside the declaration.
 
+Fixed coordinates alone do not require a status declaration. Sampled status
+time requires a fold; non-sampled status facts may omit it. A fold requires its
+status axis, and that axis must occur in `except_=`.
+
+| Status fact | Declaration on the Measure or Metric |
+| --- | --- |
+| Non-sampled | `additivity=ms.additive_all(except_=(axis,))`, `status_time_dimension=axis`; omit `status_time_fold` |
+| Sampled | The same fixed status axis plus `status_time_fold="last"` or another supported fold; declare `sample_interval` on the time parse |
+
+For a sampled status fact, declare the cadence on the time parse:
+
 ```python
 snapshot_date = ms.time_dimension_column(
     name="snapshot_date",
     entity=inventory_daily,
     column="snapshot_date",
-    granularity="day",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
 )
 
 on_hand_units = ms.measure_column(

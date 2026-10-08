@@ -70,7 +70,7 @@ def test_resolution_fills_additivity() -> None:
         assert reg.metrics["test.avg_price"].additivity == "non_additive"
         assert reg.metrics["test.order_count"].additivity == "additive"
         assert reg.metrics["test.query_count"].additivity == "additive"
-        assert reg.metrics["test.query_count"].unit is None
+        assert reg.metrics["test.query_count"].unit == "1"
         assert reg.metrics["test.aov"].additivity == "non_additive"
         assert reg.metrics["test.gross_plus"].additivity == "additive"
         assert reg.metrics["test.weighted_price"].additivity == "non_additive"

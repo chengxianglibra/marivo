@@ -95,6 +95,9 @@ def entity(
         datasource: Datasource ref returned by ``ms.ref.datasource(...)``.
         source: Structured physical source, usually ``md.table(...)``,
             ``md.parquet(...)``, ``md.csv(...)``, or ``md.json(...)``.
+            Table ``columns`` maps output names to physical column names;
+            types come from source metadata when execution needs them.
+            Use ``md.inspect(...)`` to inspect current names and types.
         primary_key: Optional stable Entity identity columns; version coordinates belong only in versioning.
         versioning: Explicit snapshot or validity representation; never inferred from source partitions.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
@@ -113,8 +116,13 @@ def entity(
         >>> orders = ms.entity(
         ...     name="orders",
         ...     datasource=ms.ref.datasource("warehouse"),
-        ...     source=md.table("orders", database="sales_mart"),
+        ...     source=md.table("orders", columns={"order_id": "id", "amount": "total"}),
+        ...     primary_key=["order_id"],
         ... )
+
+    Constraints:
+        Declare this constructor inside a semantic project loaded by ``ms.load``.
+        Identity and direct field columns name projected output aliases.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

@@ -2148,6 +2148,39 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
     from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
     from marivo.semantic.ir import DimensionKind
 
+    declarations: Sequence[MeasureIR | MetricIR] = (
+        *registry.measures.values(),
+        *registry.metrics.values(),
+    )
+    for declaration in declarations:
+        status_axis = declaration.status_time_dimension
+        if status_axis is None or declaration.status_time_fold is not None:
+            continue
+        axis = registry.dimensions.get(status_axis)
+        if (
+            axis is None
+            or not isinstance(
+                axis.parse, (DatetimeParse, TimestampParse, StrptimeParse, HourPrefixParse)
+            )
+            or axis.parse.sample_interval is None
+        ):
+            continue
+        errors.append(
+            SemanticLoadError(
+                kind=ErrorKind.MISSING_TIME_FOLD,
+                message=f"{declaration.semantic_id!r} declares sampled status time without a fold.",
+                refs=(declaration.semantic_id, status_axis),
+                constraint_id=ConstraintId.TIME_FOLD_MISSING,
+                expected="status_time_fold for a sampled status_time_dimension",
+                received=f"status_time_dimension={status_axis!r}, status_time_fold=None",
+                hint=(
+                    f"Keep {status_axis!r} in additive_all(except_=...) and set "
+                    "status_time_fold to the business fold (mean/min/max/first/last or "
+                    "('percentile', q))."
+                ),
+            )
+        )
+
     for metric_id, metric_ir in registry.metrics.items():
         temporal_contract = resolve_metric_temporal_contract(metric_ir, registry)
         if metric_ir.fold_override is not None and temporal_contract is None:

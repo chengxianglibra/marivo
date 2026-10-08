@@ -1692,6 +1692,7 @@ def _normalize_target_graph(
 
     def visit(node_id: str, role: str) -> tuple[str, bool, str | None]:
         nonlocal source_recompute
+        unit: str | None
         node = nodes[node_id]
         if isinstance(node, SliceNodeV1):
             node = component_node(forest.graph, node_id)
@@ -1713,7 +1714,7 @@ def _normalize_target_graph(
                         metric_id, "a declared Entity identity for distinct count", role
                     )
                 root = target_entity.ref
-                data_type, unit = "int64", None
+                data_type, unit = "int64", "1"
             else:
                 data_type, unit, root = _target_measure_type(
                     registry,
@@ -1767,7 +1768,7 @@ def _normalize_target_graph(
             elif node.agg in ("count", "count_distinct", "approx_count_distinct"):
                 output_type = "int64"
                 state = ("count" if node.agg == "count" else "value", "row_count")
-                unit = None
+                unit = "1"
                 if node.agg in ("count_distinct", "approx_count_distinct"):
                     source_recompute = True
                     requirements.add("metric.source_distinct@v1")

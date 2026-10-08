@@ -115,6 +115,15 @@ These rules hold for every object type.
   metadata (provenance), never an executable body. Other statements, writes, control flow, and local callable aliases are
   rejected at decoration time. Refs remain data-only; nested field expressions
   use `ms.bind(field_ref, entity_alias)` rather than calling the ref.
+  Both arguments must be bare names: an exact field Ref visible before
+  decoration and a direct Entity parameter. Attribute access, inline Ref or
+  factory calls, and transformed or locally aliased Entity arguments are
+  rejected so dependencies and field ownership can be captured statically.
+  `rows.amount` accesses a physical column; `ms.bind(amount, rows)` evaluates
+  the declared semantic field. A cross-file consumer assigns
+  `state = ms.ref.dimension("trino_query.trino_query_info.state")` at module
+  scope, then uses `ms.bind(state, rows)` in the body. The declaration module
+  need not be imported; the target must exist and belong to the bound Entity.
 - **Fail closed.** If decoration, assembly, or materialization cannot
   prove the contract holds, the object raises a structured error rather than
   degrading to a best-effort guess.
@@ -363,11 +372,11 @@ measure; derived metrics propagate the unit via composition algebra.
 The public authoring values are closed, versioned constructors:
 `ms.additive(over=(Region,))` permits only the listed native coordinates,
 `ms.additive_all(except_=(SnapshotAt,))` permits all native coordinates except
-fixed axes, and `ms.non_additive()` permits no value summation. Bare strings and
-the former `ms.semi_additive(...)` authoring entry point are invalid. A status
-fact declares `status_time_dimension=` independently and may declare
-`status_time_fold=` when sampled values need a fold. The status axis must appear
-in `except_=`. A declared event time is a separate role.
+fixed axes, and `ms.non_additive()` permits no value summation. A fixed coordinate
+alone does not imply a status role or a fold. A status fact declares
+`status_time_dimension=` independently; that axis must appear in `except_=`.
+`status_time_fold=` requires a status axis. Sampled status time requires a fold;
+non-sampled status time may omit it. A declared event time is a separate role.
 
 | Authority | W1 rule |
 | --- | --- |
@@ -462,6 +471,12 @@ percentile | count | count_distinct | approx_count_distinct | approx_median |
 approx_percentile` (`ms.count(...)` is the counting shortcut). The Metric definition
 owns the operation and q (`0.5` for median); observation cannot override either.
 Execution uses source-native Ibis SQL and discloses numerical precision limits.
+`ms.count` has fixed unit `"1"` and accepts no `unit=`. Count-like Measure
+aggregates (`count`, `count_distinct`, `approx_count_distinct`) also derive `"1"`
+by default; other aggregates inherit the Measure unit. `ms.aggregate(unit=...)`
+can override that derived unit. `"1"` is known dimensionless unit one, while
+`None` denotes an undeclared unit. Unit algebra therefore yields `"1"` for
+count/count and `"CNY"` for a CNY amount/count.
 Unsupported exact definitions name the corresponding approximate definition and
 whether it is available on that datasource. No automatic substitution is allowed.
 See [definition-owned exactness](#definition-owned-aggregate-exactness) and
@@ -469,8 +484,9 @@ See [definition-owned exactness](#definition-owned-aggregate-exactness) and
 Both `ms.aggregate` and `ms.count` accept an
 optional `filter=ms.where(dimension=value, ...)` to restrict the aggregation to a
 subset of rows (e.g. a failure or error subset) without a hand-written body.
-Filter keys are local semantic dimension names on the metric's target entity,
-not arbitrary physical columns. A scalar value means equality; a non-empty
+Filter keys are local semantic Dimension names on count's Entity or the
+aggregate Measure's Entity, not physical columns or related-Entity dimensions.
+A scalar value means equality; a non-empty
 tuple/list means membership, for example `ms.where(type=(2, 4))`. Multiple
 conditions are AND-joined. The loader rejects missing or cross-entity filter
 dimensions before graph lowering. If a valid authored literal is incompatible
@@ -568,6 +584,11 @@ sample_ts = ms.time_dimension_column(
     parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
 )
 
+upstream_kbps = ms.measure_column(
+    name="upstream_kbps", entity=bw_samples, column="upstream_kbps",
+    additivity=ms.additive_all(except_=(sample_ts,)),
+    status_time_dimension=sample_ts, status_time_fold="mean", unit="kbit/s",
+)
 
 @ms.metric(
     entities=[bw_samples],
@@ -577,7 +598,7 @@ sample_ts = ms.time_dimension_column(
     unit="kbit/s",
 )
 def upstream_bw(bw_samples):
-    return bw_samples.upstream_kbps.sum()
+    return ms.bind(upstream_kbps, bw_samples).sum()
 ```
 
 The body expresses the spatial aggregate inside one sample point;
@@ -813,7 +834,7 @@ uppercase codes are currencies.
 | Category | Notation | Examples |
 |---|---|---|
 | Time / bytes / percent | UCUM code | `s`, `ms`, `h`, `By`, `MiBy`, `%` |
-| Dimensionless fraction | UCUM code | `1` (values 0–1) |
+| Dimensionless quantity | UCUM code | `1` (unit one, including counts and fractions) |
 | Counted noun | UCUM annotation, English singular | `{order}`, `{user}` |
 | Compound / ratio | UCUM `/` | `By/s`, `{order}/d`, `CNY/{user}` |
 | Currency | Bare ISO 4217 | `CNY`, `USD` |
@@ -821,7 +842,8 @@ uppercase codes are currencies.
 The authoritative declaration site is the measure's `unit=`; tier-1 and derived
 metrics inherit it at load, and an explicit `unit=` on a metric overrides.
 Derivation rules: `sum/min/max/mean/median/percentile` preserve `measure.unit`;
-`count/count_distinct` yield `None` (author `{order}` explicitly);
+`count/count_distinct/approx_count_distinct` yield `"1"`; `ms.count` has this
+fixed unit and accepts no override, while `ms.aggregate` accepts `unit=`;
 `ratio(num, denom)` uses `MetricUnitAlgebraV2`: equal known units yield `"1"`
 and unequal factorable units form a reduced quotient;
 `weighted_mean` yields its value measure unit; `linear` yields the common unit and
