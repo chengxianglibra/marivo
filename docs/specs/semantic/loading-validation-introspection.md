@@ -1,9 +1,9 @@
 # Loading, Validation, and Introspection
 
-Status: accepted target design; amended 2026-09-07 for lazy Analysis. The amended
-identity, version-resolution, and aggregation validation requirements below are
-design commitments, not implementation evidence. Current eager behavior and
-live Help remain executable until the coordinated cutover.
+Status: current loading and Analysis handoff contract, 2026-10-08.
+Semantic owns declaration resolution and scoped readiness. Analysis owns bound
+algebraic construction, exact physical admission, execution and retained results.
+Static readiness is not runtime, source-health or backend qualification.
 
 This document describes the runtime side of
 `marivo.semantic`: how authored Python files become a loaded registry, how agents
@@ -142,7 +142,7 @@ For an exact BusinessOrder ref or a StateModel bound to one, scoped readiness
 includes the order's Event, role, and sequence-field dependencies. It reports
 an advisory that source sequence values and Event history remain unverified;
 the BusinessOrder declaration itself is not an executable analysis input.
-R7 must validate those values before matcher or replay consumption.
+Analysis checks the required captured values before matcher or replay consumption.
 
 ### Navigation matrix
 
@@ -205,6 +205,7 @@ mechanical loop:
 ```python
 import marivo
 import marivo.analysis as mv
+import marivo.semantic as ms
 
 marivo.help("analysis.catalog")
 marivo.help("analysis.catalog.metrics")
@@ -212,6 +213,7 @@ marivo.help("analysis.catalog.metrics")
 session = mv.session.get_or_create(
     "investigation",
     question="Why did revenue decline?",
+    report_timezone="UTC",
 )
 catalog = session.catalog
 catalog.show()
@@ -221,18 +223,32 @@ entry = collection.get("metric:sales.revenue")  # full path or displayed typed k
 entry.show()
 entry.details().show()
 marivo.help(entry)                             # identity, usage navigation, kind handoff
-dataset = session.observe(entry, time_scope=mv.time_scope(start='2026-07-01', end='2026-10-01')).with_time_axis(ms.ref.time_dimension("sales.orders.order_date"), grain=mv.grain('month')).aggregate()
+members = session.members(ms.ref.entity("sales.orders"))
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+dataset = (
+    members.each(grid)
+    .observe(entry.ref, during=grid.window)
+    .group_by(grid)
+    .rollup()
+)
 ```
+
+This example assumes `sales.revenue` is an admitted event-time Metric rooted at
+`sales.orders`. A different computation root needs its explicit directed route.
+
 `ms.load()` and `session.catalog` build separate immutable catalog snapshots
 over the same semantic project. They share the same browse contract and normally
 share a definition fingerprint when project state is unchanged, but a
-`CatalogEntry` remains owned by the instance that produced it. Analysis must
-reacquire entries from the current `session.catalog`; stale or cross-catalog
-entries fail closed with a current-catalog repair.
+`CatalogEntry` remains owned by the instance that produced it. Analysis methods
+consume exact typed Refs or closed runtime Metric expressions. Use `entry.ref`
+for the loaded declaration; the entry itself remains a browse/detail object.
 
 When an exact ref comes from configuration, persistence, or logs, the agent
 uses the exact-ref contract instead of browsing. `CatalogEntry` help owns the
-choice between passing the current entry and passing `entry.ref`; `Ref` help
+entry's browse operations and the handoff through `entry.ref`; `Ref` help
 owns the distinction between typed identity and current catalog membership.
 The analysis operator's focused help remains authoritative for accepted input
 families, readiness, and the consuming call shape.
@@ -284,7 +300,7 @@ keep their authored `entities=()` shape; effective entities and measures are
 projected recursively from composition components. Candidate axes are dimensions
 owned directly by those effective entities. They are static discovery facts, not
 a promise that every cross-entity relationship or fanout plan is executable;
-`session.observe(...)` remains the authority for plan validity.
+the member domain's `observe(...)` and registered planner own admission.
 
 The compiled catalog derives identity and intrinsic aggregation facts from the
 same canonical declarations used by validation and analysis. Entity identity is
@@ -753,25 +769,24 @@ The optional ontology is loaded separately with `mo.load(semantic=catalog)`.
 Its `definition_fingerprint` and `semantic_catalog_fingerprint` jointly identify
 the contextual association to the exact loaded definitions. Ontology edges
 do not alter readiness or grant causality, computation, or Artifact authority;
-binding them to a future Artifact belongs to the Runtime handoff. R4 must first
-establish the Artifact identity, validated receipt, and exact semantic dependency
-lineage. R10 may then expose an optional, read-only association only after
-checking the ontology context and endpoint roles against those exact identities;
-a mismatch cannot be repaired by a current catalog guess or grant admission.
+they do not create an automatic Artifact association. An association requires
+an independently defined contract for exact Artifact identity, semantic
+dependencies, ontology context and endpoint roles. A current catalog guess
+cannot supply that authority or grant computation admission.
 
 The report does not create a second transfer object or validation token. After
 readiness succeeds, an agent passes the listed canonical refs or runtime
 expressions to the ordinary analysis APIs. Independently navigated current
 catalog entries are also valid at the qualifying analysis boundaries; both
 forms normalize to refs at the actual operation boundary. Readiness remains
-explicit and is not invoked automatically by `session.observe(...)` or another
+explicit and is not invoked automatically by `members.observe(...)` or another
 analysis operator.
 
 ## Relationship to analysis
 
 The boundary is firm: `semantic` owns *business identity, historical
 representation, intrinsic Metric equations, and their normalized materialization
-requirements*; `analysis` owns *Population membership, observation windows,
+requirements*; `analysis` owns *member-domain membership, observation windows,
 coordinates, selection, typed operators, and explicit materialization with
 persistence and lineage*. At qualifying
 catalog-bound runtime inputs, analysis accepts an exact current `CatalogEntry`
@@ -788,32 +803,24 @@ expressions whose dependency closures passed. A missing required semantic object
 to the same semantic entry, requiring matching scoped readiness before
 resuming.
 
-The coordinated cutover must verify these seams without duplicating owners:
+The current Analysis boundary preserves these independently owned contracts:
 
-1. An identity-keyed snapshot declaration loads, repeated `K` across snapshots
-   is valid, duplicate `(K, snapshot)` rows are not preflighted, and an absent
-   requested snapshot uses the consuming operation's empty-result semantics
-   without another partition being substituted.
-2. Static readiness succeeds without querying or inventing a temporal anchor;
-   action admission separately rejects missing temporal context, incomplete
-   subject identity, and unsupported coordinate folds. Overlapping source
-   validity intervals are not preflighted.
-3. One explicit Population supports safely mapped different Metric roots while
-   invalid paths fail at the responsible occurrence. Event and StateModel
-   subjects retain exact Entity identity and never derive it from occurrence keys.
-4. Direct computation and an admitted retained-state fold agree for selected
-   mean/weighted/ratio contributions, including empty/all-null/zero inputs;
-   incompatible semi-additive folds and overlapping additive buckets fail.
-5. Native Help, catalog projections, Dataset contracts, structured repairs,
-   retained-state validation, and cold recovery derive the same facts. Until
-   those implementation and public-disclosure checks pass, this amendment must
-   not be presented as live lazy behavior.
+- Entity K and version grain remain distinct; exact snapshot selection has no
+  last-known substitution. Ordinary construction does not audit source identity
+  or validity nonoverlap.
+- Static readiness does not invent temporal anchors, coverage or physical
+  implementation qualification.
+- Member domains bind each Metric occurrence to its own contribution root/path;
+  Event/StateModel Subjects never derive identity from occurrence keys.
+- Original-state reduction consumes sufficient components, coverage and legal
+  fold order; a displayed mean/ratio is not a mergeable state.
+- Native Help owns callable facts, result contracts own current continuations,
+  and Store 8 owns trusted local recovery without origin replay.
 
-## R5.1 frozen resolution handoff
+## Analysis resolution handoff
 
-Status: target frozen; new R5 runtime variants remain unverified. Resolution
-consumes the [Semantic handoff](semantic-object-model.md#r51-frozen-semantic-handoff)
-and [Analysis input variants](../analysis/python-analysis-design.md#r51-frozen-public-target).
+Resolution consumes the [Semantic handoff](semantic-object-model.md#analysis-semantic-handoff)
+and [Analysis input contract](../analysis/python-analysis-design.md#observation-and-composition).
 It does not add a second catalog, readiness object, or named statistical-weight
 role. `ms.statistical_weight` was withdrawn; neither it nor the dependent
 `mv.statistical_weight` is reactivated by this handoff.
@@ -856,18 +863,17 @@ numerically equal values.
 
 Construction rejects wrong Ref kind, cross-Session identity, conflicting temporal
 arguments, unavailable required declaration and mixed source/fixed dependencies
-before a Run or business-data read. Schema-only R1 preflight retains its existing
-boundary. Source-only new observations and verified fixed continuations do not
+before a Run or business-data read. Schema-only source preflight retains its existing
+boundary. Source-only new observations and retained fixed continuations do not
 share fallback resolution: fixed recovery uses committed definitions and parts,
 never loads current Semantic state to repair missing facts. Errors name expected
 and received facts, bound occurrence/Ref/field, and a concrete repair based on the
-actual catalog or retained parts. R5.2-R5.6 must align the native Help, errors and
-typed surfaces in the package that activates each variant; a frozen signature
-here does not make it callable.
+actual catalog or retained parts. Exact callable signatures and errors belong
+to the native public contract; resolution alone never grants a physical route.
 
 
-R5.2's Analysis consumer now resolves complete member identity, native temporal
-version axes and four scalar field kinds from the frozen registry and R1 schema.
+The Analysis consumer resolves complete member identity, native temporal
+version axes and four scalar field kinds from the loaded registry and bound physical schema.
 The loader still performs no source identity/coverage scan. Analysis rejects a
 missing required attribute anchor or non-to-one path before business I/O; runtime
 checks distinguish a missing representation from a represented null value.

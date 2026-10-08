@@ -1,6 +1,6 @@
 # Lazy Analysis Source Pushdown and Pandas Execution Design
 
-Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#unified-operator-and-execution-ownership). Backend-specific preparation does not change operator semantics.
+Execution follows the [unified operator and backend ownership contract](../../specs/analysis/python-analysis-design.md#layer-ownership). Backend-specific preparation does not change operator semantics.
 
 
 Date: 2026-09-01
@@ -1002,7 +1002,7 @@ The immutable execution-key hit precedes placement and source access.
 ## 2026-09-16 amendment: Slice 3 PostgreSQL Group A
 
 The same registry now declares PostgreSQL source execution for the precise
-[Group A scalar closure](../../specs/analysis/python-analysis-design.md#postgresql-group-a).
+[Group A scalar closure](../../specs/analysis/python-analysis-design.md#execution-routes-and-qualification).
 Pure admission inspects every logical dependency and Metric graph node, source
 column type, predicate and coordinate dependency before source work. Projection
 does not hide an unsupported upstream Metric. All dependencies must remain on one

@@ -1,25 +1,24 @@
 # Semantic Object Model
 
-## R0.3 full-algebra target decisions (inactive unless explicitly activated)
+Status: current object and Analysis handoff contracts, 2026-10-08.
+Semantic owns authored business meaning and normalized declarations.
+Analysis owns invocation checks, exact implementation admission and execution.
 
-The declarations in this section are accepted target contracts; their status
-is stated per subsection. They are the Semantic authority consumed by the R0.3
-Analysis rules; runtime checks remain Analysis and datasource responsibilities.
-Declaration identity and effective dependency fingerprint enter the bound
-definition and Artifact receipt. An author-declared business fact is a trusted
-premise, not a measured source fact.
+## Analysis-facing declarations
 
-### Named statistical-weight role (withdrawn from implementation scope)
+Declaration identity and effective dependency fingerprints enter bound analysis
+definitions and retained Artifact metadata. Authored business facts are trusted
+premises, not measured source facts. Exact declarations and consumed state
+remain distinct from physical execution qualification.
 
-The user withdrew `ms.statistical_weight` during R2.2. The earlier R0.3
-proposal is historical background, not an implementation obligation. R5 must
-not reactivate its declaration, Ref, catalog entry, Help target, or the dependent
-`mv.statistical_weight` and current-row weighted-mean surface. Absence of that
-surface is not an R5 blocker. Reconsidering it requires a separate scope decision;
-it is not automatically assigned to R6. `ms.weighted_mean` and
-`mv.runtime_metric.weighted_mean` retain their governed Metric-component meaning.
+### Statistical-weight boundary
 
-### Business order and simultaneous events (R2.3 declaration implemented)
+There is no public named `ms.statistical_weight` or current-row
+`mv.statistical_weight` surface. Private rules do not activate them.
+`ms.weighted_mean` and `mv.runtime_metric.weighted_mean` retain their governed
+Metric-component meaning.
+
+### Business order and simultaneous events
 
 `ms.business_order(*, name: str, subject: Ref[EntityKind],
 sequences: tuple[EventSequence, ...] = (),
@@ -47,21 +46,17 @@ its Subject and every trigger Event must belong to the order definition.
 The canonical IR, fingerprints, catalog detail, and scoped readiness preserve
 the exact order, role, field, and dependency refs.
 
-At future R7 consumption, timestamps order different instants; the declared sequence or
-closed precedence orders otherwise ambiguous occurrences. Sequence uniqueness,
-comparability and exact participant mapping are mandatory checks. If the
-authority leaves several allowed orders, matcher/replay may proceed only if
-the requested output and every retained trace, violation, interval, assignment
-and continuation part are equivalent under all of them. This is a method- and
-input-bound check, not a global assertion that tied events commute. Stable
-occurrence-ID sorting is allowed only for deterministic physical enumeration;
-it is not transported as business evidence. Simultaneous activate/deactivate
-events producing different final states or traces must be rejected until a
-business order or conflict rule resolves them.
+At Analysis consumption, different instants order by time. Declared sequences
+and closed precedence resolve otherwise ambiguous occurrences. Runtime checks
+sequence type, uniqueness/comparability, enum values and actual required
+participant mapping. A deterministic occurrence-ID order is physical enumeration,
+not business evidence.
 
-Status: R2.3 declaration and static loading are implemented. Source sequence
-type, uniqueness, unknown enum values, Event history, and equivalence of all
-allowed orders remain unverified until R7. R2.3 adds no matcher or replay API.
+Only the closed method cases in
+[Ordering, Matching and Reach](../analysis/operators-and-frames.md#ordering-matching-and-reach)
+may consume a remaining partial order. There is no generic confluence callback
+or permutation search. If assignment, trace, violation, interval or continuation
+facts depend on unresolved order, the method rejects with a business-order repair.
 
 This document defines the object contracts of
 `marivo.semantic` (`ms`): the business objects a coding agent declares in Python
@@ -76,10 +71,9 @@ See also:
 - [overview.md](overview.md) — design goals and where the object model sits.
 - [datasource-layer.md](datasource-layer.md) — the refs and evidence entities
   build on.
-- `marivo.help("semantic.<constructor>")` — the current executable static
-  contract; target-design examples below change with the coordinated cutover.
-- [Lazy Analysis Observation Model](../../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md)
-  — Population selection, observation scopes, and coordinate transitions.
+- `marivo.help("semantic.<constructor>")` — the current callable contract.
+- [Analysis Design](../analysis/python-analysis-design.md) — member domains,
+  observation scopes, algebraic state and coordinate transitions.
 
 Python files under `models/semantic/<domain>/` are the source of truth. An
 object is declared once, is statically readable, and is referenced everywhere
@@ -223,7 +217,7 @@ partitioned by ingestion date may still contain ordinary event facts. Only an
 explicit `versioning` declaration establishes snapshot or validity meaning.
 
 **Snapshot** Entities declare one coherent business snapshot per governed
-snapshot period. The example is target-design authoring:
+snapshot period:
 
 ```python
 user_profile_daily = ms.entity(
@@ -378,11 +372,11 @@ alone does not imply a status role or a fold. A status fact declares
 `status_time_fold=` requires a status axis. Sampled status time requires a fold;
 non-sampled status time may omit it. A declared event time is a separate role.
 
-| Authority | W1 rule |
+| Authority | Current contract |
 | --- | --- |
 | Authored | Measure or Metric owns additivity, unit, event/status time roles, and applicable `nulls`, `empty`, or `zero_denominator` policy. |
 | Derived | Loader and normalized Metric graph record the policy version, event-time binding, retained sum components, and dependency fingerprint. A body or source value does not grant additivity. |
-| Execution check | Private J1 construction admits only a builder-backed sum with explicit event time, supported additivity and retained state; source/pandas execution and coverage proof remain W2–W4. An opaque `@ms.metric` body can load but cannot continue through this J1 path. |
+| Analysis consumer | The registered method combines declared time/additivity/Cell policy with actual contribution bindings, retained state and physical qualification. An opaque expression exposes no inferred component or rollup authority. |
 
 `ms.nulls.ignore()` and `ms.empty.null()` express an ignore-Null sum whose
 complete empty contribution is `Null`. Other policy values require a matching
@@ -522,13 +516,13 @@ Entity. The normalized component contract retains each time Ref and path;
 the derived ratio has no guessed common time axis. Missing, discontinuous,
 non-functional or cross-Entity paths reject during semantic loading.
 `ms.aggregate(..., nulls=ms.nulls.ignore(), empty=ms.empty.zero())` can declare
-the first private multi-root sum policy; omitted builder policies keep their
+an explicit multi-root sum policy; omitted builder policies keep their
 existing meaning. `ms.ratio(...,
 zero_denominator=ms.zero_denominator.undefined())` declares the finish policy
-for an explicit-component ratio. A private Analysis route requiring this policy
-rejects an omitted policy; existing ratios outside that route retain their
-current behavior. These Semantic builder arguments are public declarations,
-while the S2 Analysis DSL consumer remains private.
+for an explicit-component ratio. A consuming route that requires this policy
+rejects an omitted declaration; the builder's defaults retain their own meaning.
+These are public Semantic declarations consumed by the registered Analysis DSL;
+declaration validity alone does not qualify a physical route.
 
 **Tier-2** `@ms.metric(...)` is the expression escape hatch, used only when a
 metric cannot be expressed as measure + aggregate. It declares dependencies with
@@ -684,8 +678,8 @@ with repair to express the business meaning using existing governed builders or
 perform an already-admitted observation at the required grain. This amendment
 does not add a generic reaggregation callback or opaque-state API.
 
-R2.2 keeps the content-addressed value DAG reusable across equivalent Metric
-declarations. A bound graph fingerprint additionally hashes the canonical DAG
+The normalized resolver keeps the content-addressed value DAG reusable across
+equivalent Metric declarations. A bound graph fingerprint additionally hashes the canonical DAG
 and effective semantic dependency digest; it does not introduce Semantic-object
 version management. Each leaf retains exact component roles, policies,
 time/path/filter facts, numerical method and required state. The shared
@@ -695,30 +689,21 @@ retained parts before allowing a transformation. The restricted Ibis body of
 an expression Metric supplies a computation expression, not an inferred
 component graph or fold license.
 
-### Accepted S0 DSL declaration facts (inactive)
+### Semantic facts consumed by the Analysis algebra
 
-The [first-round Analysis DSL slice](../analysis/python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)
-accepts the following Semantic-to-Analysis facts as future input obligations.
-It does not change current authoring signatures, fixed reducer policies or
-loaded catalog behavior. The broader decorator and `ms.additive(...)` syntax
-in the target interface remains proposed until the corresponding public
-contract is accepted and implemented.
-
-| Fact and producer | Available now | Required before an S0 consumer relies on it |
+| Semantic producer | Retained meaning | Analysis consumer responsibility |
 | --- | --- | --- |
-| Author-declared Entity identity/version and source, Dimension time role and Relationship mapping | Entity K/version and governed source, Dimension bindings and named relationship paths | Bind first-round non-versioned single-column identity, exact event-time role and single-valued path without deriving business meaning from physical types or a source scan |
-| Author-declared Measure/decorator Metric meaning | Existing unit/additivity fields and restricted Ibis body | Explicit contribution support/root, business time role, unit, coordinate-specific additivity and enforceable null/empty/zero-denominator policy with a definition version; the current three-bucket additivity and fixed null rules do not supply all of these facts |
-| Builder-derived Metric structure | Canonical graph supplies component occurrences, computation roots, filters, folds, roles and required state | Derive sum/count and explicit ratio component/merge/finish obligations from the registered builder and inputs; retain each component's own scope and declaration provenance |
-| Execution evidence owned by Analysis/Runtime | Static declarations and some existing source/retained checks | Record completed checks bound to this invocation separately from author declarations, derived rules and queued obligations; never upgrade a trusted Entity declaration into measured source uniqueness |
+| Entity, field, relationship and time declarations | Complete identity/version grain, owner, directed keys/cardinality and source-time interpretation | Bind exact members, versions, path and physical types; declarations do not prove total matching or completeness |
+| Measure and decorator Metric | Unit, additivity and restricted Ibis expression | Admit only declared transformations and enforce the actual null/empty/Cell policy |
+| Metric builders and normalized graph | Ordered component occurrences, roots, filters, folds, roles and sufficient-state requirements | Reduce each occurrence independently, combine on full target keys and retain the required state |
+| BusinessOrder, Event and StateModel | Participant/Subject identity, occurrence time, order and normative transition meaning | Capture exact definitions; execute matching/replay and method-owned ambiguity checks |
+| Analysis invocation | Explicit scopes, assumptions and bound operation choices | Keep declarations, constructor guarantees, assumptions and completed checks as separate evidence |
 
-A decorator body is executable Ibis, not a semantic parser input. A direct
-decorator ratio with a division expression has no inferred numerator/denominator
-retention. Only an explicit component builder and its real retained state may
-authorize original-state ratio rollup. Missing first-round declarations or a
-value policy that the chosen implementation cannot enforce block the consuming
-operation; fixture-only flags, equal sample values, Arrow dtypes and Ibis
-compilation cannot supply them. T5 fixtures must use the real loader or record
-a blocker until the Semantic owner adds the minimum authoring contract.
+A decorator body is executable Ibis, not a source for inferring hidden component
+state. A direct division expression does not expose numerator/denominator
+retention. Only an explicit governed component graph and its real retained state
+authorize original-state ratio rollup. Sample equality, physical dtypes or
+successful SQL compilation cannot supply missing business facts.
 
 ### Fixed null and empty contracts
 
@@ -927,15 +912,15 @@ direct-column Dimension or TimeDimension ref on its exact endpoint, without
 interpreting a semantic ref path as a physical column.
 For a versioned endpoint, this is conditional on the consuming operation's
 exact snapshot or validity selection. Loading checks these declarations without
-reading rows; actual multiplicity, missing matches, and version overlap remain
-consumer/source checks. A weaker many side never grants fanout safety. Derived
+reading rows. Analysis trusts declared multiplicity/version grain; unknown
+required matching has an exact invocation check or call assumption. A weaker
+many side never grants fanout safety. Derived
 cardinality grants no evidence of actual rows. When completeness matters, an
 explicit bounded `source_check.relationship_matches(...)` can test its declared
-scope; source-health results do not become a global business guarantee. R5
-consumers must reject actual missing matches when their selected members require
-one, and reject duplicate matches on a single-valued path, with structured
-expected/received/repair diagnostics. A consumer may preserve an absent match
-only when its own contract gives that absence an explicit meaning.
+scope; source-health results do not become a global business guarantee.
+Incorrect declarations do not promise detection. Necessary consumer indexes
+reject encountered duplicates, and required lookups reject missing operands.
+An allowed absent match needs its consumer's explicit result semantics.
 
 ## Event and StateModel boundaries
 
@@ -1023,22 +1008,20 @@ source-native route; `approx_median` or `("approx_percentile", q)` must be autho
 explicitly when acceptable. Passing static readiness grants no physical-type or
 operation-specific execution qualification, and consumers still recheck support.
 
-## R5.1 frozen Semantic handoff
+## Analysis Semantic handoff
 
-Status: target contract frozen; new R5 execution variants remain unverified.
-This section refines the R5 handoff without adding declarations or exports.
-The [Analysis contract](../analysis/python-analysis-design.md#r51-frozen-public-target)
-owns consuming signatures; [methods](../analysis/operators-and-frames.md#r51-method-and-state-contracts)
-own execution state, numeric qualifications, and continuation.
+The [Analysis contract](../analysis/python-analysis-design.md#observation-and-composition)
+owns consuming input shapes; [method contracts](../analysis/operators-and-frames.md)
+own sufficient state, numerical policies and conditional continuations.
 
 ### Identity, fields and version facts
 
 The ordered complete Entity primary key is stable identity K. Snapshot and
 validity coordinates select representations and never silently extend or shorten
 K. Root membership trusts declared uniqueness and projects all of K without
-`distinct` or a new whole-source uniqueness probe. A consumer that observes
-duplicate identities or overlapping matching versions rejects before publishing;
-it cannot retain the first row or repair a violation with deduplication.
+`distinct` or a new whole-source uniqueness probe. Invalid source declarations
+may affect native results; required local indexes reject encountered duplicate
+insertions rather than retaining the first row or silently deduplicating.
 
 Snapshot selection is the exact declared grain/timezone period. A missing exact
 snapshot yields an empty represented membership, never a last-known snapshot;
@@ -1048,8 +1031,8 @@ closed-open intervals, instant selection is `from <= at < to`, and left-limit
 selection is `from < end <= to`. Missing matches preserve absence; required read
 coverage and method-specific empty-result rules decide whether consumption is
 legal. No-version Entities reject historical selection rather than manufacturing
-history. These R5 consumer rules supersede the historical permission above for
-duplicate matching versions to affect an output without rejection.
+history. Version-row uniqueness and non-overlap remain trusted declarations,
+not an automatically completed source audit.
 
 Measure, categorical Dimension, TimeDimension, and boolean-valued Dimension
 retain their distinct value kinds through read. A boolean Dimension is not
@@ -1091,9 +1074,9 @@ operations through AggKind, not an observation wrapper. Actual algorithm and
 physical output type remain inspectable; no invented error bound, retained
 distribution/sketch, original rollup or attribution is authorized by this slice.
 
-## R6.1 relation-composition handoff
+## Relation-composition handoff
 
-R6 consumes governed Metric/runtime-expression identity, units, contribution
+Analysis composition consumes governed Metric/runtime-expression identity, units, contribution
 roles, relationship cardinality, dimension tuple identity, additive partition
 and component/empty policies without changing Semantic declarations. A declared
 one-to-one relationship is necessary for an explicit ordinary-ratio
@@ -1108,17 +1091,15 @@ coverage evidence. It is distinct from Analysis empty-opportunity policy.
 ReferenceWeights binds an existing Entity as statistical unit and existing
 Dimension identities as strata; it does not add a named statistical-weight role.
 The withdrawn ms.statistical_weight, mv.statistical_weight and dependent
-current-row weighted mean remain excluded. R6 does not reinterpret direct
+current-row weighted mean remain excluded. Composition does not reinterpret direct
 distinct/quantile display values as membership/distribution sufficient state.
 
-## R7.1 frozen Event and StateModel handoff
+## Event and StateModel handoff
 
-Status: accepted consumption target, 2026-10-01; no new declaration or Runtime
-qualification. This section owns F03's authored facts. The
-[Analysis domain API](../analysis/python-analysis-design.md#r71-frozen-domain-api-target)
-owns invocation binding; the
-[operator rules](../analysis/operators-and-frames.md#r71-frozen-domain-method-rules)
-own the closed admissible tie methods and actual-value checks.
+Semantic owns authored facts. The
+[Analysis domain contract](../analysis/python-analysis-design.md#observation-and-composition)
+owns invocation binding; [domain rules](../analysis/operators-and-frames.md#domain-methods)
+own admissible tie cases and actual consumed-value checks.
 
 An Event capture binds its Ref/fingerprint, occurrence Entity definition/version
 and complete K, occurred_at field/time authority, datasource/source definition,
@@ -1155,7 +1136,7 @@ every Event, StateModel, order and coverage dependency needed by one invocation.
 Named statistical_weight and other withdrawn APIs remain withdrawn.
 
 
-## R7.2 immutable domain captures
+## Immutable domain captures
 
 The private unified graph now freezes complete Event, StateModel and BusinessOrder
 IR with exact definition/version/dependency fingerprints, role and source input
@@ -1165,6 +1146,7 @@ binding. Actual participant joins must be single-valued at the captured occurren
 time and complete typed Subject key. Historical validity/snapshot selection uses
 that same captured time. The 2026-10-01 precision amendment accepts native time
 conversion loss and supersedes the earlier lossless-source requirement; its sole
-owner is [occurrence time](../analysis/timezone-and-calendar-design.md#r71-frozen-occurrence-and-relative-window-time).
+owner is [occurrence time](../analysis/timezone-and-calendar-design.md#occurrence-and-relative-window-time).
 Semantic definitions are not themselves coverage receipts or Runtime passes.
-Public domain constructors and model execution remain later-phase work.
+Public domain construction and execution use the unified typed graph and
+registered consumers; frozen declarations alone grant no runtime capability.

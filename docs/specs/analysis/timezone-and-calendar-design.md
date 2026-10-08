@@ -1,5 +1,8 @@
 # Timezones and Calendars
 
+Status: current temporal contract, 2026-10-08. Exact physical routes require
+independent method qualification; this document defines time meaning.
+
 The Session's persisted report timezone owns built-in temporal interpretation.
 A semantic parser may declare a source read timezone, and a certified calendar
 owns its boundary timezone. These authorities remain separate and are preserved
@@ -27,8 +30,10 @@ rules. Changing host timezone does not change a recovered Session.
 Logical construction captures the persisted report authority without opening a
 source connection. Runtime probes the admitted actual reader only when native naive axes lack explicit
 parser authority, before setting its UTC execution environment. Probe failures and
-invalid engine facts do not fall back to the host timezone. An explicit semantic parser timezone takes precedence
-over the reader default; system fallback is recorded when the engine has none.
+invalid engine facts do not fall back to the host timezone. An explicit semantic
+parser timezone takes precedence over the reader default. The graph's schema
+preflight captures engine authority only; datasource system fallback does not
+supply missing implicit wall-clock authority for a graph source.
 Conflicting or invalid declarations fail through the owning typed error.
 
 ## Scopes and buckets
@@ -37,16 +42,18 @@ Conflicting or invalid declarations fail through the owning typed error.
 excluded at that midnight. Explicit timestamp endpoints preserve their precision;
 no epsilon subtraction or implicit next-day expansion changes their meaning.
 
-Localizable source values are parsed and localized before scope filtering and
-bucketing. Concrete adapter timezone operations preserve report/calendar boundaries
-across DST. Native naive gaps/folds fail; known repeated-hour instants share their
-report-local civil bucket. Native remote hour/day buckets use count=1 and precision
-through microseconds; string parsers and multi-unit extensions remain separately gated. Civil dates compare directly. Integer, string and composite date/hour
-partitions follow their governed parser rather than accidental lexical ordering.
+Localizable source values follow their declared parser/timezone before scope
+filtering and bucketing. Concrete adapter operations retain report/calendar
+boundaries across DST. Source values outside the declared wall-time/format
+contract are not automatically audited; backend conversion failures propagate.
+Known repeated-hour aware instants share their report-local civil bucket. Native remote hour/day buckets use count=1 and precision
+through microseconds; string parsers and multi-unit extensions remain separately gated. Civil dates compare directly. Integer, string and composite date/hour encodings follow their governed parser
+contract. Qualified static inverse ranges may compare ordered raw encodings as
+specified by [Temporal Semantics](../temporal-semantics.md#encoded-event-time-ranges).
 An exact-hour upper bucket is excluded; a bucket beginning before a partial-hour
 upper bound remains eligible.
 
-Observation windows and Population membership windows are independent. Historical
+Observation windows and member-domain windows are independent. Historical
 snapshot/validity coordinates select rows for stable Entity identity K; they do
 not become part of K or authorize a fallback to an older snapshot.
 
@@ -69,33 +76,22 @@ nor resolves the new host's timezone.
 
 The supported semantic parser and calendar authoring contracts are described in
 [temporal semantics](../temporal-semantics.md). Actual source, Runtime and recovery
-checks are owned by the lazy temporal test suites; public Session wiring has its
+checks have independent temporal test owners; public Session wiring has its
 own Runtime tests. Exact Help routes expose the current admitted method contracts.
 
 
-### Native timestamp timezone-rule agreement (C3a)
+### Native timestamp timezone authority
 
-Runtime ZoneInfo is the authority for named-zone rules. Before a native timestamp
-source produces a primary result, source-side min/max aggregates bound the relevant
-intervals. Source-side validation then checks that every non-null naive value has
-exactly one ZoneInfo candidate and that source conversion to UTC and the report
-boundary agrees with those rules. TZif transition instants and POSIX continuation
-rules locate intervals; ZoneInfo supplies their offsets. Gaps, folds, unavailable
-rules and engine/runtime disagreement fail with a structured MaterializationError
-before publication. Native wall-time gap/fold failures surface at the admitted
-`source_time_validation` stage as MaterializationError with the concrete axis,
-read timezone and offending wall value. The repair requires correcting the
-stored wall values or authoring actual aware instants; no implicit DST resolution
-is selected. Fixed-offset-only paths need no rule-data comparison. SQLite
-keeps its connection-local Python temporal functions. This does not transfer source
-rows or install remote UDFs. Each range/rule query is an attempted physical
-engine_check validation submission. Separate validation and primary queries retain
-the existing source-concurrency limitation; this is not a snapshot guarantee.
+Runtime ZoneInfo supplies named-zone rules for declared conversions. Analysis
+does not submit source-side range, gap/fold or engine/runtime rule-agreement
+audits before every requested query. SQLite retains its connection-local Python
+temporal functions. Parsing/conversion still uses the admitted source expression;
+backend errors propagate and noncompliant source values may affect results.
+An explicit boundary/deadline conversion keeps its method-owned ambiguity checks.
 
-## R5.1 frozen temporal binding
+## Temporal binding
 
-Status: target frozen; new R5 temporal routes remain unverified. R5 retains the
-three authorities above independently: persisted Session report timezone,
+Analysis retains the three authorities independently: persisted Session report timezone,
 resolved source/parser timezone, and certified calendar boundary timezone.
 Membership version anchor, attribute read anchor, Metric contribution scope and
 output grid are four distinct bindings. None supplies an omitted value for the
@@ -138,9 +134,9 @@ state. Observe a month grid to obtain those month values.
 
 Before-end version selection is symbolic: exact snapshot left-period selection
 or the validity left-limit predicate, never end minus epsilon or one timestamp
-tick. Date remains a civil date; aware timestamp remains an instant. Naive
-source DST gap/fold or engine/ZoneInfo disagreement rejects before publication;
-all validation/range reads must be admitted Ibis expressions. An unqualified
+tick. Date remains a civil date; aware timestamp remains an instant. Declared
+source-time interpretation remains trusted; any required temporal check uses
+an admitted expression and its exact invocation scope. An unqualified
 submicrosecond conversion rejects explicitly without truncation. Fixed execution
 uses retained instants, parser facts and boundaries without new source probes.
 
@@ -154,7 +150,7 @@ sample, then its time fold. A later spatial merge requires a commutation proof
 or aligned pre-fold state. In particular, summing per-channel finished peaks is
 not automatically the peak of the spatial total.
 
-## R5.5 unified temporal execution
+## Temporal execution and retained folds
 
 The public product is `members.each(grid)`. Use `during=grid.window` for
 partitioned contributions, `read(field, at=grid.start/end/before_end)` for an
@@ -166,8 +162,8 @@ windows cannot be rolled up by removing time.
 
 DuckDB table/Parquet observations bind native microsecond timestamps (aware or
 explicitly localized) and civil dates through the existing Ibis source-time
-owner. Governed raw/normalized pairs are checked against the declared timezone
-before publication; gaps, folds and engine disagreement reject. The report,
+owner. The declared source interpretation is preserved without a repeated raw/normalized
+source audit. Conversion failures remain execution errors. The report,
 source and grid/calendar zones remain independent. SQLite qualifies the required
 UTC timestamp/date routes, including first/last/mean/min/max status folds.
 Other SQLite timezone routes remain closed at admission. The current Metric
@@ -191,15 +187,12 @@ for each observation occurrence, with its own origin, scope and digest. Source
 and fixed whole-cell coarsening preserve the crossing-week rejection.
 
 These paths use the common graph, method registry, SourceSession, exchange and
-Store 7 publication. Fixed continuation uses registered local algorithms and
-receipts without Semantic, source or DuckDB access. Qualification scope, independent
-oracles, reproduction commands and remaining release boundaries are recorded in
-the versioned R5.5 summary (historical record in Git history).
-Detailed run logs under `docs/superpowers/specs/evidence/r55/` are intentionally
-local and ignored; they are not shipped as part of this specification.
+Store 8 publication. Fixed continuation uses registered local algorithms and
+saved parts without current Semantic, source or DuckDB access. Exact type,
+backend and source-form qualification remains independent of this contract.
 
 
-## R5.7 source-time recovery qualification
+## Source-time binding and recovery
 
 The graph observation path admits native microsecond timestamps with declared,
 physical, or driver-reported read timezone, and timestamp strings with an authored
@@ -209,19 +202,14 @@ observation, and checked again when opening the execution source. A changed
 reported timezone rejects before a business batch is submitted; a host-system
 fallback is not accepted as an inferred event read timezone.
 
-The common Ibis temporal normalizer owns parsing and conversion. Governed check
-reads compare raw native/parsed values with the normalized UTC values before
-publication. Malformed strings and engine disagreement cannot silently acquire
-another parser or timezone. `test_lazy_temporal_public_runtime.py` preserves the
-four historical report-day oracles (explicit UTC, native naive, native aware,
-and authored string parsing), with exact UTC grid keys and values `[1, 2]`.
-Fixed continuations preserve their frozen values and authority without reopening
-the source. Shared temporal authority values live in `analysis.core.time_authority`;
-the old observation module is removed without a forwarding alias.
+The common Ibis temporal normalizer owns parsing and conversion. There is no
+automatic whole-source format or timezone-rule audit. A conversion failure
+does not switch parser/timezone. Fixed continuations preserve frozen values and
+authority without reopening the source. Shared authority values live in
+`analysis.core.time_authority`.
 
-## R6.1 period correspondence
+## Period correspondence
 
-Status: frozen PeriodChange target, not a new backend/time qualification.
 `PeriodChange(alignment=window_bucket())` pairs the complete ordered buckets
 inside each equal non-time coordinate by their retained ordinal within the
 original two bound grids. Both sides must retain their exact ordered grid,
@@ -237,26 +225,21 @@ this complete bucket rule succeeds; it cannot truncate, pad or infer missing
 time buckets. A one-to-one ordinary ratio using a PeriodChange consumes the
 same exact time correspondence bound to its ordered input nodes.
 
-R6 required qualification includes R5-qualified NoTime/scoped observation,
-UTC instant-us windows, DATE grids and aware report-local calendar grids for the
-three comparison designs where meaningful; grouping and Singleton must retain
-their originating time authority. Include unequal 28/31 bucket rejection,
-equal-length different-month pairing, and a DST-local day-grid case preserving
-both sides' distinct instants/durations. Fixed continuation uses those retained
-bindings with no calendar/Catalog reload. No new elapsed/calendar coercion,
-SQLite numeric expansion or six-backend qualification follows from R6.
+Each comparison design keeps its originating observation/grid authority through
+grouping and Singleton reduction. Unequal complete bucket counts reject;
+equal-length periods may pair without asserting equal civil meaning. Fixed
+continuation uses retained instants and durations without calendar/Catalog reload.
+This contract grants no elapsed/calendar coercion or blanket backend support.
 
-## R7.1 frozen occurrence and relative-window time
+## Occurrence and relative-window time
 
-Status: accepted target, 2026-10-01; no Event/History/Anchor Runtime qualification.
-This section owns F06/F08/F10 time meaning and calendar refusal. Duration
+This section owns occurrence/Anchor time meaning and calendar refusal. Duration
 arithmetic/rounding belongs to the
-[operator owner](operators-and-frames.md#r71-frozen-domain-method-rules).
+[operator owner](operators-and-frames.md#domain-methods).
 
 Occurrence time is an absolute aware instant with a frozen parser/timezone
-fingerprint. The **2026-10-01 R7.2 precision amendment** supersedes R7.1's
-source-lossless requirement, including its ns tick transport requirement.
-Native source/Ibis/driver conversion may lose precision, including ns to us.
+fingerprint. Native source/Ibis/driver conversion may lose precision,
+including ns to us; the method does not promise lossless source tick transport.
 Preparation records the declared source unit, observed file unit, actual captured
 unit and native conversion behavior. When individual losses cannot be determined,
 it records **possibly lossy**; it does not claim lossless timestamps. No additional
@@ -264,20 +247,19 @@ source-side lossless tick extractor is required. All membership/time bounds,
 version selection, order checks, consumption and future durations/windows use
 the actual captured representation. Precision-created ties still need business
 order unless a closed operator invariant applies; occurrence IDs cannot repair
-ambiguity. DATE and unresolved/ambiguous naive time remain refused. Resolved naive
-conversion is tested as an additional conversion/negative-boundary case, not a
-new positive P01 source profile.
+ambiguity. A civil DATE alone does not supply elapsed-instant authority;
+occurrence methods need a resolved captured instant and explicit conversion
+contract. Unresolved time authority cannot be repaired from report/host timezone.
 
-R7.2's qualified DuckDB table/local Parquet captures use timestamp(us, UTC) in
-Arrow. P01 preserves the original s/ms/us/ns and UTC/New_York report profile in
-qualification identity; fixed/cold execution uses the actual us carrier. The
+The qualified DuckDB occurrence preparation captures timestamp(us, UTC) in
+Arrow while preserving original source-unit/report facts in its qualification.
+Fixed/cold execution uses the actual captured carrier. The
 qualified naive timestamp_ns cast truncates toward zero for positive and negative
 values; aware/source conversion may happen earlier and remains possibly lossy.
 Parquet writes Arrow seconds as milliseconds in the selected PyArrow version,
 which is separately disclosed. Receipt-bound schema metadata, Evidence identity
-and fixed/cold recovery retain this disclosure. Future public domain result
-`.show()` must render it. R7.1's historical snapshot and requirement IDs remain
-unchanged; the R7.2 evidence index records which IDs passed under this amendment.
+and fixed/cold recovery retain this disclosure. Domain result `.show()` exposes
+the captured precision facts; they do not establish another source profile.
 
 Start selection is [cohort_window.start, cohort_window.end). completion_through
 is an exclusive absolute bound, independent of membership and start windows.
@@ -315,7 +297,7 @@ precise route, not a silently widened all-history read. Source time authority,
 Anchor time, exact deadline/window and conversion version remain in execution
 identity, parts and cold K. Recovery never recomputes them from current host facts.
 
-## R7.7 relative windows
+## Relative windows
 
 `mv.duration(...)` specifies exactly one integer unit: hours, minutes, seconds,
 milliseconds, microseconds or nanoseconds. Hours/minutes become checked int64
@@ -330,13 +312,13 @@ start/window. It never chooses a fold or shifts a gap silently. Windows include
 the Anchor instant and exclude the deadline; the complete Anchor occurrence is
 excluded separately. Another same-instant occurrence needs captured business order.
 
-R7's accepted captured instant carrier is UTC microseconds. A deadline that cannot
+The occurrence capture's accepted instant carrier is UTC microseconds. A deadline that cannot
 be represented exactly in that carrier fails with `r7.window_precision`; no tick
-truncation is allowed. This does not retract R7.2's disclosed source ns-to-us loss.
+truncation is allowed. This does not retract disclosed source ns-to-us loss.
 The calendar source envelope is conservative and finite; only actual Anchor
 wall-time deadlines determine selection, after all source preparation has ended.
 
-## R8.2 captured source timestamp precision
+## Captured source timestamp precision
 
 The Parquet adapter retains the timestamp unit from the actual file schema in
 source facts, separately from the Ibis/DuckDB expression and emitted Arrow
@@ -346,18 +328,14 @@ continue to use their declared us boundary precision. Observation comparisons
 use bounds with at least that precision so a coarse source carrier cannot round
 the accepted scope.
 
-The current PyArrow fixture writer converts timestamp[s] to timestamp[ms] in
-the Parquet file. Such a fixture cannot prove the frozen Parquet-s target.
-That target and its requirement IDs remain mandatory and unqualified; relabeling
-an ms file or a successful ms execution does not close them. The
-R8.2 evidence index (historical record in Git history)
-records the actual source schemas, executed shapes and remaining exits.
+The selected PyArrow writer converts timestamp[s] to timestamp[ms] in Parquet.
+A fixture written that way proves an ms file, not a seconds-source profile;
+the actual file schema determines admission and precision disclosure.
 
-## R8.1 frozen statistical grid authority
+## Statistical grid authority
 
-R8.1 freezes these temporal targets without qualifying a new method. This is the
-sole owner of grid identity, adjacency, precision and future continuation for
-R8; numerical methods cannot reinterpret time. The current BoundTimeGrid uses
+This is the owner of grid identity, adjacency, precision and future continuation;
+statistical methods cannot reinterpret time. The current BoundTimeGrid uses
 UTC datetime microsecond boundaries and explicitly declares precision="us".
 Source s/ms/us/ns representations and capture conversions are separate physical
 profiles; an ns source does not grant ns BoundTimeGrid or Duration precision.
@@ -398,20 +376,21 @@ and before Artifact publication. Every series has the same complete history and
 future sequence, with no partial cells or missing extension. Future horizon
 ordinals identify approved cells, not elapsed hours or an inferred calendar.
 Ambiguous/nonexistent civil boundaries follow existing rejection; no shifted
-local deadline or DST fold guess is introduced. Source-offline recovery validates
-captured cells, calendar digest, identity, count, adjacency and precision only;
-it never loads a current Semantic calendar to manufacture continuation.
+local deadline or DST fold guess is introduced. Source-offline recovery decodes
+the committed grid and retained cells under Store 8's local trust contract.
+A successor enforces its own consumed-grid requirements; recovery never loads
+a current Semantic calendar to manufacture continuation.
 
-Required local time profiles distinguish native-table us and Parquet source
+Physical qualification distinguishes native-table us and Parquet source
 s/ms/us/ns, UTC and America/New_York report authority, complete builtin days
 (including both DST transitions) and certified unequal periods. Non-time positive
 profiles remain separate. Negative requirements include partial edges, removed or
 duplicated cells, wrong calendar/zone/grid identity, uncaptured future horizon,
 misleading timestamp precision and false completeness receipts. Unsupported or
-unfinished exact profiles remain mandatory blocked cells rather than acquiring
-qualification from another time/source form.
+unqualified exact profiles reject; qualification of another time/source form
+does not admit them.
 
-### R8.3 elapsed interval output
+### Elapsed interval output
 
 Run boundaries come from the admitted original grid's frozen UTC instants.
 Duration is the exact difference in microseconds between the first cell start
@@ -419,9 +398,9 @@ and last cell end. DST days and unequal certified periods retain their actual
 boundaries. Runs reject partial edges and never regenerate a grid during
 fixed execution or recovery.
 
-### R9.3 independent DST grid consumer
+### Bounded DST grid consumer
 
-The C06 consumer records spring and fall New York day grids with UTC source
+The bounded consumer records spring and fall New York day grids with UTC source
 instants and an Asia/Tokyo report timezone. Explicit aware scope endpoints retain
 their instant identity; a date-only scope continues to use the Session report
 timezone even when the grid specifies a different boundary zone. Fixed grouping

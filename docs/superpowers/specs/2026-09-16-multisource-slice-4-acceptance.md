@@ -17,7 +17,7 @@ while each engine owns its type predicate. The full dependency closure is checke
 including projected-away Metrics, predicates and Metric slices. Source-only,
 single-table, unversioned Population and direct-column sum/count/min/max support
 scoped observations, dimensions, aggregation, filtering, projection, ranking and
-Top-N. The owning [analysis design](../../specs/analysis/python-analysis-design.md#mysql-and-sqlite-group-a)
+Top-N. The owning [analysis design](../../specs/analysis/python-analysis-design.md#execution-routes-and-qualification)
 contains the precise table/type scope. No relationship, temporal bucket, sampling,
 source-private-state method or remote retained import is activated.
 

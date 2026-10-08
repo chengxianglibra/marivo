@@ -632,8 +632,8 @@ atomic Store 7 publication, read-only permissions, unchanged compiled submission
 the shared 600-second deadline, cancellation and resource release remain required.
 Hybrid/local graphs still prepare every source dependency before local selection;
 fixed continuation remains source-free. No fallback or new SQL exception is
-authorized. The owning contracts are the [analysis design](../../specs/analysis/python-analysis-design.md#r96-source-check-consistency-amendment-2026-10-06)
-and [Runtime](../../specs/analysis/session-state-and-runtime.md#r96-direct-native-expression-execution-2026-10-06).
+authorized. The owning contracts are the [analysis design](../../specs/analysis/python-analysis-design.md#premises-assumptions-and-checks)
+and [Runtime](../../specs/analysis/session-state-and-runtime.md#acquisition-and-local-consumption).
 Earlier cost samples retain their original execution candidates and scoped or
 historical authority; this refactor does not grant current six-backend or full R9.6
 qualification, a new reuse proof, or a before/after performance conclusion.

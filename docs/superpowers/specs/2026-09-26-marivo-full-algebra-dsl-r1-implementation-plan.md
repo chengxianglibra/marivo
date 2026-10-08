@@ -12,7 +12,7 @@ Status: R1 execution plan；R1.1–R1.5 已部分实施，整体验收仍未通�
 本工作包执行[全量重构实施计划 §9 R1](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md#r1--统一-datasource-adapters-与基础-ibis-读取)。
 R1 接收 R0 的[C01 能力去向](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#2-c01c18-能力去向)、
 [SQL/adapter 台账](2026-09-26-marivo-full-refactor-r0-sql-ledger.md)和
-[Datasource owning spec](../../specs/semantic/datasource-layer.md#r03-target-ibis-owned-analysis-reads-and-terminal-raw-sql)，
+[Datasource owning spec](../../specs/semantic/datasource-layer.md#ibis-owned-analysis-reads-and-terminal-raw-sql)，
 交付一套来源连接、物理绑定、Ibis 编译提交、批次解码和资源管理的内部责任接口。
 它保留 `md.raw_sql` 的公共终端用途，不授予该结果 Semantic 或 Analysis 资格。
 
@@ -25,7 +25,7 @@ R0.6 未开展及 R0.5 控制/认证替代可行性未证。执行 R1 前须核�
 改成通过。若交接中仍有独立阻塞单元，R1 先推进不依赖它的工作，并在同一主记录留下精确格子。
 
 R0.6 于 2026-09-27 补交[breaking change 与 R1/R2 交接](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#7-r06-breaking-changes)。
-其中 B13 的 [Datasource owning spec 目标](../../specs/semantic/datasource-layer.md#r06-public-connection-cutover-target)
+其中 B13 的 [Datasource owning spec 目标](../../specs/semantic/datasource-layer.md#public-connection-boundary)
 要求在 R1 公共切换时删除返回原生 backend 的公开 `md.connect` 和对应 Help target，迁移
 消费者后使 `md.raw_sql` 成为唯一公共原始 SQL 终端。R1.5 已同时移除
 `DatasourceCatalog.connect`、公开 `DatasourceConnection` 与相应 Help；原起草快照与

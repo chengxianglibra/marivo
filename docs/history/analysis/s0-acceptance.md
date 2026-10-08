@@ -1,5 +1,11 @@
 # Marivo Analysis DSL S0 验收与 S1 交接
 
+Archive status: historical evidence, moved 2026-10-08. Dates, paths, commands
+and acceptance claims below refer to the recorded revisions. Links to owning
+specifications lead to current successor documents; use Git at the recorded
+revision for the original specifications. This is not current DSL or release
+qualification.
+
 本文件固定保存 S0 当时的验收快照；后续 W1/W2 结果见
 [S1 实施记录](s1-implementation-record.md)。下文的“当前”均指 S0 快照时间，
 不表示当前工作树的执行状态。
@@ -49,9 +55,9 @@ mypy 2.3.0；Ruff 0.15.15；Sphinx 9.1.0。非敏感配置：本地 DuckDB fixtu
 | C4 / lint | `make lint-agent LINT_TARGETS='marivo/analysis tests'` | 通过：693 files already formatted，Ruff 与 import contracts 通过 | `Makefile` 的 `lint-agent` 目标。|
 | C5 / 全量默认门禁 | `make check-agent` | 通过：lint、361 source files 的 typecheck、5067 passed / 4 skipped、API docs built | `Makefile` 的 `check-agent` 及 `docs-api-agent` 目标；默认测试不包含 Runtime/release。|
 
-文档接受由已提交的 [Analysis owning spec](python-analysis-design.md#accepted-s0-analysis-dsl-slice-inactive)、
-[方法规则](operators-and-frames.md#accepted-s0-method-rules-inactive) 和
-[Runtime owning spec](session-state-and-runtime.md#accepted-s0-input-and-execution-protocol-inactive)
+文档接受由已提交的 [Analysis owning spec](../../specs/analysis/python-analysis-design.md)、
+[方法规则](../../specs/analysis/operators-and-frames.md) 和
+[Runtime owning spec](../../specs/analysis/session-state-and-runtime.md)
 交叉核对，状态为**通过**。这不是执行测试。T5 测试中的 J1–J4 SQL/算术是独立 oracle，
 状态为**通过（fixture）**；J1–J4 DSL 运算仍为**未验证**。
 

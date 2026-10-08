@@ -25,7 +25,9 @@ connection opens. Physical instants and explicit parser authority require no rea
 independent adapter transport checks still apply.
 Only absent probe capability permits recorded system fallback; query failures and invalid
 engine facts fail with their original cause when reader authority is required. Explicit parser authority takes precedence over engine authority
-and explicit system fallback. Civil dates do not shift. Naive time values localize
+and explicit system fallback. Analysis graph schema preflight captures engine
+authority only; datasource fallback cannot supply missing implicit wall-clock
+authority for a graph source. Civil dates do not shift. Naive time values localize
 before instant comparison; absolute instants preserve their meaning. Source
 precision and logical temporal kind are validated separately. Unsupported exact
 precision conversion fails; no silent truncation is permitted. Source naive
@@ -66,14 +68,23 @@ not production `EXPLAIN` queries.
 ## Dataset construction and continuation
 
 ```python
-logical = session.observe(
-    revenue, time_scope=mv.time_scope(start="2026-07-01", end="2026-08-01")
-).with_time_axis(order_time, grain=mv.grain("day")).aggregate()
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    grain=mv.grain("day"),
+)
+logical = (
+    session.members(ms.ref.entity("sales.orders"))
+    .each(grid)
+    .observe(revenue, during=grid.window)
+    .group_by(grid)
+    .rollup()
+)
 result = logical.execute()
 result.show()
 ```
 
-The example requires authored Metric and TimeDimension refs. Population membership
+The example uses a UTC-report Session, loaded `sales.orders` Entity and governed
+`revenue` Metric on that root with an admitted event-time declaration. Member-domain membership
 and observation scopes are independent. Time coordinates, predicates, cumulative
 windows and version selection use the same declared temporal interpretation.
 Exact ordered Entity identity K does not include snapshot/validity coordinates.
@@ -87,20 +98,20 @@ Cumulative all-history, grain-to-date and trailing windows keep exact evaluation
 endpoints and selected coverage. Reset windows follow report/calendar civil
 boundaries. Trailing days and weeks retain fixed86400/604800-second duration.
 Retained cumulative coverage uses instants for timestamp axes, so a DST civil day
-may have23 or25 hours without becoming incomplete by a24-hour assumption.
+may have 23 or 25 hours without becoming incomplete by a 24-hour assumption.
 
 Native `window_bucket` is the closed public alignment value. Comparison uses its
 registered pairing contract and retains unavailable/missing coordinates explicitly.
 A catalog's correspondence or work-schedule object is not itself an analysis
 alignment algorithm. Do not infer an additional comparison policy from a semantic
-object's existence. Correlation, Forecast and Candidate methods have separate
+object's existence. Association, Forecast, Deviation and TimeRun methods have separate
 native admission and coordinate requirements exposed by their focused Help.
 
 Artifact descriptors retain the adopted physical kind, parser/read source,
 report-time authority and boundary timezone. Cold retained continuations use those
-facts without resolving a new host or datasource timezone. Native immutable
-Parquet scans may execute registered algorithms; no database result destination
-or executor fallback is introduced.
+facts without resolving a new host or datasource timezone. Registered local
+consumers read retained Arrow/Parquet state without opening a source engine;
+no database result destination or executor fallback is introduced.
 
 ## Semantic authoring model
 
@@ -353,7 +364,7 @@ common attributes that callers probe with `None` checks.
 `TimeScope` is the one public immutable selection-window abstraction. Absolute
 windows come from `mv.time_scope(...)`; exact calendar periods and temporal
 occurrences come directly from the loaded catalog. The three internal variants
-are defined under [Time scopes](#time-scopes), but their concrete classes are not
+are defined under [Unified grain and time scopes](#unified-grain-and-time-scopes), but their concrete classes are not
 top-level exports. There is no public handle type, input union, dict input,
 `ms.calendar_period(...)`, or `ms.temporal_occurrence(...)`.
 
@@ -808,21 +819,27 @@ temporal kinds.
 ## Current verification ownership
 
 `tests/analysis/temporal/` and the temporal consumer tests under
-`tests/analysis/graph/` verify actual native source parsing,
+`tests/analysis/graph/` own assertions for native source parsing,
 physical precision, read precedence, report identity, DST, calendar boundaries,
-validity selection and exact84/85-hour comparison endpoints. Runtime tests cover
-atomic publication, failure cleanup,23/25-hour cumulative coverage and independent
+validity selection and exact 84/85-hour comparison endpoints. Runtime tests cover
+atomic publication, failure cleanup, 23/25-hour cumulative coverage and independent
 source-offline recovery. Source/fold suites retain independent numerical
 expectations for cumulative, first/last, weighted and distinct behavior.
 
-`tests/analysis/temporal/test_temporal_public_runtime.py` verifies the public Session wiring for
+`tests/analysis/temporal/test_temporal_public_runtime.py` covers public Session wiring for
 declared UTC, engine-default native timestamps and string parsing. Tests for
 semantic certification remain with their authoring owner. Public Help, bounded
-state protocols and executable examples are independently checked during cutover.
+state protocols and executable examples have independent verification owners.
+
+These test locations define verification ownership, not proof that every profile
+passes in the current tree. A non-UTC report window or parser profile needs the
+exact registered keys for its full graph before its numerical oracle can run.
+Current registrations and independent passing witnesses govern support;
+a named timezone or an old suite result cannot grant it.
 
 See [timezone and calendar design](analysis/timezone-and-calendar-design.md),
-[observation contract](../superpowers/specs/2026-09-01-lazy-analysis-observation-model-design.md)
-and [materialization contract](../superpowers/specs/2026-09-01-lazy-analysis-materialization-runtime-design.md)
+[observation contract](analysis/python-analysis-design.md#observation-and-composition)
+and [Runtime contract](analysis/session-state-and-runtime.md)
 for detailed owning rules.
 
 
@@ -834,13 +851,13 @@ agreement checks before the requested query. SQLite keeps its connection-local
 Python temporal functions. Backend conversion errors propagate from query
 execution; source values that violate the declaration can affect results.
 
-## R5.1 certified time dependency handoff
+## Certified time dependency handoff
 
-Status: frozen target; new R5 execution qualification remains unverified.
-The [Analysis temporal owner](analysis/timezone-and-calendar-design.md#r51-frozen-temporal-binding)
-owns grid, endpoint and consumer signatures. This document continues to own
-certification and normalized calendar/set snapshots; R5 creates no second
-calendar store or public period/occurrence factory.
+The [Analysis temporal owner](analysis/timezone-and-calendar-design.md#temporal-binding)
+owns grid, endpoint and consumer contracts. This document owns certification and
+normalized calendar/set snapshots. Analysis does not create another calendar
+store or public period/occurrence factory; certification is distinct from
+physical method qualification.
 
 Catalog `period`, `period_on` and `occurrence` continue to produce TimeScope
 values carrying exact Ref, period/occurrence key, boundaries, timezone and

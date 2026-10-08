@@ -146,11 +146,11 @@ R4.3/R4.4 取得交换、Run、receipt、Store 的同代际闭环后，R4.5 同�
 
 ### 4.1 R4.1 协议冻结与删除矩阵（仅契约，未切换产品）
 
-目标代际已在 [Session 与 Runtime 契约](../../specs/analysis/session-state-and-runtime.md#r41-frozen-runtime-and-store-target-inactive)
+目标代际已在 [Session 与 Runtime 契约](../../specs/analysis/session-state-and-runtime.md#retained-schemas-and-method-state)
 冻结为 Store 7，以及 `marivo.analysis.{execution_key,run_input,artifact_descriptor,receipt,exchange,continuation,method_state}/v1`；
-[Python Analysis 设计](../../specs/analysis/python-analysis-design.md#r41-frozen-graph-to-runtime-handoff-inactive)
+[Python Analysis 设计](../../specs/analysis/python-analysis-design.md#definition-graph-and-compiler)
 固定 source/fixed key 的规范字段与身份 owner；
-[方法与状态契约](../../specs/analysis/operators-and-frames.md#r41-frozen-method-state-and-evidence-target-inactive)
+[方法与状态契约](../../specs/analysis/operators-and-frames.md#state-and-cell-contracts)
 固定封闭状态、部件与检查证据。旧 Parquet 物理格式仍为 v1，但旧 Store/Artifact
 不因物理文件可读而进入新恢复。下表是消费/删除交接，不代表对应改动已实施。
 
