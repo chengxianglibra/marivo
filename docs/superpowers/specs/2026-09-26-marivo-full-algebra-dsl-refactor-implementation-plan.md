@@ -2,7 +2,11 @@
 
 Date: 2026-09-26
 
-Status: implementation plan；五项重构原则来自本次用户要求，完整重构尚未实施或验收。
+Status: implementation in progress; complete refactor qualification has not been granted.
+R10.4 acceptance has closed from frozen `78cc8a50eccdbaa76063bb5e7551d66830c69a08`
+with incomplete qualification; required Agent exits failed or remain unverified.
+R10.5 remains pending. Current evidence and bounded failures are recorded in the
+[R10 acceptance index](2026-10-07-marivo-r10-acceptance-index.md#r104-current-execution-2026-10-08).
 
 ## 1. 决策、范围与文档权威
 

@@ -19,7 +19,7 @@ and row-statistics behavior are exercised through their existing owners. Owning
 Runtime specification and latest English/Chinese observation-recovery examples are
 updated; packaged skills and AGENTS.md are unchanged.
 
-The current frozen package is candidate 06, built outside the repository with
+The R10.3 frozen package is candidate 06, built outside the repository with
 `make pypi-build pypi-check` (exit 0). Wheel SHA-256:
 `194343a15b75c74f3cc35759f6cd88f5b68e795e349d4261f1d039ad16ea4236`;
 sdist SHA-256:
@@ -414,3 +414,145 @@ Native prerequisites are recorded in [native-prerequisites.json](../../../eviden
 Formal runs set `MARIVO_TEST_WHEEL_DIR=/tmp/marivo-r102-zncy6a94/snapshot-delivery/dist/pypi`, `MARIVO_TEST_PYTHON=/Users/lichengxiang/.local/bin/python3.12` (or `python3.10`), and `MARIVO_TEST_CONSTRAINTS` to the matching `evidence/r102/constraints/base-312.txt` (or `base-310.txt`). Python 3.12 additionally used the native settings above, `MYSQLCLIENT_CFLAGS=-I/opt/homebrew/opt/mariadb-connector-c/include/mariadb`, `MYSQLCLIENT_LDFLAGS="-L/opt/homebrew/opt/mariadb-connector-c/lib -lmariadb"`, and `PIP_FIND_LINKS=/tmp/marivo-r102-zncy6a94/mysql-driver`; `PIP_NO_BINARY` was unset. Reuse may point these paths to the retained `final-04` wheel/native/input-constraints directories. Both formal pytest runs used `-m release -n 0`; `release-test` was not used to rebuild the candidate.
 
 Later R10 journeys and Agent runs must reuse this wheel together with the recorded applicable dependency constraints and native prerequisites. Product/resource/dependency changes require a new freeze and affected requalification. This record grants no remote business execution, complete A01–A13 coverage, real Agent, full Runtime, release or publication qualification.
+
+## R10.4 current execution (2026-10-08)
+
+**Acceptance run closed; R10.4 qualification remains incomplete and is not passed.** The committed
+candidate is `panda@78cc8a50eccdbaa76063bb5e7551d66830c69a08`. It includes the
+History pre-consumption originating-proof repair and excludes all uncommitted
+files. Candidate 06 retains its original identity and qualification scope.
+
+The external `git archive` snapshot passed `make pypi-build pypi-check` on
+Python 3.12.13. Wheel SHA-256:
+`e8686948722d07316dcc67ba0f1d3fde778a35568f397eee0798456961700f8c`;
+sdist SHA-256:
+`a4766fa1ab288fcebe5fd831780b64056b08b9028f6deb73ccaa4d191258a518`.
+The full build log, archive/resource inventory, dependency constraints, noneditable
+site-packages/direct_url receipts and poisoned-source/hash refusals are retained.
+All thirteen bounded installed journeys completed 39 phases with 39 distinct
+processes. Focused owner checks passed: premises (6), current History (19), public
+History recovery (2) and Anchor consumers (5). The overbroad unchanged History
+matrix was stopped and retained as unqualified partial evidence; the six-backend
+matrix is not repeated.
+
+The changed runner/harness passed typing and lint; its 10 guard tests passed.
+`make check-agent` passed with 4,994 tests and one skip, with full durable output.
+After completing the initial persistent-state and response-model receipts, the
+updated tool passed typing/lint and another broad gate (5,016 passed, one skip).
+The first gate ran in the shared development checkout at
+`ae1c1d4c9b44e1ea7a2e6e9e1d6527e08675f821`, with identical before/after diff
+hashes. The updated-tool gate records checkout HEAD at completion as
+`2d53f80c2a7b578d4e0703f47368713d87a600b7`; no unchanged-diff claim is made for
+that run. Both include concurrent work and do not transfer later commits into
+the frozen candidate. Candidate runtime checks use the separate installed wheel.
+
+A10's first fixed attempt failed the recovery harness's incomplete kernel
+instrumentation. It counted the module function but missed publication's imported
+alias. The repaired harness counts and prohibits both boundaries, without changing
+the package. In a fresh A10 project, captured observations execute six fixed kernels
+and create six Runs; cold exact hits execute no kernels and create no Runs. History
+views execute fifteen fixed kernels/Runs and none on cold exact hits. Resources
+remain empty. The failed attempt and harness hash are retained separately.
+
+The user's final steering selects **Claude CLI**, replacing unavailable Luna CLI
+access. The installed CLI is 2.1.186; its configured provider reports
+`deepseek-v4.1-flash[1m]`. This exact ID is pinned, `--effort max` is requested,
+and no fallback model is configured. CLI init reports that alias, while actual
+response events uniformly report `deepseek/deepseek-flash`. Actual reasoning
+effort remains unverified. This is not a Claude-model or Luna-model acceptance claim.
+The failed Luna access, stripped-auth startup and overbroad-sandbox probe remain
+infrastructure/tool diagnostics. Successful isolation probes execute the installed
+Python while repository, oracle, memories and other questions return OS-level
+read refusals; the API key is absent in model subprocesses.
+
+A later adversarial probe found peer Claude background task output readable under
+`/private/tmp/claude-501/`, despite peer project denials. All affected business
+attempts were stopped and retained as tool diagnostics; none grants qualification.
+The runner now denies existing and reserved future peer task-output paths. A new
+probe confirms OS-level refusal for the actual previously readable output, and an
+independent regression pins the future producer/offline denials. All eight groups
+restart in fresh `final-gNN` projects and `produce-03` sessions under this policy.
+
+The [explicit runner](../../../devtools/r104_agent_acceptance.py) and its
+[procedure](../../../devtools/r104-agent-acceptance.md) prepare independent projects,
+use customization-free fresh sessions with only sandboxed Bash, preserve prompts,
+visible file hashes, settings, traces, scripts, final projects and exit status, and
+bind separate numeric/semantic assessments to exact trace and wheel hashes. Default
+tests make no model calls. Packaged skills remain unchanged. Recovery copies only
+persistent state, project identity, the exact Artifact map and the original skills.
+
+| Business group | Journeys | Capability obligations | Current Agent exit |
+| --- | --- | --- | --- |
+| Governance and authoring | A12 | C01/C02/C17; sequential declarations, static/readiness/health and disclosure | produce-03 failed preview and remains retained; produce-04 numeric/semantic passed exact two tables, sequential authoring/refusal/repair, actual two-row preview and public diagnostics; offline-04 numeric/semantic passed exact retained inputs, new fixed shares and identical cold repeat; an unexecuted generic grain caution is excluded from C05; old offline-03 passed independently |
+| Hierarchy and distribution | A01/A03 | C04/C05/C10; complete coordinates, original/current-row reduction, independent roots and exact methods | produce-03 blocked at 45-minute deadline; missing overall member domain repaired in source-only inputs; produce-04 numeric/native passed26tables, semantic failed incorrect final quantile equation and float-detour disclosure; offline-04 read all27 exact inputs but failed because the new fixed continuation and required durable reports were not executed/completed |
+| Comparison, selection and references | A02/A06/A07/A08 | C06/C07/C08/C09; time roles, opportunities, fixed weights and attribution | produce-03 blocked at 45-minute deadline; g03a produce-04 passed25tables/public paths with55reading-monthcells, overall period differences, device energy/cumulative/status-fold/cohort; g03a offline-04 numeric/native passed27tables and actual new fixed/repeat, semantic failed its final false C July zero example; g03b produce-04 numeric/native passed28tables including public rank/attribution views, semantic failed28tables versus22Artifact identities and false all-readings-east wording; g03b offline-04 numeric/native passed25tables and three actual newfixed/repeat outputs, semantic failed treating distinct July/August Reading IDs as the same4Subject pool. Status-fold oracle correction is retained against the frozen spatial-before-time contract; no per-device count-difference qualification is inferred |
+| Historical membership | A05 | C03/C06; exact selectors, historical fields and clocked observations | produce-03 numeric/semantic passed for all 37 tables and public paths; offline-03 numeric/semantic passed independently; original selector/partition question repair retained |
+| Events and funnels | A09 | C11/C12; assignment, multiplicity, Duration and dropout follow-up | produce-03 numeric/semantic passed (40 tables); offline-03 raw numeric/public-read witnesses retained, but complete semantic pass withdrawn for stale final inventory and period example wording; fresh same-span produce-04 passed24tables/numerics/publicpaths; unsupported EveryStartFunnel remains an explicit typed refusal against the frozen canonical-Funnel owner; fresh offline-04 actual27tables/rawvalues and three newfixed/repeat witnesses passed, but four native integerSubject rows serialized as strings and the contradictory finalinteger claim failed |
+| Lifecycle | A10 | C13; inception, transitions, violations, intervals, dwell and captured observations | produce-03 numeric passed (65 named refs), semantic failed private access/count grain; offline-03 fixed native values checked, but 86 invented missing-value annotations and Duration/distribution interpretation failed; fresh produce-04 native/raw passed54tables and public-only paths/full pool grain, semantic failed final dwell microseconds off by 1000; offline-04 reached deadline, native 352 entries passed, raw 54 exact inputs and two fixed selections passed as partial evidence, but 284 pre-existing source outputs were mislabeled as new offline executions; whole numeric exit remains unverified and semantic exit failed |
+| Statistics and forecast | A04/A11 | C14; complete pairing/grid, lag, all nine methods and explanation limits | produce-03 numeric and public methods passed for 20 retained results/48 entries; complete semantic pass withdrawn because one explanation swaps composite-key roles; offline-03 numeric passed exact inputs/projections and twelve fixed outputs, semantic failed per-date versus overall mean interpretation; fresh key/pairing produce-04 native/raw passed 10 tables and correct key roles, fit ranges and noncausal interpretation, but final blanket explicit-key schema claim failed for member-coordinate deviation tables and aggregate association grain; offline-04 native/raw passed 19 tables with actual 122→125→125 Run reuse, but its blanket final Cell-column claim failed for members and terminal table families |
+| Anchors and retention | A13 | C18; compound keys, real DST contribution difference, overlap, fixed opportunities and Unknown bounds | produce-03 blocked at 45-minute deadline; original offline unverified; both scoped produce-04 attempts reached deadlines with retained question overreach; corrected supported produce-05 sessions were interrupted for expedited close-out without completed result/identity reports; their offline-05 exits remain unverified; logical Anchor continuation disclosure also fails |
+
+C15/C16/C17 and public discovery, execution, bounded/full reads, repair and legal
+fixed continuations are assessed across every group. Producer and fresh offline
+Agent exits remain separate. Numeric assessments use independent raw facts and
+oracles outside the sandbox; native numeric follows the actual carrier contract,
+while Duration and statistical methods stay strict. CLI completion alone cannot
+pass, and successful numbers cannot override an invalid public path.
+
+Nine fresh scoped questions finished in `repair-*` projects, with all producer
+and source-free paths reserved before launch. They retain the original failed
+attempts and use `produce-04` / `offline-04` receipts. Only governance/authoring
+and historical membership have complete source and fresh offline qualification.
+All required complete group exits remain necessary; bounded numeric witnesses
+do not turn the other six groups green. Added reporting constraints
+preserve original key roles, grouping grain, native missing values and strict
+Duration units; no call-answer mapping or previous answer script is provided.
+
+The C18 question tool incorrectly required exclusive first-window assignment and
+following-day offset windows, neither offered by the frozen public owner. Its
+initial raw oracle also included own Anchors and same-instant occurrences preceding
+the Anchor in the declared business sequence. No completed C18 numeric grant was
+made from that oracle. Original prompts and oracle bytes are retained. Corrected
+questions use the public shared Anchor-to-deadline windows and current opportunity
+rules. Fresh C18 projects start only after all prior model sessions end, so their
+new materials cannot bypass an earlier immutable peer-denial policy. This is a
+question/evaluation correction; no new API or product repair is inferred.
+
+Candidate 06 original archive/ledger assets are unavailable at close-out: the
+previous `evidence/r103/` directory is absent, and a limited exact-name search
+recovered no originals. The frozen committed index retains its exact wheel/sdist,
+diff and ledger hashes in a separate bundle section. No legacy bytes are rebuilt
+or substituted; [legacy-candidate06-evidence-gap.json](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/legacy-candidate06-evidence-gap.json)
+records this additional preservation gap. Its qualification never transfers.
+
+The frozen logical Anchor `.contract()` omits the legal `retention` action and
+lists `execute` twice. This is a confirmed product disclosure-owner defect,
+recorded with the actual public contract output, trace hash and frozen source
+lines in [product-anchor-disclosure-defect.json](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/product-anchor-disclosure-defect.json).
+It does not prove causation for every Agent failure. Under the latest user
+instruction, this task makes no product code changes, rebuilds no repaired
+candidate and launches no further trials. The two still-exploring supported
+C18 sessions were stopped for expedited close-out; raw CLI exits and separate
+interruption receipts remain preserved, with unfinished obligations unverified.
+
+Durable evidence is under
+`/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/`.
+The [qualification report](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/QUALIFICATION.md),
+[C01–C18 coverage](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/capability-ledger.json)
+and [all trial evaluations](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/all-trial-ledger.json)
+retain passed, failed and unverified exits separately. The downloadable
+[evidence bundle](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/exports/r104-evidence-78cc8a50.tar.gz)
+has per-file hashes in its manifest and a separate
+[SHA-256 seal](/Users/lichengxiang/.local/share/marivo-qualification/r104/20261008-103431/evaluation/exports/bundle.json).
+The archive SHA-256 is
+`4c77fc9f7f7cd2da6fadb47e096805816d0ee2a52bca9d8eaab15bd7f75df6c1`;
+manifest SHA-256 is
+`764a01af7fbd7f261016f98a6a37393c04b034175649abeda16468315716a444`.
+All 44014 archived file hashes and byte counts were verified.
+The seal is outside the archive to avoid circular self-hashing; the bundled
+index contains these stable paths and predates this Git delivery note. No R10.5, publication or skipped cost
+collection is started.
+The acceptance run did not commit or push. Subsequent user-authorized Git
+delivery preserves the frozen candidate and incomplete qualification. The initial
+P3/G1 document bytes are preserved at
+SHA-256 `2c1d98b455511ea1ea4e35ce1caec1ba66e7156f0de62d7098ffafc848b84a6f`.

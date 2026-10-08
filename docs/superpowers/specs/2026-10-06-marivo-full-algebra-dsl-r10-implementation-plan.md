@@ -6,14 +6,18 @@ Git history; local-only execution files were discarded. Recorded phase results
 below describe their original scope.
 
 Date: 2026-10-06
-Revised: 2026-10-07
+Revised: 2026-10-08
 
 Status: R10.1 scoped implementation and validation complete for `642271bf35`;
 required current incremental closure and bounded R10.2 installation acceptance are
 complete. See the [current acceptance index](2026-10-07-marivo-r10-acceptance-index.md)
-for the frozen candidate, dependency constraints, passed exits and failed baseline
-History handoff. R10.3-R10.5 remain pending. Historical R10.1 evidence is located
-in §1.2; this result grants no complete-journey, real-Agent or release acceptance.
+for each frozen candidate, dependency constraints and separately qualified exits.
+R10.3 is complete for its finite installed-journey and producer/physical scope.
+R10.4 acceptance from committed `78cc8a50eccdbaa76063bb5e7551d66830c69a08`
+has closed with incomplete qualification; required Agent exits failed or remain
+unverified. The latest user instruction excludes product code repairs. R10.5
+remains pending. Historical R10.1 evidence is
+located in §1.2. Installed proofs do not grant real-Agent or release acceptance.
 
 ## 1. 目标与前置交接
 
@@ -225,7 +229,8 @@ Cell 与精度披露、身份脱敏、无来源读取，以及组合准入、检
 
 - 从 A01–A13 准备业务题和能力覆盖映射；一题可以覆盖多个簇，以覆盖全部公开能力为
   出口，不机械展开模型×题目×数据库。Agent 可使用已资格后端，其他后端由技术矩阵负责。
-- 每次使用隔离项目/会话及 R10.2 候选包，提供业务问题、正式声明、安装环境、公开 Help
+- 每次使用隔离项目/会话及当前冻结 commit 的新候选包（沿用适用的 R10.2 依赖约束），
+  提供业务问题、正式声明、安装环境、公开 Help
   起点及候选包中正式交付的 skills；记录实际可见内容，不另给能力到调用的答案映射。
   不给 oracle、预写答案、私有代码或可复用的正确执行脚本。
 - 从当前公开面重建能力覆盖映射，覆盖渐进发现、按业务问题选方法、必要的语义声明
