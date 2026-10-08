@@ -2980,17 +2980,17 @@ class GroupedAnalysisDomain(_Value):
         metric: MetricInputValue,
         *,
         during: TimeScope | None = None,
-        via: Ref[RelationshipKind] | RootRoutes,
+        via: Ref[RelationshipKind] | RootRoutes | None = None,
     ) -> GroupedNumericRelation | GroupedRatioRelation:
         """Observe a Metric grouped by the bound member attribute.
 
         Args:
             metric: Declared Metric Ref to observe.
-            during: Explicit fixed TimeScope for the observation.
-            via: Admitted relationship Ref or closed route pair.
-        Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.observe(metric, during=during, via=via)``.
-        Constraints: The Metric, window, path, and member binding must be admitted.
+            during: Optional fixed TimeScope for the observation.
+            via: Admitted relationship Ref or ordered routes; omit or pass None for the same Entity root.
+        Returns: A GroupedNumericRelation | GroupedRatioRelation bound to this exact relation.
+        Example: ``result = relation.observe(metric)``.
+        Constraints: The Metric, window, path, and member binding must be admitted. Grouping does not require an additional relationship.
         """
         if self._member_source is not None:
             observed = self._member_source.observe(metric, during=during, via=via)

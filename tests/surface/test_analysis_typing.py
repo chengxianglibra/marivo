@@ -19,6 +19,7 @@ session = mv.session.get_or_create("static", report_timezone="UTC")
 members = session.members(ms.ref.entity("sales.customer"))
 session.members(ms.ref.metric("sales.revenue"))
 members.read(ms.ref.entity("sales.customer"))
+members.group_by(ms.ref.dimension("sales.customer.region")).observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"))
 category = members.read(ms.ref.dimension("sales.customer.region"))
 assert isinstance(category, mv.LogicalCategoryRelation)
 category.compare(category)
@@ -79,6 +80,7 @@ table.execute().execute()
     assert 'Too many positional arguments for "model_state"' in output
     assert 'Argument 1 to "members"' in output
     assert 'Argument 1 to "read"' in output
+    assert 'Argument "via" to "observe"' in output
     assert 'has no attribute "compare"' in output
     assert 'Argument 1 to "where"' in output
     assert 'has no attribute "show"' in output
@@ -115,6 +117,14 @@ observed.rollup().execute()
 ratio = members.observe(ms.ref.metric('sales.aov'), via=ms.ref.relationship('sales.buyer'))
 assert isinstance(ratio, mv.LogicalRatioRelation)
 ratio.rollup().execute()
+orders = session.members(ms.ref.entity('sales.order'))
+grouped = orders.group_by(ms.ref.dimension('sales.order.channel'))
+grouped_observed = grouped.observe(ms.ref.metric('sales.revenue'))
+assert isinstance(grouped_observed, mv.GroupedNumericRelation)
+grouped_observed.rollup().execute()
+grouped_with_none = grouped.observe(ms.ref.metric('sales.revenue'), via=None)
+assert isinstance(grouped_with_none, mv.GroupedNumericRelation)
+grouped_with_none.rollup().execute()
 """
     )
     root = PROJECT_ROOT

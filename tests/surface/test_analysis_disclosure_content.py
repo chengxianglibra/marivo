@@ -27,6 +27,17 @@ def test_runtime_aggregate_help_discloses_static_backend_check() -> None:
     assert "execution never substitutes the definition" in text
 
 
+def test_grouped_observation_help_discloses_optional_identity_route() -> None:
+    text, _, _ = render_help_text(mv.GroupedAnalysisDomain.observe)
+    focused, _, _ = render_help_text("analysis.dsl.GroupedAnalysisDomain.observe")
+
+    assert text == focused
+    assert "via: 'Ref[RelationshipKind] | RootRoutes | None' = None" in text
+    assert "omit or pass None for the same Entity root" in text
+    assert "Grouping does not require an additional relationship" in text
+    assert "result = relation.observe(metric)" in text
+
+
 def test_parameter_semantics_and_real_producers() -> None:
     text, _, _ = render_help_text(mv.LogicalNumericRelation.correlate)
     assert "Input method: pearson, spearman, or kendall." in text
