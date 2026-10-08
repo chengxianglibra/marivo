@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timezone
 
+import ibis.expr.datatypes as dt
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import (
@@ -139,7 +140,13 @@ def _metadata(
         shape = bound.leaf.definition.shape.time
         assert isinstance(shape, TimeShape)
         physical = bound.source.relation[event.occurred_at.source_column].type()
-        native_unit = "ns" if physical.scale is not None and physical.scale > 6 else "us"
+        native_unit = (
+            "ns"
+            if isinstance(physical, dt.Timestamp)
+            and physical.scale is not None
+            and physical.scale > 6
+            else "us"
+        )
         unit = source.domain_time_units.get(
             (event.source_id, event.occurred_at.source_column), native_unit
         )

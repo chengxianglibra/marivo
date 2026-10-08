@@ -464,7 +464,10 @@ def _observe_component(
             and event_type.unit in ("s", "ms", "us", "ns")
             and (event.parse is None or isinstance(event.parse, (TimestampParse, DatetimeParse)))
         )
-        or (pa.types.is_string(event_type) and isinstance(event.parse, StrptimeParse))
+        or (
+            (pa.types.is_string(event_type) or pa.types.is_integer(event_type))
+            and isinstance(event.parse, StrptimeParse)
+        )
     ):
         raise _reject("unqualified event physical type or precision")
     if pa.types.is_date(event_type):

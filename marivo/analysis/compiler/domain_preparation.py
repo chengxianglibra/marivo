@@ -19,7 +19,7 @@ from marivo.analysis.compiler.graph_lowering import (
     captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
-from marivo.analysis.compiler.source_time import source_time
+from marivo.analysis.compiler.source_time import encoded_time_predicate, source_time
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.rules import (
     ObserveCount,
@@ -147,8 +147,10 @@ def lower_occurrences(
             if not isinstance(predicate, ir.BooleanValue):
                 fail("input_binding", "Event predicate is not Boolean", stage="lowering")
             table = table.filter(predicate)
-        raw_time = capture_time(table[event.occurred_at.source_column])
-        instant, _ = source_time(
+        raw_time = table[event.occurred_at.source_column]
+        if isinstance(raw_time, ir.TimestampValue):
+            raw_time = capture_time(raw_time)
+        instant, authority = source_time(
             raw_time,
             event.occurred_at,
             boundary_timezone="UTC",
@@ -157,15 +159,23 @@ def lower_occurrences(
         )
         instant = instant.cast(dt.Timestamp(timezone="UTC", scale=6))
         table = table.mutate(__instant=instant, __raw_time=raw_time)
-        if params.start is not None:
-            table = table.filter(
-                table.__instant
-                >= ibis.literal(datetime.fromisoformat(params.start), type=table.__instant.type())
-            )
-        table = table.filter(
-            table.__instant
-            < ibis.literal(datetime.fromisoformat(params.end), type=table.__instant.type())
+        start = None if params.start is None else datetime.fromisoformat(params.start)
+        end = datetime.fromisoformat(params.end)
+        encoded = encoded_time_predicate(
+            table.__raw_time,
+            event.occurred_at,
+            authority,
+            start=None if start is None else start.astimezone(timezone.utc).replace(tzinfo=None),
+            end=end.astimezone(timezone.utc).replace(tzinfo=None),
         )
+        if encoded is not None:
+            table = table.filter(encoded)
+        else:
+            if start is not None:
+                table = table.filter(
+                    table.__instant >= ibis.literal(start, type=table.__instant.type())
+                )
+            table = table.filter(table.__instant < ibis.literal(end, type=table.__instant.type()))
         original = {field.source_column: table[field.source_column] for field in event.identity}
         sequence_int: ir.Value = ibis.null().cast("int64")
         sequence_enum: ir.Value = ibis.null().cast("string")
@@ -292,7 +302,7 @@ def lower_candidates(
     if observation is None:
         assert isinstance(params, PreparedObservation)
         observation = params.observation
-    rows, ids = _contribution_rows(
+    rows, ids, authority = _contribution_rows(
         stage,
         observation,
         bindings,
@@ -310,19 +320,15 @@ def lower_candidates(
             "prepared observation bounds require explicit timezone",
             stage="lowering",
         )
+    start, end = (value.astimezone(timezone.utc).replace(tzinfo=None) for value in (start, end))
+    encoded = encoded_time_predicate(
+        rows.__raw_event_time, observation.event, authority, start=start, end=end
+    )
     rows = rows.filter(
-        (
-            rows.event_time
-            >= ibis.literal(
-                start.astimezone(timezone.utc).replace(tzinfo=None), type=rows.event_time.type()
-            )
-        )
-        & (
-            rows.event_time
-            < ibis.literal(
-                end.astimezone(timezone.utc).replace(tzinfo=None), type=rows.event_time.type()
-            )
-        )
+        encoded
+        if encoded is not None
+        else (rows.event_time >= ibis.literal(start, type=rows.event_time.type()))
+        & (rows.event_time < ibis.literal(end, type=rows.event_time.type()))
     )
     mapping = members.expression
     selected = rows.semi_join(

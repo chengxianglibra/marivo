@@ -2,7 +2,7 @@
 
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 
 import ibis
@@ -56,6 +56,112 @@ _CLICKHOUSE_INEXACT_DIRECTIVES: frozenset[str] = frozenset({"%U", "%a", "%A", "%
 
 # A real ``%<letter>`` directive, as opposed to an escaped literal percent.
 _STRPTIME_DIRECTIVE = re.compile(r"%[A-Za-z]")
+
+# Only complete, fixed-width, most-significant-first calendar encodings are
+# order preserving. The format declaration is the source contract, not a
+# runtime certification of source rows or partition metadata.
+_ORDERED_FORMATS: dict[str, int] = {
+    "%Y%m%d": 86400,
+    "%Y-%m-%d": 86400,
+    "%Y%m%d%H": 3600,
+    "%Y-%m-%d %H": 3600,
+    "%Y%m%d%H%M": 60,
+    "%Y-%m-%d %H:%M": 60,
+    "%Y%m%d%H%M%S": 1,
+    "%Y-%m-%d %H:%M:%S": 1,
+}
+
+
+def encoded_time_predicate(
+    value: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+) -> ir.BooleanValue | None:
+    """Invert a half-open range on canonical encoded event points without IO.
+
+    Bounds are in the consumer's normalized coordinate space. Civil-date
+    consumers pass dates; timestamp consumers pass normalized datetimes.
+    ``None`` means this encoding/time authority has no qualified inverse; the
+    caller keeps its original semantic predicate. No source values are probed.
+    """
+    parse = axis.parse
+    physical = value.type()
+    if not isinstance(parse, StrptimeParse) or parse.format not in _ORDERED_FORMATS:
+        return None
+    if not physical.is_string() and not (
+        physical.is_integer() and parse.format.replace("%", "").isalpha()
+    ):
+        return None
+    source_zone = None
+    boundary_zone = None
+    if authority.kind != "civil_date":
+        if authority.read_timezone is None:
+            return None
+        source_zone = time_zone(authority.read_timezone)
+        boundary_zone = time_zone(authority.boundary_timezone)
+        if source_zone.utcoffset(None) is None or boundary_zone.utcoffset(None) is None:
+            return None
+
+    step = _ORDERED_FORMATS[parse.format]
+
+    def encode(bound: date | datetime) -> str | None:
+        point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
+        if source_zone is not None and boundary_zone is not None:
+            # Conversion failure is caught outside the inverse; it must not be
+            # confused with the ordered ceiling sentinel above year 9999.
+            point = (
+                point.replace(tzinfo=boundary_zone) if point.tzinfo is None else point
+            ).astimezone(source_zone)
+        point = point.replace(tzinfo=None)
+        midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
+        elapsed = point - midnight
+        ticks, remainder = divmod(
+            elapsed.seconds * 1_000_000 + elapsed.microseconds, step * 1_000_000
+        )
+        try:
+            point = midnight + timedelta(seconds=(ticks + bool(remainder)) * step)
+        except OverflowError:
+            return None
+        tokens = {
+            "%Y": f"{point.year:04d}",
+            "%m": f"{point.month:02d}",
+            "%d": f"{point.day:02d}",
+            "%H": f"{point.hour:02d}",
+            "%M": f"{point.minute:02d}",
+            "%S": f"{point.second:02d}",
+        }
+        encoded = parse.format
+        for token, text in tokens.items():
+            encoded = encoded.replace(token, text)
+        return encoded
+
+    def comparison(bound: date | datetime, *, lower: bool) -> ir.BooleanValue:
+        text = encode(bound)
+        if text is None:
+            return ibis.literal(False) if lower else value.notnull()
+        if physical.is_integer():
+            number = int(text)
+            assert isinstance(physical, dt.Integer)
+            minimum, maximum = physical.bounds
+            if number <= minimum:
+                return value.notnull() if lower else ibis.literal(False)
+            if number > maximum:
+                return ibis.literal(False) if lower else value.notnull()
+            literal = ibis.literal(number, type=physical)
+        else:
+            literal = ibis.literal(text, type=physical)
+        return value >= literal if lower else value < literal
+
+    try:
+        if start is None:
+            return value.notnull() if end is None else comparison(end, lower=False)
+        predicate = comparison(start, lower=True)
+        return predicate if end is None else predicate & comparison(end, lower=False)
+    except OverflowError:
+        return None
 
 
 def _parse_signature(text: str, fmt: str) -> datetime:

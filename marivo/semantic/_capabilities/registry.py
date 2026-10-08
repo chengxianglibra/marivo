@@ -3409,10 +3409,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Build a strptime parse variant for time dimensions.",
+            "Declare a canonical source encoding and strptime parse for time dimensions.",
             output="StrptimeSpec",
             effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible",),
+            constraints=("time_granularity_parse_compatible", "time_dimension_partition_pushdown"),
             example="ms.strptime('%Y%m%d')",
         ),
         _capability(

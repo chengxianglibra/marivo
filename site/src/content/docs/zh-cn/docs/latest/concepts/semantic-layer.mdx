@@ -525,11 +525,19 @@ preview 若观察到时区-naive timestamp，会返回 `time_parse_risk` warning
 `sample_interval` 标记一个被
 周期采样的时间轴，供半可加折叠使用。
 
+`ms.strptime(format)` 同时声明规范存储编码和解析方式：指令宽度、补零、分隔符及
+日历值必须与格式一致。`%Y%m%d` 要求 `20260701`；即使解析器接受 `2026071`，它也
+不符合契约。整数必须保留相同的十进制数字。受支持的有序日期、小时、分钟、秒格式
+会依据已有类型和时间权威，将半开观察窗口编译为裸列比较。民用日期不平移；时刻反解
+要求 UTC 或固定偏移。其他格式、浮点值、`hour_prefix` 以及无法采用固定偏移的命名
+时区保留解析过滤。不增加分区枚举、额外查询、事务或逐行格式校验。过滤排除的值不被
+检查，正确性以源数据遵守规范编码契约为前提。
+
 绑定的 TimeGrid 保留完整 UTC 单元边界及报告时区。通过类型化关系读取时间坐标，
 当前字段与展示由该关系的 contract 和有界 `show()` 输出负责。
 
 ```python
-# Day partition stored as the string "20260131"
+# Canonical day partition: exactly eight digits, e.g. "20260131"
 log_date = ms.time_dimension_column(
     name="log_date",
     entity=orders,
@@ -548,6 +556,11 @@ event_ts = ms.time_dimension_column(
     parse=ms.timestamp(timezone="UTC"),
 )
 ```
+
+对 `[2026-07-01, 2026-08-01)` 的观察，日期编码条件采用
+`dt >= '20260701' AND dt < '20260801'`。它仅限制事件贡献；窗口外的成员仍属于成员
+全集。小时编码表达事件时点，因此 `[10:30, 11:30)` 采用 `>= 11` 和 `< 12`。
+`granularity` 和 `sample_interval` 不会改变编码精度。
 #### 度量
 
 度量是你打算聚合的行级数量事实（例如金额或数量）。直接实体输出列使用

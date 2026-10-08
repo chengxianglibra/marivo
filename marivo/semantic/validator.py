@@ -3486,9 +3486,10 @@ def assembly_validate(
                     kind=WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value,
                     message=(
                         f"Time field {f_id!r} casts or parses a partition-like source column. "
-                        "If this is a day/hour partition axis, prefer a raw string/integer "
-                        "time_field with date_format so window filters can use simple "
-                        "partition comparisons."
+                        "For an encoded time axis, declare its raw string/integer column "
+                        "with ms.strptime(format) and canonical source values. Qualified "
+                        "ordered formats can use bare-column window comparisons without "
+                        "partition enumeration or validation queries."
                     ),
                     refs=(f_id,),
                     location=f_ir.location,

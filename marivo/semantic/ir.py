@@ -728,7 +728,7 @@ class TimestampParse:
 
 @dataclass(frozen=True)
 class StrptimeParse:
-    """Parse a time-dimension column using an explicit ``strptime`` format."""
+    """Declare a canonical source encoding and explicit ``strptime`` parse."""
 
     format: str
     timezone: str | None = None

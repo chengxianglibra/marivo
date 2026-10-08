@@ -34,6 +34,35 @@ authority, and the backend may report a conversion error. Known instants in a re
 share the same civil bucket coordinate. Timestamp predicate literals must match their
 field kind: naive civil values or aware instants.
 
+### Encoded event-time ranges
+
+The canonical storage contract of `ms.strptime(format)` permits static inverse
+predicates on supported ordered string/integer calendar encodings. The compiler
+uses already-bound physical types and time authority; it performs no partition
+enumeration, source certification, additional queries or row-format validation.
+Correctness assumes compliant source data, including values not read by the
+query. See the [semantic encoding contract](semantic/semantic-object-model.md#format-specifiers-python-strptime-vs-mysql)
+for supported formats and exclusions.
+
+Encoding resolution describes event points, not a partition bucket or reporting
+grain. Both endpoints of `[start, end)` become the first representable point at
+or after the endpoint. Hour encoding over `[10:30, 11:30)` therefore selects
+`>= 11` and `< 12`; an aligned upper endpoint remains excluded without adding
+an hour. Civil-date observation bounds stay dates. Event preparation comparing
+date points to instants instead uses the exact midnight-point interpretation.
+NULL does not contribute, empty intervals stay empty, and physical integer
+limits or datetime ceiling overflow never produce out-of-range literals.
+
+Equivalent inverses replace parsed comparisons; safe scan envelopes retain
+exact per-cell conditions. Unqualified inverses keep the original semantic
+predicate. Parsing remains available for output and grouping. Both ordinary and
+cumulative time-grid event scans receive a literal envelope of their cell
+windows, while the joined grid retains exact per-cell conditions. Filters belong
+to the current observation/Event branch and never alter the member population,
+shared source, relation checks or version-selection order. Physical pruning is
+connector-dependent and is verified through test plans and scan statistics,
+not production `EXPLAIN` queries.
+
 ## Dataset construction and continuation
 
 ```python
