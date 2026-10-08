@@ -956,6 +956,14 @@ focused help instead of browsing unrelated collections.
 
 Once declarations are in place, load the catalog and inspect it:
 
+Restart Python after upgrading Marivo or dependencies, or editing/deleting model
+files. Ordinary imported dependencies may retain old objects; `ms.load()` and
+`md.load()` do not guarantee complete hot reload or automatically clear caches.
+Execution failures show the full original traceback and exception chain, also
+available as `exception_type` and `traceback` on the structured error. If a
+duplicate error names a source that no longer exists, follow its restart guidance;
+any listed bytecode files are diagnostic leads, not proof of the cause.
+
 ```python
 import marivo.semantic as ms
 

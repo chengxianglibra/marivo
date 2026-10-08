@@ -850,6 +850,13 @@ current = (session.members(ms.ref.entity("sales.orders")).each(grid)
 
 声明完成后，加载目录并检查它：
 
+升级 Marivo 或依赖、修改或删除模型文件后，重启 Python 进程再加载。
+普通导入的依赖可能保留旧对象；`ms.load()` 和 `md.load()` 不保证完整热更新，
+也不会自动清理缓存。执行失败默认显示完整的原始 traceback 和异常链，
+结构化错误也通过 `exception_type` 和 `traceback` 提供这些信息。
+如果重复声明错误指向已不存在的源码，请按提示重启；错误列出的字节码文件
+只是排查线索，不代表已经确认缓存就是根因。
+
 ```python
 import marivo.semantic as ms
 

@@ -6940,6 +6940,9 @@ def load(
         separate from this project-level static validation event.
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
+        Restart Python after package upgrades or model edits/deletions;
+        ordinary imported dependencies are not guaranteed to hot-reload.
+        Execution failures expose their original exception type and traceback.
     """
     from marivo.semantic.reader import SemanticProject
 

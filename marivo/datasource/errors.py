@@ -146,6 +146,8 @@ class DatasourceError(Exception):
         location: str | None = None,
         effect_observed: DatasourceObservedEffects | None = None,
         repair: AuthoringRepair | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -154,6 +156,8 @@ class DatasourceError(Exception):
         self.location = location
         self.effect_observed = effect_observed
         self.repair = repair
+        self.exception_type = exception_type
+        self.traceback = traceback
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
@@ -161,6 +165,7 @@ class DatasourceError(Exception):
             ("Location", self.location),
             ("Expected", self.expected),
             ("Received", self.received),
+            ("Exception type", self.exception_type),
         ):
             if value is not None:
                 lines.append(f"{label}: {value}")
@@ -180,6 +185,8 @@ class DatasourceError(Exception):
             if target.canonical_id is not None:
                 qualified = f"{target.surface}.{target.canonical_id}"
                 lines.append(f"Help: marivo.help({qualified!r})")
+        if self.traceback is not None:
+            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 
@@ -263,7 +270,30 @@ class DatasourceLoadError(DatasourceError):
 
 
 class DatasourceDuplicateError(DatasourceError):
-    pass
+    def __init__(
+        self,
+        *,
+        message: str,
+        declaration_paths: tuple[str, ...] = (),
+        expected: str | None = None,
+        received: str | None = None,
+        location: str | None = None,
+        effect_observed: DatasourceObservedEffects | None = None,
+        repair: AuthoringRepair | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
+    ) -> None:
+        self.declaration_paths = declaration_paths
+        super().__init__(
+            message=message,
+            expected=expected,
+            received=received,
+            location=location,
+            effect_observed=effect_observed,
+            repair=repair,
+            exception_type=exception_type,
+            traceback=traceback,
+        )
 
 
 class DatasourceMissingError(DatasourceError):

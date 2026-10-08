@@ -60,13 +60,18 @@ Loader rules:
   is not a directory.
 - On success the registry is `ready`; on failure it becomes `errored` with
   structured `load_errors` retained for the fix loop.
+- Restart the Python process after Marivo or dependency upgrades, or after
+  editing or deleting project model files. Loading retains its existing
+  synthetic-module refresh but does not guarantee hot reload of ordinary Python
+  imports. It does not scan or purge other modules or delete bytecode caches.
 
 ## Reader and introspection
 
 `ms.load()` returns a `SemanticCatalog` — the deterministic, agent-facing read
 surface. It does not re-parse files or rely on process-global state, and it does
 not use fuzzy or embedding-based recall.
-File edits take effect at the next `ms.load()` call; previously returned semantic
+After file edits, restart Python and call `ms.load()`; ordinary imported
+dependencies may otherwise retain old objects. Previously returned semantic
 catalogs retain their loaded definitions. `md.inspect(..., workspace_dir=...)`
 selects the same exact workspace and configured datasource roots, loading current
 declarations once per inspection. A ref alone does not carry a workspace.
@@ -609,9 +614,27 @@ style. Structured `semantic_refs` contain canonical path strings; a target
 Dimension contract supplied while constructing an error is recorded by its
 `ref.path`. The mapping from error kind to agent action is mechanical:
 
+Execution failures also expose optional `exception_type` and `traceback` fields.
+The default error text includes the complete original traceback and exception
+chain, without captured local variables. Wrappers preserve the original exception
+through `__cause__`, including datasource-to-semantic conversion. The execution
+entrypoint and actual failure location are distinct; syntax failures identify
+their original file and line, while recursion failures direct the agent to the
+actual calls or import chain rather than asserting a syntax error. Check/CLI JSON
+includes these fields when present, and text output retains the traceback.
+
+Datasource duplicate errors carry `declaration_paths`; semantic wrappers retain
+the datasource name and both paths in `semantic_refs`. A missing source is
+explicitly marked as missing. The repair asks for a Python restart and reload
+because an old imported object may remain; it does not ask to delete a nonexistent
+declaration or silently discard it. Existing related bytecode paths, when found,
+are diagnostic leads for a problem that persists after restart, not proof of the
+cause. Restart clears process memory, but exceptional timestamp/size collisions
+in bytecode caches may still require manual investigation.
+
 | Error kind | Agent action |
 |---|---|
-| `duplicate_name` | Remove the duplicate declaration or change `name=`, then reload. |
+| `duplicate_name` | For existing sources, remove the duplicate declaration or change `name=`, then restart Python and reload. If a reported source is missing, follow the restart and cache-investigation guidance instead. |
 | `missing_domain` | Add `ms.domain(...)` in `<root>/<domain>/_domain.py`, or pass an explicit `domain=`. |
 | `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref.<kind>(path)`. |
 | `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
@@ -620,7 +643,7 @@ Dimension contract supplied while constructing an error is recorded by its
 | `invalid_project` | Fix the explicit `marivo.toml` configuration or pass the exact workspace root shown by `marivo.help("semantic.authoring")`; do not pass `models/semantic/` as `workspace_dir`. |
 | `domain_file_missing` | Add `models/semantic/<domain>/_domain.py` and declare the matching domain there. |
 | `domain_file_mismatch` | Make the directory name and `ms.domain(name=...)` identity agree, then reload. |
-| organization errors | Restore the minimal datasource/domain layout reported by structured repair, then reload from the same project root. |
+| organization errors | Follow the original exception and traceback when present, repair the declaration, import, or reported layout, then restart Python and reload from the same project root. |
 | `sql_escape_hatch` | Use typed datasource inspection or a governed Ibis reference for Semantic authoring; raw SQL in Semantic expression bodies remains rejected. `md.raw_sql` is available only for terminal custom analysis outside Semantic and cannot repair this declaration or feed typed Analysis. |
 
 Loader/layout errors obtain these repair targets, path templates, and fragments

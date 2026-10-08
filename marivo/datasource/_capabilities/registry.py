@@ -258,6 +258,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="DatasourceCatalog",
             effects=_LOCAL,
             constraints=("datasource_project_roots",),
+            preconditions=(
+                "Restart Python after package upgrades or model edits/deletions; ordinary imports are not guaranteed to hot-reload.",
+                "Execution failures expose exception_type and the complete original traceback.",
+            ),
             example="md.load()",
         ),
         _capability(

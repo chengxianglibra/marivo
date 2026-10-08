@@ -463,6 +463,13 @@ md.test(spec.ref).show()  # validated live round trip
   Semantic loading preserves this repair and reports `invalid_project`.
 - `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
+- Restart Python after package upgrades or model edits/deletions. Ordinary
+  imported dependencies are not guaranteed to hot-reload; Marivo does not purge
+  their module caches or delete bytecode. Execution errors preserve the original
+  exception through `__cause__`, expose `exception_type` and `traceback`, and
+  display the complete traceback by default. Duplicate errors retain both
+  `declaration_paths`; if a source no longer exists, the repair requests a restart
+  and lists any existing related bytecode only as a diagnostic lead.
 - All datasource reads, including catalog methods, inspection, and connections,
   use the same **layered / multi-root** set as `ms.load()`: local `models/`
   followed by `marivo.toml [semantic].layer_paths`. Duplicate datasource names

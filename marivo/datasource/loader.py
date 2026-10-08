@@ -10,7 +10,7 @@ from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 
-from marivo._authoring.loading import _source_loading
+from marivo._authoring.loading import _execution_diagnostic, _source_loading
 from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
@@ -67,21 +67,31 @@ def _execute_file(
             spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, DatasourceError):
+            if exc.traceback is None:
+                diagnostic = _execution_diagnostic(exc, filepath)
+                exc.exception_type = diagnostic.exception_type
+                exc.traceback = diagnostic.traceback
             errors.append(exc)
         else:
-            errors.append(
-                DatasourceLoadError(
-                    message=f"Error executing {filepath}: {exc}",
-                    expected="a loadable datasource declaration",
-                    received=str(exc),
-                    location=str(filepath),
-                    repair=repair(
-                        kind="reload",
-                        canonical_id="load",
-                        action="Fix the datasource declaration and reload it.",
-                    ),
-                )
+            diagnostic = _execution_diagnostic(exc, filepath)
+            error = DatasourceLoadError(
+                message=(
+                    f"Error executing {filepath}. Failure at {diagnostic.file}:{diagnostic.line}: "
+                    f"{diagnostic.exception_type}: {exc}"
+                ),
+                expected="a loadable datasource declaration",
+                received=f"{diagnostic.exception_type}: {exc}",
+                location=diagnostic.file,
+                exception_type=diagnostic.exception_type,
+                traceback=diagnostic.traceback,
+                repair=repair(
+                    kind="reload",
+                    canonical_id="load",
+                    action=diagnostic.action,
+                ),
             )
+            error.__cause__ = exc
+            errors.append(error)
     finally:
         _DATASOURCE_CTX.reset(token)
 
@@ -172,19 +182,51 @@ def _duplicate_errors(datasources: Sequence[DatasourceIR]) -> tuple[DatasourceDu
         if existing is not None:
             first = existing.location.file
             second = datasource.location.file
+            paths = (first, second)
+            missing = tuple(
+                dict.fromkeys(
+                    path for path in paths if path.endswith(".py") and not Path(path).is_file()
+                )
+            )
+            action = "Rename or remove one conflicting datasource declaration."
+            missing_message = ""
+            if missing:
+                missing_message = f" Declaration source no longer exists: {', '.join(missing)}."
+                action = (
+                    "A declaration source no longer exists; an old imported object may remain "
+                    "in this Python process. Restart Python and reload the project."
+                )
+                caches = sorted(
+                    {
+                        str(cache)
+                        for path in missing
+                        for cache in (
+                            Path(path).with_suffix(".pyc"),
+                            *(Path(path).parent / "__pycache__").glob(f"{Path(path).stem}.*.pyc"),
+                        )
+                        if cache.is_file()
+                    }
+                )
+                if caches:
+                    action += (
+                        " If the issue persists after restarting, inspect these existing bytecode "
+                        f"cache files: {', '.join(caches)}. Their presence does not establish the cause."
+                    )
             errors.append(
                 DatasourceDuplicateError(
                     message=(
                         f"Duplicate datasource name: {datasource.name!r}. "
                         f"First declaration: {first}. Conflicting declaration: {second}."
+                        f"{missing_message}"
                     ),
+                    declaration_paths=paths,
                     expected="a unique datasource name across project model roots",
                     received=datasource.name,
                     location=second,
                     repair=repair(
                         kind="reauthor",
                         canonical_id="load",
-                        action="Rename or remove one conflicting datasource declaration.",
+                        action=action,
                     ),
                 )
             )
