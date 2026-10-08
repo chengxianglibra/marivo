@@ -338,6 +338,19 @@ def render(zone: str, value: ir.TimestampValue) -> ir.TimestampValue:
     return _render_native(zone, value)
 
 
+def _retain_authority(
+    authority: SourceTimeAuthority, frozen: SourceTimeAuthority | None
+) -> SourceTimeAuthority:
+    if frozen is None:
+        return authority
+    # SourceBinding verifies the raw schema before carrier preparation.
+    # Prepared consumers may adopt a different native carrier precision;
+    # retain the raw physical fact rather than reconstructing its authority.
+    if authority.model_copy(update={"physical_type": frozen.physical_type}) != frozen:
+        raise compilation_error("the exact frozen source time authority", "time authority drift")
+    return frozen
+
+
 def source_time(
     value: ir.Value,
     axis: TargetDimensionContract,
@@ -347,8 +360,15 @@ def source_time(
     engine: str,
     read_source: Literal["engine", "system_fallback"] = "engine",
     prefix: ir.Value | None = None,
+    frozen: SourceTimeAuthority | None = None,
 ) -> tuple[ir.Value, SourceTimeAuthority]:
     """Parse and localize a column without executing it or consulting ambient state."""
+    if frozen is not None:
+        if frozen.axis != axis.ref.path or frozen.boundary_timezone != boundary_timezone:
+            raise compilation_error("the frozen event axis and boundary", "time authority drift")
+        read_timezone = frozen.read_timezone
+        if frozen.source in ("engine", "system_fallback"):
+            read_source = frozen.source
     physical = value.type()
     parse = axis.parse
     declared = (
@@ -377,8 +397,14 @@ def source_time(
         raise compilation_error("a bound supported time parser", "unresolved composite parser")
     if isinstance(value, ir.DateValue):
         if parse is None and axis.logical_type == "timestamp":
-            return (
-                value.cast("timestamp"),
+            value = value.cast("timestamp")
+        elif axis.logical_type != "date" or declared is not None:
+            raise compilation_error(
+                "a civil-date parser without timezone", "unsupported temporal source representation"
+            )
+        return (
+            value,
+            _retain_authority(
                 SourceTimeAuthority(
                     axis=axis.ref.path,
                     physical_type=str(physical),
@@ -387,20 +413,7 @@ def source_time(
                     source="civil_date",
                     boundary_timezone=boundary_timezone,
                 ),
-            )
-        if axis.logical_type != "date" or declared is not None:
-            raise compilation_error(
-                "a civil-date parser without timezone", "unsupported temporal source representation"
-            )
-        return (
-            value,
-            SourceTimeAuthority(
-                axis=axis.ref.path,
-                physical_type=str(physical),
-                kind="civil_date",
-                read_timezone=None,
-                source="civil_date",
-                boundary_timezone=boundary_timezone,
+                frozen,
             ),
         )
     if not isinstance(value, ir.TimestampValue):
@@ -454,5 +467,5 @@ def source_time(
     )
     return (
         value if instant is None else render(boundary_timezone, instant),
-        authority,
+        _retain_authority(authority, frozen),
     )

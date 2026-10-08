@@ -133,6 +133,9 @@ def prepare_profiles(
         column = table.schema.get_field_index("ordered_at")
         table = table.set_column(column, "ordered_at", table["ordered_at"].cast(pa.timestamp(unit)))
         pq.write_table(table, path)
+        assert pq.read_schema(path).field("ordered_at").type == pa.timestamp(
+            "ms" if unit == "s" else unit
+        )
         if calendar:
             with duckdb.connect(str(case.database_path)) as db:
                 calendar_table = db.execute("SELECT * FROM calendar").fetch_arrow_table()

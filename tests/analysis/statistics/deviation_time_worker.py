@@ -25,6 +25,7 @@ from marivo._temporal import (
     certify_period_calendar_rows,
     period_calendar_definition_digest,
 )
+from marivo.analysis.materialization.cell_arrow import column
 from marivo.analysis.materialization.deviation_execution import _decode, load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
@@ -128,7 +129,8 @@ def verify(
     )
     actual_keys = [tuple(row[name] for name in inputs.keys) for row in original.to_pylist()]
     assert len(actual_keys) == len(set(actual_keys)) and set(actual_keys) == expected_keys
-    defined = [i for i, tag in enumerate(original["cell_tag"].to_pylist()) if tag == "defined"]
+    original_tags = column(original, "cell_tag").to_pylist()
+    defined = [i for i, tag in enumerate(original_tags) if tag == "defined"]
     assert len(defined) == 3
     actual_values = [original["value"][i].as_py() for i in defined]
     assert sorted(actual_values) == list(values)
@@ -152,7 +154,7 @@ def verify(
             assert views["reference__value"][i].as_py() == reference
             assert views["deviation__value"][i].as_py() == deviation
         else:
-            assert views["score__cell_tag"][i].as_py() == original["cell_tag"][i].as_py()
+            assert column(views, "score__cell_tag")[i].as_py() == original_tags[i]
     assert state.partitions[0].fit.n == 3
     assert "grid_cells" in {part.role for part in retained}
     if domain == "entity_time":
@@ -178,7 +180,10 @@ def verify(
         else ScalarType("int64" if index == 0 else "float64")
     )
     assert actual.input_types == (typ,) and actual.route == route
-    assert actual.shape.time == TimeShape("instant", unit, zone)
+    # Parquet stores an Arrow timestamp[s] through its millisecond logical carrier.
+    assert actual.shape.time == TimeShape("instant", "ms" if unit == "s" else unit, "UTC")
+    assert result._node.root.signature.domain.time_grid is not None
+    assert result._node.root.signature.domain.time_grid.report_timezone == zone
     assert actual.input_domains == (("entity",) if domain == "entity_time" else ("group",))
 
 

@@ -672,13 +672,13 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
             "source",
             "0a1e646715c236c47868c100789678b876bce40c8b6018eb31462ba56266a8c3",
             "06b2581d02ba5a1e5cb1c681dacbb20d97b153bf8984c5961747d157ef509569",
-            "cb35f54a0a181d2e61ec9aa45026713ccad74ea8e66077b4ada5c8f9908aac9c",
+            "a99884eaa30f16ba30c2ffc55215601627ef25c4bea4243f056e0c8372339582",
         ),
         (
             "fixed",
             "a066402e9a43f7286a25b22db241d28aba0fb7037013ba63bf5afb750d341ed7",
             "8d89e0408cfa5ba941c792cee611f4b23bfdacb895091f5af759b68b53fab353",
-            "148cea8d77b7bd5703318d7ab1f537cdc4a324755b28dac400f78d2d32b53bc8",
+            "62b182d640bce5df77c3d627e95d0cc8f19290c0c1fb80fa4e6e73ced4a3a7db",
         ),
     ],
 )
@@ -687,7 +687,7 @@ def test_persisted_identity_pins_v2_premise_contract(
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 
-    # Pin the v2 premise contract with deterministic capture identities.
+    # Pin the v2 premise contract and v4 snapshot with deterministic capture identities.
     root = _source() if kind == "source" else _fixed()
     root = replace(root, identity="leaf")
     routes = []

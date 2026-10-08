@@ -18,12 +18,13 @@ import ibis
 if TYPE_CHECKING:
     from marivo._help.render import PublicHelpTarget
     from marivo.analysis.core.graph import MethodNode
+    from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.session.core import Session
     from marivo.refs import EntityKind, MeasureKind, Ref
     from marivo.semantic._dsl_authoring import AdditivityPolicy
     from marivo.semantic.catalog import SemanticCatalog
-    from marivo.semantic.ir import DimensionIR, MetricIR
+    from marivo.semantic.ir import DimensionIR, MetricIR, TargetDimensionContract
     from marivo.semantic.loader import LoadResult
 
 # ---------------------------------------------------------------------------
@@ -34,6 +35,20 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+def observation_temporal(
+    axis: TargetDimensionContract, physical_type: str = "timestamp(6)"
+) -> TemporalExecution:
+    """Bind explicit UTC test inputs to the same closed observation authority."""
+    from marivo.analysis.compiler.source_time import source_time
+    from marivo.analysis.core.time_authority import ReportTimeAuthority, TemporalExecution
+
+    value = ibis.table({axis.source_column: physical_type})[axis.source_column]
+    _, authority = source_time(
+        value, axis, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+    )
+    return TemporalExecution(report=ReportTimeAuthority(), axes=(authority,))
 
 
 # The S0 DSL journeys share declarations, but each journey owns its source rows.

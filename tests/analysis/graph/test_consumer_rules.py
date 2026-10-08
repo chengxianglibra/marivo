@@ -70,6 +70,7 @@ from marivo.semantic.metric_graph import (
     MetricExpressionGraphV1,
     MetricGraphNodeRecordV1,
 )
+from tests.shared_fixtures import observation_temporal
 
 
 class _Baseline(TypedDict):
@@ -560,6 +561,7 @@ def _observation() -> ObserveMetric:
         "end",
         "amount",
         "int64",
+        temporal=observation_temporal(event),
     )
 
 

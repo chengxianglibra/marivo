@@ -25,6 +25,7 @@ from marivo.datasource.adapters import (
 )
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.semantic.ir import TargetEntityContract, TargetSnapshotVersion, TargetValidityVersion
 from marivo.semantic.validator import Registry, normalize_target_entity
 
@@ -46,7 +47,7 @@ class EntitySchema:
     schema: pa.Schema
     identity_types: tuple[ScalarType, ...]
     shape: SourceShape
-    engine_timezone: str | None = None
+    reader_timezone: DatasourceEngineTimezone | None = None
 
     @property
     def identity_type(self) -> ScalarType:
@@ -148,7 +149,11 @@ def _local_file(path: str) -> bool:
 
 
 def preflight_entities(
-    registry: Registry, project_root: Path, entity_paths: tuple[str, ...]
+    registry: Registry,
+    project_root: Path,
+    entity_paths: tuple[str, ...],
+    *,
+    frozen_reader: DatasourceEngineTimezone | None = None,
 ) -> tuple[EntitySchema, ...]:
     """Bind selected Entity schemas through R1 before allocating a graph Run.
 
@@ -260,11 +265,14 @@ def preflight_entities(
         # ClickHouse's driver can silently substitute UTC for an invalid server
         # zone. Keep that fact absent; explicit physical/authored axes retain
         # their own authority, while implicit reader-timezone axes reject.
-        engine_timezone = None
+        reader_timezone = None
         if datasource.backend_type != "clickhouse":
-            authority = probe_engine_timezone(backend)
-            if authority.read_tz_resolution == "engine":
-                engine_timezone = authority.engine_timezone_name
+            reader_timezone = (
+                frozen_reader
+                if frozen_reader is not None
+                and frozen_reader.read_tz_resolution == "system_fallback"
+                else probe_engine_timezone(backend)
+            )
         results = []
         for contract, shape in zip(contracts, shapes, strict=True):
             bound = source.bind(contract.source, source_identity=contract.ref.path)
@@ -289,5 +297,5 @@ def preflight_entities(
                         column,
                         "Bind a qualified native date or timestamp version field.",
                     )
-            results.append(EntitySchema(contract, schema, identity_types, shape, engine_timezone))
+            results.append(EntitySchema(contract, schema, identity_types, shape, reader_timezone))
         return tuple(results)

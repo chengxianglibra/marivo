@@ -275,6 +275,7 @@ def test_invalid_envelopes_reject_before_restore(damage: str) -> None:
         "whitespace",
         "role",
         "version",
+        "previous_version",
         "trailing",
         "base64",
         "old",
@@ -294,7 +295,9 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v3", "graph_dag/v999")
+        body = body.replace("graph_dag/v4", "graph_dag/v999")
+    elif damage == "previous_version":
+        body = body.replace("graph_dag/v4", "graph_dag/v3")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)

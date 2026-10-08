@@ -1062,7 +1062,8 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         )
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         members = session.members(ms.ref.entity("sales.facts"))
-        reader_zone = members._node._live().graph.entity_schema.engine_timezone
+        reader = members._node._live().graph.entity_schema.reader_timezone
+        reader_zone = reader.engine_timezone_name if reader is not None else None
         fixed = members.observe(
             ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
         ).execute()
@@ -1095,13 +1096,12 @@ def test_native_timestamp_retains_reader_and_grid_authority(
 
 
 @pytest.mark.runtime
-def test_sqlite_native_time_requires_explicit_reader_authority(
+def test_sqlite_native_time_adopts_frozen_system_reader_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
-    from marivo.analysis.datasets.errors import DatasetConstructionError
     from tests.datasource.source_receipts import receipt
 
     monkeypatch.chdir(tmp_path)
@@ -1124,29 +1124,31 @@ def test_sqlite_native_time_requires_explicit_reader_authority(
         )
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         members = session.members(ms.ref.entity("sales.facts"))
-        assert members._node._live().graph.entity_schema.engine_timezone is None
-        with pytest.raises(
-            DatasetConstructionError, match="declared or driver-reported read timezone"
-        ):
-            members.observe(
-                ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
-            )
+        reader = members._node._live().graph.entity_schema.reader_timezone
+        assert reader is not None and reader.read_tz_resolution == "system_fallback"
+        monkeypatch.setenv("TZ", "Asia/Shanghai")
+        logical = members.observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+        )
         assert session.runs().items == ()
-        assert session._runtime.last_run_ref is None
         assert not any(owner.submissions for owner in source_trace.owners)
+        assert logical.execute().group_by(grid).rollup().execute().to_pandas().value.tolist() == [
+            7,
+            0,
+        ]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
     receipt(
-        "c06-sqlite-native-time-unresolved",
+        "c06-sqlite-native-time-system-default",
         {
             "backend": "sqlite",
             "parser": None,
-            "engine_timezone": None,
+            "reader_timezone": "UTC",
+            "reader_origin": "system_fallback",
             "host_timezone": "UTC",
             "report_timezone": "Asia/Tokyo",
             "grid_timezone": "America/New_York",
-            "unresolved_reader_rejected": True,
-            "business_submissions": 0,
-            "run_count": 0,
+            "values": [7, 0],
+            "host_change_preserved_authority": True,
             "resources": 0,
         },
     )
@@ -1227,11 +1229,11 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
 @pytest.mark.parametrize(
     ("backend", "wall", "start", "end"),
     [
-        ("duckdb", "2026-03-08 02:30:00", "2026-03-08", "2026-03-09"),
-        ("postgres", "2026-11-01 01:30:00", "2026-11-01", "2026-11-02"),
+        ("duckdb", "2026-03-08 02:30:00", "2026-03-09", "2026-03-10"),
+        ("postgres", "2026-11-01 01:30:00", "2026-11-02", "2026-11-03"),
     ],
 )
-def test_native_wall_gap_or_fold_rejects_before_publication(
+def test_native_observation_does_not_audit_wall_times_outside_its_scope(
     backend: str,
     wall: str,
     start: str,
@@ -1247,7 +1249,7 @@ def test_native_wall_gap_or_fold_rejects_before_publication(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
-        f"(1,1,'a',2,'{wall}')",
+        f"(1,1,'a',2,'{wall}'),(2,1,'a',2,'{start} 12:00:00')",
         "",
         [],
     )
@@ -1259,7 +1261,7 @@ def test_native_wall_gap_or_fold_rejects_before_publication(
             semantic_project_factory,
             read_timezone="America/New_York",
         )
-        session = mv.session.get_or_create("r93-invalid-native-wall", report_timezone="Asia/Tokyo")
+        session = mv.session.get_or_create("r93-native-wall-scope", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
         scope = mv.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
@@ -1269,18 +1271,13 @@ def test_native_wall_gap_or_fold_rejects_before_publication(
         logical = session.members(ms.ref.entity("sales.facts")).observe(
             ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
         )
-        with pytest.raises(MaterializationError) as failure:
-            logical.execute()
-        assert failure.value.stage == "source_time_validation"
-        assert failure.value.expected is not None
-        assert failure.value.received is not None
-        assert "sales.facts.happened" in failure.value.expected
-        assert datetime.fromisoformat(wall).isoformat() in failure.value.received
+        result = logical.execute()
+        assert sorted(result.to_pandas().value.tolist()) == [0, 2]
         assert session._runtime.last_run_ref is not None
         run = session._runtime.store._graph_run(session._runtime.last_run_ref)
-        assert run is not None and run.lifecycle == "failed"
+        assert run is not None and run.lifecycle == "succeeded"
         with session._runtime.store._connection() as connection:
-            assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
+            assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         product_owners = [owner for owner in source_trace.owners if owner is not case.session]
         assert product_owners and all(owner._closed for owner in product_owners)
@@ -1291,16 +1288,16 @@ def test_native_wall_gap_or_fold_rejects_before_publication(
             for submission in owner.submissions
         )
         receipt(
-            f"c06-{backend}-native-wall-rejected",
+            f"c06-{backend}-native-wall-scope",
             {
                 "backend": backend,
                 "wall": wall,
                 "read_timezone": str(zone),
                 "report_timezone": "Asia/Tokyo",
                 "grid_timezone": str(zone),
-                "error": str(failure.value),
+                "outside_scope_wall": wall,
                 "run_lifecycle": run.lifecycle,
-                "published_artifacts": 0,
+                "published_artifacts": 1,
                 "resources": 0,
             },
         )

@@ -24,7 +24,7 @@ def _snapshot(result: PublicMaterialized) -> dict[str, object]:
         "artifact": result.state.artifact_ref.ref,
         "run": result.state.producing_run_ref,
         "rows": result.to_pandas().to_dict(orient="records"),
-        "signature": encode(result._node.root.signature, SIGNATURE),
+        "signature": encode(dataset.artifact.descriptor.signature, SIGNATURE),
         "K": asdict(result.contract()),
         "parts": {part.role: part.table.to_pylist() for part in verified.parts},
     }

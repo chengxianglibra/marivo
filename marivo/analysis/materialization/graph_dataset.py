@@ -309,7 +309,7 @@ def _meaning(
                             if params.grid_window
                             else "unbounded",
                         ),
-                        ("timezone", params.report_timezone),
+                        ("timezone", params.temporal.report.timezone),
                     )
                 )
                 if isinstance(params, ObserveWeightedMean):

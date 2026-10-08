@@ -70,7 +70,7 @@ from marivo.semantic.metric_graph import (
     MetricGraphNodeRecordV1,
 )
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, observation_temporal
 
 WIDE = 2**53 + 17
 ENTITY = ref.entity("sales.events")
@@ -272,6 +272,7 @@ def _observation(
             end,
             filters=filters,
             grid_window=grid_window,
+            temporal=observation_temporal(axis("%Y%m%d"), "string"),
         )
     else:
         parameters = ObserveMetric(
@@ -288,6 +289,7 @@ def _observation(
             filters=filters,
             grid_window=grid_window,
             method=method,
+            temporal=observation_temporal(axis("%Y%m%d"), "string"),
         )
     return method_node(
         (Edge("subject", members),),

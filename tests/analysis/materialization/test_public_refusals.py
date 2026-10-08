@@ -2,6 +2,7 @@
 
 import os
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_store
+from marivo.analysis.methods.registry import MethodRegistration, MethodRegistry
+from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -302,7 +305,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("profile", ("table", "view"))
-def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
+def test_public_missing_sqlite_qualification_refuses_before_business_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -317,7 +320,7 @@ def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
         author_source_project(
             "sqlite", case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
         )
-        session = mv.session.get_or_create("r94-unqualified-timezone", report_timezone="UTC")
+        session = mv.session.get_or_create("r94-missing-qualification", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         previous = members.read(ms.ref.measure("sales.facts.amount")).execute()
         saved = snapshot(previous)
@@ -326,13 +329,24 @@ def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
         native_before = list(trace.native_sql)
         calls: list[str] = []
 
+        lookup = MethodRegistry.lookup
+
+        def missing(registry: MethodRegistry, key: MethodKey) -> MethodRegistration:
+            registration = lookup(registry, key)
+            return (
+                replace(registration, implementations=())
+                if key.name == "metric.sum_zero"
+                else registration
+            )
+
         def forbidden(*args: object, **kwargs: object) -> None:
             calls.append("business-read-or-admission")
             raise AssertionError("Unqualified source route admitted work")
 
         for name in ("compile", "batches"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(session._runtime.store, "admit", forbidden)
+        monkeypatch.setattr(MethodRegistry, "lookup", missing)
+        monkeypatch.setattr(graph_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             members.observe(
                 ms.ref.metric("sales.total"),
@@ -340,7 +354,7 @@ def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
                 by=(ms.ref.entity("sales.facts"),),
             ).execute()
         error = caught.value
-        assert error.received == "SQLite non-UTC observation has no qualified source route"
+        assert "qualified exact key for metric.sum_zero" in error.expected
         assert error.expected and error.repair is not None and error.repair.action
         assert calls == [] and trace.native_sql == native_before
         assert run_ids(session) == before and publication_counts(session) == published_before
@@ -370,7 +384,7 @@ def test_public_unqualified_sqlite_timezone_refuses_before_business_read(
                         "previous_artifact_preserved": True,
                         "previous_snapshot": saved,
                         "resources": 0,
-                        "boundary": "Actual unqualified SQLite non-UTC observation only; R1 metadata remains allowed. No fallback, source business read or new Run is admitted.",
+                        "boundary": "Missing exact SQLite sum qualification after UTC normalization; R1 metadata remains allowed. No fallback, source business read or new Run is admitted.",
                     }
                 )
             )

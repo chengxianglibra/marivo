@@ -45,6 +45,7 @@ from marivo.semantic.metric_graph import (
     MetricExpressionGraphV1,
     MetricGraphNodeRecordV1,
 )
+from tests.shared_fixtures import observation_temporal
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 END = START + timedelta(days=2)
@@ -182,6 +183,7 @@ def _case() -> _Case:
         "int64",
         method="sum",
         grid_window=True,
+        temporal=observation_temporal(event),
     )
     fact_keys = tuple(
         Coordinate(contribution, name, "identity") for name in ("tenant", "id", "revision")

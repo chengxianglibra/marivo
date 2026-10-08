@@ -116,17 +116,22 @@ log_date = ms.time_dimension_column(
     is_default=True,
 )
 
-# Native UTC timestamp, usable for sub-day buckets
+# Native timestamp adopting the captured reader default, usable for sub-day buckets
 event_ts = ms.time_dimension_column(
     name="event_ts",
     entity=orders,
     column="event_ts",
     granularity="minute",
-    parse=ms.timestamp(timezone="UTC"),
+    parse=ms.timestamp(),
 )
 ```
 
-Civil date 保留其日历解释。原生无时区 timestamp 需要明确时区含义；
+Civil date 保留日历解释，带时区 timestamp 保留绝对瞬时。无时区 timestamp
+依次采用显式 parser 时区、reader 默认时区，以及仅在 reader 无时区能力时使用的系统默认时区。
+DuckDB reader 配置为 UTC；SQLite 捕获系统默认时区。如果来源保存上海墙上时间，
+在 `ms.timestamp(...)` 中指定 `timezone="Asia/Shanghai"`。
+报告时区控制窗口和分桶，不改变来源解释。默认值在来源绑定时冻结，宿主时区变化
+不会改变已绑定图或恢复结果。Engine 探测失败或时区事实无效仍然拒绝。
 字符串解析必须匹配实际格式。不因方便而用物理分区替代事件时间轴。
 
 ## 状态与累计指标

@@ -6,6 +6,7 @@ from dataclasses import asdict, replace
 from datetime import datetime, time, timezone
 from itertools import pairwise
 
+import ibis
 import pyarrow as pa
 
 from marivo._temporal import TimeScope
@@ -34,7 +35,12 @@ from marivo.analysis.core.rules import (
     entity_candidates,
     entity_members,
 )
-from marivo.analysis.core.time_authority import civil_bound
+from marivo.analysis.core.time_authority import (
+    ReportTimeAuthority,
+    TemporalExecution,
+    civil_bound,
+    time_zone,
+)
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_cumulative
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.contracts import canonical_json
@@ -77,7 +83,7 @@ from marivo.semantic.validator import (
 
 def _reject(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
-        expected="a qualified Metric/Count occurrence, contiguous to-one member route and declared or driver-bound event axis",
+        expected="a qualified Metric/Count occurrence, contiguous to-one member route and resolved event time authority",
         received=received,
         repair="Use supported direct Measure/Count inputs, comparable scalar or Decimal columns for distinct, an explicit default event axis for runtime leaves, and a complete directed to-one route from each contribution to members.",
         location="analysis.graph_observation",
@@ -385,7 +391,10 @@ def _observe_component(
     ):
         raise _reject("coordinate must be a direct Dimension on the bound contribution route")
     selected_schemas = preflight_entities(
-        registry, members.runtime.store.project_root, entity_paths
+        registry,
+        members.runtime.store.project_root,
+        entity_paths,
+        frozen_reader=members.entity_schema.reader_timezone,
     )
     schemas = {schema.contract.ref.path: schema for schema in selected_schemas}
     member_schema = schemas[members.entity_schema.contract.ref.path]
@@ -467,15 +476,6 @@ def _observe_component(
         raise _reject("unqualified event physical type or precision")
     if pa.types.is_date(event_type):
         event = replace(event, logical_type="date")
-    elif event.timezone is None and (
-        not pa.types.is_timestamp(event_type) or event_type.tz is None
-    ):
-        engine_timezone = schemas[event.entity_ref.path].engine_timezone
-        if engine_timezone is None:
-            raise _reject("event time requires a declared or driver-reported read timezone")
-        event = replace(event, timezone=engine_timezone)
-    if contribution_schema.shape.backend == "sqlite" and event.timezone not in (None, "UTC"):
-        raise _reject("SQLite non-UTC observation has no qualified source route")
     for relationship in path:
         first, second = (
             schemas[relationship.from_entity_ref.path],
@@ -555,6 +555,37 @@ def _observe_component(
         if pa.types.is_timestamp(event_type)
         else None
     )
+    from marivo.analysis.compiler.source_time import source_time
+
+    event_schema = schemas[event.entity_ref.path]
+    physical_schema = event_schema.schema
+    if source_unit is not None and pa.types.is_timestamp(event_type):
+        index = physical_schema.get_field_index(event.source_column)
+        physical_schema = physical_schema.set(
+            index,
+            physical_schema.field(index).with_type(
+                pa.timestamp(source_unit.decode("ascii"), tz=event_type.tz)
+            ),
+        )
+    physical = ibis.table(ibis.Schema.from_pyarrow(physical_schema))[event.source_column]
+    reader = event_schema.reader_timezone
+    _, source_authority = source_time(
+        physical,
+        event,
+        boundary_timezone="UTC",
+        read_timezone=reader.engine_timezone_name if reader is not None else None,
+        read_source=reader.read_tz_resolution if reader is not None else "engine",
+        engine=event_schema.shape.backend,
+    )
+    execution_time = TemporalExecution(
+        report=ReportTimeAuthority(
+            timezone=report_timezone,
+            resolution="fixed_offset"
+            if isinstance(time_zone(report_timezone), timezone)
+            else "iana",
+        ),
+        axes=(source_authority,),
+    )
     temporal = TimeShape(
         "instant",
         source_unit.decode("ascii")
@@ -562,9 +593,7 @@ def _observe_component(
         else event_type.unit
         if pa.types.is_timestamp(event_type)
         else "us",
-        report_timezone
-        if contribution_schema.shape.backend == "duckdb" and not relative
-        else "UTC",
+        "UTC",
     )
     nodes: dict[str, Node] = {}
     for node in topology(members.root):
@@ -754,6 +783,7 @@ def _observe_component(
             contribution_schema.numeric_type(weight_body.source_column).name,
             coordinate_fields,
             filters,
+            temporal=execution_time,
         )
     elif aggregate_kind == "count":
         parameters = ObserveCount(
@@ -767,6 +797,7 @@ def _observe_component(
             end,
             coordinate_fields,
             filters,
+            temporal=execution_time,
         )
     else:
         assert entity_distinct or (body is not None and body.source_column is not None)
@@ -788,6 +819,7 @@ def _observe_component(
             amount_type.name,
             coordinate_fields,
             filters,
+            temporal=execution_time,
             method=aggregate_kind,
             quantile=quantile,
             distinct_columns=distinct_columns,
@@ -802,7 +834,6 @@ def _observe_component(
         parameters,
         grid_window=grid_window,
         cumulative=cumulative,
-        report_timezone=report_timezone,
         window_timezone=during.boundary_timezone
         if isinstance(during, TimeScope) and during.kind != "absolute"
         else report_timezone,

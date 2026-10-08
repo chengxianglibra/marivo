@@ -136,6 +136,14 @@ source or fixed shape, time authority and route. It also requires declared
 checks, output/retained parts and precision contracts. Selection does not
 execute the method or discharge its pending obligations.
 
+For ordinary observations, the common temporal normalizer binds timestamp input
+shapes to UTC while retaining actual source precision. Civil DATE interpretation
+is preserved. Required observation parameters retain the original parser and
+resolved source/report authority; window and grid/calendar authority retain their
+own bindings. These facts enter fingerprints and execution identity independently
+of the normalized physical shape. A report timezone is not a source read timezone
+or a reason to relax exact implementation selection.
+
 Implementation IDs and evidence are provenance, not capability predicates.
 Typed consumer rules own numerical specialization, input-arity expansion,
 check placement and consumer-specific shape restrictions. No method-ID prefix,

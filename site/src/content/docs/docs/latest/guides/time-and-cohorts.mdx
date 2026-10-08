@@ -124,18 +124,25 @@ log_date = ms.time_dimension_column(
     is_default=True,
 )
 
-# Native UTC timestamp, usable for sub-day buckets
+# Native timestamp adopting the captured reader default, usable for sub-day buckets
 event_ts = ms.time_dimension_column(
     name="event_ts",
     entity=orders,
     column="event_ts",
     granularity="minute",
-    parse=ms.timestamp(timezone="UTC"),
+    parse=ms.timestamp(),
 )
 ```
 
-Civil dates retain their calendar interpretation. Native timezone-naive timestamps
-need explicit timezone meaning; string parsing must match the actual format.
+Civil dates retain their calendar interpretation; aware timestamps retain their
+absolute instant. A naive timestamp uses an explicit parser timezone first, the
+reader default second, and the system default only when the reader has no timezone
+capability. DuckDB's reader is configured as UTC; SQLite captures the system
+default. Add `timezone="Asia/Shanghai"` to `ms.timestamp(...)` when the source
+stores Shanghai wall time. Report timezone controls windows and buckets without
+changing source interpretation. Defaults are frozen when the source is bound;
+changing the host timezone does not change the bound graph or recovered results.
+Engine probe failures or invalid timezone facts still reject. String parsing must match the actual format.
 Do not replace an event-time axis with a physical partition just because it is convenient.
 
 ## Status and cumulative Metrics

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from typing import Literal, TypeAlias
 
@@ -68,6 +68,7 @@ from marivo.analysis.core.model import (
     require_part,
 )
 from marivo.analysis.core.predicates import ValuePredicate, leaves
+from marivo.analysis.core.time_authority import TemporalExecution
 from marivo.analysis.core.time_grid import BoundTimeGrid, CumulativeBinding, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.refs import (
@@ -220,6 +221,7 @@ class ObserveMetric:
     contribution: Ref[EntityKind]
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
+    temporal: TemporalExecution = field(kw_only=True)
     start: str | None
     end: str | None
     amount_column: str
@@ -244,7 +246,6 @@ class ObserveMetric:
     fold: Literal["first", "last", "mean", "min", "max"] | None = None
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
-    report_timezone: str = "UTC"
     window_timezone: str = "UTC"
     capture_versions: bool = False
 
@@ -259,6 +260,7 @@ class ObserveWeightedMean:
     contribution: Ref[EntityKind]
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
+    temporal: TemporalExecution = field(kw_only=True)
     start: str | None
     end: str | None
     amount_column: str
@@ -269,7 +271,6 @@ class ObserveWeightedMean:
     filters: tuple[OccurrenceFilter, ...] = ()
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
-    report_timezone: str = "UTC"
     window_timezone: str = "UTC"
 
 
@@ -283,13 +284,13 @@ class ObserveCount:
     contribution: Ref[EntityKind]
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
+    temporal: TemporalExecution = field(kw_only=True)
     start: str | None
     end: str | None
     coordinates: tuple[TargetDimensionContract, ...] = ()
     filters: tuple[OccurrenceFilter, ...] = ()
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
-    report_timezone: str = "UTC"
     window_timezone: str = "UTC"
     capture_versions: bool = False
 
@@ -1525,6 +1526,9 @@ def _observe_metric(
         or metric.contribution != params.contribution
         or metric.event_ref.path != params.event.ref.path
         or not params.event.is_time_dimension
+        or len(params.temporal.axes) != 1
+        or params.temporal.axes[0].axis != params.event.ref.path
+        or params.temporal.axes[0].boundary_timezone != "UTC"
         or (isinstance(params, ObserveMetric) and not params.amount_column)
     ):
         reject(
