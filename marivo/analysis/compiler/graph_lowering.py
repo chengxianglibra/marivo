@@ -3626,12 +3626,13 @@ def _fact_inputs(node: Node, obligation: Obligation) -> tuple[tuple[str, ...], .
         ):
             return ((node.identity,),)
         immediate = tuple(edge.node for edge in node.inputs)
-        if fact in node.derivation.pre and (
-            fact.inputs
-            == tuple(
+        if fact in node.derivation.pre:
+            actual = tuple(
                 FactInput(n.signature.domain, n.signature.quantity, n.identity) for n in immediate
             )
-            or (
+            if fact.inputs and all(operand in actual for operand in fact.inputs):
+                return (tuple(operand.node_id for operand in fact.inputs),)
+            if (
                 not fact.inputs
                 and len(immediate) == 1
                 and (
@@ -3640,9 +3641,8 @@ def _fact_inputs(node: Node, obligation: Obligation) -> tuple[tuple[str, ...], .
                     else immediate[0].signature.domain.definition_id
                 )
                 == fact.subject_id
-            )
-        ):
-            return (tuple(n.identity for n in immediate),)
+            ):
+                return (tuple(n.identity for n in immediate),)
         inherited = tuple(
             dict.fromkeys(
                 group

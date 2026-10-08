@@ -5,7 +5,9 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis._cohort import decide
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.errors import MaterializationError
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -90,10 +92,11 @@ def test_full_entity_time_cohort(
         fixed_only.setattr(SourceSession, "batches", forbid_source_read)
         fixed = fixed_targets.cohort(fixed_values.value.gt(0), rule=mv.at_least(2)).execute()
     assert set(fixed.to_pandas().member) == expected
-    with pytest.raises(Exception, match=r"opportunity|keys"):
+    with pytest.raises(MaterializationError) as incomplete:
         targets.cohort(
             values.where(values.value.gt(0)).value.gt(0), rule=mv.any_instance()
         ).execute()
+    assert incomplete.value.expected == "complete_coverage"
 
 
 @pytest.mark.runtime
@@ -194,6 +197,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
     saved_targets, saved_values = targets.execute(), values.execute()
     target = saved_targets._dataset.verified()
     supplied = saved_values._dataset.verified()
+    controlled_schema = logical_table(supplied.primary).schema
     local_node = saved_targets.cohort(saved_values.value.gt(0), rule=mv.at_least(3))._node.root
     source_node = targets.cohort(values.value.gt(0), rule=mv.at_least(3))._node.root
     local_impl = next(
@@ -236,7 +240,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
                     cell_tag=tags[index],
                     cell_reason=None if tags[index] == "defined" else "controlled_consumer",
                 )
-            table = pa.Table.from_pylist(rows, schema=supplied.primary.schema)
+            table = pa.Table.from_pylist(rows, schema=controlled_schema)
             controlled = replace(supplied, primary=table)
             source_input = LoweredRelation(
                 "value",
@@ -285,7 +289,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
         other_rows = cell_rows(supplied.primary)
         for row in other_rows:
             row.update(value=1, cell_tag="defined", cell_reason=None)
-        other_table = pa.Table.from_pylist(other_rows, schema=supplied.primary.schema)
+        other_table = pa.Table.from_pylist(other_rows, schema=controlled_schema)
         other_input = replace(supplied, primary=other_table)
         second = LoweredRelation(
             "other",
@@ -298,7 +302,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
             rows = cell_rows(supplied.primary)
             for row in rows:
                 row.update(value=None, cell_tag=tag, cell_reason="controlled_consumer")
-            table = pa.Table.from_pylist(rows, schema=supplied.primary.schema)
+            table = pa.Table.from_pylist(rows, schema=controlled_schema)
             controlled = replace(supplied, primary=table)
             first = replace(source_input, expression=ibis.memtable(table))
             for combine, right_true, expected in (

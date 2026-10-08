@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_lowering import SemanticCheck
+from marivo.analysis.core.graph import MethodNode, SourceLeaf
 from marivo.analysis.core.model import available_facts
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_source_execution as native
@@ -56,7 +57,8 @@ def test_declared_native_inputs_need_only_one_terminal_read(
 
         monkeypatch.setattr(graph_exchange, "collect", forbidden_audit)
         result = logical.execute()
-        assert purposes == ["analysis.graph.stage"]
+        # Physical non-null identity admission is separate from semantic premises.
+        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
         assert result._dataset is not None
         exchange = result._dataset.verified()
         rows = cell_rows(exchange.primary)
@@ -92,7 +94,7 @@ def test_owner_matching_is_checked_or_assumed_without_rechecking_cardinality(
         via = ms.ref.relationship("cost.facts_subject")
         purposes = _reads(monkeypatch)
         checked = members.read(field, via=via).execute()
-        assert purposes.count("analysis.graph.check") == 1
+        assert purposes.count("analysis.graph.check") == 2
         assert checked._dataset is not None
         proofs = checked._dataset.artifact.descriptor.completed_checks
         assert len(proofs) == 1 and proofs[0].fact.kind == "mapping_total"
@@ -105,7 +107,7 @@ def test_owner_matching_is_checked_or_assumed_without_rechecking_cardinality(
         )
         restored = work.session.artifact(assumed_result.state.artifact_ref)
         assert any(item.basis == "assumption" for item in restored._node.root.signature.evidence)
-        assert purposes == ["analysis.graph.stage"]
+        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
         assert any(item.basis == "assumption" for item in assumed._node.root.signature.evidence)
         with sqlite3.connect(tmp_path / "r96.sqlite") as connection:
             connection.execute("DELETE FROM r96_subjects WHERE sid=1")
@@ -307,6 +309,137 @@ def test_composite_facts_bind_ordered_objects_and_scope() -> None:
         _fact("key_set_equal", binding, "other-version-or-path", (left.signature, right.signature))
         != fact
     )
+
+
+def _cohort_premise_node() -> MethodNode:
+    from dataclasses import replace
+
+    from marivo.analysis.core.graph import Edge, method_node
+    from marivo.analysis.core.model import SubjectPart
+    from marivo.analysis.core.predicates import ValuePredicate
+    from marivo.analysis.core.rules import PartsTransport
+    from marivo.analysis.methods.physical import ScalarType
+    from tests.analysis.graph.test_analysis_graph import _source
+
+    inputs: list[SourceLeaf] = []
+    for index in range(3):
+        source = _source()
+        domain = source.signature.domain
+        subject = SubjectPart(
+            domain.binding,
+            domain.instance_key[0].entity_ref,
+            domain.instance_key,
+            domain.instance_key,
+            True,
+            True,
+            "v1",
+        )
+        inputs.append(
+            replace(
+                source,
+                definition=replace(source.definition, ref=domain.instance_key[0].entity_ref)
+                if index == 0
+                else source.definition,
+                signature=replace(
+                    source.signature,
+                    quantity=None if index == 0 else source.signature.quantity,
+                    parts=(subject,),
+                ),
+            )
+        )
+    target = inputs[0].signature.domain
+    return method_node(
+        tuple(
+            Edge("subject" if index == 0 else "quantity", node) for index, node in enumerate(inputs)
+        ),
+        PartsTransport(
+            "cohort",
+            target,
+            ("subject",),
+            False,
+            predicates=(
+                ValuePredicate(target.binding, "gt", 0, input_index=1),
+                ValuePredicate(target.binding, "lt", 10, input_index=2),
+            ),
+            cohort_rule="any",
+            opportunity_domain=inputs[1].signature.domain,
+        ),
+        value_type=ScalarType("int64"),
+    )
+
+
+def test_fact_inputs_resolve_each_cohort_premise_operands() -> None:
+    from marivo.analysis.compiler.graph_lowering import _fact_inputs
+
+    node = _cohort_premise_node()
+    checks = {item.check_id: item for item in node.derivation.obligations}
+    identities = tuple(edge.node.identity for edge in node.inputs)
+    assert _fact_inputs(node, checks["source.complete_coverage@v1"]) == (identities[:2],)
+    assert _fact_inputs(node, checks["source.exact_pairing@v1"]) == (identities[1:],)
+
+
+@pytest.mark.parametrize("positions", [(0, 1, 2), (2, 1), (1, 1)])
+def test_fact_inputs_preserve_recorded_order_and_repeated_operands(
+    positions: tuple[int, ...],
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.compiler.graph_lowering import _fact_inputs
+    from marivo.analysis.core.model import FactInput
+
+    node = _cohort_premise_node()
+    obligation = next(
+        item
+        for item in node.derivation.obligations
+        if item.check_id == "source.complete_coverage@v1"
+    )
+    operands = tuple(node.inputs[index].node for index in positions)
+    fact = replace(
+        obligation.fact,
+        inputs=tuple(
+            FactInput(item.signature.domain, item.signature.quantity, item.identity)
+            for item in operands
+        ),
+    )
+    # Isolate the resolver's contract from the semantic owner's choice of operand pairs.
+    object.__setattr__(
+        node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
+    )
+    assert _fact_inputs(node, replace(obligation, fact=fact)) == (
+        tuple(item.identity for item in operands),
+    )
+
+
+@pytest.mark.parametrize("change", ["node", "domain", "quantity"])
+def test_fact_inputs_reject_mismatched_direct_operands(
+    change: Literal["node", "domain", "quantity"],
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.compiler.graph_lowering import _fact_inputs
+    from marivo.analysis.core.model import CoreRuleError
+
+    node = _cohort_premise_node()
+    obligation = next(
+        item
+        for item in node.derivation.obligations
+        if item.check_id == "source.complete_coverage@v1"
+    )
+    target, opportunity = obligation.fact.inputs
+    if change == "node":
+        opportunity = replace(opportunity, node_id="foreign-node")
+    elif change == "domain":
+        opportunity = replace(
+            opportunity, domain=replace(opportunity.domain, definition_id="foreign-domain")
+        )
+    else:
+        opportunity = replace(opportunity, quantity=None)
+    fact = replace(obligation.fact, inputs=(target, opportunity))
+    object.__setattr__(
+        node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
+    )
+    with pytest.raises(CoreRuleError, match="originating graph inputs"):
+        _fact_inputs(node, replace(obligation, fact=fact))
 
 
 def test_required_index_conflicts_fail_during_consumption() -> None:

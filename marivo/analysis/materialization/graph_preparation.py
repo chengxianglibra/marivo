@@ -1014,11 +1014,17 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             if (
                 isinstance(params, PartsTransport)
                 and requirement.obligation.fact in item.stage.node.derivation.pre
-                and requirement.obligation.check_id
-                in ("source.exact_pairing@v1", "source.group_mapping@v1")
+                and (
+                    requirement.obligation.check_id
+                    in ("source.exact_pairing@v1", "source.group_mapping@v1")
+                    or (
+                        params.mode == "cohort"
+                        and requirement.obligation.check_id == "source.complete_coverage@v1"
+                    )
+                )
             ):
                 # Transport indexes and checks the actual complete predicate keys
-                # before selecting rows; source-prefix expressions cannot do this.
+                # and cohort opportunity coverage before returning selected rows.
                 selected = results[item.stage.output]
                 proof_digest = hashlib.sha256(
                     selected.primary.schema.serialize().to_pybytes()
