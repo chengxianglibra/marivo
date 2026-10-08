@@ -589,6 +589,11 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
     expected = {
         "outside_loader_context": "semantic.authoring",
         "missing_domain": "semantic.objects.domain",
+        "invalid_binding_ref": "semantic.bind",
+        "binding_target_missing": "semantic.bind",
+        "missing_time_fold": "semantic.additive_all",
+        "binding_alias_not_direct": "semantic.bind",
+        "binding_entity_mismatch": "semantic.bind",
         "invalid_filter": "semantic.where",
         "filter_value_runtime_incompatible": "semantic.where",
         "invalid_project": "semantic.authoring",

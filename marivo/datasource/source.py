@@ -319,7 +319,10 @@ def table(
     Args:
         name: Table or view name inside the datasource.
         database: Optional database/catalog name or namespace tuple.
-        columns: Optional output-name to physical-column projection mapping.
+        columns: Optional output-name to physical-column projection mapping
+            (``Mapping[str, str]``). Values are names, not type declarations.
+            Physical types come from source metadata when execution needs them;
+            ``md.inspect(...)`` exposes current names and types.
 
     Returns:
         A validated ``TableSourceIR``.
@@ -333,6 +336,8 @@ def table(
         ``columns`` is supplied, it must be non-empty and each physical column
         is a complete identifier, not SQL. One physical column may be projected
         under more than one output name.
+        Each projection value is a physical name, not an object describing
+        a column or its type.
     """
     normalized_columns = _normalize_source_columns(columns, field="md.table(columns=...)")
     return TableSourceIR(table=name, database=database, columns=normalized_columns)

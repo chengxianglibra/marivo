@@ -5951,7 +5951,10 @@ class SemanticCatalog(RenderableResult):
         Args:
             ref: A current catalog entry or exact member ref.
             scope: One explicit authoring scope, or exact entity-to-scope
-                bindings when the ref spans multiple entities.
+                bindings covering all dependency Entities when the ref spans
+                multiple entities. Use ``md.unpruned`` for no pruning,
+                ``md.time_range`` for a physical time range, or ``md.partition``
+                for physical partition values; each requires row/time guards.
             source_bindings: Optional exact entity-to-parameter bindings for
                 parameterized JSON sources.
             limit: Positive bounded preview row limit.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Iterator
+from typing import Literal
 from unittest.mock import patch
 
 import pytest
@@ -16,8 +17,10 @@ from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
 from marivo.semantic.metric_graph import (
     MAX_EXPRESSION_OCCURRENCES,
     AggregateNodeV1,
+    CatalogMetricIdentity,
     CumulativeNodeV1,
     LinearNodeV1,
+    MetricGraphNodeV1,
     RatioNodeV1,
     WeightedMeanAggregateNodeV1,
 )
@@ -29,6 +32,7 @@ from marivo.semantic.metric_graph_canonical import (
     node_fingerprint,
 )
 from marivo.semantic.metric_graph_lowering import (
+    MetricExpressionForestV1,
     MetricGraphLoweringError,
     lower_catalog_metric,
     lower_catalog_metrics,
@@ -111,6 +115,32 @@ def catalog_registry() -> Iterator[Registry]:
     with load_inline_semantic(_CATALOG_SOURCE) as result:
         assert result.registry is not None
         yield result.registry
+
+
+@pytest.mark.parametrize("agg", ("count", "count_distinct", "approx_count_distinct"))
+def test_count_unit_is_known_in_catalog_runtime_and_composed_contracts(
+    agg: Literal["count", "count_distinct", "approx_count_distinct"],
+) -> None:
+    from tests.shared_fixtures import load_inline_semantic
+
+    counted = mv.runtime_metric.aggregate(
+        ms.ref.measure("test.orders.amount"), agg=agg, label="Counted amounts"
+    )
+    count_ref = ms.ref.metric("test.order_count")
+    share = mv.runtime_metric.ratio(counted, count_ref, label="Count share")
+    amount_per_count = mv.runtime_metric.ratio(
+        ms.ref.metric("test.revenue"), counted, label="Amount per count"
+    )
+    with load_inline_semantic(_CATALOG_SOURCE) as loaded:
+        assert loaded.registry is not None
+        contracts = normalize_target_metric_inputs(
+            loaded.registry,
+            (count_ref, counted, share, amount_per_count),
+            sidecar=loaded.expression_sidecar,
+        )
+    assert [contract.unit for contract in contracts] == ["1", "1", "1", "CNY"]
+    assert contracts[0].components[0].unit == "1"
+    assert contracts[1].components[0].unit == "1"
 
 
 @pytest.mark.parametrize("metric_id", ("test.revenue", "test.share", "test.net"))
@@ -243,7 +273,7 @@ def test_new_load_relowers_changed_weighted_mean_dependency() -> None:
     assert forests[0].dependency_digest != forests[1].dependency_digest
 
 
-def _root_node(lowered):
+def _root_node(lowered: MetricExpressionForestV1) -> MetricGraphNodeV1:
     root_id = lowered.graph.roots[0]
     return next(record.node for record in lowered.graph.nodes if record.node_id == root_id)
 
@@ -257,7 +287,9 @@ def test_equivalent_catalog_aggregates_share_value_graph_not_authority_digest(
     assert fingerprint(revenue.graph) == fingerprint(alias.graph)
     assert revenue.graph.roots == alias.graph.roots
     assert revenue.dependency_digest.digest != alias.dependency_digest.digest
-    assert revenue.identities[0].metric_ref.path == "test.revenue"
+    identity = revenue.identities[0]
+    assert isinstance(identity, CatalogMetricIdentity)
+    assert identity.metric_ref.path == "test.revenue"
     root = _root_node(revenue)
     assert isinstance(root, AggregateNodeV1)
     assert root.unit_override is None
@@ -601,7 +633,12 @@ def test_ordered_forest_keeps_root_order_and_shares_nodes(catalog_registry: Regi
         ("test.revenue_alias", "test.revenue"),
     )
 
-    assert tuple(identity.metric_ref.path for identity in lowered.identities) == (
+    assert all(isinstance(identity, CatalogMetricIdentity) for identity in lowered.identities)
+    assert tuple(
+        identity.metric_ref.path
+        for identity in lowered.identities
+        if isinstance(identity, CatalogMetricIdentity)
+    ) == (
         "test.revenue_alias",
         "test.revenue",
     )

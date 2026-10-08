@@ -134,6 +134,9 @@ def test_loader_rejects_field_bound_to_wrong_positional_entity(
     assert error.expected == ref_factory.entity("sales.users").key
     assert error.received == ref_factory.entity("sales.orders").key
     assert "direct parameter" in str(error)
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == "bind"
+    assert "expected and received Entity refs" in error.repair.action
 
 
 def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(

@@ -25,9 +25,10 @@ def test_tier1_unit_preserves_for_value_aggs() -> None:
         assert tier1_unit(agg, None) is None
 
 
-def test_tier1_unit_counts_are_none() -> None:
-    assert tier1_unit("count", "CNY") is None
-    assert tier1_unit("count_distinct", "CNY") is None
+@pytest.mark.parametrize("agg", ("count", "count_distinct", "approx_count_distinct"))
+def test_tier1_unit_counts_are_known_unit_one(agg: str) -> None:
+    assert tier1_unit(agg, "CNY") == "1"
+    assert tier1_unit(agg, None) == "1"
 
 
 def test_ratio_unit_same_known_cancels_to_one() -> None:

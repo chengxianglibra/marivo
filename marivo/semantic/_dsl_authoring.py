@@ -97,7 +97,11 @@ def additive_all(*, except_: tuple[CoordinateRef, ...] = ()) -> AdditiveAllV1:
     Args: ``except_`` names native coordinates that must remain fixed.
     Returns: A versioned additive policy.
     Example: ``ms.additive_all(except_=(SnapshotAt,))``.
-    Constraints: It does not prove contribution partition or coverage.
+    Constraints: It does not prove contribution partition or coverage. A
+    Measure/Metric status-time axis must occur in ``except_`` and be declared
+    as ``status_time_dimension``. Sampled status time additionally requires
+    ``status_time_fold``; non-sampled status time may omit it. Fixed coordinates
+    alone do not require a status declaration.
     """
     return AdditiveAllV1(_coordinates(except_, nonempty=False), _token=_TOKEN)
 

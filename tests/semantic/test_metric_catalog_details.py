@@ -72,7 +72,7 @@ def test_build_metric_object_count_target(semantic_project_factory):
     assert order_rows.aggregation_target.kind == "entity"
     assert order_rows.aggregation_target_kind == "entity"
     assert order_rows.additivity == "additive"
-    assert order_rows.unit is None
+    assert order_rows.unit == "1"
 
 
 def test_build_metric_object_derived_ratio(semantic_project_factory):

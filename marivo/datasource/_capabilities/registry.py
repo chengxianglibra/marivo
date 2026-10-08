@@ -295,7 +295,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "table",
             "marivo.datasource.source.table",
-            "Build a catalog-backed table source with an optional output-name projection.",
+            (
+                "Build a catalog-backed table source. columns maps output names to physical "
+                "column names (Mapping[str, str]); it does not declare types. Types come from "
+                "source metadata when needed at execution; md.inspect exposes current physical "
+                "names and types. Values must be physical names, not objects describing "
+                "a column or its type."
+            ),
             output="TableSource",
             inputs=(
                 *_inputs(("subject", "TableName")),

@@ -290,9 +290,9 @@ def divide_unit_states(
 
 
 def tier1_unit(agg_name: str, measure_unit: str | None) -> str | None:
-    """Preserve the governed measure unit except for count aggregations."""
-    if agg_name in ("count", "count_distinct"):
-        return None
+    """Preserve the measure unit; counting derives the known unit one."""
+    if agg_name in ("count", "count_distinct", "approx_count_distinct"):
+        return "1"
     return measure_unit
 
 

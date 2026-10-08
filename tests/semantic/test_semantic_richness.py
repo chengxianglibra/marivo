@@ -306,8 +306,8 @@ def test_detect_depth_flags_missing_unit(semantic_project_factory):
     assert ("missing_unit", "sales.priced_metric") not in gaps
 
 
-def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
-    from marivo.semantic.richness import _SUGGESTED_ACTION, _detect_depth
+def test_detect_depth_count_metric_has_no_missing_unit_gap(semantic_project_factory):
+    from marivo.semantic.richness import _detect_depth
 
     files = {
         "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
@@ -323,6 +323,5 @@ def test_detect_depth_count_metric_gets_count_hint(semantic_project_factory):
     }
     project = semantic_project_factory(files)
     gaps = {(kind, refs[0]) for kind, refs in _detect_depth(project._registry)}
-    assert ("missing_unit_count", "sales.order_count") in gaps
+    assert ("missing_unit_count", "sales.order_count") not in gaps
     assert ("missing_unit", "sales.order_count") not in gaps
-    assert "missing_unit_count" in _SUGGESTED_ACTION

@@ -675,7 +675,7 @@ def _resolve_tier1_unit(metric: MetricIR, registry: Registry) -> str | None:
         "measure" if metric.measure is not None else None
     )
     if target_kind == "entity":
-        return None
+        return "1"
     target_id = metric.aggregation_target or metric.measure or ""
     measure_ir: MeasureIR | DimensionIR | None = registry.measures.get(target_id)
     if measure_ir is None:
