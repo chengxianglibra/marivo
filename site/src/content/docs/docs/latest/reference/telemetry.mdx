@@ -3,6 +3,74 @@ title: Local telemetry
 description: Control the local usage records written by a Marivo project.
 ---
 
+## Execution logs and telemetry have separate responsibilities
+
+Execution logs diagnose one concrete query or analysis execution. Telemetry
+summarizes public capability usage, outcomes and operation durations across runs.
+Both can carry the same operation/session identifiers; neither replaces the
+Runtime/Store records that own execution lineage and recovery.
+
+Actual Marivo-owned SQL submissions are always recorded in project-local files:
+
+```text
+.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl
+```
+
+There is no execution-log or SQL switch. `MARIVO_TELEMETRY=off` and
+`[telemetry].enabled = "off"` only disable usage telemetry. Both sinks stay local.
+Logging covers governed source queries and checks, connectivity probes, registered
+provider metadata/control statements and `md.raw_sql()`. SQL generated but never
+submitted is not recorded as an executed query. Third-party driver/Ibis bootstrap
+SQL and the Store's own SQLite persistence statements are outside this coverage.
+
+`query.submitted` stores the complete SQL text and a unique `query_id` before the
+driver call. `query.completed` records elapsed time, outcome and actual consumed
+rows; governed Arrow streams also report consumed Arrow bytes. Stream completion
+follows exhaustion or early close and cursor release, rather than merely a
+successful execute call. `closed_early` does not claim full consumption. Later
+owner-release facts can appear as `query.cleanup`; remote termination remains
+unknown unless the execution owner has confirmed it.
+
+Analysis logs include execution and phase start/completion, result counts, and
+cache reuse. Python/Arrow phases have no invented SQL. Available operation,
+session, run, datasource, backend and stage identifiers link the records.
+`execution.reused` identifies a retained artifact hit and does not imply a new
+source query. Errors contain their type, available backend codes and a bounded,
+redacted summary. Parameterized credential statements log the template only,
+without parameter values or credential-bearing failure messages. Result rows and
+exception local variables are not logged. Full SQL can contain business literals;
+review execution logs before sharing them.
+
+Execution files roll by UTC day and at approximately 128 MiB per segment. A single
+record stays intact even when larger than the segment threshold. On the first
+successful write of each UTC day, managed historical files older than 14 days are
+removed, then the oldest historical segments are removed until historical files
+occupy at most 1 GiB. Current-day segments, unrelated files and legacy telemetry
+files are not removed. The historical cap is not a hard cap on the whole log
+directory. Directories use `0700` and files use `0600` permissions. Write or
+cleanup failures leave execution semantics intact, produce a rate-limited warning,
+and recovered writes include the number of dropped records for that project.
+
+For example, after a governed diagnostic:
+
+{/* example: execution-log-diagnostic */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+result = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    "SELECT 1 AS marker",
+    reason="diagnose the query path",
+)
+```
+
+Read the project's `execution-*.jsonl` files to find the verbatim SQL and the
+matching completion by `query_id`. Read `events-*.jsonl` to analyze operation
+usage and outcomes; telemetry deliberately excludes SQL text and exception
+messages.
+
 ## Understand local telemetry
 
 Marivo writes OpenTelemetry-shaped JSONL events to UTC-dated files in the
@@ -25,7 +93,8 @@ whether its events are still needed.
 
 Telemetry schema v2 covers CLI init and help plus explicit public datasource,
 semantic, and analysis operations. The read-only `marivo doctor` command is
-deliberately not instrumented and never creates local state or telemetry. Each
+deliberately not instrumented. Without `--connect`, it creates no local state;
+explicit `--connect` probes write execution logs but do not write telemetry or cache secrets. Each
 instrumented operation writes a correlated pair:
 
 - `marivo.operation.started`

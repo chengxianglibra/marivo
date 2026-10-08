@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import pyarrow as pa
 
+from marivo import _execution_log
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, capture_graph
@@ -294,6 +295,12 @@ def _execute(
             if hits:
                 hit = _read_artifact(store, _text(hits[0], "artifact_ref"))
                 read_result(store.project_root, hit.descriptor, _validated=hit.validated)
+                _execution_log.annotate(cache_hit=True)
+                _execution_log.emit(
+                    "execution.reused",
+                    artifact_id=hit.artifact_ref,
+                    producing_run_id=hit.producing_run_ref,
+                )
                 return hit
         run_ref = _new_run_ref()
         if source_only:
@@ -337,6 +344,7 @@ def _execute(
         )
         graph_store.admit(store, session, key, selected, run_ref)
         runtime.last_run_ref = run_ref
+        _execution_log.annotate(run_id=run_ref)
         nonce = uuid4().hex
         artifact_ref = f"artifact_{nonce}"
         committing = False
@@ -428,11 +436,19 @@ def _execute(
                                 for binding in bindings
                             )
                         lowered = lower(plan, bindings=bindings)
-                        result = execute_source_graph(prepared, lowered, source)
+                        with _execution_log.stage("analysis.source") as summary:
+                            result = execute_source_graph(prepared, lowered, source)
+                            summary.update(
+                                row_count=result.primary.num_rows, arrow_bytes=result.primary.nbytes
+                            )
             else:
                 assert fixed_lowered is not None
                 values = tuple(fixed[leaf.identity] for leaf in _fixed_input_occurrences(root))
-                result = execute_verified_fixed(prepared, fixed_lowered, values)
+                with _execution_log.stage("analysis.local") as summary:
+                    result = execute_verified_fixed(prepared, fixed_lowered, values)
+                    summary.update(
+                        row_count=result.primary.num_rows, arrow_bytes=result.primary.nbytes
+                    )
             result = from_arrow(
                 result.primary,
                 result.contract,
@@ -468,47 +484,55 @@ def _execute(
             )
             state = decode(encode(state, STATE), STATE)
             phase = "storage_staging"
-            staging, final, resources = reserve_output(
-                store, run_ref=run_ref, session_ref=session, artifact_ref=artifact_ref, nonce=nonce
-            )
-            keys = tuple(
-                (name, str(result.primary.schema.field(name).type))
-                for name in result.contract.key_fields
-            )
-            primary = PrimaryReceipt(
-                "marivo.analysis.receipt/v1",
-                "primary",
-                state.input_binding,
-                keys,
-                write_table(
-                    store.project_root, staging / "primary", final / "primary", result.primary
-                ),
-            )
-            event("graph_primary_written")
-            parts: list[PartReceipt] = []
-            from marivo.analysis.materialization.cell_arrow import binding
-
-            for part in result.parts:
-                parts.append(
-                    PartReceipt(
-                        "marivo.analysis.receipt/v1",
-                        "part",
-                        state.input_binding,
-                        tuple(
-                            (name, str(part.table.schema.field(name).type))
-                            for name in result.contract.parts[len(parts)].key_fields
-                        ),
-                        write_table(
-                            store.project_root, staging / part.role, final / part.role, part.table
-                        ),
-                        part.role,
-                        f"marivo.analysis.part.{state.kind}.{part.role}",
-                        state.contract_version,
-                        state.contract_version,
-                        binding(part.table.schema),
-                    )
+            with _execution_log.stage("analysis.storage_staging"):
+                staging, final, resources = reserve_output(
+                    store,
+                    run_ref=run_ref,
+                    session_ref=session,
+                    artifact_ref=artifact_ref,
+                    nonce=nonce,
                 )
-                event("graph_part_written")
+                keys = tuple(
+                    (name, str(result.primary.schema.field(name).type))
+                    for name in result.contract.key_fields
+                )
+                primary = PrimaryReceipt(
+                    "marivo.analysis.receipt/v1",
+                    "primary",
+                    state.input_binding,
+                    keys,
+                    write_table(
+                        store.project_root, staging / "primary", final / "primary", result.primary
+                    ),
+                )
+                event("graph_primary_written")
+                parts: list[PartReceipt] = []
+                from marivo.analysis.materialization.cell_arrow import binding
+
+                for part in result.parts:
+                    parts.append(
+                        PartReceipt(
+                            "marivo.analysis.receipt/v1",
+                            "part",
+                            state.input_binding,
+                            tuple(
+                                (name, str(part.table.schema.field(name).type))
+                                for name in result.contract.parts[len(parts)].key_fields
+                            ),
+                            write_table(
+                                store.project_root,
+                                staging / part.role,
+                                final / part.role,
+                                part.table,
+                            ),
+                            part.role,
+                            f"marivo.analysis.part.{state.kind}.{part.role}",
+                            state.contract_version,
+                            state.contract_version,
+                            binding(part.table.schema),
+                        )
+                    )
+                    event("graph_part_written")
             nodes = captured.nodes
             methods = tuple(
                 MethodBinding(
@@ -586,14 +610,16 @@ def _execute(
             os.rename(staging, final)
             _fsync_directory(final.parent)
             event("graph_files_published")
-            read_result(store.project_root, descriptor)
+            with _execution_log.stage("analysis.receipt_verification"):
+                read_result(store.project_root, descriptor)
             event("graph_receipts_verified")
             phase = "publication"
             from marivo.analysis.materialization.execute_deadline import check
 
             check()
             committing = True
-            return graph_store.publish(store, artifact_ref, descriptor, resources, event)
+            with _execution_log.stage("analysis.publication"):
+                return graph_store.publish(store, artifact_ref, descriptor, resources, event)
         except BaseException as failure:
             if (
                 control_resource is not None
@@ -678,12 +704,44 @@ def execute(
     entered = time.monotonic()
     from marivo.analysis.materialization.execute_deadline import execution_budget
 
-    with execution_budget(start=entered), binding_scope():
-        return _execute(
-            runtime,
-            root,
-            routes,
-            source_bindings=source_bindings,
-            source_factory=source_factory,
-            source_schemas=source_schemas,
+    inherited = _execution_log.snapshot(runtime.store.project_root).fields.get("operation_id")
+    operation_id = inherited if isinstance(inherited, str) else f"op_{uuid4().hex}"
+    with (
+        execution_budget(start=entered),
+        binding_scope(),
+        _execution_log.scope(
+            runtime.store.project_root,
+            operation_id=operation_id,
+            session_id=runtime.session_ref,
+            definition_id=root.identity,
+        ) as context,
+    ):
+        _execution_log.emit("execution.started", context=context)
+        try:
+            result = _execute(
+                runtime,
+                root,
+                routes,
+                source_bindings=source_bindings,
+                source_factory=source_factory,
+                source_schemas=source_schemas,
+            )
+        except BaseException as error:
+            _execution_log.emit(
+                "execution.completed",
+                context=context,
+                severity="ERROR",
+                state="failed",
+                duration_ms=int((time.monotonic() - entered) * 1000),
+                fields=_execution_log.error_fields(error),
+            )
+            raise
+        _execution_log.emit(
+            "execution.completed",
+            context=context,
+            state="succeeded",
+            duration_ms=int((time.monotonic() - entered) * 1000),
+            artifact_id=result.artifact_ref,
+            producing_run_id=result.producing_run_ref,
         )
+        return result

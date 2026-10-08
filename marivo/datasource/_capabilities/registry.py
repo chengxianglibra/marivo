@@ -106,6 +106,8 @@ def _effects(
     mutations: tuple[MutationEffect, ...] = (),
     flags: tuple[EffectFlag, ...] = (),
 ) -> AuthoringEffects:
+    if connection == "opens_connection" and "project_state" not in mutations:
+        mutations = (*mutations, "project_state")
     return AuthoringEffects(
         data_access=data_access,
         connection=connection,
@@ -416,7 +418,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "Submit one terminal SQL diagnostic verbatim with bounded returned rows and an "
             "enforced timeout. Read-only behavior relies on connection permissions and is best effort. "
             "Results cannot enter typed analysis; "
-            "always check is_truncated before drawing conclusions.",
+            "always check is_truncated before drawing conclusions. Actual submitted SQL "
+            "is always recorded in .marivo/logs/, independently of telemetry.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "Ref[datasource]"),

@@ -17,6 +17,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.environment import mysql_analysis as mysql
 from tests.datasource.source_cases import source_case
+from tests.support.execution_logs import execution_records
 
 
 @pytest.mark.runtime
@@ -89,6 +90,17 @@ def test_mysql_sample_deadline_releases_owned_server_query(
             assert (
                 controls[0].purpose == "datasource.authoring.deadline"
                 and controls[0].state == "succeeded"
+            )
+            records = execution_records(tmp_path)
+            logged = [r for r in records if r.get("purpose") == "datasource.authoring.deadline"]
+            assert [r["event"] for r in logged] == ["query.submitted", "query.completed"]
+            assert logged[0]["sql"] == controls[0].sql
+            source_sql = {submission.sql for owner in owners for submission in owner.submissions}
+            source_records = [
+                r for r in records if r["event"] == "query.submitted" and r["sql"] in source_sql
+            ]
+            assert source_records and all(
+                r["operation_id"] == logged[0]["operation_id"] for r in source_records
             )
             with mysql.connection(admin=True) as observer, observer.cursor() as cursor:
                 for identity in identities:

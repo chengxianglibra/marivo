@@ -32,6 +32,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import run_ids
+from tests.support.execution_logs import execution_records
 from tests.support.json import Json, checked, encode
 
 Backend = Literal["duckdb", "sqlite"]
@@ -419,3 +420,31 @@ def test_local_graph_native_interrupt_preserves_publication(
         assert run.lifecycle == "failed"
         assert runtime.store.resources(runtime.session_ref) == ()
         assert execute_deadline.CURRENT.get() is None
+        records = execution_records(tmp_path)
+        executed = [r for r in records if r["event"] == "execution.completed"][-1]
+        assert executed["state"] == "failed"
+        assert executed["error_type"] in {type(error).__name__ for error in errors}
+        assert executed["run_id"] == runtime.last_run_ref
+        submitted = [
+            r
+            for r in records
+            if r["event"] == "query.submitted" and r.get("run_id") == runtime.last_run_ref
+        ]
+        completed = [
+            r
+            for r in records
+            if r["event"] == "query.completed" and r.get("run_id") == runtime.last_run_ref
+        ]
+        assert submitted and {r["query_id"] for r in submitted} == {
+            r["query_id"] for r in completed
+        }
+        assert all(
+            r["sql"] in compiled for r in submitted if r.get("purpose") == "analysis.graph.stage"
+        )
+        assert any(r["state"] == "failed" for r in completed)
+        if mode == "deadline":
+            assert any(r.get("interrupt_requested") is True for r in completed)
+        else:
+            native_error = observation.get("native_error_type")
+            observed_types = {type(error).__name__ for error in errors} | {native_error}
+            assert any(r.get("error_type") in observed_types for r in completed)

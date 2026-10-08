@@ -278,6 +278,8 @@ def _effects(
     mutations: tuple[MutationEffect, ...] = (),
     flags: tuple[EffectFlag, ...] = (),
 ) -> AuthoringEffects:
+    if connection == "opens_connection" and "project_state" not in mutations:
+        mutations = (*mutations, "project_state")
     return AuthoringEffects(
         data_access=data_access,
         connection=connection,

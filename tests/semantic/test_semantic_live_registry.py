@@ -864,7 +864,7 @@ def test_preview_capability_is_one_entry_or_exact_ref() -> None:
     assert subject.max_count == 1
     assert subject.family == "CatalogEntry | Ref"
     assert preview.effects is not None
-    assert preview.effects.mutations == ()
+    assert preview.effects.mutations == ("project_state",)
     assert "may_publish_certified_artifact" in preview.effects.flags
     preview_many = REGISTRY.by_canonical_id("preview_many")
     assert preview_many.output_family == "PreviewBatchResult"

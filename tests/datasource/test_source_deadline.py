@@ -16,6 +16,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo import _execution_log
 from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.materialization.execute_deadline import (
     COMMITTED,
@@ -33,6 +34,7 @@ from marivo.datasource.adapters import (
     SourceSession,
     _ClickHouseNativeStream,
 )
+from tests.datasource.driver_audit import native_audit
 from tests.datasource.driver_protocols import (
     _ClickHouseReadClient,
     _ClickHouseServerError,
@@ -41,6 +43,7 @@ from tests.datasource.driver_protocols import (
 from tests.datasource.source_cases import source_case
 from tests.datasource.source_receipts import receipt
 from tests.shared_fixtures import DslCaseFactory
+from tests.support.execution_logs import execution_records
 
 
 def test_native_read_budget_keeps_the_original_monotonic_start() -> None:
@@ -200,7 +203,11 @@ def test_statistic_checks_expiry_before_native_submission(
 def test_native_interrupt_keeps_cleanup_on_the_owner_thread(
     backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with source_case(backend, "table", tmp_path, monkeypatch) as case:
+    with (
+        native_audit(monkeypatch, backend) as audit,
+        _execution_log.scope(tmp_path),
+        source_case(backend, "table", tmp_path, monkeypatch) as case,
+    ):
         source = case.session
         assert source.domain_authority is None
         bound = source.bind(case.source, source_identity="source_deadline.deadline")
@@ -247,6 +254,17 @@ def test_native_interrupt_keeps_cleanup_on_the_owner_thread(
         assert source.submissions[-1].state == "failed"
         assert source.submissions[-1].termination == "local_closed"
         assert source.submissions[-1].connection_disconnected
+        records = [r for r in execution_records(tmp_path) if r.get("purpose") == read.purpose]
+        native = [item for item in audit.submissions if item.category == "governed_ibis"]
+        submitted = [r for r in records if r["event"] == "query.submitted"]
+        completed = [r for r in records if r["event"] == "query.completed"]
+        assert len(submitted) == len(native) == len(completed) == 1
+        assert submitted[0]["sql"] == native[0].sql == read.sql
+        assert completed[0]["state"] == "failed"
+        assert completed[0]["interrupt_requested"] is True
+        assert any(
+            r["event"] == "query.cleanup" and r["termination"] == "local_closed" for r in records
+        )
         receipt(
             "deadline-native-" + backend,
             {

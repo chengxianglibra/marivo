@@ -1,5 +1,6 @@
 """Public SQL submission ownership and native-driver witnesses."""
 
+from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
@@ -9,12 +10,14 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo import _execution_log
 from marivo.datasource.adapters import PhysicalRequirement
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.driver_audit import native_audit
 from tests.datasource.source_cases import ROWS, source_case
+from tests.support.execution_logs import execution_records
 
 pytestmark = pytest.mark.runtime
 
@@ -101,7 +104,7 @@ def test_clickhouse_owned_control_sql_audit(
 
 
 def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    with native_audit(monkeypatch, "duckdb") as audit:
+    with _execution_log.scope(tmp_path), native_audit(monkeypatch, "duckdb") as audit:
         with source_case("duckdb", "http-json-auth", tmp_path, monkeypatch) as case:
             bound = case.session.bind(
                 case.source, source_identity="sql_ownership.http_source", source_params=case.params
@@ -126,6 +129,11 @@ def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.Monk
                 for item in audit.submissions
             )
             assert all("synthetic-source_profile" not in item.sql for item in audit.submissions)
+            assert "synthetic-source_profile" not in str(execution_records(tmp_path))
+            assert any(
+                r.get("purpose") == "datasource.http_credentials"
+                for r in execution_records(tmp_path)
+            )
             environment = case.environment
         audit.save(
             "sql-native-duckdb-http-auth",
@@ -209,6 +217,15 @@ def test_public_sql_owner_audit(
             ]
             assert len(terminal_reads) == 1 and terminal_reads[0].sql == statement
             assert all(item.purpose for item in audit.submissions if item.category == "provider")
+            logged = [r for r in execution_records(tmp_path) if r["event"] == "query.submitted"]
+            owned = [
+                item
+                for item in audit.submissions
+                if item.category in {"provider", "governed_ibis", "raw_sql_terminal"}
+            ]
+            assert Counter(str(r["sql"]) for r in logged) == Counter(item.sql for item in owned)
+            completed = [r for r in execution_records(tmp_path) if r["event"] == "query.completed"]
+            assert {r["query_id"] for r in logged} == {r["query_id"] for r in completed}
             environment = {**case.environment, "profile": profile}
         audit.save(
             "sql-native-" + backend,

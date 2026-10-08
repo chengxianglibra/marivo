@@ -3,6 +3,60 @@ title: 本地遥测
 description: 管理 Marivo 项目写入本地的使用记录。
 ---
 
+## 执行日志与遥测各自的职责
+
+执行日志用于排查某次查询或分析执行的具体问题；遥测用于分析多次运行中的公开能力使用、
+操作结果和耗时。两者可以携带相同的 operation/session 标识，但都不能替代 Runtime/Store
+持有的执行谱系与恢复记录。
+
+Marivo 自己拥有的 SQL 提交始终记录到项目本地文件：
+
+```text
+.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl
+```
+
+执行日志和 SQL 没有开关。`MARIVO_TELEMETRY=off` 和 `[telemetry].enabled = "off"`
+只关闭使用遥测；两种记录均保留在本地。SQL 日志覆盖受治理的源端查询及校验、连接探测、
+注册的 provider 元数据和控制语句，以及 `md.raw_sql()`。只生成但未提交的 SQL 不会被记作
+实际执行。第三方驱动/Ibis 的内部初始化 SQL、Store 自身的 SQLite 持久化语句不在覆盖范围内。
+
+`query.submitted` 在驱动调用前保存完整 SQL 和独立 `query_id`；`query.completed`
+记录耗时、结果状态及实际消费行数，受治理的 Arrow 流还记录实际消费的 Arrow 字节数。
+流式查询在消费结束或提前关闭并释放游标后才记录结束，不能把 execute 调用成功当作完整
+查询成功。`closed_early` 不代表完整消费；后续连接拥有者的释放事实可以记录为
+`query.cleanup`。执行拥有者未确认远端终止时，日志仍保留未知状态。
+
+Analysis 日志记录执行和阶段的开始/结束、结果统计及缓存复用；Python/Arrow 阶段没有 SQL
+时不会编造 SQL。实际可用的 operation、session、run、datasource、backend 和 stage 标识
+用于关联记录。`execution.reused` 表示命中已保留的 Artifact，不代表发起新源查询。
+错误记录包含类型、实际可用的后端错误码和有界脱敏摘要。参数化凭据语句只记录模板，不记录
+参数值或可能携带凭据的错误消息；也不记录结果行或异常局部变量。完整 SQL 可能包含业务
+字面量，分享执行日志前应检查其内容。
+
+执行日志按 UTC 日期和约 128 MiB 的分段大小滚动。即使单条记录超过分段阈值，也保持完整。
+每个 UTC 日首次成功写入时，清理超过 14 天的受管历史文件，再从最旧的历史分段开始删除，
+直到历史文件总量不超过 1 GiB。当天分段、无关文件和旧遥测文件不被删除；历史上限不是整个
+日志目录的硬上限。目录权限为 `0700`，文件权限为 `0600`。写入或清理失败不改变执行行为，
+只产生限频 warning；恢复写入后会记录该项目丢失的记录数量。
+
+例如，执行受治理的诊断后：
+
+{/* example: execution-log-diagnostic */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+result = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    "SELECT 1 AS marker",
+    reason="diagnose the query path",
+)
+```
+
+在项目的 `execution-*.jsonl` 中按 `query_id` 找到原始 SQL 及对应结束记录；
+`events-*.jsonl` 用于统计操作使用和结果，遥测仍明确排除 SQL 原文和异常消息。
+
 ## 了解本地遥测
 
 Marivo 会按 UTC 日期把采用开放遥测结构的本地 JSONL 事件写入项目状态目录：
@@ -20,7 +74,8 @@ Marivo 保留 14 个 UTC 日历日内的受管事件文件。每个 UTC 日首�
 显式归档或删除该文件。
 
 遥测结构 v2 覆盖 CLI init 和 help，以及显式调用的数据源、语义和分析公开操作。只读的
-`marivo doctor` 不接入遥测，也不会创建本地状态或遥测文件。每个接入遥测的操作会写入一对
+`marivo doctor` 不接入遥测。不加 `--connect` 时不会创建本地状态；显式使用 `--connect`
+进行探测时会写执行日志，但不写遥测，也不缓存密钥。每个接入遥测的操作会写入一对
 可关联事件：
 
 - `marivo.operation.started`

@@ -52,6 +52,25 @@ def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
         md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
 
 
+def test_execution_logging_documentation_example_executes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.manage import RawSqlResult
+    from tests.support.documentation import _example
+    from tests.support.execution_logs import execution_records
+
+    _register_raw_sql_fixture(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+    namespace: dict[str, object] = {}
+    exec(_example("en", "execution-log-diagnostic", page="reference/telemetry"), namespace)
+    result = namespace["result"]
+    assert isinstance(result, RawSqlResult)
+    assert result.rows == ({"marker": 1},)
+    submitted = [r for r in execution_records(tmp_path) if r["event"] == "query.submitted"]
+    assert any(r["sql"] == "SELECT 1 AS marker" for r in submitted)
+
+
 def test_raw_sql_does_not_classify_sql_text(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
@@ -1003,3 +1022,55 @@ def test_raw_sql_error_timeout_setup_reports_no_execution(
     assert err.effect_observed is not None
     assert err.effect_observed.query_executed is False
     assert "no enforceable timeout" in err.message
+
+
+def test_raw_sql_logs_native_statement_consumption_and_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.datasource.driver_audit import native_audit
+    from tests.support.execution_logs import execution_records
+
+    _register_raw_sql_fixture(tmp_path)
+    with native_audit(monkeypatch, "duckdb") as audit:
+        result = md.raw_sql(
+            ms.ref.datasource("warehouse"),
+            "SELECT ';' AS marker",
+            reason="diagnose native SQL",
+            project_root=tmp_path,
+        )
+    submitted, completed = [
+        r for r in execution_records(tmp_path) if r.get("purpose") == "datasource.raw_sql"
+    ]
+    native = [item for item in audit.submissions if item.category == "raw_sql_terminal"]
+    assert len(native) == 1 and submitted["sql"] == native[0].sql == result.sql
+    assert completed["state"] == "succeeded" and completed["consumed_rows"] == 1
+    with pytest.raises(DatasourceRawSqlError):
+        md.raw_sql(
+            ms.ref.datasource("warehouse"),
+            "SELECT missing_column FROM orders",
+            reason="diagnose failure",
+            project_root=tmp_path,
+        )
+    records = [r for r in execution_records(tmp_path) if r.get("purpose") == "datasource.raw_sql"]
+    assert records[-2]["sql"] == "SELECT missing_column FROM orders"
+    assert records[-1]["state"] == "failed" and records[-1]["error_type"] == "BinderException"
+
+
+def test_connectivity_worker_preserves_explicit_root_and_context(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.manage import test_no_persist
+    from tests.support.execution_logs import execution_records
+
+    _register_raw_sql_fixture(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    result = test_no_persist("warehouse", project_root=tmp_path)
+    assert result.ok
+    submitted, completed = [
+        r for r in execution_records(tmp_path) if r.get("purpose") == "datasource.connectivity"
+    ]
+    assert submitted["datasource"] == completed["datasource"] == "warehouse"
+    assert completed["state"] == "succeeded" and completed["consumed_rows"] == 1
+    assert not (elsewhere / ".marivo").exists()

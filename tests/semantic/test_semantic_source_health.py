@@ -202,7 +202,7 @@ def test_source_health_without_declared_checks_is_metadata_only(
     assert schema.observed_capability_fingerprint is not None
     assert schema.observed_capability_fingerprint.startswith("sha256:")
     new_state_files = state_files_after - state_files_before
-    assert all(path.parts[0] == "telemetry" for path in new_state_files)
+    assert all(path.parts[0] in {"telemetry", "logs"} for path in new_state_files)
     assert {
         "not_null",
         "allowed_values",

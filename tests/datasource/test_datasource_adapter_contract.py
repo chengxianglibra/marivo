@@ -18,6 +18,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from marivo import _execution_log
 from marivo.datasource.adapters import (
     TIMESTAMP_UNIT_METADATA_KEY,
     CompiledRead,
@@ -27,6 +28,7 @@ from marivo.datasource.adapters import (
     SourceSession,
     SourceSubmission,
     _clickhouse_deadline_settings,
+    _Cursor,
     _exact_array,
     _inline_exchange,
     provider_for,
@@ -46,6 +48,7 @@ from marivo.datasource.ir import (
     SourceParamIR,
     TableSourceIR,
 )
+from tests.support.execution_logs import execution_records
 
 
 def _datasource(backend: str) -> DatasourceIR:
@@ -71,7 +74,9 @@ def session(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[SourceSe
     backend.raw_sql("CREATE TABLE facts (id BIGINT, amount BIGINT)")
     backend.raw_sql("INSERT INTO facts VALUES (9007199254740993, 2), (9007199254740994, 3)")
     backend.raw_sql("CREATE VIEW facts_view AS SELECT id, amount FROM facts")
-    result = SourceSession(provider_for(backend_name), _datasource(backend_name), backend)
+    result = SourceSession(
+        provider_for(backend_name), _datasource(backend_name), backend, project_root=tmp_path
+    )
     try:
         yield result
     finally:
@@ -515,6 +520,9 @@ def test_interrupt_reports_only_local_close(session: SourceSession) -> None:
     assert not session._streams
     assert session.submissions[-1].termination == "local_closed"
     assert session.submissions[-1].connection_disconnected is True
+    cleanup = execution_records(session._log_root)[-1]
+    assert cleanup["event"] == "query.cleanup"
+    assert cleanup["termination"] == "local_closed"
     with pytest.raises(DatasourceSourceCapabilityError):
         list(stream)
 
@@ -531,6 +539,12 @@ def test_fetch_failure_closes_cursor_and_records_failure(session: SourceSession)
 
     cursor = FailingCursor()
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     stream = SourceBatchStream(session, cursor, pa.schema([("id", pa.int64())]), 1, submission)
     session._streams.add(stream)
     with pytest.raises(RuntimeError, match="driver read failed"):
@@ -538,6 +552,10 @@ def test_fetch_failure_closes_cursor_and_records_failure(session: SourceSession)
     assert cursor.closed
     assert submission.state == "failed"
     assert not session._streams
+    completed = execution_records(session._log_root)[-1]
+    assert completed["state"] == "failed"
+    assert completed["error_type"] == "RuntimeError"
+    assert completed["error_message"] == "driver read failed"
 
 
 @pytest.mark.parametrize(
@@ -565,6 +583,12 @@ def test_lossy_driver_values_fail_and_close(
 
     cursor = ValueCursor()
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     stream = SourceBatchStream(session, cursor, pa.schema([("value", arrow_type)]), 1, submission)
     session._streams.add(stream)
     with pytest.raises(DatasourceSourceCapabilityError):
@@ -621,6 +645,12 @@ def test_trino_owner_interrupt_does_not_wait_for_its_own_cleanup() -> None:
     session._own_pending_cursor(cursor)
     session._pending_cursor = None
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     session.submissions.append(submission)
     stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
     session._streams.add(stream)
@@ -679,7 +709,14 @@ def test_post_submission_checkpoint_failure_releases_native_cursor(
     cursor = Mock()
     if close_fails:
         cursor.close.side_effect = RuntimeError("cursor close failed")
-    monkeypatch.setattr("marivo.datasource.adapters._native_cursor", lambda *_args: cursor)
+
+    def submitted_cursor(*_args: object) -> Mock:
+        from marivo.datasource.adapters import _log_native_submission
+
+        _log_native_submission()
+        return cursor
+
+    monkeypatch.setattr("marivo.datasource.adapters._native_cursor", submitted_cursor)
     checks = 0
 
     def checkpoint() -> None:
@@ -703,6 +740,10 @@ def test_post_submission_checkpoint_failure_releases_native_cursor(
         else "closed"
     )
     assert session._cursor_released.is_set()
+    completed = execution_records(session._log_root)[-1]
+    assert completed["event"] == "query.completed"
+    assert completed["state"] == "failed"
+    assert completed["cursor_state"] == session.submissions[-1].cursor_state
 
 
 def test_session_rejects_backend_from_another_provider(tmp_path: Path) -> None:
@@ -754,6 +795,12 @@ def test_cursor_close_failure_cannot_claim_success(session: SourceSession) -> No
             raise OSError("cursor release failed")
 
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     stream = SourceBatchStream(
         session, CloseFailure(), pa.schema([("value", pa.int64())]), 1, submission
     )
@@ -763,6 +810,9 @@ def test_cursor_close_failure_cannot_claim_success(session: SourceSession) -> No
     assert submission.state == "failed"
     assert submission.cursor_state == "close_failed"
     assert not session._streams
+    completed = execution_records(session._log_root)[-1]
+    assert completed["state"] == "failed"
+    assert completed["error_type"] == "OSError"
 
 
 @pytest.mark.parametrize(
@@ -835,6 +885,12 @@ def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
     session._cancel_control = None if fault == "unavailable" else control
     session._cancel_control_released = fault == "unavailable"
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     session.submissions.append(submission)
     session._mysql_active = submission
     execute = Mock(side_effect=RuntimeError("control failed") if fault == "failed" else None)
@@ -885,6 +941,12 @@ def test_mysql_interrupt_owns_unreleased_read_after_state_change(
     session._mysql_connection = backend.con
     session._cancel_control = Mock()
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     session.submissions.append(submission)
     if state == "failed":
         submission.state = "failed"
@@ -1001,6 +1063,12 @@ def test_mysql_control_close_failure_still_releases_owned_read(
     session._cancel_control_released = False
     cursor = Mock()
     submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
+    session._query_logs[id(submission)] = _execution_log.QueryLog(
+        "compiled SQL",
+        backend=session.provider.name,
+        purpose="basic.rows",
+        project_root=session._log_root,
+    )
     session.submissions.append(submission)
     stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
     session._streams.add(stream)
@@ -1072,3 +1140,155 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
         owned_socket.close.assert_called_once_with()
     else:
         fromfd.assert_not_called()
+
+
+def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
+    session: SourceSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.datasource.driver_audit import native_audit
+
+    backend_name = session.provider.name
+    if backend_name == "sqlite":
+        from sqlite3 import Connection
+
+        connection: object = getattr(session._backend, "con", None)
+        assert isinstance(connection, Connection)
+        connection.commit()
+    session.close()
+    with native_audit(monkeypatch, backend_name) as audit:
+        database = tmp_path / f"source.{backend_name}"
+        backend = (
+            ibis.duckdb.connect(database)
+            if backend_name == "duckdb"
+            else ibis.sqlite.connect(database)
+        )
+        with SourceSession(
+            provider_for(backend_name), _datasource(backend_name), backend, project_root=tmp_path
+        ) as observed:
+            read = _read(observed)
+            assert not [r for r in execution_records(tmp_path) if r.get("purpose") == "basic.rows"]
+            stream = observed.batches(read, chunk_size=1)
+            iterator = iter(stream)
+            assert next(iterator).num_rows == 1
+            records = [r for r in execution_records(tmp_path) if r.get("purpose") == "basic.rows"]
+            assert len(records) == 1 and records[0]["event"] == "query.submitted"
+            assert sum(batch.num_rows for batch in iterator) == 1
+            from sqlite3 import OperationalError
+
+            from duckdb import CatalogException
+
+            backend.drop_table("facts")
+            with pytest.raises((CatalogException, OperationalError)):
+                observed.batches(read, chunk_size=1)
+    native = [item for item in audit.submissions if item.category == "governed_ibis"]
+    records = [r for r in execution_records(tmp_path) if r.get("purpose") == "basic.rows"]
+    assert len(native) == 2
+    assert records[0]["sql"] == native[0].sql == records[2]["sql"] == native[1].sql == read.sql
+    assert records[1]["state"] == "succeeded"
+    assert records[1]["consumed_rows"] == 2 and records[1]["consumed_arrow_bytes"] == 32
+    assert records[3]["state"] == native[1].state == "failed"
+    assert records[3]["error_type"] == native[1].error_type
+    assert records[3]["consumed_rows"] == records[3]["consumed_arrow_bytes"] == 0
+
+
+def test_native_owner_checkpoint_failure_is_not_logged_as_a_submission(tmp_path: Path) -> None:
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource.adapters import _BEFORE_SUBMIT, _CURSOR_OWNER, _native_cursor
+
+    cursor = Mock()
+    cursor.fetchmany = Mock(return_value=[])
+    cursor.close = Mock()
+    connection = Mock()
+    connection.cursor.return_value = cursor
+    backend: BaseBackend = Mock(spec=BaseBackend)
+    backend.con = connection
+
+    def checkpoint(_cursor: _Cursor) -> None:
+        raise TimeoutError("expired before native execute")
+
+    def submitted() -> None:
+        _execution_log.QueryLog(
+            "SELECT 1", backend="trino", purpose="test.prepared", project_root=tmp_path
+        )
+
+    owner_token = _CURSOR_OWNER.set(checkpoint)
+    log_token = _BEFORE_SUBMIT.set(submitted)
+    try:
+        with pytest.raises(TimeoutError, match="expired before native execute"):
+            _native_cursor(backend, "trino", "SELECT 1")
+    finally:
+        _CURSOR_OWNER.reset(owner_token)
+        _BEFORE_SUBMIT.reset(log_token)
+    cursor.execute.assert_not_called()
+    cursor.close.assert_called_once_with()
+    assert execution_records(tmp_path) == []
+
+
+def test_early_close_diagnostics_report_only_consumed_rows(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stream = session.batches(_read(session), chunk_size=1)
+    assert next(iter(stream)).num_rows == 1
+    release = session._release_cursor
+
+    def audited_release(cursor: _Cursor | None, submission: SourceSubmission) -> None:
+        assert execution_records(session._log_root)[-1]["event"] == "query.submitted"
+        release(cursor, submission)
+
+    monkeypatch.setattr(session, "_release_cursor", audited_release)
+    stream.close()
+    completed = execution_records(session._log_root)[-1]
+    assert completed["state"] == "closed_early"
+    assert completed["consumed_rows"] == 1 and completed["consumed_arrow_bytes"] == 16
+
+
+def test_cancellation_worker_preserves_query_context_across_projects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from threading import Thread
+
+    root = tmp_path / "source"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    backend = Mock()
+    backend.name = "mysql"
+    control = Mock()
+    control.name = "mysql"
+    cursor = Mock()
+    cursor.description = ()
+    cursor.fetchall.return_value = []
+    control.raw_sql.return_value = cursor
+    control._marivo_provider_submissions = []
+    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend, project_root=root)
+    with _execution_log.scope(root, operation_id="operation", session_id="session", run_id="run"):
+        query = _execution_log.QueryLog("SELECT 1", backend="mysql", purpose="basic.rows")
+    submission = SourceSubmission("basic.rows", "facts@v1", 1, "SELECT 1")
+    session.submissions.append(submission)
+    session._query_logs[id(submission)] = query
+    session._mysql_active = submission
+    session._mysql_connection = backend.con
+    session._cancel_thread_id = 123
+    session._cancel_control = control
+    worker = Thread(target=session._request_interrupt)
+    try:
+        worker.start()
+        worker.join(2)
+        assert not worker.is_alive()
+        control.raw_sql.assert_called_once_with("KILL QUERY 123")
+        cursor.close.assert_called_once_with()
+        records = [
+            r for r in execution_records(root) if r.get("purpose") == "analysis.cancel_owned_query"
+        ]
+        assert [r["event"] for r in records] == ["query.submitted", "query.completed"]
+        assert records[0]["sql"] == "KILL QUERY 123"
+        assert records[0]["parent_query_id"] == query.context.fields["query_id"]
+        assert records[0]["query_id"] != records[0]["parent_query_id"]
+        assert records[0]["operation_id"] == "operation"
+        assert records[0]["session_id"] == "session" and records[0]["run_id"] == "run"
+        assert "interrupt_requested" not in records[0]
+        assert not (elsewhere / ".marivo").exists()
+    finally:
+        query.finish("closed_early")
+        session.close()
