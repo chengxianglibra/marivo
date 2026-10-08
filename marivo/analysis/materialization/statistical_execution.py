@@ -28,6 +28,10 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import AssociationFit, AssociationRead, ForecastFit, ForecastRead
 from marivo.analysis.errors import StatisticalErrorCode, StatisticalRelationError
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows, logical_schema
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.deviation_execution import SavedPart, SavedTable, load, save
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -51,6 +55,7 @@ from marivo.analysis.methods.deviation_numeric import (
 from marivo.analysis.methods.deviation_physical import parse_type
 from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.registry import REGISTRY
+from marivo.analysis.methods.semantics import MethodKey
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +211,7 @@ def _input(
         raise invalid("statistical input differs from captured physical type")
     allowed = dict(value.reasons)
     numbers: list[Fraction | None] = []
-    for row in table.to_pylist():
+    for row in cell_rows(table):
         tag, reason, number = row["cell_tag"], row["cell_reason"], row["value"]
         if tag == "defined" and reason is None and isinstance(number, (int, float, Decimal)):
             try:
@@ -486,7 +491,7 @@ def association_state(saved: PairCapture) -> AssociationState:
             ("complete_pair_count", pa.int64()),
         ]
     )
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "key_0": c.key,
             "value": c.score.coefficient,
@@ -509,7 +514,23 @@ def association_state(saved: PairCapture) -> AssociationState:
     return AssociationState(
         digest(PAIRS.dump_json(saved).decode()),
         tuple(candidates),
-        save(pa.Table.from_pylist(rows, schema=schema)),
+        save(
+            from_rows(
+                rows,
+                compact_schema(
+                    schema,
+                    REGISTRY.lookup(
+                        MethodKey(
+                            "association.pearson"
+                            if saved.declaration.method == "pearson"
+                            else "association.spearman"
+                            if saved.declaration.method == "spearman"
+                            else "association.kendall"
+                        )
+                    ).semantics.empty_cell_reasons,
+                ),
+            )
+        ),
     )
 
 
@@ -646,37 +667,44 @@ def views(parts: tuple[ExchangePart, ...]) -> pa.Table:
 
 def _primary(table: pa.Table, field: str) -> pa.Table:
     if field == "coefficient":
-        return table.select(
+        columns = logical_schema(table.schema).names
+        return cell_project(
+            table,
             (
-                *[k for k in table.column_names if k not in ("value", "cell_tag", "cell_reason")],
+                *[k for k in columns if k not in ("value", "cell_tag", "cell_reason")],
                 "value",
                 "cell_tag",
                 "cell_reason",
-            )
+            ),
         )
-    if field == "selected":
-        return pa.table(
+    columns = (
+        tuple(
+            k
+            for k in logical_schema(table.schema).names
+            if k not in ("value", "cell_tag", "cell_reason")
+        )
+        if field == "selected"
+        else (*tuple(k for k in table.column_names if k.startswith("key_")), "horizon", "series")
+    )
+    schema = pa.schema(
+        [
+            *(table.schema.field(k) for k in columns),
+            pa.field("value", table.schema.field(field).type),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
+    )
+    return from_rows(
+        [
             {
-                **{
-                    k: table[k]
-                    for k in table.column_names
-                    if k not in ("value", "cell_tag", "cell_reason")
-                },
-                "value": table["selected"],
-                "cell_tag": pa.array(["defined"] * table.num_rows, pa.string()),
-                "cell_reason": pa.array([None] * table.num_rows, pa.string()),
+                **{k: row[k] for k in columns},
+                "value": row[field],
+                "cell_tag": "defined",
+                "cell_reason": None,
             }
-        )
-    keys = tuple(k for k in table.column_names if k.startswith("key_"))
-    return pa.table(
-        {
-            **{k: table[k] for k in keys},
-            "horizon": table["horizon"],
-            "series": table["series"],
-            "value": table[field],
-            "cell_tag": pa.array(["defined"] * table.num_rows, pa.string()),
-            "cell_reason": pa.array([None] * table.num_rows, pa.string()),
-        }
+            for row in cell_rows(table)
+        ],
+        compact_schema(schema, ()),
     )
 
 
@@ -690,7 +718,7 @@ def _result(
 ) -> ExchangeResult:
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
     kind = REGISTRY.lookup(node.method).semantics.persistent_state_kind
-    status = primary.select((*keys, "status")) if kind == "spearman" else None
+    status = cell_project(primary, (*keys, "status")) if kind == "spearman" else None
     return from_arrow(
         primary,
         ExchangeContract(
@@ -707,7 +735,7 @@ def _result(
                 )
                 for p in parts
             ),
-            (("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),),
+            REGISTRY.lookup(node.method).semantics.empty_cell_reasons,
             kind or "none",
             status.schema if status is not None else None,
         ),
@@ -941,7 +969,7 @@ def _validate(
             ]:
                 raise invalid("association selected lag differs from original full search")
         all_views = load(state_a.views)
-        for row, c in zip(all_views.to_pylist(), state_a.candidates, strict=True):
+        for row, c in zip(cell_rows(all_views), state_a.candidates, strict=True):
             if (
                 (row["cell_tag"], row["cell_reason"]) != ("defined", None)
                 if c.score.status == "valid"
@@ -1006,7 +1034,7 @@ def _validate(
         ):
             raise invalid("forecast series count or normal quantile certificate differs")
         all_views = load(state_f.views)
-        rows = all_views.to_pylist()
+        rows = cell_rows(all_views)
         output = unit_type(parse_type(declaration_f.input_type))
         for (series_key, positions), series_record in zip(sequences, state_f.series, strict=True):
             t = series_record.training
@@ -1133,11 +1161,11 @@ def _validate(
     if any(isinstance(p, TableFitsPart) for p in contract.signature.parts):
         return  # Each captured table column is verified by the table owner.
     if table_fields:
-        expected_primary = selected.select(contract.key_fields)
+        expected_primary = cell_project(selected, contract.key_fields)
         for i, view in enumerate(table_fields):
             for name in ("value", "cell_tag", "cell_reason"):
                 expected_primary = expected_primary.append_column(
-                    f"column_{i}__{name}", _primary(selected, view)[name]
+                    f"column_{i}__{name}", cell_column(_primary(selected, view), name)
                 )
     elif (
         any(isinstance(p, DisplayPart) for p in contract.signature.parts)
@@ -1147,8 +1175,14 @@ def _validate(
         return  # The display owner separately verifies ranks against original ordering witnesses.
     else:
         expected_primary = _primary(selected, field)
-    if not set(primary.column_names) <= set(expected_primary.column_names) or not primary.equals(
-        expected_primary.select(primary.column_names)
+    actual_schema = logical_schema(primary.schema)
+    expected_schema = logical_schema(expected_primary.schema)
+    columns = actual_schema.names
+    if (
+        not set(columns) <= set(expected_schema.names)
+        or any(actual_schema.field(name) != expected_schema.field(name) for name in columns)
+        or cell_rows(primary)
+        != [{name: row[name] for name in columns} for row in cell_rows(expected_primary)]
     ):
         raise invalid("statistical current owned view differs from frozen original output")
 

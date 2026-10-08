@@ -17,6 +17,8 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import CellDerive, PartsTransport
 from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_local_execution as local
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import ExchangePart, ExchangeResult
 from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
@@ -81,8 +83,8 @@ def test_selection_chain_matches_independent_domain_cells_parts_and_work(
     assert result.primary["value"].to_pylist() == expected
     assert result.primary["key_0"].to_pylist() == [i % 3 for i in expected]
     assert result.primary["key_1"].to_pylist() == list(map(str, expected))
-    assert result.primary["cell_tag"].to_pylist() == ["defined"] * len(expected)
-    assert result.primary["cell_reason"].to_pylist() == [None] * len(expected)
+    assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"] * len(expected)
+    assert cell_column(result.primary, "cell_reason").to_pylist() == [None] * len(expected)
     assert result.contract.signature == root.signature
     assert result.completed_checks == ()
     for part in result.parts:
@@ -96,7 +98,7 @@ def test_selection_chain_matches_independent_domain_cells_parts_and_work(
     monkeypatch.setattr(local, "_selection_groups", lambda plan: {})
     ordinary = local.execute_verified_fixed(prepared, lowered, (verified,))
     assert ordinary.contract == result.contract
-    assert ordinary.primary.equals(result.primary)
+    assert logical_table(ordinary.primary).equals(logical_table(result.primary))
     assert all(a.table.equals(b.table) for a, b in zip(ordinary.parts, result.parts, strict=True))
     assert tuple(visits) == fused_visits
     assert before == (root.fingerprint, freeze_graph(root), plan_digest(prepared.admitted))
@@ -221,11 +223,17 @@ def test_fused_selection_reports_actual_conflicts_and_original_predicate_stage(
             lowered,
             (replace(verified, result=replace(verified.result, primary=duplicate)),),
         )
-    bad = verified.result.primary.set_column(3, "cell_tag", pa.array(["null"] + ["defined"] * 19))
+    from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows, rows
+
+    values = rows(verified.result.primary)
+    values[0].update(value=None, cell_tag="null", cell_reason="source_null")
+    schema = compact_schema(verified.result.primary.schema, (("null", ("source_null",)),))
+    bad = from_rows(values, schema)
+    bad_result = replace(
+        verified.result, primary=bad, contract=replace(verified.result.contract, schema=schema)
+    )
     with pytest.raises(CoreRuleError, match="Cell tag null") as error:
-        local.execute_verified_fixed(
-            prepared, lowered, (replace(verified, result=replace(verified.result, primary=bad)),)
-        )
+        local.execute_verified_fixed(prepared, lowered, (replace(verified, result=bad_result),))
     inner = root.inputs[0].node
     assert error.value.location == f"analysis.predicate.{inner.identity}"
     assert error.value.expected and error.value.repair

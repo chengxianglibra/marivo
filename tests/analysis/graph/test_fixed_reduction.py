@@ -15,6 +15,9 @@ from marivo.analysis.compiler.graph_lowering import LoweredLocal
 from marivo.analysis.core.graph import Edge, method_node
 from marivo.analysis.core.rules import CellDerive
 from marivo.analysis.materialization import graph_local_execution as local
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
@@ -81,7 +84,7 @@ def test_direct_reduction_cells_components_identity_and_work(
         ordinary_boundaries = exchanges.call_count
     assert grouped_boundaries == 2 and ordinary_boundaries == length + 1
     assert visits[1:] == [4, 4, 4, *([1] * (3 * (length - 2))), 3]
-    assert result.primary.equals(ordinary.primary)
+    assert logical_table(result.primary).equals(logical_table(ordinary.primary))
     assert result.contract == ordinary.contract
     assert result.method_state is not None and ordinary.method_state is not None
     assert result.method_state.equals(ordinary.method_state)
@@ -106,7 +109,7 @@ def test_direct_reduction_cells_components_identity_and_work(
     if carrier == "duration":
         expected = round(Fraction(78, 24)) if method == "mean" else int(expected)
     assert numeric_primary(result.primary)["value"].to_pylist() == [expected]
-    assert result.primary["cell_tag"].to_pylist() == ["defined"]
+    assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
     state = next(p.table for p in result.parts if p.role == "original_state")
     for name in state.column_names:
         source = next(p.table for p in verified.result.parts if p.role == "original_state")
@@ -128,7 +131,7 @@ def test_empty_state_is_complete_and_keeps_owning_finish(method: OriginalMethod)
         if method in ("sum_zero", "count")
         else {"value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     )
-    assert result.primary.to_pylist() == [expected]
+    assert cell_rows(result.primary) == [expected]
     assert all(
         value == 0
         for p in result.parts
@@ -282,20 +285,30 @@ def test_zero_denominator_preserves_distinct_cell_policies(method: OriginalMetho
         state.schema.get_field_index(denominator), denominator, pa.array([0, 0], type=pa.int64())
     )
     parts[1] = ExchangePart("original_state", state)
-    primary = verified.result.primary.set_column(
-        2, "value", pa.array([None, None], type=pa.float64())
-    )
     tag, reason = (
         ("undefined", "zero_denominator") if method == "ratio" else ("null", "zero_weight_sum")
     )
-    primary = primary.set_column(3, "cell_tag", pa.array([tag, tag]))
-    primary = primary.set_column(4, "cell_reason", pa.array([reason, reason]))
+    from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
+
+    primary = from_rows(
+        (
+            dict(row, value=None, cell_tag=tag, cell_reason=reason)
+            for row in cell_rows(verified.result.primary)
+        ),
+        compact_schema(verified.result.primary.schema, ((tag, (reason,)),)),
+    )
     verified = replace(
-        verified, result=replace(verified.result, primary=primary, parts=tuple(parts))
+        verified,
+        result=replace(
+            verified.result,
+            primary=primary,
+            parts=tuple(parts),
+            contract=replace(verified.result.contract, schema=primary.schema),
+        ),
     )
     prepared, lowered = reduction_plan(reduction_chain(leaf))
     result = local.execute_verified_fixed(prepared, lowered, (verified,))
-    assert result.primary.to_pylist() == [{"value": None, "cell_tag": tag, "cell_reason": reason}]
+    assert cell_rows(result.primary) == [{"value": None, "cell_tag": tag, "cell_reason": reason}]
 
 
 def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> None:
@@ -327,7 +340,7 @@ def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> N
     assert ordinary.primary["value"].to_pylist() == [1.0]
     assert grouped.contract == ordinary.contract
     for result in (grouped, ordinary):
-        assert result.primary["cell_tag"].to_pylist() == ["defined"]
+        assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
         retained = next(p.table for p in result.parts if p.role == "original_state")
         magnitude = retained["original_state__absolute_sum"][0].as_py()
         assert magnitude == float(sum(Fraction(abs(v)) for v in values))

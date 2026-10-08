@@ -20,6 +20,8 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.core.rules import RowState
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangeResult,
@@ -152,7 +154,7 @@ def test_decimal_row_statistics_preserve_large_fractional_values_and_sum_scale(
     assert state["row_state__sum"].to_pylist() == [Decimal("18014398509481986.04")]
     assert state["row_state__count"].to_pylist() == [3]
     merged = _reduce(result, method, DecimalType(38, 2 if method == "sum" else 6), merge=True)
-    assert merged.primary.equals(result.primary)
+    assert logical_table(merged.primary).equals(logical_table(result.primary))
     assert merged.parts[0].table.equals(state)
 
 
@@ -166,14 +168,14 @@ def test_decimal_mean_rounds_half_even_once_from_exact_sum_count(total: str, exp
     assert state["row_state__count"].to_pylist() == [20_000]
     assert state.schema.field("row_state__sum").type == pa.decimal128(38, 2)
     merged = _reduce(result, "mean", DecimalType(38, 6), merge=True)
-    assert merged.primary.equals(result.primary)
+    assert logical_table(merged.primary).equals(logical_table(result.primary))
     assert merged.parts[0].table.equals(state)
 
 
 @pytest.mark.parametrize("method", ["sum", "mean"])
 def test_decimal_empty_row_statistics_and_retained_merge(method: Literal["sum", "mean"]) -> None:
     result = _reduce(_input(()), method, DecimalType(18, 2))
-    assert result.primary.to_pylist() == [
+    assert cell_rows(result.primary) == [
         {
             "value": Decimal("0.00") if method == "sum" else None,
             "cell_tag": "defined" if method == "sum" else "undefined",
@@ -181,7 +183,7 @@ def test_decimal_empty_row_statistics_and_retained_merge(method: Literal["sum", 
         }
     ]
     merged = _reduce(result, method, DecimalType(38, 2 if method == "sum" else 6), merge=True)
-    assert merged.primary.equals(result.primary)
+    assert logical_table(merged.primary).equals(logical_table(result.primary))
     assert merged.parts[0].table.equals(result.parts[0].table)
 
 

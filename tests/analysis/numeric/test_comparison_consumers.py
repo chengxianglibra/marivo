@@ -47,6 +47,7 @@ def test_complete_keys_source_and_fixed(
                     start=f"2026-{month:02d}-01",
                     end=f"2026-{month + 1:02d}-01",
                 ),
+                by=(ms.ref.entity("sales.facts"),),
             )
             assert isinstance(result, mv.LogicalNumericRelation)
             return result

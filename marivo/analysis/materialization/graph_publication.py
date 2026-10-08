@@ -15,7 +15,6 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_lowering import SourceBinding, lower
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import MethodNode, Node, capture_graph
-from marivo.analysis.core.model import CorrespondencePart
 from marivo.analysis.core.rules import (
     CellDerive,
     DeviationFit,
@@ -26,6 +25,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization.cell_arrow import binding_scope
 from marivo.analysis.materialization.contracts import (
     ResourceRecord,
     RunFailure,
@@ -457,15 +457,10 @@ def _execute(
             if result.contract.pending_checks != plan.checks:
                 raise invalid("execution dropped or replaced admitted checks")
             state = MethodState(
-                "marivo.analysis.method_state/v1",
+                "marivo.analysis.method_state/v2",
                 state_kind,
                 f"marivo.analysis.state.{result.contract.state_kind}",
-                2
-                if any(
-                    isinstance(part, CorrespondencePart) and part.version == "v2"
-                    for part in result.contract.signature.parts
-                )
-                else 1,
+                3,
                 root.method.name,
                 1,
                 result.contract.input_binding,
@@ -491,6 +486,8 @@ def _execute(
             )
             event("graph_primary_written")
             parts: list[PartReceipt] = []
+            from marivo.analysis.materialization.cell_arrow import binding
+
             for part in result.parts:
                 parts.append(
                     PartReceipt(
@@ -508,6 +505,7 @@ def _execute(
                         f"marivo.analysis.part.{state.kind}.{part.role}",
                         state.contract_version,
                         state.contract_version,
+                        binding(part.table.schema),
                     )
                 )
                 event("graph_part_written")
@@ -538,7 +536,7 @@ def _execute(
             )
             frozen = encode(snapshot, SNAPSHOT)
             descriptor = Descriptor(
-                "marivo.analysis.artifact_descriptor/v4",
+                "marivo.analysis.artifact_descriptor/v5",
                 root.fingerprint,
                 run_ref,
                 key,
@@ -680,7 +678,7 @@ def execute(
     entered = time.monotonic()
     from marivo.analysis.materialization.execute_deadline import execution_budget
 
-    with execution_budget(start=entered):
+    with execution_budget(start=entered), binding_scope():
         return _execute(
             runtime,
             root,

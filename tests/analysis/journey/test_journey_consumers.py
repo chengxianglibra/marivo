@@ -19,7 +19,9 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource.domain_snapshot as snapshots
 import marivo.semantic as ms
+from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.public_dsl import MaterializedFunnelResult
 from marivo.datasource.adapters import SourceBatchStream, SourceSession
 from marivo.refs import DimensionKind, Ref
@@ -330,7 +332,7 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
             before_missing = set(tmp_path.rglob("*.parquet"))
             with sqlite3.connect(path) as writer:
                 writer.execute("DELETE FROM validity_history WHERE id=1 AND beginning='2026-08-01'")
-            with pytest.raises(AnalysisError, match="complete historical path"):
+            with pytest.raises(MaterializationError, match="mapping_total"):
                 complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
             assert set(tmp_path.rglob("*.parquet")) == before_missing
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -341,7 +343,7 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
                 writer.execute(
                     "INSERT INTO validity_history VALUES (1,'overlap','2026-07-31',NULL)"
                 )
-            with pytest.raises(AnalysisError, match="non-overlapping validity versions"):
+            with pytest.raises(DomainPreparationError, match="duplicate or foreign path mapping"):
                 complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
             assert set(tmp_path.rglob("*.parquet")) == before_missing
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -352,7 +354,7 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
             before_missing = set(tmp_path.rglob("*.parquet"))
             with sqlite3.connect(path) as writer:
                 writer.execute("DELETE FROM history WHERE id=1 AND day='2026-08-01'")
-            with pytest.raises(AnalysisError, match="complete historical path"):
+            with pytest.raises(MaterializationError, match="mapping_total"):
                 complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
             assert set(tmp_path.rglob("*.parquet")) == before_missing
             assert session._runtime.store.resources(session._runtime.session_ref) == ()

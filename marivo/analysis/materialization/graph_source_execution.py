@@ -10,6 +10,7 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
 
+from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
     IntegrityCheck,
     LoweredLocal,
@@ -19,6 +20,7 @@ from marivo.analysis.compiler.graph_lowering import (
     TemporalCheck,
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
+from marivo.analysis.core.cell_encoding import CellBook, CellEncoding, CellFields, EncodedCell
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
 from marivo.analysis.core.rules import (
@@ -41,6 +43,15 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import (
+    from_rows,
+    project,
+    rename,
+    required,
+    rows,
+    schema_binding,
+)
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -55,7 +66,6 @@ from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import propagated_error
-from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceSession
 
@@ -81,16 +91,66 @@ def _issue(
     if not bindings:
         raise _invalid("source expression has no exact R1 binding")
     qualified = tuple(source.qualify(item.source, lowered.source_requirement) for item in bindings)
-    rewritten = expression.op().replace(replacements).to_expr() if replacements else expression
+    stage_policies = {
+        item.expression.op(): item.cell_reasons
+        for item in lowered.stages
+        if isinstance(item, LoweredRelation)
+        and any(
+            getattr(stage, "operation", None) == "prepare" and stage.output == item.output
+            for stage in lowered.admitted.stages
+        )
+    }
+    raw_cells: dict[ops.Relation, tuple[CellEncoding, ...]] = {}
+    for item in lowered.bindings:
+        cell = item.layout.cell
+        if cell is not None:
+            fields = CellFields(cell.value, cell.tag, cell.reason)
+            encoded = EncodedCell(
+                fields, CellBook.from_reasons(item.cell_reasons), cell.tag + "__state"
+            )
+            relation = item.source.relation.op()
+            previous = raw_cells.get(relation, ())
+            if not any(old.fields == fields for old in previous):
+                raw_cells[relation] = (*previous, encoded)
+    compact = lower_cells(expression, raw_cells=raw_cells, stage_policies=stage_policies)
+    physical_replacements: dict[ops.Node, ops.Node] = {}
+    for original, replacement in replacements.items():
+        if not isinstance(original, ops.Relation) or not isinstance(replacement, ops.Relation):
+            raise _invalid("staged replacement lacks an exact relation")
+        emitted = lower_cells(
+            original.to_expr(), raw_cells=raw_cells, stage_policies=stage_policies
+        ).expression
+        staged = replacement.to_expr()
+        # Staged backends may widen integers or forget SQL nullability.
+        staged = staged.mutate(
+            **{
+                name: staged[name].cast(dtype)
+                for name, dtype in emitted.schema().items()
+                if dtype.is_int16() and staged[name].type() != dtype
+            }
+        )
+        physical_replacements[emitted.op()] = staged.op()
+    rewritten = (
+        compact.expression.op().replace(physical_replacements).to_expr()
+        if physical_replacements
+        else compact.expression
+    )
     if source.provider.name == "sqlite":
         from marivo.analysis.materialization.temporal_sql import lower_temporal
 
         rewritten = lower_temporal(rewritten, "sqlite")
     if not isinstance(rewritten, ir.Table):
         raise _invalid("rewritten stage is not an Ibis table")
-    schema = expression.schema().to_pyarrow()
+    schema = schema_binding(
+        compact.expression.schema().to_pyarrow(), compact.cells, compact.logical_columns
+    )
     if not rewritten.schema().to_pyarrow().equals(schema, check_metadata=False):
-        raise _invalid("staged relation changes the emitted schema")
+        differences = tuple(
+            (name, str(dtype), str(rewritten.schema().get(name)))
+            for name, dtype in compact.expression.schema().items()
+            if rewritten.schema().get(name) != dtype
+        )
+        raise _invalid(f"staged relation changes emitted field types: {differences}")
     return source.compile(qualified, rewritten, purpose=purpose, expected_schema=schema)
 
 
@@ -106,7 +166,7 @@ def _read(
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
 ) -> pa.Table:
     issued = _issue(source, lowered, expression, purpose=purpose, replacements=replacements)
-    schema = expression.schema().to_pyarrow()
+    schema = issued.schema
     stream = CheckedStream(
         source.batches(issued, chunk_size=1024),
         schema,
@@ -330,7 +390,7 @@ def _result(
         )
     )
     primary_names = (*key_names, *stage.layout.extras, *cell_names)
-    primary = table.select(primary_names)
+    primary = project(table, primary_names)
     part_contracts: list[PartContract] = []
     parts: list[ExchangePart] = []
     from marivo.analysis.core.model import AttributionPart, part_role
@@ -339,7 +399,7 @@ def _result(
         role = part_role(part.part)
         names = (*key_names, *(component.column for component in part.columns))
         selected = next(
-            (item.table for item in retained_parts if item.role == role), table.select(names)
+            (item.table for item in retained_parts if item.role == role), project(table, names)
         )
         if isinstance(stage.node.value_type, DurationType) and isinstance(
             part.part, AttributionPart
@@ -384,7 +444,7 @@ def _result(
             if state_kind in ("cohort", "table", "occurrence_inputs")
             else primary.column("status")
             if state_kind == "spearman"
-            else primary.column("cell_tag")
+            else cell_column(primary, "cell_tag")
         )
         state = pa.Table.from_arrays(
             [*(primary.column(name) for name in key_names), statuses],
@@ -627,35 +687,26 @@ def execute_source_graph(
                     )
                     table = tables[predecessor.output]
                     keys = tuple(key.column for key in predecessor.layout.keys)
-                    rows = {
-                        tuple(row[name] for name in keys): row
-                        for row in finished.primary.to_pylist()
+                    finished_rows = {
+                        tuple(row[name] for name in keys): row for row in rows(finished.primary)
                     }
-                    for name in ("value", "cell_tag", "cell_reason"):
-                        table = table.set_column(
-                            table.schema.get_field_index(name),
-                            name,
-                            pa.array(
-                                [
-                                    rows[tuple(row[key] for key in keys)][name]
-                                    for row in table.to_pylist()
-                                ],
-                                type=finished.primary.schema.field(name).type,
-                            ),
-                        )
                     assert finished.method_state is not None
                     bounds = {
                         tuple(row[name] for name in keys): row["error_bound"]
                         for row in finished.method_state.to_pylist()
                     }
-                    table = table.set_column(
-                        table.schema.get_field_index("reference_proof__retained"),
-                        "reference_proof__retained",
-                        pa.array(
-                            [bounds[tuple(row[key] for key in keys)] for row in table.to_pylist()],
-                            type=pa.float64(),
-                        ),
-                    )
+                    output_rows = []
+                    for row in rows(table):
+                        key = tuple(row[name] for name in keys)
+                        row.update(
+                            {
+                                name: finished_rows[key][name]
+                                for name in ("value", "cell_tag", "cell_reason")
+                            }
+                        )
+                        row["reference_proof__retained"] = bounds[key]
+                        output_rows.append(row)
+                    table = from_rows(output_rows, issued_reads[predecessor.output].schema)
                     staged = source.stage_calculated(issued_reads[predecessor.output], table)
                     owned.append(staged)
                     tables[stage.stage.output] = table
@@ -675,16 +726,11 @@ def execute_source_graph(
                     params = node.parameters
                     assert isinstance(params, CellDerive)
                     table = tables[predecessor.output]
-                    values: list[object] = []
-                    tags: list[str] = []
-                    reasons: list[str | None] = []
-                    errors: list[float] = []
-                    for row in table.to_pylist():
+                    output_rows = []
+                    for row in rows(table):
                         if row["cell_tag"] != "defined":
-                            values.append(None)
-                            tags.append(row["cell_tag"])
-                            reasons.append(row["cell_reason"])
-                            errors.append(0.0)
+                            row["correspondence__result_error_bound"] = 0.0
+                            output_rows.append(row)
                             continue
                         try:
                             cell = evaluate_comparison(
@@ -697,30 +743,21 @@ def execute_source_graph(
                         except (ValueError, OverflowError) as error:
                             raise _invalid(f"comparison finish failed: {error}") from error
                         try:
-                            errors.append(
-                                propagated_error(
-                                    params.method,
-                                    row["current_endpoint__value"],
-                                    row["baseline_endpoint__value"],
-                                    cell.value if isinstance(cell, Defined) else None,
-                                    row["correspondence__current_error_bound"],
-                                    row["correspondence__baseline_error_bound"],
-                                )
+                            row["correspondence__result_error_bound"] = propagated_error(
+                                params.method,
+                                row["current_endpoint__value"],
+                                row["baseline_endpoint__value"],
+                                cell.value if isinstance(cell, Defined) else None,
+                                required(row["correspondence__current_error_bound"], float),
+                                required(row["correspondence__baseline_error_bound"], float),
                             )
                         except (ValueError, OverflowError) as error:
                             raise _invalid(str(error)) from error
-                        values.append(cell.value if isinstance(cell, Defined) else None)
-                        tags.append("defined" if isinstance(cell, Defined) else "undefined")
-                        reasons.append(None if isinstance(cell, Defined) else cell.reason)
-                    for name, data, dtype in (
-                        ("value", values, arrow_scalar_type(node.value_type)),
-                        ("cell_tag", tags, pa.string()),
-                        ("cell_reason", reasons, pa.string()),
-                        ("correspondence__result_error_bound", errors, pa.float64()),
-                    ):
-                        table = table.set_column(
-                            table.schema.get_field_index(name), name, pa.array(data, type=dtype)
-                        )
+                        row["value"] = cell.value if isinstance(cell, Defined) else None
+                        row["cell_tag"] = "defined" if isinstance(cell, Defined) else "undefined"
+                        row["cell_reason"] = None if isinstance(cell, Defined) else cell.reason
+                        output_rows.append(row)
+                    table = from_rows(output_rows, issued_reads[predecessor.output].schema)
                     final_local = replace(predecessor, output=stage.stage.output)
                     # Validate the finished Cell, endpoint and correspondence exchange before use.
                     _result(final_local, table, (), ())
@@ -748,11 +785,13 @@ def execute_source_graph(
                     raise _invalid("missing exact paired source preparation")
                 paired = tables[predecessor.output]
                 keys = tuple(item.column for item in predecessor.layout.keys)
-                left = paired.select((*keys, "va", "taga", "reasona")).rename_columns(
-                    [*keys, "value", "cell_tag", "cell_reason"]
+                left = rename(
+                    project(paired, (*keys, "va", "taga", "reasona")),
+                    [*keys, "value", "cell_tag", "cell_reason"],
                 )
-                right = paired.select((*keys, "vb", "tagb", "reasonb")).rename_columns(
-                    [*keys, "value", "cell_tag", "cell_reason"]
+                right = rename(
+                    project(paired, (*keys, "vb", "tagb", "reasonb")),
+                    [*keys, "value", "cell_tag", "cell_reason"],
                 )
                 return finish_spearman(
                     stage,

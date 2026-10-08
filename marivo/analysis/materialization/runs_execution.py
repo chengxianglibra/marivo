@@ -16,6 +16,9 @@ from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import ConditionCellsPart, RunCellsPart, Signature, part_role
 from marivo.analysis.core.predicates import ValuePredicate, compose, leaves
 from marivo.analysis.core.rules import TimeRunRead, TimeRuns
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rename as cell_rename
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.deviation_execution import SavedTable, load, save
 from marivo.analysis.materialization.execute_deadline import check
@@ -192,7 +195,7 @@ def _condition_scope(
         ):
             raise invalid("runs dependency type or original domain differs from its capture")
         allowed_reasons = dict(cell_reasons)
-        for row in table.to_pylist():
+        for row in cell_rows(table):
             check()
             value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
             if tag == "defined":
@@ -229,7 +232,7 @@ def _condition_scope(
         ).hexdigest()
         for table, index in zip(tables, indices, strict=True)
     )
-    rows = tuple(t.to_pylist() for t in tables)
+    rows = tuple(cell_rows(t) for t in tables)
     classes: list[Literal["true", "false", "unavailable"]] = []
     reasons = []
     for key in keys:
@@ -392,9 +395,10 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
     source = values[0]
     coverage = next((p.table for p in source.parts if p.role == "coverage"), None)
     if coverage is not None:
-        coverage = coverage.select(
-            [*source.contract.key_fields, "coverage__complete"]
-        ).rename_columns([*source.contract.key_fields, "complete"])
+        coverage = cell_rename(
+            cell_project(coverage, [*source.contract.key_fields, "coverage__complete"]),
+            [*source.contract.key_fields, "complete"],
+        )
     else:
         mapping = next((p.table for p in source.parts if p.role == "grid_cells"), None)
         if mapping is None:
@@ -434,9 +438,10 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
                 }
             )
         else:
-            coverage = mapping.select(
-                [*source.contract.key_fields, "grid_cells__coverage"]
-            ).rename_columns([*source.contract.key_fields, "complete"])
+            coverage = cell_rename(
+                cell_project(mapping, [*source.contract.key_fields, "grid_cells__coverage"]),
+                [*source.contract.key_fields, "complete"],
+            )
     subject = next((p.table for p in source.parts if p.role == "subject"), None)
     capture = Capture(
         source.contract.signature,

@@ -938,3 +938,43 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
         assert statistic._node.root.signature.quantity != fixed._node.root.signature.quantity
         assert any(a.call == "relation.rollup()" for a in statistic.contract().actions)
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [147]
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("method", [mv.count(), mv.mean()])
+def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
+    analysis_dsl_case_factory: DslCaseFactory, empty: bool, method: mv.RowMethod
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    customer = ms.ref.entity("sales.customer")
+    region = ms.ref.dimension("sales.customer.region")
+    fixed = (
+        case.session.members(customer)
+        .observe(
+            ms.ref.metric("sales.revenue"),
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(customer, region),
+        )
+        .execute()
+    )
+    if empty or method.kind == "mean":
+        fixed = fixed.where(fixed.value.is_defined()).execute()
+    if empty:
+        fixed = fixed.where(fixed.value.gt(10000)).execute()
+    result = fixed.group_by(region).summarize(method).execute()
+    frame = result.to_pandas()
+    assert list(frame.columns) == ["group", "value", "cell_tag", "cell_reason"]
+    expected = (
+        {}
+        if empty
+        else {"east": 300, "south": 400}
+        if method.kind == "mean"
+        else {"east": 2, "south": 1, "west": 1}
+    )
+    assert frame.set_index("group").value.to_dict() == expected
+    assert set(frame.cell_tag) == (set() if empty else {"defined"})
+    assert frame.cell_reason.isna().all()
+    restored = case.session.artifact(result.state.artifact_ref)
+    assert restored.to_pandas().equals(frame)

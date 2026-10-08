@@ -83,6 +83,12 @@ Each row is a distinct semantic method family. Method, implementation and state
 versions have separate owners; a changed contract is never silently interpreted
 as an old version. These component names describe semantics, not a second codec:
 physical columns and bound part roles belong to the shared graph protocol.
+The four semantic states and method-owned reasons are unchanged by compact
+storage: Known/Validity/Encoded carriers preserve Defined zero, present Null,
+Undefined and Unknown distinctly. The value's Arrow validity may identify one
+statically declared missing state; it cannot infer a reason from row values.
+See [Runtime](session-state-and-runtime.md#retained-schemas-and-method-state)
+for the exact encoding and recovery boundary.
 
 All state carries exact quantity/contribution identity, input binding, full output
 keys, coverage, Cell policy, type and method/state versions. Component state and

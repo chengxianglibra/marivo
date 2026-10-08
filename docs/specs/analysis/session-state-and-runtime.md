@@ -110,7 +110,7 @@ Downstream statistics check those actual inputs; a local stage does not erase
 its source/input binding. Historical attribute selections retain captured
 versions through a subsequent observation.
 
-Exchange preserves typed schema/decoding, Cell columns, ordered parts,
+Exchange preserves typed schema/decoding, compact Cell bindings, ordered parts,
 complete read/close, deadline/cancellation and resource ownership. Producer
 key/Cell/business guarantees are trusted rather than repeatedly re-audited.
 Necessary indexes reject encountered duplicates and required lookups reject
@@ -127,16 +127,36 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | SQLite Store user_version=8 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
 | graph_dag/v3, `graph-dag-v3:` | Bounded frozen Source/Fixed/Method records, ordered edges, derivations and retained references |
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
-| artifact_descriptor/v4 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
+| artifact_descriptor/v5 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
 | receipt/v1 | Closed primary/part variants with complete key schema and local storage facts |
-| method_state/v1 | Kind-dispatched state, binding and method/contract versions |
+| method_state/v2 | Kind-dispatched state, binding and method/contract versions |
 | continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
-| execution_key/v2 | Same-Session execution identity, independent of Store generation |
+| execution_key/v3 | Same-Session execution identity, independent of Store generation |
 
 Complete graph protocol names have the `marivo.analysis.` prefix. Parts preserve
 exact physical types, Decimal precision/scale and Duration/timestamp units.
-Each value has its own Cell tag/reason columns. Empty streams retain schemas
-and domains; no opaque summary or positional join replaces required state.
+Each Cell slot freezes its carrier and canonical reason dictionary in the
+descriptor's primary Arrow schema or its part receipt. Parquet payloads carry
+only physical fields; they do not repeat the dictionary in their headers. Reads
+restore the one frozen binding before validating codes. Physical implementation ABI 6 and
+state/part contract 3 bind this representation. Defined is code 0. Non-Defined
+codes use the low two bits for Null (1), Undefined (2), Unknown (3), with the
+high bits holding the dictionary ordinal (starting at 1). Dictionaries sort by
+tag then reason, admit at most 8191 pairs, and are deterministically rebound when
+inputs combine. Encoded state fields are non-null int16; invalid codes, undeclared
+reasons and state/value-validity disagreements reject without fallback.
+
+Optional correspondence endpoints use -1 solely for an absent endpoint, outside
+the four Cell states. Only a frozen optional binding permits that sentinel;
+correspondence parts still own presence and pairing checks. An absent endpoint
+is distinct from a present Null Cell. Empty streams retain bindings, schemas and
+domains; actual row distributions never alter their carrier.
+
+Descriptor v4 and earlier, method-state v1 and earlier, and prior state/part
+contracts reject on recovery. Existing history and files are preserved. Re-execute
+the producing source analysis to create a current Artifact; there is no migration
+or alternate read path. Store 8 itself is unchanged. Current public `show()` and
+`to_pandas()` restore the same value/tag/reason fields and types.
 
 Ordinary state includes Subject/coordinate maps, original components, current-row
 statistic state, coverage, correspondence/endpoints and references as required.

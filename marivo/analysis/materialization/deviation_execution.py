@@ -31,6 +31,17 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import DeviationFit, DeviationRead
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import StatisticalRelationError
+from marivo.analysis.materialization.cell_arrow import (
+    compact_schema,
+    from_rows,
+    logical_schema,
+    number,
+    policies,
+    required,
+)
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rename as cell_rename
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -42,7 +53,7 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_protocol import invalid
 from marivo.analysis.methods import deviation_numeric as arithmetic
-from marivo.analysis.methods.deviation_physical import output_type, parse_type
+from marivo.analysis.methods.deviation_physical import CELL_REASONS, output_type, parse_type
 from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.semantics import MethodKey
 
@@ -229,12 +240,19 @@ def validate_table_fits(
             if saved.keys != contract.key_fields or set(original) != set(current):
                 raise invalid("fitted table column keys differ from their captured current domain")
             expected = source.take(pa.array([original[key] for key in current], type=pa.int64()))
-            actual = primary.select(
-                (
-                    *saved.keys,
-                    *(f"column_{column.index}__{c}" for c in ("value", "cell_tag", "cell_reason")),
-                )
-            ).rename_columns((*saved.keys, "value", "cell_tag", "cell_reason"))
+            actual = cell_rename(
+                cell_project(
+                    primary,
+                    (
+                        *saved.keys,
+                        *(
+                            f"column_{column.index}__{c}"
+                            for c in ("value", "cell_tag", "cell_reason")
+                        ),
+                    ),
+                ),
+                (*saved.keys, "value", "cell_tag", "cell_reason"),
+            )
             if not actual.equals(expected):
                 raise invalid("fitted table column differs from its verified original value view")
     except (
@@ -276,16 +294,19 @@ def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Inputs, State]:
 
 
 def _index(table: pa.Table, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
-    result = {tuple(row[k] for k in keys): i for i, row in enumerate(table.to_pylist())}
+    result = {tuple(row[k] for k in keys): i for i, row in enumerate(cell_rows(table))}
     if len(result) != table.num_rows or any(None in key for key in result):
         raise invalid("deviation input contains null or duplicate complete keys")
     return result
 
 
 def _primary(views: pa.Table, field: str, keys: tuple[str, ...]) -> pa.Table:
-    return views.select(
-        (*keys, *(field + "__" + c for c in ("value", "cell_tag", "cell_reason")))
-    ).rename_columns((*keys, "value", "cell_tag", "cell_reason"))
+    return cell_rename(
+        cell_project(
+            views, (*keys, *(field + "__" + c for c in ("value", "cell_tag", "cell_reason")))
+        ),
+        (*keys, "value", "cell_tag", "cell_reason"),
+    )
 
 
 def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[ExchangePart, ...]:
@@ -298,8 +319,11 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
         result.append(
             ExchangePart(
                 "subject_map",
-                table.rename_columns(
-                    tuple(name.replace("subject__", "subject_map__") for name in table.column_names)
+                cell_rename(
+                    table,
+                    tuple(
+                        name.replace("subject__", "subject_map__") for name in table.column_names
+                    ),
                 ),
             )
         )
@@ -312,7 +336,7 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
         )
         by_id = {cell.identity: (i, cell) for i, cell in enumerate(grid.cells)}
         cells = []
-        for row in primary.to_pylist():
+        for row in cell_rows(primary):
             check()
             identity = row[inputs.keys[position]]
             if identity not in by_id:
@@ -405,7 +429,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
     assert isinstance(params, DeviationFit)
     source = values[0]
     typ = parse_type(params.input_type)
-    rows, keys = source.primary.to_pylist(), source.contract.key_fields
+    rows, keys = cell_rows(source.primary), source.contract.key_fields
     original = _index(source.primary, keys)
     categories = []
     for value in values[1:]:
@@ -415,7 +439,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         ordered = value.primary.take(
             pa.array([category_index[key] for key in original], type=pa.int64())
         )
-        category_rows = ordered.to_pylist()
+        category_rows = cell_rows(ordered)
         if any(row["cell_tag"] not in ("defined", "null") for row in category_rows):
             raise invalid("deviation partitions require Defined or Null categories")
         categories.append(ordered)
@@ -441,7 +465,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
     for indices in groups.values():
         check()
         facts = {
-            i: arithmetic.exact(rows[i]["value"], typ)
+            i: arithmetic.exact(number(rows[i]["value"]), typ)
             for i in indices
             if rows[i]["cell_tag"] == "defined"
         }
@@ -487,16 +511,36 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
                     scored = arithmetic.certified_score(delta, fitted, checkpoint=check)
                     fields["score__value"][i] = scored.value
                     scores.append(ScoreWitness(i, scored.root))
-    arrays = {key: source.primary[key] for key in keys}
-    for name, data in fields.items():
-        field, component = name.split("__")
-        arrays[name] = pa.array(
-            data,
-            type=arrow_scalar_type(output_type(field, typ))
-            if component == "value"
-            else pa.string(),
+    schema = pa.schema(
+        (
+            *(source.primary.schema.field(key) for key in keys),
+            *(
+                pa.field(
+                    name,
+                    arrow_scalar_type(output_type(name.split("__")[0], typ))
+                    if name.endswith("__value")
+                    else pa.string(),
+                )
+                for name in fields
+            ),
         )
-    views = pa.table(arrays)
+    )
+    views = from_rows(
+        (
+            {
+                **{key: row[key] for key in keys},
+                **{name: values[i] for name, values in fields.items()},
+            }
+            for i, row in enumerate(rows)
+        ),
+        compact_schema(
+            schema,
+            (
+                *policies(source.primary),
+                *CELL_REASONS,
+            ),
+        ),
+    )
     saved = Inputs(
         params.fit_id,
         source.contract.input_binding,
@@ -560,10 +604,6 @@ def _result(
     *,
     validate: bool = False,
 ) -> ExchangeResult:
-    reasons: dict[str, set[str]] = {}
-    for row in primary.to_pylist():
-        if row["cell_tag"] != "defined":
-            reasons.setdefault(row["cell_tag"], set()).add(row["cell_reason"])
     contract = ExchangeContract(
         node.signature,
         node.method,
@@ -578,7 +618,7 @@ def _result(
             )
             for part in parts
         ),
-        tuple((tag, tuple(sorted(values))) for tag, values in sorted(reasons.items())),
+        policies(primary),
         allow_empty_singleton=not keys and primary.num_rows == 0,
     )
     return from_arrow(primary, contract, parts=parts, validate=validate)
@@ -681,12 +721,13 @@ def _validate(
         ),
     )
     for retained, fields in ((table, input_fields), (views, view_fields)):
-        if retained.column_names != [field.name for field in fields] or any(
-            retained.schema.field(field.name).type != field.type for field in fields
+        schema = logical_schema(retained.schema)
+        if schema.names != [field.name for field in fields] or any(
+            schema.field(field.name).type != field.type for field in fields
         ):
             raise invalid("deviation retained schema differs from its typed original authority")
-    rows = table.to_pylist()
-    view_rows = views.to_pylist()
+    rows = cell_rows(table)
+    view_rows = cell_rows(views)
     original = _index(table, inputs.keys)
     if _index(views, inputs.keys) != original or contract.key_fields != inputs.keys:
         raise invalid("deviation original keys or view correspondence differs")
@@ -702,10 +743,6 @@ def _validate(
     retained_fit = any(isinstance(p, FitInputsPart) for p in inputs.signature.parts)
     if retained_fit:
         nested_parts = tuple(ExchangePart(p.role, load(p.table)) for p in inputs.parts)
-        reasons: dict[str, set[str]] = {}
-        for row in rows:
-            if row["cell_tag"] != "defined":
-                reasons.setdefault(row["cell_tag"], set()).add(row["cell_reason"])
         nested_contract = ExchangeContract(
             inputs.signature,
             MethodKey("deviation.read"),
@@ -716,7 +753,7 @@ def _validate(
                 PartContract(p.role, saved.table.schema, p.keys)
                 for p, saved in zip(inputs.parts, nested_parts, strict=True)
             ),
-            tuple((tag, tuple(sorted(values))) for tag, values in sorted(reasons.items())),
+            policies(table),
             allow_empty_singleton=not inputs.keys and table.num_rows == 0,
         )
         _validate(nested_contract, table, nested_parts)
@@ -724,7 +761,7 @@ def _validate(
     for saved in inputs.categories:
         categorical = load(saved)
         if _index(categorical, inputs.keys) != original or any(
-            row["cell_tag"] not in ("defined", "null") for row in categorical.to_pylist()
+            row["cell_tag"] not in ("defined", "null") for row in cell_rows(categorical)
         ):
             raise invalid("deviation retained categorical keys or Cell states differ")
         category_columns.append(categorical["value"].to_pylist())
@@ -748,7 +785,7 @@ def _validate(
             raise invalid("deviation partitions differ from the captured classification tuples")
         groups.update(labels)
         facts = {
-            i: arithmetic.exact(rows[i]["value"], typ)
+            i: arithmetic.exact(number(rows[i]["value"]), typ)
             for i in partition.indices
             if rows[i]["cell_tag"] == "defined"
         }
@@ -889,7 +926,7 @@ def _validate(
                     or view["score__cell_tag"] != "defined"
                     or view["score__cell_reason"] is not None
                     or not arithmetic.verify_score(
-                        delta, fitted, view["score__value"], witnesses[i]
+                        delta, fitted, required(view["score__value"], float), witnesses[i]
                     )
                 ):
                     raise invalid("score owned view differs from its retained rounding certificate")
@@ -914,21 +951,32 @@ def _validate(
                 column_field,
                 inputs.keys,
             )
-            actual_column = primary.select(
-                (*inputs.keys, *(f"column_{i}__{c}" for c in ("value", "cell_tag", "cell_reason")))
-            ).rename_columns((*inputs.keys, "value", "cell_tag", "cell_reason"))
+            actual_column = cell_rename(
+                cell_project(
+                    primary,
+                    (
+                        *inputs.keys,
+                        *(f"column_{i}__{c}" for c in ("value", "cell_tag", "cell_reason")),
+                    ),
+                ),
+                (*inputs.keys, "value", "cell_tag", "cell_reason"),
+            )
             if not actual_column.equals(expected_column):
                 raise invalid("terminal table column differs from its retained owned fit view")
     else:
         values_part = next((p for p in parts if p.role == "values"), None)
         actual_view = (
-            values_part.table.select(
-                (*inputs.keys, *("values__" + c for c in ("value", "cell_tag", "cell_reason")))
-            ).rename_columns((*inputs.keys, "value", "cell_tag", "cell_reason"))
+            cell_rename(
+                cell_project(
+                    values_part.table,
+                    (*inputs.keys, *("values__" + c for c in ("value", "cell_tag", "cell_reason"))),
+                ),
+                (*inputs.keys, "value", "cell_tag", "cell_reason"),
+            )
             if values_part is not None
             else primary
         )
-        if not actual_view.equals(retained):
+        if cell_rows(actual_view) != cell_rows(retained):
             raise invalid("deviation output differs from its retained owned view")
     for saved_part in inputs.parts:
         if retained_fit and saved_part.role in (

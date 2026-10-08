@@ -20,6 +20,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.errors import MethodRegistrationError
@@ -648,7 +649,7 @@ def test_independent_roots_and_temporal_fold(
             verified = result._dataset.verified()
             actual = {
                 (row["key_0"], row["key_1"]): (row["value"], row["cell_tag"])
-                for row in verified.primary.to_pylist()
+                for row in cell_rows(verified.primary)
             }
             assert actual == {
                 ("a", 1): (35, "defined"),

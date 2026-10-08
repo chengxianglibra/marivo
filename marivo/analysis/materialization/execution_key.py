@@ -63,7 +63,7 @@ from marivo.semantic.runtime_metric import (
 )
 
 _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
-_GRAPH_PROTOCOL = "marivo.analysis.execution_key/v2"
+_GRAPH_PROTOCOL = "marivo.analysis.execution_key/v3"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
 _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | StateModelCapture] = (

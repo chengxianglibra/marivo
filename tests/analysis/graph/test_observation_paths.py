@@ -20,6 +20,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods.physical import Backend, ScalarType, SourceShape, TimeShape
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import provider_for
@@ -225,7 +226,7 @@ def test_long_path_sum_and_count(
             result = logical.execute()
             if compound:
                 assert result._dataset is not None
-                records = result._dataset.verified().primary.to_pylist()
+                records = cell_rows(result._dataset.verified().primary)
                 assert {(row["key_0"], row["key_1"]): row["value"] for row in records} == dict(
                     zip(((1, "a"), (1, "b"), (2, "c")), expected, strict=True)
                 )
@@ -275,7 +276,7 @@ def test_long_path_sum_and_count(
                     assert selected._dataset is not None
                     assert {
                         (row["key_0"], row["key_1"]): row["value"]
-                        for row in selected._dataset.verified().primary.to_pylist()
+                        for row in cell_rows(selected._dataset.verified().primary)
                     } == {(1, "a"): 2, (1, "b"): 0, (2, "c"): 0}
                 else:
                     assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]

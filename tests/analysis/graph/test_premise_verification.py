@@ -14,6 +14,7 @@ from marivo.analysis.compiler.graph_lowering import SemanticCheck
 from marivo.analysis.core.model import available_facts
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_source_execution as native
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from tests.analysis.graph.physical_workloads import workload
@@ -58,7 +59,7 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         assert purposes == ["analysis.graph.stage"]
         assert result._dataset is not None
         exchange = result._dataset.verified()
-        rows = exchange.primary.to_pylist()
+        rows = cell_rows(exchange.primary)
         if operation == "read":
             actual = {
                 tuple(row[key] for key in exchange.contract.key_fields): row["value"]
@@ -154,13 +155,13 @@ def test_pairing_assumption_is_exactly_bound_and_avoids_only_its_check(
         result = assumed.execute()
         assert "key_set_equal" not in checks
         assert result._dataset is not None
-        assert all(row["value"] == 1.0 for row in result._dataset.verified().primary.to_pylist())
+        assert all(row["value"] == 1.0 for row in cell_rows(result._dataset.verified().primary))
         first, second = left.execute(), right.execute()
         with pytest.raises(MaterializationError, match="key sets differ"):
             first.ratio(second).execute()
         fixed = first.ratio(second, pairing=mv.ExactKeys(verification="assume")).execute()
         assert fixed._dataset is not None
-        assert all(row["value"] == 1.0 for row in fixed._dataset.verified().primary.to_pylist())
+        assert all(row["value"] == 1.0 for row in cell_rows(fixed._dataset.verified().primary))
         with pytest.raises(MaterializationError, match="operand is missing"):
             second.ratio(first, pairing=mv.ExactKeys(verification="assume")).execute()
 

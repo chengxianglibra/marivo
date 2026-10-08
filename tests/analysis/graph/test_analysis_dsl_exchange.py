@@ -25,6 +25,9 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.datasets import descriptors as d
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -316,11 +319,16 @@ def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> Non
         ),
         contract,
     )
-    assert source.primary.equals(pandas.primary)
-    assert source.primary.equals(fixed.primary)
+    assert logical_table(source.primary).equals(logical_table(pandas.primary))
+    assert logical_table(source.primary).equals(logical_table(fixed.primary))
     assert source.parts[0].table.num_rows == fixed.parts[0].table.num_rows == 4
     assert source.primary["value"].to_pylist()[0] == 2**53 + 7
-    assert source.primary["cell_tag"].to_pylist() == ["defined", "null", "undefined", "unknown"]
+    assert cell_column(source.primary, "cell_tag").to_pylist() == [
+        "defined",
+        "null",
+        "undefined",
+        "unknown",
+    ]
     with pytest.raises(MaterializationError, match="missing, reordered or extra"):
         from_arrow(pa.Table.from_batches((primary_batch,)), contract)
     with pytest.raises(MaterializationError, match="complete keys differ"):
@@ -384,7 +392,14 @@ def test_empty_three_producers_keep_schema_and_verified_empty_part(
         ),
     )
     assert all(item.primary.num_rows == 0 and item.parts[0].table.num_rows == 0 for item in outputs)
-    assert all(item.primary.schema.equals(binding.schema) for item in outputs)
+    from marivo.analysis.materialization.cell_arrow import logical_schema
+
+    expected = [(field.name, field.type) for field in binding.schema]
+    assert all(
+        [(field.name, field.type) for field in logical_schema(item.primary.schema)] == expected
+        for item in outputs
+    )
+    assert all(item.primary.schema.equals(outputs[0].primary.schema) for item in outputs)
 
 
 def test_checked_stream_early_close_never_completes() -> None:
@@ -499,7 +514,7 @@ def test_fixed_count_reads_verified_receipts_without_duckdb(
     )
     execute = execute_fixed_count if method_name == "count" else execute_fixed_row
     result = execute(PreparedGraph(admitted), lowered, selected, contract)
-    assert result.primary.to_pylist() == [
+    assert cell_rows(result.primary) == [
         {"value": expected, "cell_tag": "defined", "cell_reason": None}
     ]
     assert result.parts[0].table[f"row_state__{method_name}"].to_pylist() == [expected]
@@ -711,7 +726,7 @@ def test_fixed_spearman_pairs_complete_keys_without_source_or_duckdb(
     result = execute_fixed_spearman(
         PreparedGraph(admitted), lowered, (inputs[0], inputs[1]), (contracts[0], contracts[1])
     )
-    assert result.primary.to_pylist() == [
+    assert cell_rows(result.primary) == [
         {"status": "valid", "value": -1.0, "cell_tag": "defined", "cell_reason": None}
     ]
     assert result.parts[0].table["pair_counts__complete_pair_count"].to_pylist() == [4]

@@ -5,6 +5,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis._cohort import decide
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -225,7 +226,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
             (("defined", "defined", "defined", "unknown"), (1, 1, 0, None), None),
             (("defined",) * 3 + ("undefined",), (1, 1, 1, None), None),
         ):
-            rows = supplied.primary.to_pylist()
+            rows = cell_rows(supplied.primary)
             for row in rows:
                 index = [
                     item.identity for item in values._node.root.signature.domain.time_grid.cells
@@ -281,7 +282,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
                 )
         other_source = values.where(values.value.is_defined())
         other_fixed = saved_values.where(saved_values.value.is_defined())
-        other_rows = supplied.primary.to_pylist()
+        other_rows = cell_rows(supplied.primary)
         for row in other_rows:
             row.update(value=1, cell_tag="defined", cell_reason=None)
         other_table = pa.Table.from_pylist(other_rows, schema=supplied.primary.schema)
@@ -294,7 +295,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
             (),
         )
         for tag in ("unknown", "undefined"):
-            rows = supplied.primary.to_pylist()
+            rows = cell_rows(supplied.primary)
             for row in rows:
                 row.update(value=None, cell_tag=tag, cell_reason="controlled_consumer")
             table = pa.Table.from_pylist(rows, schema=supplied.primary.schema)

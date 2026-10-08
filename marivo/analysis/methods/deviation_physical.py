@@ -21,6 +21,10 @@ from marivo.analysis.methods.physical import (
 )
 from marivo.analysis.methods.semantics import MethodKey
 
+CELL_REASONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("undefined", ("no_valid_samples", "insufficient_samples", "zero_scale")),
+)
+
 
 def parse_type(value: str) -> ValueType:
     if value in ("int64", "float64"):

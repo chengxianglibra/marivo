@@ -22,6 +22,9 @@ from marivo.analysis.core.history_types import (
 )
 from marivo.analysis.core.model import DerivedQuantity, HistoryViewPart
 from marivo.analysis.core.rules import HistoryAxesPrepare, HistoryRead, HistoryView
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import required
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.domain_preparation import validate_metadata
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -109,7 +112,7 @@ def axes_result(node: MethodNode, primary: pa.Table, binding: str) -> ExchangeRe
     retained = ExchangePart(
         "history_view", pa.table({"history_view__retained": [AXIS_STATE.dump_json(state).decode()]})
     )
-    statuses = primary.select(keys).append_column(
+    statuses = cell_project(primary, keys).append_column(
         "status", pa.array(["accepted"] * primary.num_rows, type=pa.string())
     )
     contract = ExchangeContract(
@@ -449,8 +452,8 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
     keys = tuple(f"key_{i}" for i in range(len(node.signature.domain.instance_key)))
     if isinstance(params, HistoryView):
         histories = tuple(
-            HISTORY.validate_json(row["history__record"], strict=True)
-            for row in next(p.table for p in source.parts if p.role == "history").to_pylist()
+            HISTORY.validate_json(required(row["history__record"], str), strict=True)
+            for row in cell_rows(next(p.table for p in source.parts if p.role == "history"))
         )
         state = ViewState(
             tuple(
@@ -481,7 +484,7 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         primary = table(part, state, keys)
     else:
         state = load(source.parts)
-        primary = source.primary.select(keys)
+        primary = cell_project(source.primary, keys)
         field = params.field
         primary = primary.append_column("value", source.primary[field])
         tag = field + "__cell_tag"
@@ -651,9 +654,9 @@ def validate(
         fail("history_axes", "unexpected checkpoint axes", stage="recovery")
     expected_table = table(part, state, contract.key_fields)
     expected_rows = {
-        tuple(row[k] for k in contract.key_fields): row for row in expected_table.to_pylist()
+        tuple(row[k] for k in contract.key_fields): row for row in cell_rows(expected_table)
     }
-    actual_keys = {tuple(row[k] for k in contract.key_fields) for row in primary.to_pylist()}
+    actual_keys = {tuple(row[k] for k in contract.key_fields) for row in cell_rows(primary)}
     if part.complete and actual_keys != set(expected_rows):
         fail("history_view", "complete view omitted retained rows", stage="recovery")
     quantity = contract.signature.quantity
@@ -662,7 +665,7 @@ def validate(
         if isinstance(quantity, DerivedQuantity) and quantity.method_version == "history.read@v1"
         else None
     )
-    for row in primary.to_pylist():
+    for row in cell_rows(primary):
         key = tuple(row[k] for k in contract.key_fields)
         original = expected_rows.get(key)
         if original is None:
@@ -702,10 +705,10 @@ def validate(
             ):
                 expected_subjects[row_identity] = h.subject
         for row in subject_table.to_pylist():
-            key = tuple(row[k] for k in contract.key_fields)
+            subject_identity = tuple(row[k] for k in contract.key_fields)
             if tuple(
                 row[f"subject__key_{i}"] for i in range(len(state.subject_types))
-            ) != expected_subjects.get(key):
+            ) != expected_subjects.get(subject_identity):
                 fail(
                     "history_binding",
                     "Subject mapping differs from retained canonical History",

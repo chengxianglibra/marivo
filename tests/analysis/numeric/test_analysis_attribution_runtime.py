@@ -11,6 +11,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -322,13 +324,15 @@ def test_common_other_mapping_each_parent_and_resolution(
     change = endpoint(8).compare(endpoint(7))
     for source in (change, change.execute()):
         result = source.attribute(axes=axes, mode=mode, top_k=1).execute()
-        rows = result._dataset.verified().primary.to_pylist()
+        rows = cell_rows(result._dataset.verified().primary)
         assert any(r["key_1"] == "Other" and r["key_3"] == 0 for r in rows)
         assert any(r["key_1"] is None and r["key_3"] & 1 for r in rows)
         for level in (1, 2) if mode == "hierarchy" else (2,):
             assert sum(r["value"] for r in rows if r["key_0"] == level) == -24
         selected = result.where(result.contribution.value.is_defined()).execute()
-        assert selected._dataset.verified().primary.equals(result._dataset.verified().primary)
+        assert logical_table(selected._dataset.verified().primary).equals(
+            logical_table(result._dataset.verified().primary)
+        )
         assert dict(selected.contract()._facts)["complete_partition"] == "False"
 
 
@@ -531,7 +535,7 @@ def test_period_buckets_and_retained_coarsened_partition(
             ms.ref.metric("sales.order_count"),
             during=grid.window,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=axes,
+            by=(ms.ref.entity("sales.customer"), *axes),
         )
         if coarsen:
             values = values.group_by(ms.ref.entity("sales.customer"), mv.grain("month")).rollup()
@@ -551,7 +555,7 @@ def test_period_buckets_and_retained_coarsened_partition(
         result = change.attribute(axes=axes).execute()
         actual = {
             (r["key_0"], r["key_3"]): r["value"]
-            for r in result._dataset.verified().primary.to_pylist()
+            for r in cell_rows(result._dataset.verified().primary)
         }
         assert actual == expected
 
@@ -748,7 +752,7 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
             ]
             for r in correspondence.to_pylist()
         }
-        for row in checked.primary.to_pylist():
+        for row in cell_rows(checked.primary):
             key = tuple(row[k] for k in checked.contract.key_fields)
             assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
 

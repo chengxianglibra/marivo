@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.methods.physical import ScalarType
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.lifecycle.lifecycle_fixtures import END, START, build_lifecycle_public
@@ -76,8 +77,16 @@ def test_public_duration_ratio_preserves_unknown(
     parts = {part.role: part.table for part in ratio._dataset.verified().parts}
     assert {"subject", "current_endpoint", "baseline_endpoint", "correspondence"} <= parts.keys()
     for role in ("current_endpoint", "baseline_endpoint"):
-        assert parts[role][role + "__cell_tag"].to_pylist() == ["defined", "unknown", "defined"]
-        assert parts[role][role + "__cell_reason"].to_pylist() == [None, "coverage_censored", None]
+        assert cell_column(parts[role], role + "__cell_tag").to_pylist() == [
+            "defined",
+            "unknown",
+            "defined",
+        ]
+        assert cell_column(parts[role], role + "__cell_reason").to_pylist() == [
+            None,
+            "coverage_censored",
+            None,
+        ]
     assert durations.ratio(durations).execute().state.artifact_ref == ratio.state.artifact_ref
     with pytest.raises(AnalysisError):
         ratio.ratio(ratio).execute()

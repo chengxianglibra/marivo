@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -14,6 +14,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
+from marivo.analysis.core.cell_encoding import EncodedCell
 from marivo.analysis.core.model import (
     AttributionPart,
     ConditionCellsPart,
@@ -29,6 +30,16 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import ReferenceDerive
 from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
+from marivo.analysis.materialization.cell_arrow import (
+    binding,
+    compact_schema,
+    from_rows,
+    logical_schema,
+    pack,
+    required,
+)
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.cell_arrow import validate as validate_cells
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution import BatchStream
@@ -235,7 +246,7 @@ class ExchangeContract:
             raise _invalid("invalid method, binding, schema or ordered keys")
         if len(self.key_fields) != len(self.signature.domain.instance_key):
             raise _invalid("physical keys differ from the complete domain identity")
-        names = self.schema.names
+        names = logical_schema(self.schema).names
         if self.signature.quantity is not None and names[-3:] != [
             "value",
             "cell_tag",
@@ -359,7 +370,9 @@ class CheckedStream:
                         ):
                             raise _invalid("null or duplicate complete key")
                         seen_keys.add(key)
-                if self._validate_cell_values and {"value", "cell_tag", "cell_reason"} <= set(
+                if binding(self.schema).cells:
+                    validate_cells(pa.Table.from_batches([batch], schema=self.schema))
+                elif self._validate_cell_values and {"value", "cell_tag", "cell_reason"} <= set(
                     self.schema.names
                 ):
                     self._validate_cells(batch)
@@ -426,6 +439,45 @@ class CompletedCheck:
     requirement: CheckRequirement
     result_digest: str
     consumers: tuple[CheckRequirement, ...] = ()
+
+
+def _compact_result(
+    contract: ExchangeContract,
+    primary: pa.Table,
+    parts: tuple[ExchangePart, ...],
+    completed_checks: tuple[CompletedCheck, ...],
+    method_state: pa.Table | None,
+) -> ExchangeResult:
+    """Freeze Cell carriers only after producer-owned schema validation."""
+    from marivo.analysis.core.model import ReferenceStatePart
+
+    primary = pack(primary, contract.cell_reasons, contract.column_reasons)
+    parts = tuple(
+        ExchangePart(
+            part.role,
+            pack(
+                part.table,
+                next(
+                    (
+                        declared.cell_reasons
+                        for declared in contract.signature.parts
+                        if isinstance(declared, ReferenceStatePart) and declared.role == part.role
+                    ),
+                    contract.cell_reasons,
+                ),
+            ),
+        )
+        for part in parts
+    )
+    contract = replace(
+        contract,
+        schema=primary.schema,
+        parts=tuple(
+            replace(declared, schema=part.table.schema)
+            for declared, part in zip(contract.parts, parts, strict=True)
+        ),
+    )
+    return ExchangeResult(contract, primary, parts, completed_checks, method_state)
 
 
 def collect(
@@ -575,7 +627,7 @@ def collect(
                         row,
                         empty_rules=support_state.empty_rules,
                     )
-                    for row in numeric_primary(part.table).to_pylist()
+                    for row in cell_rows(numeric_primary(part.table))
                 ):
                     raise _invalid("reference support Cell disagrees with original additive state")
             checked = CheckedStream(
@@ -614,9 +666,9 @@ def collect(
             raise _invalid("coordinate partition lacks original or coordinate components")
         original = {
             tuple(row[name] for name in contract.key_fields): row
-            for row in by_role["original_state"].to_pylist()
+            for row in cell_rows(by_role["original_state"])
         }
-        for row in by_role[part_role(coordinate)].to_pylist():
+        for row in cell_rows(by_role[part_role(coordinate)]):
             key = tuple(row[name] for name in contract.key_fields)
             if not coordinate_state_matches(
                 coordinate.components,
@@ -701,8 +753,8 @@ def collect(
             if declaration.version != "v1" or not declaration.method_version.endswith("@v1"):
                 raise _invalid("unsupported transported numerical state version")
             table = next(part.table for part in parts if part.role == role)
-            keyed = {tuple(row[k] for k in contract.key_fields): row for row in table.to_pylist()}
-            for row in numeric_primary(partial).to_pylist():
+            keyed = {tuple(row[k] for k in contract.key_fields): row for row in cell_rows(table)}
+            for row in cell_rows(numeric_primary(partial)):
                 if not state_matches(
                     prefix + method,
                     row,
@@ -736,7 +788,7 @@ def collect(
             raise _invalid("missing or mismatched method state vector")
         states = {
             tuple(row[name] for name in contract.key_fields): row["status"]
-            for row in method_state.to_pylist()
+            for row in cell_rows(method_state)
         }
         if contract.state_kind in (
             "difference",
@@ -748,7 +800,7 @@ def collect(
         ):
             if any(
                 states[tuple(row[name] for name in contract.key_fields)] != row["cell_tag"]
-                for row in primary.to_pylist()
+                for row in cell_rows(primary)
             ):
                 raise _invalid("Difference state status differs from its primary Cell")
             if contract.state_kind in ("share", "penetration", "standardized"):
@@ -768,12 +820,12 @@ def collect(
             "attribution_component_mix",
         ):
             expected_status = (
-                primary["cell_tag"].to_pylist()
+                [row["cell_tag"] for row in cell_rows(primary)]
                 if contract.state_kind != "table"
                 else ["accepted"] * primary.num_rows
             )
             if [
-                states[tuple(row[k] for k in contract.key_fields)] for row in primary.to_pylist()
+                states[tuple(row[k] for k in contract.key_fields)] for row in cell_rows(primary)
             ] != expected_status:
                 raise _invalid("display method status differs")
         elif contract.state_kind in (
@@ -803,19 +855,19 @@ def collect(
         elif contract.state_kind in ("anchor_retention", "subject_retention"):
             if any(
                 states[tuple(row[k] for k in contract.key_fields)] != row["cell_tag"]
-                for row in primary.to_pylist()
+                for row in cell_rows(primary)
             ):
                 raise _invalid("retention state vector differs from its Boolean Cells")
         elif contract.state_kind == "canonical_history":
             if any(
                 states[tuple(row[key] for key in contract.key_fields)] != row["classification"]
-                for row in primary.to_pylist()
+                for row in cell_rows(primary)
             ):
                 raise _invalid("canonical History state vector differs from its Subject ledger")
         elif contract.state_kind == "spearman" and any(p.role == "pair_inputs" for p in parts):
             if any(
                 states[tuple(row[k] for k in contract.key_fields)] != row["status"]
-                for row in primary.to_pylist()
+                for row in cell_rows(primary)
             ):
                 raise _invalid("statistical status differs from retained candidate state")
         else:
@@ -890,7 +942,7 @@ def collect(
         from marivo.analysis.materialization.graph_display import validate
 
         validate(contract, primary, parts)
-    return ExchangeResult(contract, primary, parts, completed_checks, method_state)
+    return _compact_result(contract, primary, parts, completed_checks, method_state)
 
 
 def _verify_difference_parts(
@@ -908,7 +960,7 @@ def _verify_difference_parts(
             *keys,
             *(f"{part.role}__{name}" for name in ("value", "cell_tag", "cell_reason")),
         )
-        if tuple(part.table.column_names[: len(expected_names)]) != expected_names:
+        if tuple(logical_schema(part.table.schema).names[: len(expected_names)]) != expected_names:
             raise _invalid("incomplete ordered Difference endpoint schema")
         endpoint_type = part.table.schema.field(f"{part.role}__value").type
         if not (
@@ -927,13 +979,13 @@ def _verify_difference_parts(
                 and endpoint_type.scale == primary_type.scale
             )
         ) or any(
-            part.table.schema.field(f"{part.role}__{name}").type != pa.string()
+            logical_schema(part.table.schema).field(f"{part.role}__{name}").type != pa.string()
             for name in ("cell_tag", "cell_reason")
         ):
             raise _invalid("Difference endpoint types differ from the numeric contract")
     endpoints = {
         part.role: {
-            tuple(row[name] for name in contract.key_fields): row for row in part.table.to_pylist()
+            tuple(row[name] for name in contract.key_fields): row for row in cell_rows(part.table)
         }
         for part in parts
         if part.role in ("current_endpoint", "baseline_endpoint")
@@ -962,9 +1014,9 @@ def _verify_difference_parts(
     ):
         raise _invalid("incomplete or mistyped endpoint correspondence schema")
     mapped = {
-        tuple(row[name] for name in contract.key_fields): row for row in correspondence.to_pylist()
+        tuple(row[name] for name in contract.key_fields): row for row in cell_rows(correspondence)
     }
-    for row in numeric_primary(primary).to_pylist():
+    for row in cell_rows(numeric_primary(primary)):
         key = tuple(row[name] for name in contract.key_fields)
         mapping = mapped[key]
         definition = next(
@@ -1093,8 +1145,8 @@ def _verify_difference_parts(
                 endpoints["current_endpoint"][key]["current_endpoint__value"],
                 endpoints["baseline_endpoint"][key]["baseline_endpoint__value"],
                 row["value"],
-                mapping["correspondence__current_error_bound"],
-                mapping["correspondence__baseline_error_bound"],
+                required(mapping["correspondence__current_error_bound"], float),
+                required(mapping["correspondence__baseline_error_bound"], float),
             )
         except (ValueError, OverflowError, TypeError) as error:
             raise _invalid("invalid retained comparison error envelope") from error
@@ -1139,9 +1191,9 @@ def _verify_single_state_part(
     if state_part is None:
         raise _invalid("missing required numerical state part")
     keyed_parts = {
-        tuple(row[name] for name in contract.key_fields): row for row in state_part.to_pylist()
+        tuple(row[name] for name in contract.key_fields): row for row in cell_rows(state_part)
     }
-    for row in numeric_primary(primary).to_pylist():
+    for row in cell_rows(numeric_primary(primary)):
         key = tuple(row[name] for name in contract.key_fields)
         original = next(
             (p for p in contract.signature.parts if isinstance(p, OriginalStatePart)), None
@@ -1201,7 +1253,27 @@ def from_pandas(
 ) -> ExchangeResult:
     """Convert an owned local method through the physical Arrow contract."""
     try:
-        table = pa.Table.from_pandas(frame, schema=contract.schema, preserve_index=False, safe=True)
+        if binding(contract.schema).cells and tuple(frame.columns) == tuple(contract.schema.names):
+            table = pa.Table.from_pandas(
+                frame, schema=contract.schema, preserve_index=False, safe=True
+            )
+        else:
+            schema = compact_schema(contract.schema, contract.cell_reasons, contract.column_reasons)
+            declared = binding(schema)
+            if declared.cells:
+                states = {cell.state for cell in declared.cells if isinstance(cell, EncodedCell)}
+                values_schema = pa.schema([field for field in schema if field.name not in states])
+                pa.Table.from_pandas(frame, schema=values_schema, preserve_index=False, safe=True)
+                table = from_rows(
+                    (
+                        {str(key): None if pd.isna(value) else value for key, value in row.items()}
+                        for row in frame.to_dict("records")
+                    ),
+                    schema,
+                )
+                contract = replace(contract, schema=schema)
+            else:
+                table = pa.Table.from_pandas(frame, schema=schema, preserve_index=False, safe=True)
     except (pa.ArrowException, ValueError, TypeError) as error:
         raise _invalid(f"lossy pandas-to-Arrow conversion: {type(error).__name__}") from error
     return from_arrow(
@@ -1251,7 +1323,7 @@ def from_arrow(
                     and pc.any(pc.invert(pc.is_finite(numeric[field.name]))).as_py()
                 ):
                     raise _invalid(f"non-finite numeric output in {field.name}")
-        return ExchangeResult(contract, table, parts, completed_checks, method_state)
+        return _compact_result(contract, table, parts, completed_checks, method_state)
     return collect(
         _TableStream(table),
         contract,

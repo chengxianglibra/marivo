@@ -9,7 +9,6 @@ from fractions import Fraction
 from typing import Literal
 
 import ibis.expr.datatypes as dt
-import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.graph import (
@@ -31,6 +30,12 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import DisplayRank, DisplayTable, PartsTransport
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.materialization.cell_arrow import annotate, logical_schema
+from marivo.analysis.materialization.cell_arrow import binding as cell_binding
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rename as cell_rename
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -302,7 +307,7 @@ def finish(node: MethodNode, table: pa.Table) -> pa.Table:
     partitions = tuple(
         f"partitions__partition_{i}" for i in range(len(params.partition_types))
     ) or ("partitions__partition",)
-    rows = numeric_primary(table).to_pylist()
+    rows = cell_rows(numeric_primary(table))
     order = ranked(
         rows, keys, params.order, params.ties, partitions, node.signature.domain.instance_key
     )
@@ -330,6 +335,8 @@ def flatten(result: ExchangeResult) -> pa.Table:
             continue
         if next(p.key_fields for p in result.contract.parts if p.role == part.role) != keys:
             continue
+        declared = cell_binding(table.schema)
+        retained = cell_binding(part.table.schema)
         rows = {tuple(row[k] for k in keys): row for row in part.table.to_pylist()}
         for field in part.table.schema:
             if field.name not in keys and field.name not in table.column_names:
@@ -343,18 +350,28 @@ def flatten(result: ExchangeResult) -> pa.Table:
                         type=field.type,
                     ),
                 )
+        cells = tuple(
+            cell for cell in retained.cells if cell.fields.value not in declared.logical_columns
+        )
+        table = annotate(
+            table,
+            (*declared.cells, *cells),
+            (
+                *declared.logical_columns,
+                *(
+                    name
+                    for name in retained.logical_columns
+                    if name not in declared.logical_columns
+                ),
+            ),
+        )
     return table
 
 
 def _fixed_rows(result: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
     """Read checked Arrow Cells through the controlled exact pandas carrier."""
-    frame = numeric_primary(result.primary).to_pandas(types_mapper=pd.ArrowDtype)
     rows: dict[tuple[object, ...], dict[str, object]] = {}
-    for index in range(len(frame)):
-        row: dict[str, object] = {}
-        for name in result.primary.column_names:
-            value: object = frame.at[index, name]
-            row[name] = None if value is pd.NA or value is pd.NaT else value
+    for row in cell_rows(numeric_primary(result.primary)):
         key = tuple(row[k] for k in result.contract.key_fields)
         if key in rows:
             raise invalid("duplicate complete key during required display index insertion")
@@ -367,7 +384,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
     assert isinstance(params, (DisplayRank, DisplayTable))
     first = inputs[0]
     keys = first.contract.key_fields
-    table = flatten(first) if isinstance(params, DisplayRank) else first.primary.select(keys)
+    table = flatten(first) if isinstance(params, DisplayRank) else cell_project(first.primary, keys)
     if isinstance(params, DisplayRank):
         previous_display = {
             f"{part.role}__{component}"
@@ -375,8 +392,11 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
             if isinstance(part, DisplayPart)
             for component in part.components
         }
-        table = table.select([name for name in table.column_names if name not in previous_display])
-    receiver = {tuple(row[k] for k in keys) for row in first.primary.to_pylist()}
+        table = cell_project(
+            table,
+            [name for name in logical_schema(table.schema).names if name not in previous_display],
+        )
+    receiver = {tuple(row[k] for k in keys) for row in cell_rows(first.primary)}
     for i, source in enumerate(inputs):
         rows = _fixed_rows(source)
         if source.contract.key_fields != keys or (
@@ -390,8 +410,8 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
                 table = table.append_column(
                     f"column_{i}__{field}",
                     pa.array(
-                        [rows[tuple(row[k] for k in keys)][field] for row in table.to_pylist()],
-                        type=source.primary.schema.field(field).type,
+                        [rows[tuple(row[k] for k in keys)][field] for row in cell_rows(table)],
+                        type=logical_schema(source.primary.schema).field(field).type,
                     ),
                 )
         elif i:
@@ -400,7 +420,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
             table = table.append_column(
                 f"partitions__partition_{i - 1}",
                 pa.array(
-                    [rows[tuple(row[k] for k in keys)]["value"] for row in table.to_pylist()],
+                    [rows[tuple(row[k] for k in keys)]["value"] for row in cell_rows(table)],
                     type=source.primary.schema.field("value").type,
                 ),
             )
@@ -431,7 +451,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
                 else None
             )
             values = (
-                table[source_name]
+                cell_column(table, source_name)
                 if source_name is not None
                 else pa.array([part.identity] * table.num_rows, type=pa.string())
                 if part.role == "column_bindings" and isinstance(params, DisplayTable)
@@ -451,12 +471,13 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
             ),
         )
     )
-    primary = table.select(primary_columns)
+    primary = cell_project(table, primary_columns)
     from marivo.analysis.materialization.deviation_execution import retain_table_fits
 
     parts = tuple(
         ExchangePart(
-            part_role(p), table.select((*keys, *(f"{part_role(p)}__{c}" for c in p.components)))
+            part_role(p),
+            cell_project(table, (*keys, *(f"{part_role(p)}__{c}" for c in p.components))),
         )
         if isinstance(p, DisplayPart)
         else retain_table_fits(inputs, p)
@@ -467,7 +488,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
     state = pa.table(
         {
             **{k: primary[k] for k in keys},
-            "status": primary["cell_tag"]
+            "status": cell_column(primary, "cell_tag")
             if isinstance(params, DisplayRank)
             else pa.array(["accepted"] * primary.num_rows, type=pa.string()),
         }
@@ -512,24 +533,25 @@ def validate(
     declarations = {p.role: p for p in contract.signature.parts if isinstance(p, DisplayPart)}
     for role, declaration in declarations.items():
         table = by_role[role]
-        if table.column_names != [*keys, *(f"{role}__{c}" for c in declaration.components)]:
+        schema = logical_schema(table.schema)
+        if schema.names != [*keys, *(f"{role}__{c}" for c in declaration.components)]:
             raise invalid("display part columns differ")
         for component, dtype in zip(declaration.components, declaration.types, strict=True):
-            if table.schema.field(f"{role}__{component}").type != dt.dtype(dtype).to_pyarrow():
+            if schema.field(f"{role}__{component}").type != dt.dtype(dtype).to_pyarrow():
                 raise invalid(
-                    f"{role}.{component}: expected {dt.dtype(dtype).to_pyarrow()}, received {table.schema.field(f'{role}__{component}').type}"
+                    f"{role}.{component}: expected {dt.dtype(dtype).to_pyarrow()}, received {schema.field(f'{role}__{component}').type}"
                 )
     if "ranking_domain" in by_role:
         declaration = declarations["ranking_domain"]
         full = numeric_primary(
-            by_role["ranking_domain"].rename_columns([*keys, *(c for c in declaration.components)])
+            cell_rename(by_role["ranking_domain"], [*keys, *(c for c in declaration.components)])
         )
         # Duration tick validation is explicit; Arrow retains the original unit.
         if pa.types.is_duration(full.schema.field("value").type):
             full = full.set_column(
                 full.schema.get_field_index("value"), "value", full["value"].cast(pa.int64())
             )
-        checked_cells = full.select((*keys, "value", "cell_tag", "cell_reason"))
+        checked_cells = cell_project(full, (*keys, "value", "cell_tag", "cell_reason"))
         stream = CheckedStream(
             _TableStream(checked_cells),
             checked_cells.schema,
@@ -542,7 +564,7 @@ def validate(
             ),
         )
         tuple(stream)
-        rows = full.to_pylist()
+        rows = cell_rows(full)
         partitions = tuple(c for c in declaration.components if c.startswith("partition"))
         expected = ranked(
             rows,
@@ -554,7 +576,7 @@ def validate(
         )
         original = {tuple(row[k] for k in keys): row for row in rows}
         for role in ("partitions", "ordering"):
-            if {tuple(row[k] for k in keys) for row in by_role[role].to_pylist()} != set(original):
+            if {tuple(row[k] for k in keys) for row in cell_rows(by_role[role])} != set(original):
                 raise invalid(
                     "independent partition or ordering keys differ from the full ranking domain"
                 )
@@ -570,9 +592,9 @@ def validate(
         for role in ("values", "ranks", "partitions", "ordering"):
             actual_rows = by_role[role]
             if role == "values":
-                actual_rows = actual_rows.rename_columns([*keys, *declarations[role].components])
+                actual_rows = cell_rename(actual_rows, [*keys, *declarations[role].components])
                 actual_rows = numeric_primary(actual_rows)
-            for row in actual_rows.to_pylist():
+            for row in cell_rows(actual_rows):
                 prior = original[tuple(row[k] for k in keys)]
                 for component in declarations[role].components:
                     field = (
@@ -594,8 +616,8 @@ def validate(
             and contract.signature.quantity.method_version == "display.ranks@v1"
             else "values"
         )
-        view_rows = {tuple(row[k] for k in keys): row for row in by_role[role].to_pylist()}
-        for row in primary.to_pylist():
+        view_rows = {tuple(row[k] for k in keys): row for row in cell_rows(by_role[role])}
+        for row in cell_rows(primary):
             if any(
                 row[f] != view_rows[tuple(row[k] for k in keys)][f"{role}__{f}"]
                 for f in ("value", "cell_tag", "cell_reason")
@@ -612,9 +634,13 @@ def validate(
         ):
             raise invalid("terminal ordered column binding differs")
         for i in range(count):
-            column = primary.select(
-                (*keys, *(f"column_{i}__{f}" for f in ("value", "cell_tag", "cell_reason")))
-            ).rename_columns([*keys, "value", "cell_tag", "cell_reason"])
+            column = cell_rename(
+                cell_project(
+                    primary,
+                    (*keys, *(f"column_{i}__{f}" for f in ("value", "cell_tag", "cell_reason"))),
+                ),
+                [*keys, "value", "cell_tag", "cell_reason"],
+            )
             reasons = contract.column_reasons[i]
             nullable = frozenset(
                 f"key_{i}"
@@ -626,10 +652,9 @@ def validate(
                     _TableStream(column), column.schema, keys, reasons, nullable_keys=nullable
                 )
             )
-        if (
-            by_role["columns"].rename_columns(primary.column_names).to_pylist()
-            != primary.to_pylist()
-        ):
+        if cell_rows(
+            cell_rename(by_role["columns"], logical_schema(primary.schema).names)
+        ) != cell_rows(primary):
             raise invalid("terminal columns differ from their retained Cells")
 
 
@@ -644,8 +669,8 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
     ).output
     parts = tuple(p for p in source.parts if p.role in roles)
     selected = next(p.table for p in parts if p.role == name)
-    primary = selected.rename_columns(
-        [*source.contract.key_fields, "value", "cell_tag", "cell_reason"]
+    primary = cell_rename(
+        selected, [*source.contract.key_fields, "value", "cell_tag", "cell_reason"]
     )
     contract = replace(
         source.contract,

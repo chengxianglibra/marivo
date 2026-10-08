@@ -17,6 +17,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
@@ -526,7 +527,7 @@ def test_complete_subject_set_image_source_and_fixed(tmp_path: Path) -> None:
         source_factory=sources,
         source_schemas=(schema,),
     )
-    assert read_result(tmp_path, saved_image.descriptor).primary.to_pylist() == [
+    assert cell_rows(read_result(tmp_path, saved_image.descriptor).primary) == [
         {"key_0": 7, "key_1": "A"},
         {"key_0": 7, "key_1": "B"},
     ]
@@ -776,7 +777,7 @@ def test_cohort_matches_subject_parts_by_complete_key(
         canonical_layout(node.signature, has_value=False),
     )
     result = _cohort_stage(method, supplied, (fixed_values._dataset.verified(),), "controlled")
-    assert result.primary.to_pylist() == [{"key_0": 1, "key_1": "B"}]
+    assert cell_rows(result.primary) == [{"key_0": 1, "key_1": "B"}]
     subject = next(part.table for part in result.parts if part.role == "subject")
     assert subject.to_pylist() == [
         {"key_0": 1, "key_1": "B", "subject__key_0": 1, "subject__key_1": "B"}

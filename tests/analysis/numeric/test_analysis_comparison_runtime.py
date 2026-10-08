@@ -15,6 +15,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -159,8 +160,8 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     dataset = saved._dataset
     assert dataset is not None
     descriptor = dataset.artifact.descriptor
-    assert descriptor.method_state.contract_version == 2
-    assert all(part.contract_version == part.method_state_version == 2 for part in descriptor.parts)
+    assert descriptor.method_state.contract_version == 3
+    assert all(part.contract_version == part.method_state_version == 3 for part in descriptor.parts)
     checked = dataset.verified()
     mapping = next(part.table for part in checked.parts if part.role == "correspondence")
     corrupted = mapping.set_column(
@@ -219,7 +220,7 @@ saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert isinstance(saved, mv.MaterializedDifferenceRelation)
 selected = saved.where(saved.value.gt(-1)).execute()
 assert selected.to_pandas().set_index("member")["value"].to_dict() == {"B": 20, "D": 0}
-assert selected._dataset.artifact.descriptor.method_state.contract_version == 2
+assert selected._dataset.artifact.descriptor.method_state.contract_version == 3
 """
     try:
         completed = subprocess.run(
@@ -262,6 +263,7 @@ def test_nested_difference_keeps_independent_captures(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(ms.ref.entity("sales.customer"),),
         )
         assert isinstance(result, mv.LogicalNumericRelation)
         return result
@@ -378,7 +380,7 @@ def test_relative_change_exact_finish_and_zero_baseline(
         assert frame.loc["D", "cell_tag"] == "undefined"
         assert frame.loc["D", "cell_reason"] == "zero_baseline"
         assert saved._dataset is not None
-        assert saved._dataset.artifact.descriptor.method_state.contract_version == 1
+        assert saved._dataset.artifact.descriptor.method_state.contract_version == 3
 
 
 @pytest.mark.runtime
@@ -502,8 +504,8 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
     )
     via = ms.ref.relationship("sales.order_buyer")
     scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
-    first = members.observe(metric, during=scope, via=via, by=(region,)).rollup()
-    second = eastern.observe(metric, during=scope, via=via, by=(region,)).rollup()
+    first = members.observe(metric, during=scope, via=via, by=(region,))
+    second = eastern.observe(metric, during=scope, via=via, by=(region,))
     design = mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))
     for left, right in ((first, second), (first.execute(), second.execute())):
         result = left.compare(right, design=design).execute().to_pandas()
@@ -560,7 +562,9 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             grain=mv.grain("day"),
             timezone="America/New_York" if event_kind == "aware_local" else "UTC",
         )
-        result = members.each(grid).observe(metric, during=grid.window, via=via)
+        result = members.each(grid).observe(
+            metric, during=grid.window, via=via, by=(ms.ref.entity("sales.customer"),)
+        )
         assert isinstance(result, mv.LogicalNumericRelation)
         return result
 
@@ -677,9 +681,9 @@ first, second, relative, ratio = [session.artifact(ref) for ref in sys.argv[2:]]
 assert isinstance(relative, mv.MaterializedDifferenceRelation)
 assert isinstance(ratio, mv.MaterializedNumericRelation)
 for saved in (relative, ratio):
-    assert saved._dataset.artifact.descriptor.method_state.contract_version == 1
+    assert saved._dataset.artifact.descriptor.method_state.contract_version == 3
     selected = saved.where(saved.value.gt(0)).execute()
-    assert selected._dataset.artifact.descriptor.method_state.contract_version == 1
+    assert selected._dataset.artifact.descriptor.method_state.contract_version == 3
     assert "rollup" not in {action.call.split("(")[0].removeprefix("relation.") for action in saved.contract().actions}
 result = first.compare(second, value="relative_change").execute().to_pandas().set_index("member")
 assert result.loc["A", "value"] == -0.4
@@ -725,7 +729,7 @@ def test_ordinary_ratio_numeric_families(
         assert frame.loc["B", "value"] == 1
         assert frame.loc["D", "cell_reason"] == "zero_denominator"
         assert result._dataset is not None
-        assert result._dataset.artifact.descriptor.method_state.contract_version == 1
+        assert result._dataset.artifact.descriptor.method_state.contract_version == 3
 
 
 @pytest.mark.runtime
@@ -1008,16 +1012,30 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
     region = ms.ref.dimension("sales.customer.region")
     categories = members.read(region)
     eastern = categories.where(categories.value.eq("east")).members()
+    if kind == "undefined":
+        with duckdb.connect(str(case.database_path)) as connection:
+            connection.execute(
+                'INSERT INTO "order" VALUES '
+                "('zero_d', 'D', 'web', 'paid', '2026-08-15T12:00:00+00:00', 0)"
+            )
     count = ms.ref.metric("sales.order_count")
     metric = (
         ms.ref.metric("sales.revenue")
         if kind == "null"
-        else mv.runtime_metric.ratio(count, count, label="count_ratio")
+        else mv.runtime_metric.ratio(count, ms.ref.metric("sales.revenue"), label="count_ratio")
     )
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
     via = ms.ref.relationship("sales.order_buyer")
-    current = eastern.observe(metric, during=scope, via=via, by=(region,)).rollup()
-    baseline = members.observe(metric, during=scope, via=via, by=(region,)).rollup()
+    current = (
+        eastern.observe(metric, during=scope, via=via, by=(ms.ref.entity("sales.customer"), region))
+        .group_by(region)
+        .rollup()
+    )
+    baseline = (
+        members.observe(metric, during=scope, via=via, by=(ms.ref.entity("sales.customer"), region))
+        .group_by(region)
+        .rollup()
+    )
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
         saved = left.compare(
             right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="keep"))
@@ -1027,7 +1045,7 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         assert saved._dataset is not None
         checked = saved._dataset.verified()
         endpoint = next(part.table for part in checked.parts if part.role == "baseline_endpoint")
-        assert kind in endpoint["baseline_endpoint__cell_tag"].to_pylist()
+        assert kind in cell_column(endpoint, "baseline_endpoint__cell_tag").to_pylist()
         with pytest.raises(AnalysisError):
             left.compare(
                 right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))

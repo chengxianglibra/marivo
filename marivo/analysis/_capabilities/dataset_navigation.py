@@ -115,7 +115,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Cold recovery: resume a Session, read bounded Run history, then recover its exact committed Artifact.",
+            "Cold recovery: resume a Session, read bounded Run history, then recover its exact committed Artifact. Obsolete formats require source re-execution; preserve history and files.",
             "Use a scoped graph only for factual adjacency; recovery does not execute origin queries.",
         ),
     ),

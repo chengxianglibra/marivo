@@ -12,6 +12,7 @@ from ibis.backends import BaseBackend
 import marivo.analysis as mv
 import marivo.datasource.adapters as adapters
 from marivo.analysis.core.graph import Node
+from marivo.analysis.core.model import SubjectPart
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, schema_from
 from marivo.datasource.adapters import SourceSession, _Cursor
 from tests.support.json import key_json
@@ -69,7 +70,7 @@ class SourceTrace:
             ),
         ):
             assert checked.parts
-        else:
+        elif any(isinstance(part, SubjectPart) for part in checked.contract.signature.parts):
             assert "subject" in roles
         schema = schema_from(descriptor.realized_schema)
         self.retained.append(
