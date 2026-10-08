@@ -453,6 +453,9 @@ md.test(spec.ref).show()  # validated live round trip
 ```
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
   `models/datasources/`; authoring that file by hand is equally valid.
+  Registration saves only this declaration and returns its summary without
+  executing other declaration files. Success proves the file was saved, not
+  that the complete project is valid; load the project separately to validate it.
 - Calling `md.register()` during model loading, including synchronous imports
   from a semantic file or registration into another project, raises
   `DatasourceLoadError` before configuration reads, writes, or nested loading.
@@ -460,9 +463,23 @@ md.test(spec.ref).show()  # validated live round trip
   Semantic loading preserves this repair and reports `invalid_project`.
 - `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
-- Storage is **layered / multi-root**: datasource files are discovered across
-  the configured model roots, so a shared base project and a local overlay can
-  coexist.
+- All datasource reads, including catalog methods, inspection, and connections,
+  use the same **layered / multi-root** set as `ms.load()`: local `models/`
+  followed by `marivo.toml [semantic].layer_paths`. Duplicate datasource names
+  fail with both declaration locations; roots do not override each other.
+  Registration and removal write only the project-local datasource directory.
+- `md.load(workspace_dir=...)` and `md.inspect(..., workspace_dir=...)` use an
+  exact workspace root. Without it, project selection uses `MARIVO_PROJECT_ROOT`,
+  the nearest ancestor manifest, then cwd. Catalog methods retain their bound
+  workspace even when cwd or the environment changes.
+- Each inspect call loads one datasource definition and passes it through its
+  metadata steps. Later inspection and catalog reads use current declarations;
+  an existing `SemanticCatalog` retains its loaded definitions until a new
+  `ms.load()` call. No process-global declaration cache publishes file edits.
+- The private `load_datasources()` accepts an exact datasource directory,
+  including an arbitrary directory name. Recognizable workspace, models-parent,
+  and semantic-directory arguments fail with the correct datasource path;
+  missing or empty datasource directories remain valid empty inputs.
 - `md.test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
   triggers post-validation secret caching. Its connect handshake and
   Ibis-compiled literal round-trip share a Marivo-side wall-clock deadline.

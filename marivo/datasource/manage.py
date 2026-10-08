@@ -36,6 +36,7 @@ from marivo.datasource.errors import (
     repair,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
 
@@ -387,6 +388,8 @@ def register(
         ``*_env`` references, not plaintext literals or generic keyword bags.
         Every explicit ``*_env`` name is persisted; no credential names are
         inferred or omitted by convention.
+        Saves only the local target file without loading other declarations.
+        Success confirms persistence; load the project separately to validate it.
     """
     stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
@@ -424,7 +427,8 @@ def list() -> DatasourceList:
         >>> md.list().items
 
     Constraints:
-        Only datasources with a persisted project file are included.
+        Includes local and configured external model roots. Conflicting names
+        fail instead of overriding another declaration.
     """
     return DatasourceList(
         tuple(
@@ -448,9 +452,14 @@ def describe(name: str) -> DatasourceDescription:
         >>> md.describe("wh")
 
     Constraints:
-        Raises ``DatasourceMissingError`` when the name has no project file.
+        Reads local and configured external model roots. Raises
+        ``DatasourceMissingError`` when the name is absent from the project.
     """
-    datasource = _store.load_one(name)
+    return _describe_in_project(name, project_root=resolve_project_root())
+
+
+def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescription:
+    datasource = _store.load_one(name, project_root)
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
@@ -462,7 +471,7 @@ def describe(name: str) -> DatasourceDescription:
                 canonical_id="register",
                 action="Register the datasource before retrying.",
                 snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
-                candidates=tuple(_store.list_names()),
+                candidates=tuple(_store.list_names(project_root)),
             ),
         )
     return DatasourceDescription(
@@ -585,19 +594,10 @@ def _connect_internal(
     name: str,
     *,
     project_root: Path | None = None,
-    include_semantic_layers: bool = False,
 ) -> _DatasourceConnection:
-    datasource = (
-        _store.load_one_layered(name, project_root=project_root)
-        if include_semantic_layers
-        else _store.load_one(name, project_root=project_root)
-    )
+    datasource = _store.load_one(name, project_root=project_root)
     if datasource is None:
-        available = (
-            _store.list_names_layered(project_root)
-            if include_semantic_layers
-            else _store.list_names(project_root)
-        )
+        available = _store.list_names(project_root)
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
             expected="a registered project datasource",
@@ -820,12 +820,25 @@ def test(
         rather than blocking indefinitely, even when the backend itself cannot
         be interrupted.
     """
+    return _test_in_project(name, timeout_seconds=timeout_seconds, project_root=None)
+
+
+def _test_in_project(
+    name: str | Ref[DatasourceKind],
+    *,
+    timeout_seconds: int,
+    project_root: Path | None,
+) -> DatasourceTestResult:
     datasource_name = _datasource_name(name)
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
-        state["backend"] = _connect(datasource_name, timeout_seconds=timeout_seconds)
+        state["backend"] = (
+            _connect(datasource_name, timeout_seconds=timeout_seconds)
+            if project_root is None
+            else _connect_internal(datasource_name, project_root=project_root)
+        )
         state["phase"] = "roundtrip"
         from marivo.datasource.adapters import provider_for
 
@@ -853,7 +866,6 @@ def test_no_persist(
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
-    include_semantic_layers: bool = False,
 ) -> DatasourceTestResult:
     """Round-trip the backend without persisting resolved secrets.
 
@@ -888,7 +900,6 @@ def test_no_persist(
         state["backend"] = _connect_internal(
             datasource_name,
             project_root=project_root,
-            include_semantic_layers=include_semantic_layers,
         )
         state["phase"] = "roundtrip"
         from marivo.datasource.adapters import provider_for

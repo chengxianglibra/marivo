@@ -44,20 +44,11 @@ def _build_backend_from_store(
     *,
     read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
-    include_semantic_layers: bool = False,
 ) -> Any:
     """Load a datasource from the project store and open a live backend."""
-    datasource_ir = (
-        store.load_one_layered(name, project_root=project_root)
-        if include_semantic_layers
-        else store.load_one(name, project_root=project_root)
-    )
+    datasource_ir = store.load_one(name, project_root=project_root)
     if datasource_ir is None:
-        available = (
-            store.list_names_layered(project_root)
-            if include_semantic_layers
-            else store.list_names(project_root)
-        )
+        available = store.list_names(project_root)
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
             expected="a registered project datasource",
@@ -101,13 +92,11 @@ class DatasourceConnectionService:
         backends: dict[str, Callable[[], Any]] | None = None,
         backend_factory: Callable[[str], Any] | None = None,
         use_datasources: bool = True,
-        include_semantic_layers: bool = False,
     ) -> None:
         self._project_root = None if project_root is None else Path(project_root)
         self._backend_overrides = dict(backends or {})
         self._backend_factory = backend_factory
         self._use_datasources = use_datasources
-        self._include_semantic_layers = include_semantic_layers
         self._terminal_timeout_seconds: int | None = None
         self._session_backends: dict[str, Any] = {}
         self._source_sessions: dict[str, SourceSession] = {}
@@ -128,21 +117,12 @@ class DatasourceConnectionService:
     ) -> Iterator[Any]:
         """Yield a live backend, disconnecting on exit (success or error)."""
         datasource_name = _storage_name(name)
-        if self._include_semantic_layers:
-            backend = _build_backend_from_store(
-                datasource_name,
-                self._project_root,
-                read_only=read_only,
-                terminal_timeout_seconds=terminal_timeout_seconds,
-                include_semantic_layers=True,
-            )
-        else:
-            backend = _build_backend_from_store(
-                datasource_name,
-                self._project_root,
-                read_only=read_only,
-                terminal_timeout_seconds=terminal_timeout_seconds,
-            )
+        backend = _build_backend_from_store(
+            datasource_name,
+            self._project_root,
+            read_only=read_only,
+            terminal_timeout_seconds=terminal_timeout_seconds,
+        )
         try:
             yield backend
         finally:
@@ -164,17 +144,10 @@ class DatasourceConnectionService:
                     self._project_root,
                     read_only=True,
                     terminal_timeout_seconds=self._terminal_timeout_seconds,
-                    include_semantic_layers=self._include_semantic_layers,
                 )
                 if isinstance(backend, BaseBackend):
                     backend._marivo_certified_authoring = True
                 return backend
-            if self._include_semantic_layers:
-                return _build_backend_from_store(
-                    datasource_name,
-                    self._project_root,
-                    include_semantic_layers=True,
-                )
             return _build_backend_from_store(datasource_name, self._project_root)
         raise DatasourceMissingError(
             message=f"datasource {datasource_name!r} is not configured for this session",

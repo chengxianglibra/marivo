@@ -360,15 +360,10 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     entity_ref = catalog.require(ms.ref.entity("finance.refunds")).ref
     metric_ref = catalog.require(ms.ref.metric("finance.refunds_total")).ref
     monkeypatch.chdir(project_root)
-    md.register(
-        md.duckdb(name="warehouse", path=str(db_path)),
-        project_root=project_root,
-    )
     snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
         columns=("amount",),
     )
-    assert md.remove("warehouse") is True
 
     verify = catalog.require(entity_ref)
     preview = catalog.preview(metric_ref, scope=snapshot.scope, limit=1)

@@ -436,7 +436,7 @@ def test_preflight_schema_change_is_not_accepted_as_selected_binding(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{case.names.customer}" ADD COLUMN changed INTEGER')
     datasource = registry.datasources["warehouse"]
-    service = DatasourceConnectionService(case.root, include_semantic_layers=True)
+    service = DatasourceConnectionService(case.root)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
         SourceSession(provider_for("duckdb"), datasource, backend, owns_backend=False) as source,
@@ -481,7 +481,7 @@ def test_string_member_view_uses_exact_graph_and_source_read(
         root, session_ref=case.session.id, routes=(RouteChoice(root.identity, "ibis"),)
     )
     datasource = case.catalog._state.registry.datasources["warehouse"]
-    service = DatasourceConnectionService(case.root, include_semantic_layers=True)
+    service = DatasourceConnectionService(case.root)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
         SourceSession(provider_for("duckdb"), datasource, backend, owns_backend=False) as source,
@@ -548,7 +548,7 @@ def test_string_dimension_binding_uses_exact_graph_and_source_read(
         routes=(RouteChoice(root.identity, "ibis"), RouteChoice(selected_root.identity, "ibis")),
     )
     datasource = registry.datasources["warehouse"]
-    service = DatasourceConnectionService(case.root, include_semantic_layers=True)
+    service = DatasourceConnectionService(case.root)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
         SourceSession(provider_for("duckdb"), datasource, backend, owns_backend=False) as source,
@@ -608,7 +608,7 @@ def test_string_group_is_a_qualified_source_graph_method(
     routes = (RouteChoice(read.identity, "ibis"), RouteChoice(grouped.identity, "ibis"))
     prepared = prepare_graph(grouped, session_ref=case.session.id, routes=routes)
     datasource = registry.datasources["warehouse"]
-    service = DatasourceConnectionService(case.root, include_semantic_layers=True)
+    service = DatasourceConnectionService(case.root)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
         SourceSession(provider_for("duckdb"), datasource, backend, owns_backend=False) as source,

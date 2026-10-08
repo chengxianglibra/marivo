@@ -425,9 +425,7 @@ class MemberGraph:
         """Publish one fresh source evaluation through the common v8 Runtime."""
         contract = self.entity_schema.contract
         datasource = self.registry.datasources[contract.datasource_ref.path]
-        service = DatasourceConnectionService(
-            self.runtime.store.project_root, include_semantic_layers=True
-        )
+        service = DatasourceConnectionService(self.runtime.store.project_root)
         entries = self.sources or ((self.entity_schema, self.leaf),)
         by_identity = {leaf.identity: (schema, leaf) for schema, leaf in entries}
         ordered = tuple(

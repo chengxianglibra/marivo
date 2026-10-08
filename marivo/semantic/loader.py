@@ -31,7 +31,7 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
 )
 from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.loader import load_datasources
+from marivo.datasource.loader import _load_models_datasources, _models_root_errors
 from marivo.refs import FieldKind, Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
@@ -837,121 +837,12 @@ def _models_root_from_semantic_root(root: Path) -> ModelsRoot:
     )
 
 
-def _root_shape_errors(roots: Sequence[ModelsRoot]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    if not roots:
-        return errors
-    local_root = roots[0].models_root
-    seen_external: set[Path] = set()
-    for root in roots[1:]:
-        if root.models_root == local_root:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root duplicates the local "
-                        f"project models root: {root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Remove the local models/ path from marivo.toml [semantic].layer_paths.",
-                )
-            )
-            continue
-        if root.models_root in seen_external:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is listed more than once: "
-                        f"{root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Keep each marivo.toml [semantic].layer_paths entry unique.",
-                )
-            )
-            continue
-        seen_external.add(root.models_root)
-        if not root.models_root.exists():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        f"Configured semantic layer models root does not exist: {root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Point marivo.toml [semantic].layer_paths at an existing models/ directory.",
-                )
-            )
-            continue
-        if not root.models_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is not a directory: "
-                        f"{root.models_root}"
-                    ),
-                    refs=(str(root.models_root),),
-                    hint="Point marivo.toml [semantic].layer_paths at a models/ directory.",
-                )
-            )
-            continue
-        if not root.datasource_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is missing datasources/: "
-                        f"{root.datasource_root}"
-                    ),
-                    refs=(str(root.datasource_root),),
-                    hint="Create datasources/ under the configured models root or remove this layer path.",
-                )
-            )
-        if not root.semantic_root.is_dir():
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_PROJECT,
-                    message=(
-                        "Configured semantic layer models root is missing semantic/: "
-                        f"{root.semantic_root}"
-                    ),
-                    refs=(str(root.semantic_root),),
-                    hint="Create semantic/ under the configured models root or remove this layer path.",
-                )
-            )
-    return errors
-
-
 def _semantic_source_path(ir: Any) -> str:
     location = getattr(ir, "location", None)
     file = getattr(location, "file", None)
     if isinstance(file, str) and file:
         return file
     return "<unknown>"
-
-
-def _datasource_duplicate_errors(datasources: Sequence[DatasourceIR]) -> list[SemanticLoadError]:
-    errors: list[SemanticLoadError] = []
-    seen: dict[str, DatasourceIR] = {}
-    for datasource in datasources:
-        existing = seen.get(datasource.name)
-        if existing is not None:
-            first = existing.location.file
-            second = datasource.location.file
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.DUPLICATE_NAME,
-                    message=(
-                        f"Duplicate datasource name: {datasource.name!r}. "
-                        f"First declaration: {first}. Conflicting declaration: {second}."
-                    ),
-                    refs=(datasource.name, first, second),
-                    hint="Rename or remove one datasource declaration.",
-                )
-            )
-        seen.setdefault(datasource.name, datasource)
-    return errors
 
 
 def _domain_duplicate_errors(model_dirs: Sequence[Path]) -> list[SemanticLoadError]:
@@ -1082,7 +973,8 @@ def load_project(
     path_entries: list[str] = []
     module_prefixes: list[str] = []
 
-    errors.extend(_root_shape_errors(root_specs))
+    datasource_roots = tuple(spec.models_root for spec in root_specs)
+    errors.extend(_wrap_datasource_error(error) for error in _models_root_errors(datasource_roots))
     if errors:
         return LoadResult(status="errored", errors=tuple(errors))
 
@@ -1097,13 +989,11 @@ def load_project(
     try:
         for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True):
             _ensure_package(module_prefix, root_spec.semantic_root)
-            datasource_result = load_datasources(root_spec.datasource_root)
-            for error in datasource_result.errors:
-                errors.append(_wrap_datasource_error(error))
-            datasource_irs.extend(datasource_result.datasources)
             all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-        errors.extend(_datasource_duplicate_errors(datasource_irs))
+        datasource_result = _load_models_datasources(datasource_roots)
+        errors.extend(_wrap_datasource_error(error) for error in datasource_result.errors)
+        datasource_irs.extend(datasource_result.datasources)
 
         model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
         warnings.extend(filter_warnings)

@@ -248,7 +248,7 @@ def preflight_entities(
                 type(contract.source).__name__,
                 "Use a source form with exact R1 schema qualification.",
             )
-    service = DatasourceConnectionService(project_root, include_semantic_layers=True)
+    service = DatasourceConnectionService(project_root)
     with (
         service.use_backend(datasource.name, read_only=True) as backend,
         SourceSession(

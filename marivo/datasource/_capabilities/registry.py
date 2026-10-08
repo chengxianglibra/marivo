@@ -257,6 +257,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "Load the read-only datasource catalog.",
             output="DatasourceCatalog",
             effects=_LOCAL,
+            constraints=("datasource_project_roots",),
             example="md.load()",
         ),
         _capability(
@@ -388,7 +389,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="SourceInspection",
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
-            constraints=constraints["configured"],
+            constraints=(*constraints["configured"], "datasource_project_roots"),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "inspection.show()"

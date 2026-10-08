@@ -95,6 +95,18 @@ def test_register_help_discloses_the_declaration_repair(capsys: pytest.CaptureFi
     assert "md.duckdb(name=" in output
 
 
+def test_inspect_help_discloses_workspace_and_project_roots(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help("datasource.inspect")
+    output = capsys.readouterr().out
+    assert "workspace_dir:" in output
+    assert "datasource_project_roots" in output
+    assert "configured external model roots" in output
+    assert len(output.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
+    assert len(output) <= SURFACE_LIMITS.focused_help_max_codepoints
+
+
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")

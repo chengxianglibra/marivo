@@ -1156,7 +1156,6 @@ def _connect_section(datasources: Sequence[DatasourceIR], *, project_root: Path)
         result = datasource_manage.test_no_persist(
             datasource.name,
             project_root=project_root,
-            include_semantic_layers=True,
         )
         latency = "n/a" if result.latency_ms is None else f"{result.latency_ms}ms"
         if result.ok:

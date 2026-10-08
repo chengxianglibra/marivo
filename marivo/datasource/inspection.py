@@ -12,7 +12,6 @@ from typing import Literal
 
 import ibis
 
-from marivo.config import find_project_root
 from marivo.datasource import backends as _backends
 from marivo.datasource import store as _store
 from marivo.datasource._capabilities.contracts import repair_for_authoring_code
@@ -41,7 +40,7 @@ from marivo.datasource.metadata import (
     TableMetadata,
     TablePhysicalProfile,
     UniqueConstraintMetadata,
-    _inspect_source,
+    _inspect_source_from_ir,
     _schema_columns,
     _TableMetadataUnavailableError,
 )
@@ -52,6 +51,7 @@ from marivo.datasource.source import (
     TableSource,
     UnprunedScope,
 )
+from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref, SemanticKind
 from marivo.render import Card, RenderableResult
 
@@ -1373,12 +1373,19 @@ def _structured_inspection_warnings(
     return warnings
 
 
-def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspection:
+def inspect(
+    datasource: Ref[DatasourceKind],
+    source: TableSource,
+    *,
+    workspace_dir: str | Path | None = None,
+) -> SourceInspection:
     """Inspect a physical source through metadata and system-catalog hooks only.
 
     Args:
         datasource: Typed datasource reference from ``ms.ref.datasource(...)``.
         source: Typed table, Parquet, CSV, or JSON source descriptor.
+        workspace_dir: Optional exact project root. When omitted, resolves from
+            MARIVO_PROJECT_ROOT, the nearest ancestor manifest, or cwd.
 
     Returns:
         A metadata-only ``SourceInspection`` with schema, cost, partition, and
@@ -1390,14 +1397,19 @@ def inspect(datasource: Ref[DatasourceKind], source: TableSource) -> SourceInspe
         ...     md.table("orders"),
         ... )
         >>> inspection.show()
+        >>> md.inspect(ms.ref.datasource("warehouse"), md.table("orders"), workspace_dir=".")
 
     Constraints:
         Does not execute a user-data query. Tables use metadata hooks and
         Parquet reads footer metadata. The backend may open local CSV and JSON
         files to discover their columns and observed types. Remote HTTP JSON is
         not fetched. ``datasource`` is the typed ref itself.
+        Reads local and configured external model roots. One call uses one
+        loaded datasource definition; later calls read current declarations.
     """
-    project_root = find_project_root() or Path.cwd()
+    project_root = (
+        resolve_project_root() if workspace_dir is None else Path(workspace_dir).resolve()
+    )
     return _inspect_in_project(datasource, source, project_root=project_root)
 
 
@@ -1440,11 +1452,10 @@ def _inspect_in_project(
     partition_warnings: tuple[MetadataWarning, ...] = ()
 
     if isinstance(source, CsvSourceIR | JsonSourceIR):
-        metadata = _inspect_source(
-            datasource_name,
+        metadata = _inspect_source_from_ir(
+            datasource_ir,
             source=source,
             include_partitions=False,
-            project_root=project_root,
         )
     elif isinstance(source, ParquetSourceIR):
         if datasource_ir.backend_type != "duckdb":
@@ -1459,11 +1470,10 @@ def _inspect_in_project(
         metadata = _parquet_metadata(datasource_ir, source)
     else:
         try:
-            base_metadata = _inspect_source(
-                datasource_name,
+            base_metadata = _inspect_source_from_ir(
+                datasource_ir,
                 source=_unprojected_table(source),
                 include_partitions=True,
-                project_root=project_root,
             )
         except _TableMetadataUnavailableError as exc:
             if not source.columns:

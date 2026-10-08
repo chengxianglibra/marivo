@@ -30,6 +30,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_FILE_LOADABLE = "datasource_file_loadable"
     DATASOURCE_REGISTER_OUTSIDE_LOADER = "datasource_register_outside_loader"
     DATASOURCE_CONFIGURED = "datasource_configured"
+    DATASOURCE_PROJECT_ROOTS = "datasource_project_roots"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     DUCKDB_HTTP_AUTH_SCOPED = "duckdb_http_auth_scoped"
@@ -116,7 +117,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         SUPPORTED_BACKEND_TYPES,
         "Datasource declarations can only be made while loading models/datasources/ files.",
         "Datasource declarations are collected by the project loader, not registered into global process state.",
-        "Put datasource declarations under models/datasources/*.py and load them with md.load_datasources(...).",
+        "Put datasource declarations under models/datasources/*.py and read them with md.load().",
     ),
     ConstraintId.DATASOURCE_UNIQUE_NAME: _constraint(
         ConstraintId.DATASOURCE_UNIQUE_NAME,
@@ -134,7 +135,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("load_datasources",),
         "Datasource files must load as valid datasource declarations.",
         "Project datasource metadata is executable Python collected by the loader; syntax or runtime failures prevent deterministic datasource discovery.",
-        "Open the failing models/datasources/ file, fix the reported error, then rerun md.load_datasources(...).",
+        "Fix the reported declaration or model-root path, then reread the project with md.load().",
     ),
     ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER: _constraint(
         ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER,
@@ -142,7 +143,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "assembly",
         ("register",),
         "md.register() requires execution outside model loading; declaration files call the datasource constructor directly.",
-        "Registering persists a file and reloads datasource declarations; model loading must not rewrite its source or recursively reload it.",
+        "Registering saves only the target declaration; project loading separately validates the complete datasource set.",
         "Remove the md.register(...) wrapper from declaration files and call the datasource constructor directly. Use md.register() only in setup scripts outside model loading.",
         example='md.duckdb(name="warehouse", path=":memory:")',
     ),
@@ -154,6 +155,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Named datasources must exist before analysis runtime lookup.",
         "Datasource-backed sessions resolve semantic source refs through persisted datasource metadata.",
         "Register the datasource with md.register(...) before creating or attaching the session.",
+    ),
+    ConstraintId.DATASOURCE_PROJECT_ROOTS: _constraint(
+        ConstraintId.DATASOURCE_PROJECT_ROOTS,
+        "DatasourceLoad",
+        "assembly",
+        ("load", "inspect", "DatasourceCatalog"),
+        "Datasource reads use one project root and its configured external model roots.",
+        "An explicit workspace is exact; otherwise project selection uses MARIVO_PROJECT_ROOT, the nearest ancestor manifest, then cwd. Conflicting datasource names are rejected.",
+        "Pass workspace_dir to md.load(), ms.load(), or md.inspect(); catalog methods retain their workspace, and register/remove write only locally.",
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
         ConstraintId.DATASOURCE_ENV_AVAILABLE,

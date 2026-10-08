@@ -311,6 +311,11 @@ including synchronous imports, fails before any file is written; remove the
 `md.register(...)` wrapper and keep the constructor call. An explicit
 `project_root` does not bypass this boundary.
 
+Registration saves only the target local file and does not execute other
+declarations. Validate the complete project separately with `ms.load()` or a
+datasource catalog read. Datasource reads include local and configured external
+model roots; duplicate names fail with both declaration locations.
+
 ```python
 # models/datasources/warehouse.py
 import marivo.datasource as md
@@ -522,7 +527,7 @@ For a table inspected through `md.inspect`, use retained metadata to copy an
 exact physical field name into a projection:
 
 ```python
-inspection = md.inspect(warehouse, md.table("orders"))
+inspection = md.inspect(warehouse, md.table("orders"), workspace_dir=".")
 physical_name = inspection.source_column("order_id")
 orders_source = md.table("orders", columns={"order_key": physical_name})
 ```
