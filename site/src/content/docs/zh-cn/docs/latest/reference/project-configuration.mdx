@@ -28,6 +28,22 @@ Marivo 始终先加载当前项目的 `models/` 目录，再按声明顺序加�
 语义层无法加载。`marivo doctor`、语义层预览、验证和分析会话都会通过这些已配置的根目录解析
 语义对象及其数据源。
 
+`md.load()`、`md.inspect()` 和数据源连接使用同一组模型根。向 `md.load()`、`ms.load()` 或
+`md.inspect()` 传入 `workspace_dir` 时，它表示精确的项目根；省略时依次使用
+`MARIVO_PROJECT_ROOT`、最近祖先目录中的 `marivo.toml`、当前目录。数据源目录对象的每个方法
+都保留这个项目边界。注册和删除只影响本地数据源文件。新的读取会看到文件修改；已有语义目录
+保留加载时的定义，需要再次调用 `ms.load()` 才能更新。
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+catalog = md.load(workspace_dir=".")
+catalog.describe("warehouse").show()
+inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"), workspace_dir=".")
+inspection.show()
+```
+
 需要让配置或声明随项目流转时，请将 `marivo.toml` 和 `models/` 纳入版本控制；将 `.marivo/`
 加入 `.gitignore`，其中保存的是本地会话、证据、遥测和缓存元数据，而不是可共享的声明。
 

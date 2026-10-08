@@ -14,8 +14,8 @@ from marivo.datasource.manage import (
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    describe,
-    test,
+    _describe_in_project,
+    _test_in_project,
 )
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
@@ -89,6 +89,8 @@ class DatasourceCatalog(RenderableResult):
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
+        Methods retain this workspace and read its current local and configured
+        external declarations. They do not follow later cwd or environment changes.
     """
 
     workspace_dir: Path
@@ -115,7 +117,8 @@ class DatasourceCatalog(RenderableResult):
             A ``DatasourceSummary`` for the named datasource.
 
         Raises:
-            DatasourceMissingError: When the name has no project file.
+            DatasourceMissingError: When the name is absent from this workspace's
+                local and configured external model roots.
 
         Example:
             >>> catalog = md.load()
@@ -133,7 +136,7 @@ class DatasourceCatalog(RenderableResult):
                     kind="register",
                     canonical_id="register",
                     action="Register the datasource before retrying.",
-                    candidates=tuple(_store.list_names()),
+                    candidates=tuple(_store.list_names(self.workspace_dir)),
                 ),
             )
         return DatasourceSummary(
@@ -153,7 +156,7 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> catalog.describe("wh")
         """
-        return describe(name)
+        return _describe_in_project(name, project_root=self.workspace_dir)
 
     def test(
         self,
@@ -175,7 +178,11 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> result = catalog.test("wh")
         """
-        return test(name, timeout_seconds=timeout_seconds)
+        return _test_in_project(
+            name,
+            timeout_seconds=timeout_seconds,
+            project_root=self.workspace_dir,
+        )
 
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))
@@ -238,6 +245,8 @@ def load(
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``
         to modify project datasources.
+        Reads include local and configured external model roots. Conflicting
+        names fail; catalog methods retain the exact resolved workspace.
     """
     if workspace_dir is None:
         workspace_dir = resolve_project_root()

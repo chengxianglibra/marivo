@@ -1057,7 +1057,7 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
         encoding="utf-8",
     )
-    calls: list[tuple[str, Path | None, bool]] = []
+    calls: list[tuple[str, Path | None]] = []
 
     class FakeResult:
         name = "warehouse"
@@ -1069,16 +1069,15 @@ def test_doctor_connect_flag_uses_no_persist_connect_helper(
         name: object,
         *,
         project_root: Path | None = None,
-        include_semantic_layers: bool = False,
     ) -> FakeResult:
-        calls.append((str(name), project_root, include_semantic_layers))
+        calls.append((str(name), project_root))
         return FakeResult()
 
     monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))
 
-    assert calls == [("warehouse", tmp_path.resolve(), True)]
+    assert calls == [("warehouse", tmp_path.resolve())]
     check = _check(report, "connect", "connect.warehouse")
     assert check.status == "ok"
     assert "3ms" in check.summary
@@ -1089,7 +1088,7 @@ def test_doctor_connect_flag_uses_layered_datasource_lookup(
 ) -> None:
     project_root = tmp_path / "project"
     _write_external_layer_project(project_root)
-    calls: list[tuple[str, Path | None, bool]] = []
+    calls: list[tuple[str, Path | None]] = []
 
     class FakeResult:
         name = "warehouse"
@@ -1101,9 +1100,8 @@ def test_doctor_connect_flag_uses_layered_datasource_lookup(
         name: object,
         *,
         project_root: Path | None = None,
-        include_semantic_layers: bool = False,
     ) -> FakeResult:
-        calls.append((str(name), project_root, include_semantic_layers))
+        calls.append((str(name), project_root))
         return FakeResult()
 
     monkeypatch.setattr("marivo.datasource.manage.test_no_persist", fake_test_no_persist)
@@ -1112,7 +1110,7 @@ def test_doctor_connect_flag_uses_layered_datasource_lookup(
         DoctorOptions(project_root=project_root, connect=True, datasource="warehouse")
     )
 
-    assert calls == [("warehouse", project_root.resolve(), True)]
+    assert calls == [("warehouse", project_root.resolve())]
     assert _check(report, "connect", "connect.warehouse").status == "ok"
 
 
@@ -1135,7 +1133,7 @@ def test_doctor_connect_flag_reports_failure(
 
     monkeypatch.setattr(
         "marivo.datasource.manage.test_no_persist",
-        lambda name, *, project_root=None, include_semantic_layers=False: FakeResult(),
+        lambda name, *, project_root=None: FakeResult(),
     )
 
     report = run_doctor(DoctorOptions(project_root=tmp_path, connect=True, datasource="warehouse"))

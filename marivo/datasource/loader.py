@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import sys
 import types
+from collections.abc import Sequence
 from dataclasses import dataclass
 from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 
 from marivo._authoring.loading import _source_loading
+from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -85,12 +87,20 @@ def _execute_file(
 
 
 def load_datasources(root: Path) -> DatasourceLoadResult:
-    """Load datasource declarations from ``models/datasources/``.
+    """Load declarations from an exact datasource directory.
 
     Internal loader used by ``store.load_all()``.  Not part of the public
     ``md.*`` surface — use ``md.list()`` or ``md.describe()`` to browse
     configured datasources, and ``md.register()`` to create new ones.
     """
+    result = _load_datasource_directory(root)
+    return DatasourceLoadResult(
+        datasources=result.datasources,
+        errors=(*result.errors, *_duplicate_errors(result.datasources)),
+    )
+
+
+def _load_datasource_directory(root: Path) -> DatasourceLoadResult:
     errors: list[Exception] = []
     if not root.exists():
         return DatasourceLoadResult(datasources=(), errors=())
@@ -112,6 +122,36 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
             ),
         )
 
+    expected_root: Path | None = None
+    if (root / PROJECT_MANIFEST).is_file() or (root / DATASOURCES_DIR).is_dir():
+        expected_root = root / DATASOURCES_DIR
+    elif (root / "datasources").is_dir() and (
+        root.name == AUTHORED_DIR or (root / "semantic").is_dir()
+    ):
+        expected_root = root / "datasources"
+    elif root.name == "semantic" and (root.parent / "datasources").is_dir():
+        expected_root = root.parent / "datasources"
+    if expected_root is not None:
+        return DatasourceLoadResult(
+            datasources=(),
+            errors=(
+                DatasourceLoadError(
+                    message=f"load_datasources() expects a datasource directory, got {root}.",
+                    expected=str(expected_root),
+                    received=str(root),
+                    location=str(root),
+                    repair=repair(
+                        kind="reload",
+                        canonical_id="load",
+                        action=(
+                            f"Pass {expected_root} to load_datasources(), or use "
+                            "md.load(workspace_dir=...) with the workspace root."
+                        ),
+                    ),
+                ),
+            ),
+        )
+
     prefix = _module_prefix(root)
     _purge_synthetic_modules(prefix)
     _ensure_package(prefix, root)
@@ -121,21 +161,98 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
             continue
         _execute_file(child, ctx, errors, module_name=f"{prefix}.{child.stem}", package_name=prefix)
 
-    seen: set[str] = set()
-    for ir in ctx.pending_objects:
-        if ir.name in seen:
+    return DatasourceLoadResult(datasources=tuple(ctx.pending_objects), errors=tuple(errors))
+
+
+def _duplicate_errors(datasources: Sequence[DatasourceIR]) -> tuple[DatasourceDuplicateError, ...]:
+    errors: list[DatasourceDuplicateError] = []
+    seen: dict[str, DatasourceIR] = {}
+    for datasource in datasources:
+        existing = seen.get(datasource.name)
+        if existing is not None:
+            first = existing.location.file
+            second = datasource.location.file
             errors.append(
                 DatasourceDuplicateError(
-                    message=f"Duplicate datasource name: {ir.name!r}",
-                    expected="a unique datasource name",
-                    received=ir.name,
-                    location="models/datasources/",
+                    message=(
+                        f"Duplicate datasource name: {datasource.name!r}. "
+                        f"First declaration: {first}. Conflicting declaration: {second}."
+                    ),
+                    expected="a unique datasource name across project model roots",
+                    received=datasource.name,
+                    location=second,
                     repair=repair(
                         kind="reauthor",
                         canonical_id="load",
-                        action="Rename or remove the duplicate datasource declaration.",
+                        action="Rename or remove one conflicting datasource declaration.",
                     ),
                 )
             )
-        seen.add(ir.name)
-    return DatasourceLoadResult(datasources=tuple(ctx.pending_objects), errors=tuple(errors))
+        seen.setdefault(datasource.name, datasource)
+    return tuple(errors)
+
+
+def _models_root_errors(roots: Sequence[Path]) -> tuple[DatasourceLoadError, ...]:
+    """Validate ordered model roots; only the first, local root may be absent."""
+    errors: list[DatasourceLoadError] = []
+    seen: set[Path] = set()
+    for index, candidate in enumerate(roots):
+        root = candidate.resolve()
+        problems: list[tuple[str, Path, str]] = []
+        if root in seen:
+            message = (
+                "Configured semantic layer models root duplicates the local project models root"
+                if root == roots[0].resolve()
+                else "Configured semantic layer models root is listed more than once"
+            )
+            problems.append((message, root, "Keep each configured models root unique."))
+        elif index > 0 and not root.exists():
+            problems.append(
+                (
+                    "Configured semantic layer models root does not exist",
+                    root,
+                    "Point marivo.toml [semantic].layer_paths at an existing models/ directory.",
+                )
+            )
+        elif root.exists() and not root.is_dir():
+            problems.append(
+                (
+                    "Configured semantic layer models root is not a directory",
+                    root,
+                    "Point model loading at a models/ directory.",
+                )
+            )
+        elif index > 0:
+            for child in ("datasources", "semantic"):
+                if not (root / child).is_dir():
+                    problems.append(
+                        (
+                            f"Configured semantic layer models root is missing {child}/",
+                            root / child,
+                            f"Create {child}/ under the configured models root or remove this layer path.",
+                        )
+                    )
+        seen.add(root)
+        for message, location, action in problems:
+            errors.append(
+                DatasourceLoadError(
+                    message=f"{message}: {location}",
+                    expected="valid distinct project model roots",
+                    received=str(location),
+                    location=str(location),
+                    repair=repair(kind="configure", canonical_id="load", action=action),
+                )
+            )
+    return tuple(errors)
+
+
+def _load_models_datasources(roots: Sequence[Path]) -> DatasourceLoadResult:
+    """Collect declarations from model roots validated by ``_models_root_errors``."""
+    datasources: list[DatasourceIR] = []
+    errors: list[Exception] = []
+    for root in roots:
+        result = _load_datasource_directory(root / "datasources")
+        datasources.extend(result.datasources)
+        errors.extend(result.errors)
+    errors.extend(_duplicate_errors(datasources))
+    return DatasourceLoadResult(datasources=tuple(datasources), errors=tuple(errors))

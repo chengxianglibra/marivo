@@ -22,6 +22,7 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import (
     CsvSourceIR,
+    DatasourceIR,
     EntitySourceIR,
     JsonSourceIR,
     ParquetSourceIR,
@@ -401,10 +402,26 @@ def inspect_table(
                 kind="register",
                 canonical_id="register",
                 action="Register the datasource before inspecting it.",
-                candidates=tuple(_store.list_names()),
+                candidates=tuple(_store.list_names(project_root)),
             ),
         )
 
+    return _inspect_table_from_ir(
+        datasource_ir,
+        table=table,
+        database=database,
+        include_partitions=include_partitions,
+    )
+
+
+def _inspect_table_from_ir(
+    datasource_ir: DatasourceIR,
+    *,
+    table: str,
+    database: str | tuple[str, ...] | None = None,
+    include_partitions: bool = True,
+) -> TableMetadata:
+    datasource = datasource_ir.name
     from ibis.backends import BaseBackend
 
     from marivo.datasource.adapters import SourceSession
@@ -522,13 +539,40 @@ def _inspect_source(
     include_partitions: bool = True,
     project_root: Path | None = None,
 ) -> TableMetadata:
+    datasource_ir = _store.load_one(datasource, project_root=project_root)
+    if datasource_ir is None:
+        raise DatasourceMetadataError(
+            message=f"datasource {datasource!r} is not configured",
+            expected="a registered project datasource",
+            received=datasource,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before inspecting it.",
+                candidates=tuple(_store.list_names(project_root)),
+            ),
+        )
+    return _inspect_source_from_ir(
+        datasource_ir,
+        source=source,
+        include_partitions=include_partitions,
+    )
+
+
+def _inspect_source_from_ir(
+    datasource_ir: DatasourceIR,
+    *,
+    source: EntitySourceIR,
+    include_partitions: bool = True,
+) -> TableMetadata:
+    datasource = datasource_ir.name
     if isinstance(source, TableSourceIR):
-        return inspect_table(
-            datasource,
+        return _inspect_table_from_ir(
+            datasource_ir,
             table=str(source.table),
             database=source.database,
             include_partitions=include_partitions,
-            project_root=project_root,
         )
     if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
         raise DatasourceMetadataError(
@@ -543,20 +587,6 @@ def _inspect_source(
             ),
         )
 
-    datasource_ir = _store.load_one(datasource, project_root=project_root)
-    if datasource_ir is None:
-        raise DatasourceMetadataError(
-            message=f"datasource {datasource!r} is not configured",
-            expected="a registered project datasource",
-            received=datasource,
-            location="models/datasources/",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource before inspecting it.",
-                candidates=tuple(_store.list_names()),
-            ),
-        )
     if isinstance(source, CsvSourceIR) and datasource_ir.backend_type != "duckdb":
         raise DatasourceMetadataError(
             message="CSV source type discovery requires a DuckDB datasource",

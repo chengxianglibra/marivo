@@ -387,7 +387,6 @@ class SemanticProject:
         if self._connection_service_instance is None:
             self._connection_service_instance = DatasourceConnectionService(
                 project_root=self._workspace_dir,
-                include_semantic_layers=True,
             )
         return self._connection_service_instance
 

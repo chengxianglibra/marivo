@@ -150,13 +150,8 @@ def test_session_backend_can_include_configured_semantic_layer_datasources(
 ) -> None:
     project_root, _ = _write_layered_project(tmp_path)
 
-    local_only = runtime.DatasourceConnectionService(project_root=project_root)
-    with pytest.raises(Exception, match="warehouse"):
-        local_only.session_backend("warehouse")
-
     layered = runtime.DatasourceConnectionService(
         project_root=project_root,
-        include_semantic_layers=True,
     )
     backend = layered.session_backend("warehouse")
 
@@ -168,7 +163,7 @@ def test_layered_datasource_loading_rejects_duplicate_names_with_paths(tmp_path:
     project_root, external_models = _write_layered_project(tmp_path, duplicate_local=True)
 
     with pytest.raises(Exception) as exc_info:
-        store.load_all_layered(project_root)
+        store.load_all(project_root)
 
     message = str(exc_info.value)
     assert "Duplicate datasource name: 'warehouse'" in message
@@ -183,7 +178,7 @@ def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
     fails: bool,
 ) -> None:
     created: list[FakeBackend] = []
-    options: list[tuple[bool, int | None, bool]] = []
+    options: list[tuple[bool, int | None]] = []
 
     def build(
         name: str,
@@ -191,24 +186,21 @@ def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
         *,
         read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
-        include_semantic_layers: bool = False,
     ) -> FakeBackend:
         backend = FakeBackend()
         created.append(backend)
-        options.append((read_only, terminal_timeout_seconds, include_semantic_layers))
+        options.append((read_only, terminal_timeout_seconds))
         return backend
 
     monkeypatch.setattr(runtime, "_build_backend_from_store", build)
-    service = runtime.DatasourceConnectionService(
-        project_root=tmp_path, include_semantic_layers=True
-    )
+    service = runtime.DatasourceConnectionService(project_root=tmp_path)
     original = service.session_backend("warehouse")
     try:
         with service.terminal_scope(17):
             bounded = service.session_backend("warehouse")
             assert bounded is not original
             assert bounded is service.session_backend("warehouse")
-            assert options[-1] == (True, 17, True)
+            assert options[-1] == (True, 17)
             if fails:
                 raise ValueError("certification failed")
     except ValueError as exc:

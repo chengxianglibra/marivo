@@ -238,7 +238,7 @@ def test_partition_states_remain_distinct(
         warnings=(),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: known_metadata,
     )
     known = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
@@ -613,7 +613,7 @@ def test_transformed_partition_inspection_does_not_call_value_hook(
         warnings=(),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
@@ -737,7 +737,7 @@ def test_partition_hook_uses_extra_row_to_detect_exact_boundary(
         )
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
@@ -787,7 +787,7 @@ def test_partition_listing_queries_requested_order_and_bound(
         return PartitionProbeResult(rows=values, value_source="metadata")
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(
@@ -842,7 +842,7 @@ def test_partition_listing_keeps_incomplete_metadata_distinct_from_truncation(
         )
 
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: metadata,
     )
     monkeypatch.setattr(

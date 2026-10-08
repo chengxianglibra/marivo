@@ -178,7 +178,7 @@ def test_public_inspection_projects_schema_from_observed_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source", lambda *_a, **_k: _metadata()
+        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: _metadata()
     )
     source = _projected_source()
 
@@ -213,7 +213,7 @@ def test_inspection_source_column_bridges_raw_catalog_types(
         ColumnMetadata("group_name", "varchar", True, None, 2),
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_a, **_k: _metadata(columns=columns, backend_type="trino"),
     )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
@@ -252,7 +252,9 @@ def test_inspection_source_column_returns_names_without_type_admission(
         ),
         backend_type="trino",
     )
-    monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: metadata
+    )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     assert inspection.source_column("fixed_name") == "fixed_name"
     assert inspection.source_column("unknown_value") == "unknown_value"
@@ -277,7 +279,9 @@ def test_inspection_source_column_accepts_clickhouse_projectable_column(
         ),
         backend_type="clickhouse",
     )
-    monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: metadata)
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: metadata
+    )
     inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))
     assert inspection.source_column("string_map%2Eregion*ICDS*") == "string_map%2Eregion*ICDS*"
 
@@ -369,7 +373,9 @@ def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
         )
 
     profile = replace(DUCKDB_PROFILE, inspect_partition_values=inspect_values)
-    monkeypatch.setattr("marivo.datasource.inspection._inspect_source", lambda *_a, **_k: base)
+    monkeypatch.setattr(
+        "marivo.datasource.inspection._inspect_source_from_ir", lambda *_a, **_k: base
+    )
     monkeypatch.setattr(
         "marivo.datasource.inspection.require_profile_for_backend_type",
         lambda _backend_type: profile,
@@ -530,7 +536,7 @@ def test_projected_source_inspection_render_is_bounded_and_recoverable(
         columns={f"alias_{index:03d}": f"physical_{index:03d}" for index in range(80)},
     )
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: replace(_metadata(columns=columns), table="wide_events"),
     )
 
@@ -548,7 +554,7 @@ def test_projected_source_render_preserves_database_identity_shape(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source",
+        "marivo.datasource.inspection._inspect_source_from_ir",
         lambda *_args, **_kwargs: _metadata(),
     )
     cases: tuple[tuple[str | tuple[str, ...] | None, str], ...] = (

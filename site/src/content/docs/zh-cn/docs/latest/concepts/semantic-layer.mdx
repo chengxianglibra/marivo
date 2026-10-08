@@ -267,6 +267,8 @@ Dataset 比较遵循原生注册的显式窗口对齐契约。
 声明文件直接调用数据源构造器。`md.register(spec)` 用于模型加载之外的初始化脚本，
 负责创建或替换数据源文件。在数据源或语义加载期间调用它（包括同步导入）会在任何
 文件写入之前报错；去掉 `md.register(...)` 包装，保留构造器调用即可。
+注册只保存目标本地文件，不执行其他声明。整个项目的有效性由 `ms.load()` 或数据源目录读取
+单独验证。数据源读取同时包含本地和已配置的外部模型根；重名时会报出两个声明位置。
 显式指定 `project_root` 也不能绕过这一限制。
 
 ```python
@@ -459,7 +461,7 @@ events = ms.entity(
 检查表时，可以通过 `md.inspect` 中保留的元数据复制物理字段名到投影：
 
 ```python
-inspection = md.inspect(warehouse, md.table("orders"))
+inspection = md.inspect(warehouse, md.table("orders"), workspace_dir=".")
 physical_name = inspection.source_column("order_id")
 orders_source = md.table("orders", columns={"order_key": physical_name})
 ```

@@ -48,6 +48,10 @@ Loader rules:
   whether a valid model loads.
 - Model roots are **layered / multi-root**: a project can compose a shared base
   root with a local overlay.
+  Datasource root validation, declaration collection, and duplicate detection
+  belong to the datasource loader and are shared with datasource catalog reads,
+  inspection, and connections. Semantic loading preserves all datasource errors
+  as structured semantic errors; datasource reads raise the first error.
 - Python files are trusted local code and are not sandboxed. With no explicit
   workspace, `ms.load()` resolves `MARIVO_PROJECT_ROOT`, then the nearest
   ancestor manifest, then the current directory. An absent or empty local
@@ -62,6 +66,10 @@ Loader rules:
 `ms.load()` returns a `SemanticCatalog` — the deterministic, agent-facing read
 surface. It does not re-parse files or rely on process-global state, and it does
 not use fuzzy or embedding-based recall.
+File edits take effect at the next `ms.load()` call; previously returned semantic
+catalogs retain their loaded definitions. `md.inspect(..., workspace_dir=...)`
+selects the same exact workspace and configured datasource roots, loading current
+declarations once per inspection. A ref alone does not carry a workspace.
 
 ```python
 import marivo.semantic as ms
