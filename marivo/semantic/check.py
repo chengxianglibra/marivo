@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from marivo.project import resolve_project_root
+from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 
 
@@ -24,20 +25,25 @@ def _default_backend_factory() -> Callable[[str], Any]:
     return lambda name: importlib.import_module("marivo.datasource").connect(name)
 
 
-def _error_to_dict(error: Any) -> dict[str, object]:
+def _error_to_dict(error: SemanticError) -> dict[str, object]:
     location = None
-    if getattr(error, "location", None) is not None:
+    if error.location is not None:
         location = {
             "file": error.location.file,
             "line": error.location.line,
         }
-    return {
+    payload: dict[str, object] = {
         "kind": error.kind,
         "message": error.message,
         "refs": list(error.semantic_refs),
         "location": location,
         "hint": error.hint,
     }
+    if error.exception_type is not None:
+        payload["exception_type"] = error.exception_type
+    if error.traceback is not None:
+        payload["traceback"] = error.traceback
+    return payload
 
 
 def _warning_to_dict(warning: Any) -> dict[str, object]:
@@ -133,6 +139,10 @@ def _print_text(payload: dict[str, object]) -> None:
         print("Errors:")
         for error in errors:
             print(f"- [{error['kind']}] {error['message']}")
+            if error.get("hint"):
+                print(f"  hint: {error['hint']}")
+            if error.get("traceback"):
+                print(f"\nOriginal traceback:\n{error['traceback']}")
     if warnings:
         print("Warnings:")
         for warning in warnings:

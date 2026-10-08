@@ -247,6 +247,9 @@ def load(
         to modify project datasources.
         Reads include local and configured external model roots. Conflicting
         names fail; catalog methods retain the exact resolved workspace.
+        Restart Python after package upgrades or model edits/deletions;
+        ordinary imported dependencies are not guaranteed to hot-reload.
+        Execution failures expose their original exception type and traceback.
     """
     if workspace_dir is None:
         workspace_dir = resolve_project_root()

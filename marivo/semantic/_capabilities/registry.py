@@ -1664,8 +1664,8 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("authoring"),
             action=(
-                "Repair the failing semantic source file inside the registered project layout, "
-                "then reload the catalog."
+                "Read the original exception and traceback when present, repair the failing "
+                "declaration or import, then restart Python and reload the catalog."
             ),
             preserves_evidence=True,
         ),
@@ -2446,6 +2446,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Load the read-only semantic catalog.",
             output="SemanticCatalog",
             effects=_LOCAL,
+            preconditions=(
+                "Restart Python after package upgrades or model edits/deletions; ordinary imports are not guaranteed to hot-reload.",
+                "Execution failures expose exception_type and the complete original traceback.",
+            ),
             example="catalog = ms.load()\ncatalog.show()",
         ),
         *_ref_factory_capabilities(),

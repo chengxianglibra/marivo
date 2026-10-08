@@ -220,6 +220,8 @@ class SemanticError(Exception):
     expected: str | None
     received: str | None
     location_label: str | None
+    exception_type: str | None
+    traceback: str | None
 
     def __init__(
         self,
@@ -235,6 +237,8 @@ class SemanticError(Exception):
         expected: str | None = None,
         received: str | None = None,
         location_label: str | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
     ) -> None:
         if constraint_id is None:
             default_constraint = default_constraint_for_error_kind(kind)
@@ -267,6 +271,8 @@ class SemanticError(Exception):
         self.expected = expected
         self.received = received
         self.location_label = location_label
+        self.exception_type = exception_type
+        self.traceback = traceback
         super().__init__(str(self))
 
     def __str__(self) -> str:
@@ -283,6 +289,8 @@ class SemanticError(Exception):
             lines.append(f"  received: {self.received}")
         if self.hint is not None:
             lines.append(f"  hint: {self.hint}")
+        if self.exception_type is not None:
+            lines.append(f"  exception type: {self.exception_type}")
         dym = self.details.get("did_you_mean")
         if isinstance(dym, list) and dym:
             lines.append(f"  Did you mean: {', '.join(dym)}")
@@ -296,6 +304,8 @@ class SemanticError(Exception):
             if target.canonical_id is not None:
                 qualified = f"{target.surface}.{target.canonical_id}"
                 lines.append(f"Help: marivo.help({qualified!r})")
+        if self.traceback is not None:
+            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 
@@ -359,7 +369,7 @@ class SemanticLoadFailed(Exception):  # noqa: N818
 
     def __init__(self, errors: Sequence[SemanticError]) -> None:
         self.errors = tuple(errors)
-        joined = "; ".join(str(error) for error in self.errors)
+        joined = "\n\n".join(str(error) for error in self.errors)
         super().__init__(joined)
 
 

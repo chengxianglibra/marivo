@@ -23,7 +23,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from marivo._authoring.loading import _source_loading
+from marivo._authoring.loading import _execution_diagnostic, _source_loading
 from marivo.config import AUTHORED_DIR
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -125,7 +125,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
     if isinstance(error, DatasourceError):
         if isinstance(error, DatasourceDuplicateError):
             kind = ErrorKind.DUPLICATE_NAME
-            refs = (error.received,) if error.received else ()
+            refs = ((error.received,) if error.received else ()) + error.declaration_paths
             hint = "Keep each datasource name unique under models/datasources/."
         elif isinstance(error, DatasourceLoadError):
             kind = ErrorKind.INVALID_PROJECT
@@ -135,7 +135,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             kind = ErrorKind.ORGANIZATION_ERROR
             refs = (error.received,) if error.received else ()
             hint = "Check models/datasources/*.py datasource declarations."
-        return SemanticLoadError(
+        wrapped = SemanticLoadError(
             kind=kind,
             message=error.message,
             refs=refs,
@@ -144,12 +144,18 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             received=error.received,
             location_label=error.location,
             repair=error.repair,
+            exception_type=error.exception_type,
+            traceback=error.traceback,
         )
-    return SemanticLoadError(
+        wrapped.__cause__ = error
+        return wrapped
+    wrapped = SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,
         message=str(error),
         hint="Check models/datasources/*.py datasource declarations.",
     )
+    wrapped.__cause__ = error
+    return wrapped
 
 
 @dataclass(frozen=True)
@@ -375,19 +381,32 @@ def _execute_file(
             spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, SemanticError):
+            if exc.traceback is None:
+                diagnostic = _execution_diagnostic(exc, filepath)
+                exc.exception_type = diagnostic.exception_type
+                exc.traceback = diagnostic.traceback
             errors.append(exc)
         elif isinstance(exc, DatasourceError):
+            if exc.traceback is None:
+                diagnostic = _execution_diagnostic(exc, filepath)
+                exc.exception_type = diagnostic.exception_type
+                exc.traceback = diagnostic.traceback
             errors.append(_wrap_datasource_error(exc))
         else:
+            diagnostic = _execution_diagnostic(exc, filepath)
             entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
-            errors.append(
-                entity_decorator_error
-                or SemanticLoadError(
-                    kind=ErrorKind.ORGANIZATION_ERROR,
-                    message=f"Error executing {filepath}: {exc}",
-                    hint="Check the file for syntax or runtime errors.",
-                )
+            error = entity_decorator_error or SemanticLoadError(
+                kind=ErrorKind.ORGANIZATION_ERROR,
+                message=f"Error executing {filepath}: {diagnostic.exception_type}: {exc}",
+                location=SourceLocation(diagnostic.file, diagnostic.line),
+                expected="an executable semantic declaration",
+                received=f"{diagnostic.exception_type}: {exc}",
+                hint=diagnostic.action,
             )
+            error.exception_type = diagnostic.exception_type
+            error.traceback = diagnostic.traceback
+            error.__cause__ = exc
+            errors.append(error)
     finally:
         _LOADER_CTX.reset(token)
 
