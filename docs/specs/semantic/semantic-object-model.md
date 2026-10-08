@@ -995,6 +995,16 @@ preserving q, and say whether that backend supports the alternative. No definiti
 is substituted automatically. Backend translation alone never qualifies a new
 Analysis execution route.
 
+`load()` preserves a structurally valid aggregate declaration. Scoped
+`catalog.readiness()` rejects known direct-only aggregate/backend
+incompatibilities with `aggregate_backend_unsupported` before opening a source,
+including dependencies of derived Metrics and closed runtime expressions.
+It reuses the same provider-accuracy and independent Ibis translation check as
+materialization. On Trino, exact median/percentile is unavailable in Marivo's
+source-native route; `approx_median` or `("approx_percentile", q)` must be authored
+explicitly when acceptable. Passing static readiness grants no physical-type or
+operation-specific execution qualification, and consumers still recheck support.
+
 ## R5.1 frozen Semantic handoff
 
 Status: target contract frozen; new R5 execution variants remain unverified.

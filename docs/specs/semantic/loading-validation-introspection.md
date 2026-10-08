@@ -654,8 +654,8 @@ second handwritten workflow.
 
 Two checks sit at the end of the write loop:
 
-- **`catalog.readiness(refs=[entry_or_ref_or_runtime_expr])`** runs pure
-  in-memory checks over the compiled definition graph's dependency closure of exact current
+- **`catalog.readiness(refs=[entry_or_ref_or_runtime_expr])`** runs static
+  checks over the compiled definition graph's dependency closure of exact current
   entries, refs, and closed runtime metric expressions selected for
   certification. Entries normalize to refs before duplicate detection or
   dependency lowering. Runtime expressions lower through
@@ -664,10 +664,20 @@ Two checks sit at the end of the write loop:
   the explicit certification and diagnostic at the end of an authoring change,
   never writes stdout, and never queries. Analysis APIs do not invoke it
   automatically.
+  Declared direct-only aggregate operations are checked against the selected
+  datasource's EngineProfile and installed Ibis translation using an independent
+  synthetic column. This opens no source, needs no credentials or optional
+  backend client driver, and inspects no physical schema or opaque Python body.
+  A known incompatibility produces `aggregate_backend_unsupported`, preserving
+  the aggregate and q, target ref, datasource and backend, with an explicit
+  authoring repair. Dependent catalog roots and nested runtime expressions are
+  excluded from `analysis_ready_inputs`; unrelated definitions remain outside
+  a scoped report. Loading still preserves structurally valid declarations.
   Every `ReadinessReport` exposes `scope="semantic_static"` in its bounded
   rendering and dictionary form. This certifies the selected semantic
-  dependency closures only; it does not promise that a particular analysis
-  operation is executable. Operation-specific temporal selection, fold,
+  dependency closures and known aggregate/backend compatibility only; it does
+  not promise that a particular analysis operation is executable.
+  Operation-specific temporal selection, fold,
   grain, and artifact-shape checks remain owned by the consuming
   analysis call.
   A versioned Entity therefore does not need an ambient "current" anchor to pass

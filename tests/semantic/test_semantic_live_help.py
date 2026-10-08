@@ -9,8 +9,27 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
+from marivo._help.render import render_help_text
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic.errors import SemanticLoadError, SemanticRuntimeError
+
+
+def test_aggregate_help_discloses_definition_owned_backend_support() -> None:
+    text, _, _ = render_help_text("semantic.aggregate")
+    callable_text, _, _ = render_help_text(ms.aggregate)
+    assert text == callable_text
+    assert "count_distinct, median and percentile require exact operations" in text
+    assert "approx_* explicitly permits approximation" in text
+    assert "readiness blocks known incompatibilities without connecting" in text
+    assert "execution never substitutes the definition" in text
+    assert 'marivo.help("semantic.readiness")' in text
+
+
+def test_readiness_help_separates_backend_support_from_execution() -> None:
+    text, _, _ = render_help_text("semantic.readiness")
+    assert "declared aggregate/backend support without connecting or querying" in text
+    assert "Known incompatibilities block affected roots" in text
+    assert "Physical types and operation-specific executability remain with analysis" in text
 
 
 def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges() -> None:

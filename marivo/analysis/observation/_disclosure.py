@@ -85,7 +85,7 @@ def provider() -> DisclosureProvider:
         "measure": "Select an exact Measure ref from the semantic catalog.",
         "value": "Select the governed numeric value Measure ref.",
         "weight": "Select the governed additive weight Measure ref.",
-        "agg": "Choose an admitted aggregation; percentile uses its exact quantile declaration.",
+        "agg": "count_distinct, median and percentile require exact operations; approx_* explicitly permits approximation. Scoped catalog.readiness() blocks known backend incompatibilities without connecting; execution never substitutes the definition.",
         "fold": "Use the Measure's governed temporal fold by default; supply only an admitted fold override.",
         "slice_by": "Optionally map exact Dimension refs to typed slice values; the mapping is copied into the value.",
         "label": "Choose a nonempty value-column label distinct from retained coordinate names.",

@@ -151,6 +151,11 @@ the exact requested roots and their governed dependency closures. Readiness is
 snapshot-independent: it evaluates
 the current semantic project, the requested closure, and dedicated certified
 temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
+Known aggregate/backend incompatibilities block affected roots without a
+connection or query. Follow the returned repair to explicitly choose an
+acceptable approximate definition or a compatible datasource, then reload and
+rerun scoped readiness. A passing report still does not certify physical types
+or operation-specific execution.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
 or dedicated artifact repair. Ordinary preview reads the current datasource and

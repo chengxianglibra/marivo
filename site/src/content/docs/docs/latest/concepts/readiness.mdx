@@ -12,6 +12,14 @@ definition graph. A warning on a transitive dependency stays visible; a warning
 on an unrelated definition does not enter the scoped report. Analysis APIs do
 not invoke readiness automatically.
 
+Known direct-only aggregate/backend incompatibilities are blockers. Readiness
+checks the declared datasource's provider accuracy and installed Ibis translation
+using an independent synthetic column, without connecting, credentials, optional
+backend client drivers, or physical schema inspection. Catalog dependencies and
+nested runtime expressions use the same check. Loading preserves valid declarations;
+passing readiness still does not qualify physical types or a particular analysis
+operation.
+
 Readiness does not read discovery snapshots or ordinary preview history. The
 same definition therefore produces the same status, issues, and ready inputs
 whether snapshots or historical preview files are missing, fresh, or stale.
@@ -115,6 +123,14 @@ analysis API.
 Readiness continues to fail closed for structural graph problems, unknown refs,
 unfederated cross-datasource dependencies, invalid temporal semantics, state
 models without a replay seed, and unobservable snapshot folds.
+
+`aggregate_backend_unsupported` identifies the original aggregate and q, target
+ref, datasource, and backend. Its repair preserves q when proposing an explicit
+approximate definition and states whether the backend supports that alternative.
+For example, Trino rejects `("percentile", 0.95)` but permits the explicit
+`("approx_percentile", 0.95)` declaration. Dependent roots are excluded from
+`analysis_ready_inputs`; unrelated definitions do not block a scoped request.
+Execution never substitutes the definition and continues to recheck support.
 
 Dedicated temporal artifact blockers use artifact terminology:
 

@@ -119,6 +119,12 @@ Trino requires an explicit `user_env` declaration so connection identity never
 falls through to a backend-library default. `auth_env` remains optional for
 Trino deployments that do not require an authentication token or password.
 
+Marivo's Trino source-native route supports explicitly approximate quantiles,
+not exact median/percentile. Author `agg="approx_median"` or
+`agg=("approx_percentile", q)` only when approximation is acceptable. Scoped
+semantic readiness rejects known aggregate/backend incompatibilities without
+connecting; loading alone grants no backend execution support.
+
 `DatasourceSpec` is the closed union of these six types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.

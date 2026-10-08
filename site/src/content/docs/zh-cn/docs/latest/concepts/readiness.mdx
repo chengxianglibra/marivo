@@ -10,6 +10,12 @@ description: 与快照无关的语义输入技术认证。
 传递依赖上的 warning 会保留，无关定义的 warning 不会进入限定范围的报告。
 分析 API 不会自动调用它。
 
+已知的 direct-only 聚合与后端不兼容属于 blocker。就绪检查使用独立的合成列，检查
+声明数据源的 provider 精度能力和已安装 Ibis 的翻译支持；不连接来源、不需要凭据
+或可选后端客户端驱动，也不读取物理 schema。目录依赖和嵌套 runtime expression
+复用同一检查。加载保留合法声明；就绪检查通过仍不授予物理类型或特定分析操作的
+执行资格。
+
 就绪检查不读取 discovery snapshot，也不读取普通 preview 的历史记录。因此，同一
 定义在没有快照、快照新鲜或过期、以及存在或不存在历史 preview 文件时，除
 `checked_at` 外会得到相同状态、问题和 ready inputs。专用的 period calendar、
@@ -103,6 +109,12 @@ preview-required 列表、认证令牌或隐藏传递对象。
 
 结构图问题、未知引用、未联邦的跨数据源依赖、无效时间语义、没有 replay seed 的
 state model，以及不可观测的 snapshot fold 仍然 fail closed。
+
+`aggregate_backend_unsupported` 标明原聚合及 q、目标 ref、数据源和后端。Repair
+提出显式近似定义时保留 q，并说明后端是否支持该替代。例如 Trino 拒绝
+`("percentile", 0.95)`，但允许显式声明 `("approx_percentile", 0.95)`。
+依赖这些聚合的根会被排除在 `analysis_ready_inputs` 之外；无关定义不会阻塞限定范围
+的请求。执行不会替换聚合定义，并继续复核后端支持。
 
 专用时间 artifact blocker 使用 artifact 术语：
 
