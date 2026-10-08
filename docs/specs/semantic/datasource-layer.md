@@ -1,6 +1,12 @@
 # Datasource Layer Design
 
-Status: draft design. This document describes the current design of
+DuckDB datasource/entity readers retain their existing JSON, authentication,
+extension and registration facilities. Internal execution resources belong to
+the backend adapter. Remote analysis activation separately requires compatibility
+with read-only accounts; it does not globally disable DuckDB authoring.
+
+
+Status: current datasource contract, 2026-10-08. This document describes
 `marivo.datasource` (`md`): the project-level connection and evidence layer that
 the semantic layer builds on. It is the ground-truth boundary between physical
 storage and business semantics.
@@ -94,7 +100,6 @@ md.trino(
     auth_env="WAREHOUSE_AUTH",
 )
 ```
-
 Every constructor returns its spec and, when executed inside a datasource loader
 file, auto-declares it for the project. `spec.ref` yields the `Ref[datasource]`
 used everywhere downstream.
@@ -114,6 +119,12 @@ Trino requires an explicit `user_env` declaration so connection identity never
 falls through to a backend-library default. `auth_env` remains optional for
 Trino deployments that do not require an authentication token or password.
 
+Marivo's Trino source-native route supports explicitly approximate quantiles,
+not exact median/percentile. Author `agg="approx_median"` or
+`agg=("approx_percentile", q)` only when approximation is acceptable. Scoped
+semantic readiness rejects known aggregate/backend incompatibilities without
+connecting; loading alone grants no backend execution support.
+
 `DatasourceSpec` is the closed union of these six types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.
@@ -127,7 +138,7 @@ one-line pointer to this card rather than a dataclass field dump.
 
 SQLite uses `md.table(...)` for tables and views. It does not consume the
 DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
-connection-level `PRAGMA query_only`; Marivo's bounded inspection and diagnostic
+connection-level SQLite authorizer write denial; Marivo's bounded inspection and diagnostic
 reads enable the same protection internally. SQLite does not compile median or
 percentile aggregations or string `strptime` expressions in Ibis 12, so those operations
 fail through the structured Marivo contract; use a supported aggregation and a
@@ -154,51 +165,16 @@ Semantic declarations reference a datasource by one exact ref:
 warehouse = ms.ref.datasource("warehouse")  # -> Ref[datasource]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
-
 `ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare
 strings and kind-qualified strings such as `"datasource.warehouse"` are
 rejected — the exact ref is the contract. Renaming a legacy datasource changes
 its semantic identity. Explicit `*_env` references remain unchanged unless the
 author edits them.
 
-## Connection ownership and budgets
-
-All Marivo-owned connections use the same datasource lookup, credential
-resolution, engine construction, and cleanup path. The completed build retains
-both environment-secret provenance and injected credential information without
-rendering or serializing either. Only a successful `md.test(...)` or the first
-successful analysis execution in a Session triggers best-effort default caching;
-injected credentials are never cached.
-
-`md.connect(...)` hands ownership to its caller: use its context manager or
-`disconnect()`. Inspection and sampling own temporary connections. A single
-inspection shares one connection between table metadata and partition probes;
-CSV/JSON declared-schema inspection does not open a connection. Semantic preview,
-batch preview, source health, and parity share connections within their operation
-and release them on success or failure. Readers retain configuration and the
-selected credential resolver, not a live backend cache. Analysis alone keeps its
-Session cache until `Session.close()`; materializers borrow from their caller.
-
-Internal connection handshakes have an independent default 30-second deadline,
-including credential resolution and post-connect initialization. `md.connect`
-uses its explicit `timeout_seconds`; `md.test` retains one deadline for its whole
-connect-and-roundtrip operation. Query `timeout_seconds` on raw SQL, sampling,
-and preview remains an execution budget, not an end-to-end limit. SQLite
-connections are opened and used on their owning thread; its synchronous local
-open cannot be forcibly interrupted. A timed-out roundtrip releases its SQLite
-connection on the original worker when the driver returns. Other late connections
-are discarded and never enter a runtime cache.
-
-Declared read/write settings and external backend overrides retain their meaning.
-Marivo does not silently change an open mode or close another owner to resolve a
-DuckDB configuration conflict. A conflicting live connection produces a structured
-repair: close its Session or explicit connection, or use matching declared
-`read_only` settings, then retry. There is no global connection pool.
-
 ## Credentials and secret persistence
 
 Secrets never live in project state. Instead a spec records env-var names, and
-By default, Marivo resolves them at connect time through a provider chain:
+Marivo resolves them at connect time through a provider chain:
 
 ```text
 EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
@@ -241,7 +217,6 @@ md.duckdb(
     http_bearer_token_env="HAWKEYE_TOKEN",
 )
 ```
-
 For custom headers, map every header name to its secret environment variable.
 This supports single-header APIs and machine authentication that requires a
 header pair:
@@ -256,43 +231,13 @@ md.duckdb(
     },
 )
 ```
-
 Bearer and custom-header modes are mutually exclusive. At connection time
 Marivo resolves every environment-backed value and installs a temporary DuckDB
 HTTP secret constrained by `http_scope`; the same connection keeps the scoped
-headers in memory for POST execution. Resolved values are never serialized into
+headers in memory for JSON execution. Authenticated GET requests and all POST
+requests reject automatic redirects; author the final in-scope URL explicitly.
+Resolved values are never serialized into
 `md.json(...)` or project metadata.
-
-### Host-injected credential resolution
-
-`md.credential_scope(resolver=...)` selects a synchronous `CredentialResolver`
-for new operations and connection runtimes. It replaces the default env/cache
-chain completely: no fallback, cache reads, or cache writes. Datasource declarations
-keep their existing `*_env` references. One `CredentialRequest` groups all fields
-using a reference in a backend build; it includes the bound project, datasource,
-remaining operation deadline and live cancellation state. The host validates its
-own authorization and returns a non-empty `SecretValue` or `DatasourceCredentialError`.
-
-Session and semantic reader runtimes retain their resolver after scope exit.
-A different explicit resolver is rejected when acquiring a Marivo-built backend,
-including cache hits. Exiting scope restores selection only; normal connection
-and Session cleanup remains responsible for resources. External backend overrides
-keep their existing dispatch and credential ownership. Raw backend handoffs are
-not intercepted. The host keeps resolver clients alive while runtimes use them.
-
-Credential failures expose missing, denied, unavailable, expired, timeout, and
-invalid-response reasons; `md.test` reports matching `credential_*` failure codes.
-Database failures retain connection/query meaning. Secret wrappers mask display
-and reject serialization; managed error boundaries redact values and suppress raw
-provider causes. Live Help owns the complete callable/type and repair contract:
-`marivo.help("datasource.credential_scope")`.
-
-Source materialization failures during analysis planning are also redacted while
-retaining their semantic error kind and refs. Raw SQL failures retain
-`DatasourceRawSqlError`, observed query effects, and their `raw_sql` repair target.
-Metadata permission classification reads the original structured driver error
-before redaction, so injected credentials preserve declared-schema fallback for
-projected sources; other failures remain closed.
 
 ## Physical sources
 
@@ -302,96 +247,117 @@ discovery, and `ms.entity(source=...)`.
 
 | Constructor | IR | Meaning |
 |---|---|---|
-| `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view or a complete typed projection over one physical table (any SQL backend). |
+| `md.table(name, database=..., columns=...)` | `TableSourceIR` | A catalog-backed table/view with an optional output-name to physical-column projection (any SQL backend). |
 | `md.parquet(path, hive_partitioning=...)` | `ParquetSourceIR` | A self-describing DuckDB file source over Parquet. |
-| `md.csv(path, schema=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with required typed physical schema. |
-| `md.json(path, schema=..., format=..., records_path=..., field_paths=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with stable typed output aliases, optional correlated nested-field extraction, and runtime-bindable query-string or POST-body values. |
+| `md.csv(path, columns=..., header=..., delimiter=...)` | `CsvSourceIR` | A DuckDB CSV file source with inferred types and an optional output-name to header projection. |
+| `md.json(path, columns=..., format=..., records_path=..., query_params=..., method=..., body=...)` | `JsonSourceIR` | A DuckDB JSON source with inferred types, optional JSON-path projection, and runtime-bindable query-string or POST-body values. |
 
 `TableSource` is the public union of these four IRs. File sources
 (`parquet`/`csv`/`json`) are read by the DuckDB engine, so they attach to a
-DuckDB datasource ref; `md.table(...)` works against any backend. CSV and JSON
-must carry a non-empty backend-independent typed `schema=` mapping so metadata
-inspection never opens user data merely to infer types. Parquet and CSV paths may
-be local files or globs. JSON additionally supports HTTP(S) GET and JSON-object
-POST requests while retaining the declared physical `format=` and schema.
+DuckDB datasource ref; `md.table(...)` works against any backend. Parquet carries
+self-described physical types. Table, CSV, and JSON sources do not accept authored
+physical types: the source is the authority for those facts. The `columns=`
+argument is an optional projection mapping stable output aliases to physical
+column names or JSON paths. Omitting it exposes all discoverable columns. Source
+construction, `ms.entity`, `ms.load()`, and `dataset.contract()` remain source-I/O
+free. Database metadata is read only when execution needs types, and only for the
+required dependency closure. CSV and JSON types are inferred during their actual
+read; remote JSON is not fetched only to inspect its schema.
 
-### Typed table column bindings
+### Source projections and observed types
 
-`md.table(...)` has two closed modes. Omitting `columns=` keeps the catalog-backed
-path and resolves the complete table through Ibis. Supplying `columns=` declares a
-complete typed interface over the same physical table. Every mapping key is the
-stable output alias used by semantic objects; every value is one
-`md.source_column(physical_name, data_type=...)` binding. Physical identifiers are
-quoted atomically, so dots, spaces, reserved words, and punctuation never become
-qualification or authored SQL:
+Supplying `columns=` to `md.table(...)` selects and renames physical columns. Its
+type is `Mapping[str, str]`: output name to physical column name. It does not
+declare types or accept column descriptor objects. Physical identifiers are quoted atomically, so
+dots, spaces, reserved words, and punctuation are treated as one identifier:
 
 ```python
 events_source = md.table(
     "raw.events",
     database="warehouse",
     columns={
-        "event_time": md.source_column("event.timestamp", data_type="timestamp"),
-        "score": md.source_column("_generated_score", data_type="float64"),
+        "event_time": "event.timestamp",
+        "score": "_generated_score",
     },
 )
 ```
+The mapping is a complete allowlist when present. Execution resolves the selected
+physical columns and their actual types from the backend; undeclared physical
+columns do not constrain the source contract. `md.inspect` reports available
+physical metadata and a copyable projection. Metadata that is unavailable remains
+unknown; it is not filled from a user assertion. Unsupported necessary types fail
+when the execution closure consumes them. Unused columns do not add execution
+type restrictions.
 
-The declared type is the output Ibis schema assertion; it does not cast the
-physical value. Projected mode is a complete allowlist: catalog inference cannot
-fill omitted columns, and duplicate physical identifiers are rejected. The
-datasource adapter generates one identifier-only inner `SELECT` without a table
-alias and supplies the declared schema to the backend. The binding mapping remains
-part of source, snapshot, semantic dependency, cache, and lineage identity.
+ClickHouse native row reads, a naive datetime is restored to UTC only when the
+physical Arrow schema explicitly declares UTC; other timezone mismatches remain
+errors. A cursor close failure marks the governed submission failed and records
+`close_failed`, rather than claiming successful cursor release. Subsequent owned
+connection disconnection is recorded separately.
+
+Missing selected optional drivers raise `DatasourceConnectionError` with the
+backend-specific `marivo[backend]` installation repair. Unselected drivers are
+not imported by provider discovery.
+
+SQLite and MySQL retain their source-representation checks at execution. For
+example, SQLite temporal and Boolean columns must use the backend's admitted
+representations, and Boolean values must be exactly 0/1/NULL. Native temporal
+analysis also admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and ClickHouse
+`DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse timestamp
+execution retain verified UTC session/reader requirements; source and report
+timezones remain distinct. Reader and report timezone resolution accept IANA
+names and explicit offsets. An absent probe capability permits recorded system
+fallback; an actual failed or invalid probe does not. Physical instants and
+explicit parser authority skip unnecessary reader probes. Native parser
+declarations retain their existing IANA validation.
+
 
 For ClickHouse tables, inspection also reads active `system.parts_columns` and
 exposes safe adapter-only physical columns through
 `SourceInspection.projectable_columns`. Each row carries the exact physical
-name accepted by `md.source_column(...)`, its normalized Ibis type, and
-nullability. Columns with conflicting part types or unparseable backend types
-are warned about and omitted. This is physical-column discovery, not Map key
-enumeration: dynamic keys that have not been materialized remain outside the
-governed source contract and require upstream materialization, a database view,
-or terminal `md.raw_sql(...)`.
+name accepted by `columns=`, its observed backend type, and nullability.
+Columns with conflicting part types or unparseable backend types are warned
+about and omitted. This is physical-column discovery, not Map key enumeration:
+dynamic keys that have not been materialized remain outside the governed source
+contract and require upstream materialization or a governed database view for
+typed Analysis. `md.raw_sql(...)` can answer a separate terminal question about
+such data, but its result cannot become a governed source binding.
 
-For a wrapped response, `records_path=` selects the array whose declared fields
-are projected into the output schema. Additional object fields are ignored and
-missing declared fields become typed nulls; present values must be convertible to
-their declared types. The initial contract is intentionally limited to `$` plus
-object-member access, such as `$.data` or `$.result.items`; filters, wildcards,
-recursive descent, and array indexing are not supported. A present, empty array
-materializes as zero rows. A missing path or a non-array value fails at execution
-instead of being treated as an empty result; verify the response envelope and API
-authentication before retrying.
+For a wrapped response, `records_path=` selects the array whose records are read.
+Additional object fields are ignored when a projection is supplied. Types are
+inferred from returned values; a required projected field missing from every
+record or null in every record fails clearly because no physical type can be
+inferred. The record path is intentionally limited to `$` plus object-member
+access, such as `$.data` or `$.result.items`; filters, wildcards, recursive
+descent, and array indexing are not supported. A present, empty array
+materializes as zero rows. A missing path or a non-array value fails at execution.
 
-`schema=` maps stable output aliases to Ibis type strings. For a field nested
-inside each selected record, `field_paths=` maps that output alias to a relative
-JSON path: `a.b` selects an object member, `a[0].b` selects a fixed array index,
-and `a[].b` traverses an array. Traversed sibling fields must share one array
-prefix and are projected from the same element, so their values remain
-correlated. Independent traversal roots and more than one traversal in a path
-fail at declaration instead of creating a Cartesian product. A record whose
-traversed array is missing, empty, or null produces no rows. Literal top-level
-field names remain schema keys and may contain punctuation or spaces.
+For JSON, each `columns=` value is a relative JSON path: `a.b` selects a nested
+object member, `a[0].b` selects a fixed array index, and `a[].b` traverses an
+array. Traversed sibling fields must share one array prefix and are projected
+from the same element, so their values remain correlated. Independent traversal
+roots and more than one traversal in a path fail at declaration instead of
+creating a Cartesian product. A record whose traversed array is missing, empty,
+or null produces no rows. Top-level field names may contain punctuation or spaces.
 
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "app_id": "int64", "app_name": "string"},
-    records_path="$.data.change_infos",
-    field_paths={
+    columns={
+        "change_id": "change_id",
         "app_id": "specificsource[].appid",
         "app_name": "specificsource[].name",
     },
+    records_path="$.data.change_infos",
 )
 ```
-
 Parameterized API URLs keep their stable request shape in the semantic project
 and bind request-specific values at analysis time:
 
 ```python
 samples = md.json(
     "http://hawkeye.example/report/api/v2/query_range/datasource/81",
-    schema={"metric": "json", "value": "json", "values": "json"},
+    columns={"metric": "metric", "value": "value", "values": "values"},
     records_path="$.data.result",
     query_params={
         "query": 'sum(pending_containers{q1=~"llst_queue|sycpb|report"}) by (cluster, q1)',
@@ -401,7 +367,6 @@ samples = md.json(
     },
 )
 ```
-
 `query_params` values are scalars or flat, non-empty scalar lists. Lists encode
 as repeated query keys. `md.source_param(name)` declares a required, non-secret
 runtime value and may resolve to either shape while occupying one complete query
@@ -420,11 +385,11 @@ non-empty scalar list. It does not interpolate string fragments.
 ```python
 gpu_servers = md.json(
     "https://root.example/api/v1/graphql",
-    schema={
-        "name": "string",
-        "bs": "string",
-        "gpuAbstract": "string",
-        "status": "string",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
     },
     method="POST",
     body={"query": "{ queryServers { name bs gpuAbstract status } }"},
@@ -432,19 +397,18 @@ gpu_servers = md.json(
     query_params={"policy-domain": "gpus"},
 )
 ```
-
 Authentication headers are resolved from the owning DuckDB datasource and are
 sent only when the final URL is inside its declared `http_scope`. The body shape
-stays in `md.json(...)`; only declared non-secret parameter values belong to
-analysis-session bindings.
+stays in `md.json(...)`; explicit reads supply declared non-secret parameter
+values without changing that declaration.
 
 For example, one change-focus page can declare its app and page number as
-analysis-scoped values without turning pagination into datasource behavior:
+request-scoped values without turning pagination into datasource behavior:
 
 ```python
 changes = md.json(
     "http://change-focus.example/api/v2/change/list",
-    schema={"change_id": "int64", "title": "string"},
+    columns={"change_id": "change_id", "title": "title"},
     method="POST",
     body={
         "platform_id": 1,
@@ -457,92 +421,85 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-
 Marivo executes one request for one binding. Automatic page traversal, app-list
 fanout, watermarks, and ingestion remain outside this physical-source contract.
 
-The binding belongs to the analysis execution scope, not to `observe(...)` and
-not to persisted `md.json(...)`:
+Explicit datasource discovery supplies parameters to the bounded read:
 
 ```python
-with session.source_bindings(
-    {
-        ms.ref.entity("monitoring.samples"): {
-            "start": "now-3600",
-            "end": "now",
-        },
-    }
-):
-    frame = session.observe(ms.ref.metric("monitoring.pending_containers"))
+inspection = md.inspect(warehouse, prometheus)
+snapshot = inspection.sample(
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    columns=("metric", "value", "values"),
+    source_params={"start": "now-3600", "end": "now"},
+)
+snapshot.show()
 ```
+`source_params` must provide exactly the declared parameter names. Each value is
+a scalar or flat, non-empty scalar list; the normalized binding enters snapshot
+identity. A discovery snapshot is bounded physical evidence, not a typed
+Analysis input.
 
-Bindings use exact `Ref[entity]` keys and must provide exactly the declared
-parameter names. They are nested, context-local, and keyed by the owning Session
-runtime, so concurrent agents and another Session in the same task cannot consume
-the values. Each binding is a scalar or a flat, non-empty scalar list. Non-secret
-bindings participate in analysis and snapshot identity.
-Discovery uses the same contract through
-`inspection.sample(..., source_params={...})`.
+`session.source_bindings(...)` retains its context-local construction contract
+with exact Entity Ref keys. It does not grant graph admission to a datasource
+form. The current Analysis graph qualifies existing local, unparameterized GET
+JSON files on DuckDB; remote HTTP JSON, POST and runtime-parameterized JSON remain
+outside that route. Use the explicit datasource read above for those requests.
 
 ## Registration and state storage
 
-The built-in `default` datasource is always available as in-memory DuckDB
-(`path=":memory:"`, no credentials), without a declaration or registration.
-`md.list()`, `md.describe("default")`, and datasource and semantic catalogs
-expose it with its built-in, non-persistent origin. Entities still explicitly
-reference `ms.ref.datasource("default")`; CSV, Parquet, and JSON sources use
-existing source descriptors. Declare a separate named datasource for credentials,
-custom connection settings, or a persistent DuckDB database.
-
-`default` is reserved: registration and authored declarations fail with structured
-errors, and removal is rejected. No configuration file is generated. File loaders
-collect only authored declarations; each project aggregation adds one fresh
-built-in definition, including across semantic layers. Discovery does not open
-connections or read user data. Existing external model-root validation is retained.
-
-Read-only acquisition on in-memory DuckDB uses a read-only transaction because
-DuckDB cannot open an in-memory database in connection-level read-only mode.
-Temporary file-reader views remain usable while database table writes are rejected.
-File-backed DuckDB keeps connection-level read-only enforcement.
-
-The built-in uses ordinary managed connection ownership. Independent connections
-and processes do not share its temporary tables. A new process can reread file
-sources; this does not promise that mutable files contain the same data. Unknown
-explicit datasource names still fail without fallback.
+Declaration files call datasource constructors directly; the datasource loader
+automatically collects them. `md.register()` is a persistence operation for setup
+scripts executed outside datasource and semantic model loading:
 
 ```python
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("default"),
-    source=md.parquet("data/orders.parquet"),
-)
-```
-
-
-```python
+# setup_datasources.py (run outside model loading)
 spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
 md.register(spec)  # writes models/datasources/warehouse.py
 md.test(spec.ref).show()  # validated live round trip
 ```
-
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
   `models/datasources/`; authoring that file by hand is equally valid.
+  Registration saves only this declaration and returns its summary without
+  executing other declaration files. Success proves the file was saved, not
+  that the complete project is valid; load the project separately to validate it.
+- Calling `md.register()` during model loading, including synchronous imports
+  from a semantic file or registration into another project, raises
+  `DatasourceLoadError` before configuration reads, writes, or nested loading.
+  Remove the `md.register(...)` wrapper and keep the datasource constructor.
+  Semantic loading preserves this repair and reports `invalid_project`.
 - `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
-- Storage is **layered / multi-root**: datasource files are discovered across
-  the configured model roots, so a shared base project and a local overlay can
-  coexist.
-- `md.connect(name)` opens a live `DatasourceConnection`; `md.test(ref)` returns
-  a `DatasourceTestResult` and triggers post-validation secret caching. Both
-  accept a keyword-only `timeout_seconds` (default 30s) that bounds the connect
-  handshake and the `SELECT 1` round-trip with a Marivo-side wall-clock deadline.
-  When the deadline is exceeded the call fails closed — `md.connect` raises a
-  `DatasourceConnectionTimeoutError` and `md.test` returns a timeout failure —
-  rather than blocking indefinitely, regardless of whether the backend's own
-  query timeout is enforceable. A thread-affine backend (SQLite) is the one
-  exception: it opens a local file or in-memory database synchronously and
-  cannot block on a network handshake, so `md.connect` opens it inline on the
-  caller's thread and the wall-clock deadline does not apply.
+- Restart Python after package upgrades or model edits/deletions. Ordinary
+  imported dependencies are not guaranteed to hot-reload; Marivo does not purge
+  their module caches or delete bytecode. Execution errors preserve the original
+  exception through `__cause__`, expose `exception_type` and `traceback`, and
+  display the complete traceback by default. Duplicate errors retain both
+  `declaration_paths`; if a source no longer exists, the repair requests a restart
+  and lists any existing related bytecode only as a diagnostic lead.
+- All datasource reads, including catalog methods, inspection, and connections,
+  use the same **layered / multi-root** set as `ms.load()`: local `models/`
+  followed by `marivo.toml [semantic].layer_paths`. Duplicate datasource names
+  fail with both declaration locations; roots do not override each other.
+  Registration and removal write only the project-local datasource directory.
+- `md.load(workspace_dir=...)` and `md.inspect(..., workspace_dir=...)` use an
+  exact workspace root. Without it, project selection uses `MARIVO_PROJECT_ROOT`,
+  the nearest ancestor manifest, then cwd. Catalog methods retain their bound
+  workspace even when cwd or the environment changes.
+- Each inspect call loads one datasource definition and passes it through its
+  metadata steps. Later inspection and catalog reads use current declarations;
+  an existing `SemanticCatalog` retains its loaded definitions until a new
+  `ms.load()` call. No process-global declaration cache publishes file edits.
+- The private `load_datasources()` accepts an exact datasource directory,
+  including an arbitrary directory name. Recognizable workspace, models-parent,
+  and semantic-directory arguments fail with the correct datasource path;
+  missing or empty datasource directories remain valid empty inputs.
+- `md.test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
+  triggers post-validation secret caching. Its connect handshake and
+  Ibis-compiled literal round-trip share a Marivo-side wall-clock deadline.
+  Timeout returns a structured failure; a local SQLite connection opens on
+  the caller's worker thread and its synchronous open cannot be interrupted.
+  Live backends remain private to the datasource adapter.
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
 On failure, `.failure` carries a bounded `DatasourceFailure` with a stable stage
@@ -550,7 +507,7 @@ code (`connection_open_failed`, `connection_roundtrip_failed`,
 `connection_timeout`, or `connection_roundtrip_timeout`), backend exception
 type/code/name, and a sanitized message. `.repair` provides the focused help
 target and action. The two timeout codes distinguish the connect handshake from
-the `SELECT 1` round-trip. Secret-cache write warnings do not change a successful
+the Ibis literal round-trip. Secret-cache write warnings do not change a successful
 result. Successful results prove only that the current datasource connection test
 passed.
 
@@ -579,17 +536,16 @@ Physical extent always carries provenance and scope. For a ClickHouse
 bounded local observation appears only in `physical extent notes` with
 `scope=local_node_only`. Marivo does not issue a cluster-wide fanout query.
 
-CSV and JSON descriptors require typed `schema=` mappings so inspection never
-opens data merely to infer types. Ordinary tables use catalog schema and Parquet
-uses footer schema. A projected table first compares its declared bindings with
-available base-table metadata, then exposes exactly the stable output aliases.
-Catalog-visible bindings must have the declared canonical type. A missing physical
-identifier becomes a `declared_column_unverified` warning with unknown nullability;
-it is not treated as proof that the identifier exists. If base metadata is
-classified unavailable, inspection remains metadata-only, returns the complete
-declared interface with unknown extent/partition/constraints, and requires an
-explicit bounded `md.unpruned(...)` acquisition. Authentication, connection,
-configuration, timeout, and unclassified metadata failures still fail closed.
+Ordinary tables use catalog metadata and Parquet uses footer metadata. A projected
+table maps those observed physical columns to stable output aliases; a missing
+physical identifier is reported as unverified, not filled from an authored type.
+CSV and local JSON inspection may infer available types from the file. HTTP JSON
+inspection never sends a request solely to discover types, so projected types are
+reported as `unknown` until the actual read. If base-table metadata is classified
+unavailable, table inspection remains metadata-only, returns projected aliases
+with unknown types and extents, and requires an explicit bounded
+`md.unpruned(...)` acquisition. Authentication, connection, configuration,
+timeout, and unclassified metadata failures still fail closed.
 
 ```python
 inspection = md.inspect(warehouse, md.table("orders"))
@@ -605,7 +561,6 @@ snapshot = inspection.sample(
 snapshot.show()
 # Read bounded rows, profiles, coverage, and retained values only when needed.
 ```
-
 For date or timestamp acquisition, use the same public `PartitionScope` through
 `md.time_range("created_at", start=..., end=..., max_rows=...,
 timeout_seconds=...)`. It applies the half-open `[start, end)` predicate after
@@ -647,6 +602,14 @@ timezones, aggregation, units, additivity, relationship cardinality, null
 semantics, and business meaning remain agent-owned. Marivo does not classify a
 high null rate as a business-quality failure or filter nulls implicitly.
 
+Bounded acquisition opens its isolated reader with the requested scope timeout
+before entering the provider's authoring timeout guard. PostgreSQL configures
+`statement_timeout` through connection options, and Trino configures
+`query_max_run_time` through connection session properties. This uses the same
+connection setup as terminal diagnostics; it does not add control SQL or alter
+shared connections. A provider without an enforceable acquisition timeout
+continues to reject sampling before business submission.
+
 Reacquire evidence only when a required column or value was not captured, or
 when datasource/source/scope identity no longer matches. Snapshot age alone is
 not invalidation.
@@ -657,51 +620,154 @@ does not certify business meaning. During the current milestone, scoped
 `catalog.preview(..., scope=...)` reads the current source directly. Ordinary
 preview does not persist an authoring checkpoint or affect readiness.
 
-### Governed raw SQL exploration
+### Ibis-owned analysis reads and terminal raw SQL
 
-```python
-md.raw_sql(warehouse, "SHOW PARTITIONS orders", reason="inspect pruning").show()
-```
+Provider operation support and exact Analysis method qualification are separate.
+The selected engine provider
+registry is lazy. `SourceSession` binds table and view relations on DuckDB,
+SQLite, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
+local JSON, and uncredentialed HTTP JSON. It checks exact source identity,
+runtime JSON parameters, relation ancestry, additional physical inputs, and
+the pre-read Arrow schema. One active batch stream belongs to a session; the
+submitted SQL is the unchanged Ibis compilation. Decode rejects lossy integer,
+Boolean, float, Decimal, date, and timestamp values. PostgreSQL record fields
+accept only canonical integer text where its driver returns record components
+as text; Trino named rows retain their field names; MySQL temporal converters
+preserve invalid date text for rejection rather than silently turning it into
+null. A DuckDB result is connection-owned and is released with its connection;
+remote cursor close does not prove server-side query termination.
 
-`md.raw_sql(...)` is a normal governed exploration option and the sole terminal
-raw SQL execution path. It executes the submitted statement unchanged after the
-existing whitespace/trailing-semicolon normalization and single-statement check.
-Inputs containing only whitespace, semicolons, or ordinary SQL comments are
-rejected before acquiring a connection. Comments on valid queries remain intact;
-backend executable comments are passed through for the backend to interpret.
-There is no `limit` argument, injected SQL boundary, client row/byte cap, or
-truncation probe. All returned rows load into client memory; control query size
-with filters, partition predicates, aggregation, and SQL `LIMIT`. For example:
+SQLite native NUMERIC affinity is not an exact Decimal carrier. Declaring a
+Decimal schema, including through `type_map`, does not restore precision already
+lost to a native float. Such reads raise `DatasourceSourceCapabilityError`
+without float-to-Decimal coercion. Use a qualified exact-Decimal datasource
+instead; other backends retain their exact precision/scale requirements.
 
-```python
-md.raw_sql(warehouse, "SELECT id FROM orders ORDER BY id LIMIT 20", reason="inspect order ids").show()
-```
+The Analysis handoff explicitly declares join and union in addition
+to scan, filter, project, group and count. The R1 basic physical requirement
+admits join/union only on DuckDB; other providers retain their existing operation
+set. This physical allowance does not grant method semantics or cross-datasource
+federation. Exact method/type/table-form qualification and all bound key, Cell
+and pairing checks remain owned by Analysis. Expressions still pass unchanged
+through the same relation-ancestry, schema and submission checks.
 
-`timeout_seconds` (default 30) remains active through execution and complete
-fetching, with a separate 30-second connection handshake budget. A fetch failure
-raises an error instead of returning partial results. Use read-only SQL and
-credentials. Existing backend read-only protections remain where supported;
-Trino relies on database-side permissions and requires an account denied writes.
-Marivo does not parse SQL to prevent writes on Trino or guarantee no side effects.
-Result cards retain their display budgets without limiting the stored result.
-It returns a `RawSqlResult` that cannot re-enter typed analysis; use
-`RawSqlResult.to_pandas()` for the terminal pandas exit. Its observed facts may
-inform explicit semantic Python, but the result itself cannot become typed or
-canonical analysis. Choose it for a concrete source-specific question public
-inspection cannot answer, or provisional terminal work without typed inputs;
-do not replace available governed definitions or bypass typed preconditions.
-When an Artifact already establishes the inputs and only the required method
-is unsupported, use that Artifact's terminal export instead of querying again.
-Retain query scope, semantic gaps, and caller-stated budgets. SQL `LIMIT` does
-not bound source scanning. `rows`, `shape`, `row_count`, and `to_pandas()` describe
-the complete returned query result, not necessarily the full source population.
-`requested_limit` and `is_truncated` are removed without compatibility aliases.
+`md.inspect` resolves a table through that owner before provider metadata
+inspection. `SourceInspection.sample`, snapshots, Semantic preview, and
+source-health business checks use bounded source-bound session reads. They
+remain distinct evidence: metadata describes observed structure, a sample
+describes only selected bounded rows, `md.test` and source-health connectivity
+prove one compiled literal round trip, and explicit source-health checks report
+only their requested business scope. Optional metadata failures may yield
+schema-only or unavailable observations; a fact required for admission cannot
+be inferred from a sample or silently supplied. Six backend metadata profiles
+read the bound Ibis relation schema as the authoritative column baseline and
+obtain optional catalog facts — comments, column nullability and ordinals,
+view kind and definitions, primary keys and unique constraints where the
+provider exposes them, partition topology, physical estimates, and ClickHouse
+projectable columns — through the provider statement channel: a closed
+registry of provider-owned fixed statements (`datasource.capabilities`, the
+2026-09-28 user-approved internal-SQL exception recorded in the R0 SQL ledger
+R1.6 overlay; statement text is pinned by a snapshot test and every submission
+is audited on the backend). Every registered metadata statement has exactly the
+owning `datasource.metadata.<backend>` purpose; scoped HTTP credential statements
+have only `datasource.http_credentials`. Empty purpose sets grant no submission
+authority. Cross-provider and cross-purpose requests reject before native SQL.
+Each fact query that fails yields that fact's
+unavailable warning while inspection still succeeds; a total failure yields
+schema-only. Unknown view kind is `None`, not `False`. DuckDB catalog facts
+are qualified by database, schema, and table. Composite unique constraints
+retain their constraint identity and column order; SQLite partial and expression
+indexes do not establish unconditional column uniqueness. A consumer requiring one
+of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
+`system.tables` / `system.parts` partition-value reads continue through bound
+Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
+secret at connection time and send credentials only inside the declared
+`http_scope`; see the credential section above for the declaration contract.
 
-Marivo therefore has three distinct SQL categories: SQL compiled by Ibis from
-typed expressions; datasource-adapter SQL generated only from validated source IR
-and quoted identifiers; and user-authored SQL accepted by terminal
-`md.raw_sql(...)`. Only the last category is authored SQL text. Typed table
-bindings never accept expressions, predicates, joins, casts, or SQL fragments.
+The user separately approved MySQL certified-authoring SELECT deadlines on
+2026-10-05. Exactly two provider statements install and read back the
+session-level max_execution_time value on an isolated certification connection.
+Their purpose is closed to semantic.certified_preview.deadline and their integer
+parameter is bounded to 1..4294967295 milliseconds. Denied or mismatched facts
+reject before certification collection; the connection closes rather than
+resetting a shared session. Native certified-source read failures surface as
+structured SemanticRuntimeError with backend diagnostics, authored timeout and
+actual source-submission facts. Integer DB-API error codes remain available as
+sanitized diagnostic fields. No failed capture publishes or replaces a certified
+snapshot; already typed datasource/semantic failures preserve their original
+repair. On 2026-10-06 the user separately authorized owned-query KILL for
+`sample` and `raw_sql` deadlines. Their isolated reader has its own bounded
+control connection; `datasource.authoring.deadline` may cancel only that
+reader's current native thread ID. The timer covers execution and fetch, joins
+before cleanup, and closes both connections. The reader identity and duplicated
+socket are captured before submission; cancellation does not call driver metadata
+methods across threads while a native read is active. These purposes do not use or
+extend the certification-only SET/read controls. Independent server termination
+and absence of publication after failure remain separate acceptance proofs.
+
+On 2026-10-06 the user approved a closed ClickHouse owned-query cancellation
+operation. It binds the submitting SourceSession's issued query ID and
+authenticated reader user in `KILL QUERY ... SYNC`, through a separate bounded
+control connection with the same authentication. The reader requires
+`SELECT(query, query_id, user) ON system.processes`; this column permission also
+permits general query-metadata visibility. Operators configure it explicitly.
+Marivo does not grant permissions or issue product `currentUser()` probes.
+This permission and lifecycle boundary applies to the exact issued query and
+authenticated reader. Runtime regression coverage includes pending, initial-
+response and fetch phases, permission refusal, and a retained resource
+obligation when control-close acknowledgement is unavailable; see
+[Runtime test coverage](../../testing/runtime-coverage.md).
+
+`md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
+timeout_seconds: int = 30, include_types: bool = True,
+project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
+terminal SQL escape hatch for questions outside its governed Analysis capability.
+Backend-returning connection entry points are removed; `md.raw_sql` is the only
+public raw SQL terminal entry.
+It submits SQL text verbatim with a required nonempty reason, positive
+enforceable timeout. The input is not parsed to classify
+SQL as a diagnostic. Read-only protection relies on connection and backend permissions
+and is best effort where the backend cannot guarantee it.
+The result retains all rows returned by the query, plus columns, types and
+execution context. Control query size in SQL with predicates, aggregation and
+an explicit LIMIT. Complete query rows are loaded into client memory; a LIMIT
+does not necessarily bound source scan cost. `RawSqlResult` is terminal:
+its rows or isolated `to_pandas()` copy confer no Semantic identity, Metric
+components, coverage, Artifact receipt or Analysis continuation. It cannot be
+passed to `session.members`, `observe`, `execute`, or a typed source binding.
+Raw-SQL result `show()` and `render()` use `n=None, max_output_bytes=8192`.
+They fit complete returned rows and report display omissions independently of
+query size; unlimited display never fetches more source rows. See the
+[business data display contract](../agent-friendly-public-surface.md#business-data-display).
+
+The `datasource.raw_sql` Help target and public export remain discoverable.
+
+No other public source, inspection or Semantic expression argument accepts SQL
+text, including `backend.sql(handwritten)` disguised as a table. Typed table
+bindings still reject predicates, joins, casts and fragments. Governed business
+reads, completeness checks, counts and type/time validation are constructed as
+Ibis expressions. An adapter may submit the unmodified compiled result of a
+bound Ibis expression through a native driver; it records the expression
+identity, purpose and actual submission. The user-authored text submitted by
+`md.raw_sql` is the explicit terminal exception, not an implementation route
+for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; unavailable timeout
+or required timezone facts block the affected execution cell. A required governed operation
+without an Ibis or registered prepare-then-Python route is blocked. Local Store
+SQLite transactions have separate internal persistence authority.
+
+### Public connection boundary
+
+The backend-returning `md.connect`, `DatasourceCatalog.connect`,
+public `DatasourceConnection` type and their Help targets are removed. Connection
+creation remains private to the datasource adapter. A caller checks
+connectivity with `md.test`, inspects
+physical facts with `md.inspect`, uses bound Ibis reads only through governed
+operations, and submits custom SQL only through terminal `md.raw_sql`.
+Existing calls that require a raw Ibis backend must change to one of those
+purpose-specific paths; they do not receive a compatibility alias or a wrapper
+that exposes `backend.sql`/`raw_sql`. CLI doctor uses its bounded datasource test
+path; no public
+connection object provides the same bypass.
 
 ## Handoff to semantics
 
@@ -723,8 +789,45 @@ snapshot.show()
 order_id_profile = snapshot.profiles[0]
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
 ```
-
 Physical facts remain datasource-owned; semantic refs remain semantic-owned.
 After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined
 in [authoring-workflow.md](authoring-workflow.md).
+
+For MySQL and SQLite bounded dataframe acquisition, nullable integer columns keep
+exact integer cells before backend conversion; a NULL must not promote large
+integers through float64. Typed inspection does not normalize PostgreSQL/MySQL/Trino
+fixed CHAR to logical string, because its padding semantics differ. Bind a
+variable-length text column instead; SQLite's qualified BINARY text convention
+continues to admit CHAR declarations.
+
+
+## Execution logging side effects
+
+Actual governed reads, connectivity probes, registered provider statements and
+`md.raw_sql()` write always-on diagnostics to project-local `.marivo/logs/`.
+Submission records contain verbatim SQL; completion records describe actual
+consumption and cursor-release outcomes. Parameterized credential statements
+record their fixed template only and never record bound values or sensitive
+failure messages. Logging is independent of the usage telemetry switch and
+cannot change query results, typed failure propagation or connection cleanup.
+See the Analysis session/runtime specification for correlation and rolling.
+`marivo doctor` without `--connect` remains read-only and produces no execution
+logs; explicitly requested connection probes log their SQL without caching secrets.
+
+## Host credential ownership
+
+`md.credential_scope(resolver=host)` supplies a `CredentialResolver` for
+Marivo-owned acquisitions. Requests contain project root, datasource, exact
+reference, sorted field names, deadline and cancellation state. The host returns
+`md.SecretValue`; displays and serialization do not reveal it. Explicit resolvers
+never fall back to environment variables or the plaintext default cache, and
+injected values are not cached. An explicit conflicting resolver is rejected
+on an owner captured by another scope. Catalog, Session and operation owners
+retain their captured resolver after ambient scope exit. Callers that receive a
+raw backend through private test infrastructure own its direct driver calls.
+
+Every project has `default`, a reserved, fresh in-memory DuckDB datasource.
+Discovery does not create files or open connections. Its memory is connection
+local; use durable files or a declared datasource for data that must survive.
+Governed Source/backend capabilities apply equally to `default`.

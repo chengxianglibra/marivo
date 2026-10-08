@@ -7,8 +7,14 @@ from collections.abc import Collection, Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal
 
+import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+)
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -18,15 +24,14 @@ from marivo.datasource.engines.base import (
     PartitionProbeResult,
     QuantileCapability,
     TableRefRequest,
-    decode_cursor_frame,
-    identity_str,
-    quote_identifier,
     require_field,
     structured_exception_chain,
 )
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
+from marivo.datasource.strptime import python_to_mysql_strptime
 
 if TYPE_CHECKING:
+    from marivo.datasource.adapters import SourceSession
     from marivo.datasource.metadata import (
         ColumnMetadata,
         MetadataWarning,
@@ -62,22 +67,6 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
 
 _CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
 
-_CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
-_CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
-
-
-def _quote_sql_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
-
-
-def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool | None:
-    from marivo.datasource.metadata import _bool_from_nullable
-
-    result = _bool_from_nullable(is_nullable_value)
-    if result is not None:
-        return result
-    return bool(type_str.startswith("Nullable("))
-
 
 def clickhouse_database(source: TableSourceIR, datasource_ir: DatasourceIR) -> str:
     if source.database is not None and not isinstance(source.database, tuple):
@@ -91,23 +80,28 @@ def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:
 
 
 def clickhouse_system_parts_target(
-    backend: BaseBackend,
+    session: SourceSession,
     datasource_ir: DatasourceIR,
     source: TableSourceIR,
 ) -> tuple[str, str]:
     database = clickhouse_database(source, datasource_ir)
-    sql = (
-        "SELECT engine, engine_full FROM system.tables "
-        f"WHERE name = {_quote_sql_literal(source.table)} "
-        f"AND database = {_quote_sql_literal(database)} LIMIT 1"
+    identity = "clickhouse:system.tables"
+    relation = session.bind(
+        TableSourceIR("tables", database="system"), source_identity=identity
+    ).relation
+    expression = (
+        relation.filter((relation.name == source.table) & (relation.database == database))
+        .select("engine", "engine_full")
+        .limit(1)
     )
-    try:
-        frame = decode_cursor_frame(backend.raw_sql(sql), include_types=False, max_rows=None)
-        rows = frame.rows
-    except Exception:
-        return database, source.table
+    rows = session.collect_bounded(
+        expression,
+        source_identities=(identity,),
+        purpose="datasource.partition_topology",
+        max_rows=1,
+    ).to_pylist()
     if not rows:
-        return database, source.table
+        raise RuntimeError("ClickHouse system.tables cannot resolve the selected source")
     engine = str(rows[0].get("engine") or "")
     if engine != "Distributed":
         return database, source.table
@@ -119,27 +113,174 @@ def clickhouse_system_parts_target(
 
 
 def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeResult:
+    from marivo.datasource.adapters import SourceSession
+
     if len(request.partition_columns) != 1:
         raise RuntimeError(
             "clickhouse system.parts mapping only supports single bare partition columns"
         )
     column = request.partition_columns[0]
-    database, table = clickhouse_system_parts_target(
-        request.backend, request.datasource_ir, request.source
+    with SourceSession(
+        PROFILE, request.datasource_ir, request.backend, owns_backend=False
+    ) as session:
+        database, table = clickhouse_system_parts_target(
+            session, request.datasource_ir, request.source
+        )
+        identity = "clickhouse:system.parts"
+        relation = session.bind(
+            TableSourceIR("parts", database="system"), source_identity=identity
+        ).relation
+        expression = _system_parts_projection(
+            relation, database, table, column, request.order, request.limit
+        )
+        rows = session.collect_bounded(
+            expression,
+            source_identities=(identity,),
+            purpose="datasource.partition_metadata",
+            max_rows=request.limit,
+        ).to_pylist()
+    return PartitionProbeResult(rows=tuple(rows), value_source="system_catalog")
+
+
+def _system_parts_projection(
+    relation: ir.Table,
+    database: str,
+    table: str,
+    column: str,
+    order: Literal["asc", "desc"],
+    limit: int,
+) -> ir.Table:
+    matching = relation.filter(
+        (relation.active == 1) & (relation.database == database) & (relation.table == table)
     )
-    direction = request.order.upper()
-    sql = (
-        f"SELECT partition AS {quote_identifier(column, PROFILE)} "
-        "FROM system.parts "
-        "WHERE active "
-        f"AND database = {_quote_sql_literal(database)} "
-        f"AND table = {_quote_sql_literal(table)} "
-        "GROUP BY partition "
-        f"ORDER BY partition {direction} "
-        f"LIMIT {request.limit}"
+    values = matching.select(relation.partition.name(column)).distinct()
+    sort_key = values[column].asc() if order == "asc" else values[column].desc()
+    return values.order_by(sort_key).limit(limit)
+
+
+register_provider_statements(
+    "clickhouse",
+    {
+        "analysis.cancel_owned_query": ProviderStatement(
+            statement_id="clickhouse.analysis.cancel_owned_query",
+            template="KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC",
+            parameterized=True,
+            allowed_purposes=frozenset({"analysis.cancel_owned_query"}),
+        ),
+        "tables.full": ProviderStatement(
+            statement_id="clickhouse.tables.full",
+            template=(
+                "SELECT comment, partition_key, engine, engine_full FROM system.tables "
+                "WHERE name = {table} "
+                "AND database = {database} LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "tables.comment": ProviderStatement(
+            statement_id="clickhouse.tables.comment",
+            template=(
+                "SELECT comment FROM system.tables "
+                "WHERE name = {table} "
+                "AND database = {database} LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "tables.create_query": ProviderStatement(
+            statement_id="clickhouse.tables.create_query",
+            template=(
+                "SELECT create_table_query FROM system.tables "
+                "WHERE name = {table} "
+                "AND database = {database} LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "tables.local_partition_key": ProviderStatement(
+            statement_id="clickhouse.tables.local_partition_key",
+            template=(
+                "SELECT partition_key FROM system.tables "
+                "WHERE name = {table} "
+                "AND database = {database} LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "columns.full": ProviderStatement(
+            statement_id="clickhouse.columns.full",
+            template=(
+                "SELECT name, type, is_nullable, comment, position "
+                "FROM system.columns "
+                "WHERE table = {table} "
+                "AND database = {database} "
+                "ORDER BY position"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "columns.fallback": ProviderStatement(
+            statement_id="clickhouse.columns.fallback",
+            template=(
+                "SELECT name, type, comment, position "
+                "FROM system.columns "
+                "WHERE table = {table} "
+                "AND database = {database} "
+                "ORDER BY position"
+            ),
+            literal_slots=frozenset({"table", "database"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "parts.profile": ProviderStatement(
+            statement_id="clickhouse.parts.profile",
+            template=(
+                "SELECT sum(rows) AS row_count, sum(bytes_on_disk) AS size_bytes "
+                "FROM system.parts "
+                "WHERE active "
+                "AND database = {database} "
+                "AND table = {table}"
+            ),
+            literal_slots=frozenset({"database", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+        "parts_columns.active": ProviderStatement(
+            statement_id="clickhouse.parts_columns.active",
+            template=(
+                "SELECT column, type FROM system.parts_columns "
+                "WHERE active "
+                "AND database = {database} "
+                "AND table = {table} "
+                "GROUP BY column, type ORDER BY column, type"
+            ),
+            literal_slots=frozenset({"database", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.clickhouse"}),
+        ),
+    },
+)
+
+
+def _clickhouse_rows(
+    backend: Any,
+    statement_id: str,
+    *,
+    values: Mapping[str, object] = {},
+) -> tuple[dict[str, object], ...]:
+    return execute_provider_statement(
+        backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.clickhouse"
     )
-    frame = decode_cursor_frame(request.backend.raw_sql(sql), include_types=False, max_rows=None)
-    return PartitionProbeResult(rows=frame.rows, value_source="system_catalog")
+
+
+_CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")
+_CH_PARTITION_BARE_RE = re.compile(r"^(\w+)$")
+
+
+def _nullable_from_clickhouse(is_nullable_value: object, type_str: str) -> bool | None:
+    from marivo.datasource.metadata import _bool_from_nullable
+
+    result = _bool_from_nullable(is_nullable_value)
+    if result is not None:
+        return result
+    return bool(type_str.startswith("Nullable("))
 
 
 def _parse_clickhouse_partition_key(
@@ -217,30 +358,29 @@ def _dereference_clickhouse_distributed(
     ch_database: str,
     warnings: list[MetadataWarning],
 ) -> str:
-    from marivo.datasource.metadata import (
-        MetadataWarning,
-        _query_rows,
-        _quote_literal,
-    )
+    from marivo.datasource.errors import _backend_failure_summary
+    from marivo.datasource.metadata import MetadataWarning as _Warning
 
     match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
     if not match:
         return ""
     local_database, local_table = match.group(2), match.group(3)
     try:
-        local_rows = _query_rows(
+        local_rows = _clickhouse_rows(
             backend,
-            "SELECT partition_key FROM system.tables "
-            f"WHERE name = {_quote_literal(local_table)} "
-            f"AND database = {_quote_literal(local_database)} LIMIT 1",
+            "clickhouse.tables.local_partition_key",
+            values={"table": local_table, "database": local_database},
         )
         if local_rows:
             return str(local_rows[0].get("partition_key") or "")
     except Exception as exc:
         warnings.append(
-            MetadataWarning(
+            _Warning(
                 kind="metadata_query_failed",
-                message=f"clickhouse distributed table dereference failed: {exc}",
+                message=(
+                    "clickhouse distributed table dereference failed: "
+                    f"{_backend_failure_summary(exc).message}"
+                ),
             )
         )
     return ""
@@ -255,12 +395,13 @@ def _clickhouse_physical_profile(
     engine_full: str,
     warnings: list[MetadataWarning],
 ) -> TablePhysicalProfile | None:
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
-        MetadataWarning,
+        MetadataWarning as _Warning,
+    )
+    from marivo.datasource.metadata import (
         TablePhysicalProfile,
         _int_or_none,
-        _query_rows,
-        _quote_literal,
     )
 
     profile_database = database
@@ -270,7 +411,7 @@ def _clickhouse_physical_profile(
         match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
         if not match:
             warnings.append(
-                MetadataWarning(
+                _Warning(
                     kind="metadata_query_failed",
                     message=(
                         "clickhouse distributed physical profile dereference failed: "
@@ -283,19 +424,19 @@ def _clickhouse_physical_profile(
         profile_table = match.group(3)
         distributed_local_table = f"{profile_database}.{profile_table}"
     try:
-        rows = _query_rows(
+        rows = _clickhouse_rows(
             backend,
-            "SELECT sum(rows) AS row_count, sum(bytes_on_disk) AS size_bytes "
-            "FROM system.parts "
-            "WHERE active "
-            f"AND database = {_quote_literal(profile_database)} "
-            f"AND table = {_quote_literal(profile_table)}",
+            "clickhouse.parts.profile",
+            values={"database": profile_database, "table": profile_table},
         )
     except Exception as exc:
         warnings.append(
-            MetadataWarning(
+            _Warning(
                 kind="metadata_query_failed",
-                message=f"clickhouse physical profile query failed: {exc}",
+                message=(
+                    "clickhouse physical profile query failed: "
+                    f"{_backend_failure_summary(exc).message}"
+                ),
             )
         )
         return None
@@ -347,12 +488,9 @@ def _clickhouse_projectable_columns(
     from ibis.backends.sql.datatypes import ClickHouseType
     from ibis.expr.datatypes import DataType
 
-    from marivo.datasource.metadata import (
-        ColumnMetadata,
-        MetadataWarning,
-        _query_rows,
-        _quote_literal,
-    )
+    from marivo.datasource.errors import _backend_failure_summary
+    from marivo.datasource.metadata import ColumnMetadata
+    from marivo.datasource.metadata import MetadataWarning as _Warning
 
     target_database = database
     target_table = table
@@ -360,7 +498,7 @@ def _clickhouse_projectable_columns(
         match = _CH_DISTRIBUTED_ENGINE_RE.match(engine_full)
         if match is None:
             warnings.append(
-                MetadataWarning(
+                _Warning(
                     kind="projectable_columns_unavailable",
                     message=(
                         "clickhouse projectable-column discovery could not resolve the "
@@ -372,20 +510,15 @@ def _clickhouse_projectable_columns(
         target_database = match.group(2)
         target_table = match.group(3)
     try:
-        rows = _query_rows(
+        rows = _clickhouse_rows(
             backend,
-            "SELECT column, type FROM system.parts_columns "
-            "WHERE active "
-            f"AND database = {_quote_literal(target_database)} "
-            f"AND table = {_quote_literal(target_table)} "
-            "GROUP BY column, type ORDER BY column, type",
+            "clickhouse.parts_columns.active",
+            values={"database": target_database, "table": target_table},
         )
     except Exception as exc:
-        from marivo.datasource.errors import _backend_failure_summary
-
         failure = _backend_failure_summary(exc)
         warnings.append(
-            MetadataWarning(
+            _Warning(
                 kind="projectable_columns_unavailable",
                 message=(
                     "clickhouse projectable-column discovery failed: "
@@ -413,7 +546,7 @@ def _clickhouse_projectable_columns(
                 raise ValueError("ClickHouse type parser returned an unknown data type")
         except Exception as exc:
             warnings.append(
-                MetadataWarning(
+                _Warning(
                     kind="projectable_column_type_unparsed",
                     message=(
                         f"clickhouse physical column {name!r} has an unparseable type; "
@@ -428,7 +561,7 @@ def _clickhouse_projectable_columns(
         }
         if len(canonical_types) != 1 or len(parsed) != len(raw_types):
             warnings.append(
-                MetadataWarning(
+                _Warning(
                     kind="projectable_column_type_conflict",
                     message=(
                         f"clickhouse physical column {name!r} has incompatible types across "
@@ -460,6 +593,7 @@ def _inspect_clickhouse(
     table_expr: Any,
     include_partitions: bool,
 ) -> TableMetadata:
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
         ColumnMetadata,
         MetadataWarning,
@@ -467,8 +601,6 @@ def _inspect_clickhouse(
         _database_label,
         _empty_to_none,
         _merge_columns,
-        _query_rows,
-        _quote_literal,
         _schema_columns,
     )
 
@@ -483,11 +615,10 @@ def _inspect_clickhouse(
     physical_profile: TablePhysicalProfile | None = None
 
     try:
-        table_rows = _query_rows(
+        table_rows = _clickhouse_rows(
             backend,
-            "SELECT comment, partition_key, engine, engine_full FROM system.tables "
-            f"WHERE name = {_quote_literal(table)} "
-            f"AND database = {_quote_literal(ch_database)} LIMIT 1",
+            "clickhouse.tables.full",
+            values={"table": table, "database": ch_database},
         )
         if table_rows:
             table_metadata_available = True
@@ -497,11 +628,10 @@ def _inspect_clickhouse(
             engine_full = str(table_rows[0].get("engine_full") or "")
     except Exception:
         try:
-            table_rows = _query_rows(
+            table_rows = _clickhouse_rows(
                 backend,
-                "SELECT comment FROM system.tables "
-                f"WHERE name = {_quote_literal(table)} "
-                f"AND database = {_quote_literal(ch_database)} LIMIT 1",
+                "clickhouse.tables.comment",
+                values={"table": table, "database": ch_database},
             )
             if table_rows:
                 table_comment = _empty_to_none(table_rows[0].get("comment"))
@@ -509,19 +639,19 @@ def _inspect_clickhouse(
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"clickhouse table metadata query failed: {exc2}",
+                    message=(
+                        "clickhouse table metadata query failed: "
+                        f"{_backend_failure_summary(exc2).message}"
+                    ),
                 )
             )
 
     catalog_columns: dict[str, ColumnMetadata] = {}
     try:
-        column_rows = _query_rows(
+        column_rows = _clickhouse_rows(
             backend,
-            "SELECT name, type, is_nullable, comment, position "
-            "FROM system.columns "
-            f"WHERE table = {_quote_literal(table)} "
-            f"AND database = {_quote_literal(ch_database)} "
-            "ORDER BY position",
+            "clickhouse.columns.full",
+            values={"table": table, "database": ch_database},
         )
         for row in column_rows:
             name = str(row.get("name"))
@@ -536,13 +666,10 @@ def _inspect_clickhouse(
             )
     except Exception:
         try:
-            column_rows = _query_rows(
+            column_rows = _clickhouse_rows(
                 backend,
-                "SELECT name, type, comment, position "
-                "FROM system.columns "
-                f"WHERE table = {_quote_literal(table)} "
-                f"AND database = {_quote_literal(ch_database)} "
-                "ORDER BY position",
+                "clickhouse.columns.fallback",
+                values={"table": table, "database": ch_database},
             )
             for row in column_rows:
                 name = str(row.get("name"))
@@ -559,7 +686,10 @@ def _inspect_clickhouse(
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"clickhouse column metadata query failed: {exc2}",
+                    message=(
+                        "clickhouse column metadata query failed: "
+                        f"{_backend_failure_summary(exc2).message}"
+                    ),
                 )
             )
 
@@ -598,16 +728,23 @@ def _inspect_clickhouse(
                 message="clickhouse table and column comments are unavailable for this table",
             )
         )
+    # ClickHouse has no primary-key concept; the absence is disclosed here so
+    # both the dispatcher path and direct provider calls surface it.
+    warnings.append(
+        MetadataWarning(
+            kind="primary_keys_unavailable",
+            message="clickhouse primary key metadata is not exposed by this adapter",
+        )
+    )
 
-    is_view = engine in ("View", "MaterializedView")
+    is_view = engine in ("View", "MaterializedView") if table_metadata_available else None
     view_definition: str | None = None
     if is_view:
         try:
-            def_rows = _query_rows(
+            def_rows = _clickhouse_rows(
                 backend,
-                "SELECT create_table_query FROM system.tables "
-                f"WHERE name = {_quote_literal(table)} "
-                f"AND database = {_quote_literal(ch_database)} LIMIT 1",
+                "clickhouse.tables.create_query",
+                values={"table": table, "database": ch_database},
             )
             if def_rows:
                 view_definition = _empty_to_none(def_rows[0].get("create_table_query"))
@@ -615,7 +752,10 @@ def _inspect_clickhouse(
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"clickhouse view metadata query failed: {exc}",
+                    message=(
+                        "clickhouse view metadata query failed: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
                 )
             )
 
@@ -686,44 +826,6 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
     return None
 
 
-_DATETRUNC_TO_NATIVE: dict[str, str] = {
-    "second": "toStartOfSecond",
-    "minute": "toStartOfMinute",
-    "hour": "toStartOfHour",
-    "day": "toStartOfDay",
-    "week": "toMonday",
-    "month": "toStartOfMonth",
-    "quarter": "toStartOfQuarter",
-    "year": "toStartOfYear",
-}
-
-
-def postprocess_sql(sql: str) -> str:
-    """Replace dateTrunc with native ClickHouse toStartOf* functions.
-
-    Ibis 12.0.0 generates dateTrunc('DAY', col) etc. for ClickHouse, but
-    dateTrunc is unsupported or unreliable in ClickHouse 22.3. Native
-    ClickHouse functions (toStartOfDay, toStartOfHour, toMonday, etc.)
-    work in all versions.
-
-    This transforms:
-        dateTrunc('DAY', col)   -> toStartOfDay(col)
-        dateTrunc('HOUR', col)  -> toStartOfHour(col)
-        dateTrunc('WEEK', col)  -> toMonday(col)
-        etc.
-    Any surrounding CAST wrapper is preserved.
-    """
-
-    def _replace_unit(match: re.Match[str]) -> str:
-        unit = match.group(1).lower()
-        native = _DATETRUNC_TO_NATIVE.get(unit)
-        if native is None:
-            return match.group(0)
-        return f"{native}("
-
-    return re.sub(r"dateTrunc\('([A-Za-z]+)',\s*", _replace_unit, sql)
-
-
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     connection = getattr(backend, "con", None)
@@ -761,11 +863,9 @@ PROFILE = EngineProfile(
     required_modules=("ibis.backends.clickhouse",),
     connect=connect,
     apply_read_only_kwargs=apply_read_only_kwargs,
-    timezone_probe_sql="select timezone() as timezone",
     identifier_quote="`",
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,
-    readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(
         inspect_table=inspect_table,
         classify_table_resolution_failure=classify_table_resolution_failure,
@@ -776,10 +876,10 @@ PROFILE = EngineProfile(
         timeout_enforced=True,
         byte_estimate_supported=True,
     ),
-    translate_strptime_format=identity_str,
-    postprocess_sql=postprocess_sql,
+    translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="utc_naive_instant",
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
     percentile_uses_approx_quantile=False,
+    exact_count_distinct=False,
     authoring_timeout=authoring_timeout,
 )

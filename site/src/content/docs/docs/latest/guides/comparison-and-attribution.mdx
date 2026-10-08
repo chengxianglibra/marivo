@@ -1,0 +1,200 @@
+---
+title: Comparison and attribution
+description: Compare aligned quantities, build references and allocate an absolute change.
+---
+
+Use an existing Session and the conventional imports. Most examples use the
+customer/order model from [analysis workflow](/docs/latest/concepts/analysis-workflow/).
+A difference is an algebraic result. Its allocation explains the equation under
+the chosen axes, not the cause of a business outcome.
+
+## Choose the comparison design
+
+`current` and `baseline` are compatible observations in one Session; `marivo` is imported for focused Help.
+
+{/* example: comparison-designs */}
+
+```python
+relative = current.compare(baseline, value="relative_change")
+union = current.compare(
+    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+)
+quotient = current.ratio(current, pairing=mv.ExactKeys())
+marivo.help("analysis.dsl.NumericComparison.compare")
+marivo.help("analysis.dsl.one_to_one")
+```
+
+TimeChange compares one recursive quantity meaning on shared captured targets.
+CohortContrast compares populations at the same observation time on common
+Group/Singleton coordinates. PeriodChange with window-bucket alignment pairs
+complete equal-length original grids. ExactKeys requires unique complete typed
+keys and equal sets; UnionKeys keeps absent correspondence explicit.
+Absolute change preserves admitted Decimal scale or Duration unit; relative
+change and ratio retain zero-denominator and Cell policies.
+
+## Continue a logical selection
+
+`customers`, `revenue`, `buyer` and `august_revenue` are defined by the workflow’s original-rollup example. Build the downstream live dependency before materializing the selection.
+
+{/* example: selected-next-month */}
+
+```python
+july = mv.time_scope(start="2026-07-01", end="2026-08-01")
+september = mv.time_scope(start="2026-09-01", end="2026-10-01")
+baseline = customers.observe(revenue, during=july, via=buyer, by=(ms.ref.entity("sales.customer"),))
+change = august_revenue.compare(baseline)
+falling = change.where(change.value.lt(0)).members()
+next_month_mean = (
+    falling.observe(revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),))
+    .summarize(mv.mean())
+    .execute()
+)
+```
+
+Only Defined finite compatible values can enter numeric predicates. Follow the receiver contract if an intermediate local algorithm requires execution before continuation.
+
+## Preserve ratio components
+
+The line/order model additionally declares `sales.aov_from_lines` and both relationship paths. The preceding workflow binds `customers`, `buyer` and `august`.
+
+{/* example: multi-root-ratio */}
+
+```python
+ratio_routes = mv.routes(
+    mv.route(
+        ms.ref.entity("sales.order_line"),
+        through=(ms.ref.relationship("sales.line_order"), buyer),
+    ),
+    mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
+)
+channel = ms.ref.dimension("sales.order.channel")
+aov = customers.observe(
+    ms.ref.metric("sales.aov_from_lines"),
+    during=august,
+    via=ratio_routes,
+    by=(ms.ref.entity("sales.customer"), channel),
+)
+overall_aov = aov.rollup().execute()
+channel_aov = aov.group_by(channel).rollup().execute()
+current_row_mean = aov.summarize(mv.mean()).execute()
+current_row_mean.show()
+```
+
+Each distinct root needs its own admitted mapping. Original ratio rollup and a mean over displayed row ratios answer different questions.
+
+## Construct a fixed reference
+
+The customer model has a categorical region and a Count Metric over order contributions. Keep reference strata and observation units explicit.
+
+{/* example: reference-standardization */}
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+counts = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+shares = counts.share_of(counts.rollup())
+selected_shares = shares.where(shares.value.gt(0)).execute()
+penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
+stratum_counts = counts.group_by(region).rollup()
+composition = stratum_counts.share_of(stratum_counts.rollup())
+weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
+standardized = stratum_counts.standardize(reference=weights).execute()
+standardized.contract().show()
+```
+
+share_of, penetration_in and standardize have distinct denominators. Retained
+reference weights bind their exact strata, unit and owner; labels do not establish
+compatibility. Standardization answers a fixed-composition question.
+
+## Allocate an absolute change
+
+The customer/order model declares order count, buyer, channel and region. Both periods use the same admitted quantity meaning.
+
+{/* example: absolute-attribution */}
+
+```python
+attribution_members = session.members(ms.ref.entity("sales.customer"))
+channel = ms.ref.dimension("sales.order.channel")
+current_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(channel,),
+).rollup()
+baseline_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(channel,),
+).rollup()
+change = current_counts.compare(baseline_counts)
+allocation = change.attribute(axes=(channel,), top_k=3).execute()
+selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocated_table = mv.table(
+    contribution=selected_allocation.contribution,
+    current=selected_allocation.current,
+    baseline=selected_allocation.baseline,
+).execute()
+allocation.contract().show()
+restored_allocation = session.artifact(allocation.state.artifact_ref)
+```
+
+Read contributions, their current/baseline endpoints, residual and reconciliation.
+Joint axes identify combinations; separate axes are separate decompositions and
+must not be summed together. Component equations and retained parts determine
+which allocation can execute. Attribution is not a causal estimate.
+
+## Rank and present
+
+`counts` and `region` are compatible relations from the reference example. Ties and partitions are explicit.
+
+{/* example: ranking-table */}
+
+```python
+ranking = counts.rank(order="descending", ties="min", partition_by=(region,))
+defined = ranking.where(ranking.ranks.value.is_defined())
+top = defined.where(defined.ranks.value.lte(3))
+prefix = ranking.limit(3)
+result = mv.table(amount=top.values, rank=top.ranks).execute()
+result.show()
+frame = result.to_pandas()
+restored = session.artifact(result.artifact_ref)
+```
+{/* example: scoped-channel-observation */}
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
+top_channels = by_channel.rank(order="descending", ties="ordinal").limit(5).execute()
+top_channels.show()
+```
+{/* example: unscoped-channel-observation */}
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
+by_channel.rank(order="descending", ties="ordinal").limit(5).execute().show()
+```
+
+The last two alternatives use `sales.orders` and its channel coordinate, with
+and without a window. Tables and `to_pandas()` are terminal presentation. Recover
+the saved table by exact artifact ref; do not feed a custom DataFrame back into
+governed composition.

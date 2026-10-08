@@ -6,9 +6,8 @@ description: 在代理可访问语义层和数据源凭据的环境中运行 Mar
 ## 在代理运行的位置部署 Marivo
 
 Marivo 是 Python 库，不是托管服务。请在代理运行的环境中安装它，并将项目的数据源和
-语义声明纳入版本控制。数据源凭据可通过 `*_env` 字段引用的环境变量提供，或通过
-`md.credential_scope(resolver=...)` 注入宿主解析器；不要把凭据提交到项目中。
-宿主适配器契约由 `marivo.help("datasource.credential_scope")` 统一说明。
+语义声明纳入版本控制。数据源凭据应通过 `*_env` 字段引用的环境变量提供，不要把凭据
+提交到项目中。
 
 如需从本仓库开发，请创建环境，以可编辑模式安装带有所需扩展的包，然后验证导入：
 
@@ -22,31 +21,16 @@ python3 -m venv .venv
 和项目状态。如果环境没有激活，请调用该环境中的 `marivo` 可执行文件。CLI 只负责 bootstrap
 检查。进入 Python 后，查阅专项实时契约：
 
+{/* example: deployment-connection-check */}
+
 ```python
 import marivo
 
-marivo.help("datasource.<target>")
-marivo.help("semantic.<target>")
-marivo.help("analysis.<target>")
+marivo.help("authoring")
+marivo.help("semantic.objects")
+marivo.help("analysis")
 ```
 
 对于使用已发布版本的项目，请按[安装](/zh-cn/docs/latest/installation/)说明安装所需的后端扩展，
 `marivo init` 是可选命令；只有部署需要固化 manifest 或让宿主从文件系统发现智能体技能时才
 运行。将已提交的语义层保留在代理可访问的位置，以便每次运行都解析同一组声明。
-
-## 连接生命周期与超时
-
-显式连接使用 `with md.connect("warehouse") as connection:`。检查、采样、语义预览、
-source health 和 parity 在操作成功或失败后释放连接；批量预览在批次内复用连接。
-分析连接保留到 `session.close()`，catalog 无需额外关闭。
-
-Marivo 内部建连具有独立的 30 秒握手上限。raw SQL 与采样、预览 scope 的
-`timeout_seconds` 仍是查询执行预算。`md.connect` 使用调用方指定的握手超时，
-`md.test` 的单一时限覆盖建连和验证。SQLite 在调用线程内同步打开，
-本地打开过程无法被强制中断。
-
-如果 DuckDB 文件已有读写模式不兼容的连接，请关闭持有它的 Session 或显式连接，
-或统一声明的读写设置。Marivo 返回结构化修复提示，不会自动关闭现有持有者。
-
-连接测试成功或 Session 首次分析成功后，可将环境变量来源的凭据缓存到用户全局缓存。
-缓存写入失败不影响操作结果，宿主注入的凭据不会写入缓存。

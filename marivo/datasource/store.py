@@ -6,6 +6,7 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any, cast
 
+from marivo._authoring.loading import _current_source_loading_file
 from marivo.config import (
     AUTHORED_DIR,
     DATASOURCES_DIR,
@@ -16,13 +17,11 @@ from marivo.datasource._builtin import default_datasource, require_user_datasour
 from marivo.datasource.authoring import DatasourceSpec, _storage_name
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
-    DatasourceDuplicateError,
     DatasourceLoadError,
-    DatasourceMissingError,
     repair,
 )
-from marivo.datasource.ir import AiContextIR, DatasourceIR
-from marivo.datasource.loader import load_datasources
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.loader import _load_models_datasources, _models_root_errors
 from marivo.project import resolve_project_root
 
 
@@ -76,7 +75,7 @@ def _write_datasource_file(
     *,
     spec: DatasourceSpec,
     project_root: Path | None = None,
-) -> Path:
+) -> DatasourceSourceLocation:
     path = datasource_path(spec.name, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     func_name = require_profile_for_backend_type(spec.backend_type).authoring_func
@@ -107,21 +106,26 @@ def _write_datasource_file(
         "import marivo.datasource as md",
         "import marivo.semantic as ms",
         "",
-        f"md.{func_name}(",
     ]
+    constructor_line = len(lines) + 1
+    lines.append(f"md.{func_name}(")
     for key, value in kwargs.items():
         lines.append(f"    {key}={_literal(value)},")
     if ai_context_call is not None:
         lines.append(f"    ai_context={ai_context_call},")
     lines.append(")")
     path.write_text("\n".join(lines) + "\n")
-    return path
+    return DatasourceSourceLocation(file=str(path.resolve()), line=constructor_line)
 
 
 def load_all(project_root: Path | None = None) -> dict[str, DatasourceIR]:
     root = project_root or resolve_project_root()
-    require_project_config(root)
-    result = load_datasources(datasource_dir(root))
+    config = require_project_config(root)
+    models_roots = (root / AUTHORED_DIR, *config.semantic_layer_paths)
+    errors = _models_root_errors(models_roots)
+    if errors:
+        raise errors[0]
+    result = _load_models_datasources(models_roots)
     if result.errors:
         raise result.errors[0]
     builtin = default_datasource()
@@ -132,116 +136,33 @@ def load_one(name: str, project_root: Path | None = None) -> DatasourceIR | None
     return load_all(project_root).get(_storage_name(name))
 
 
-def _layered_models_roots(project_root: Path | None = None) -> tuple[Path, ...]:
-    root = project_root or resolve_project_root()
-    local_models = root / AUTHORED_DIR
-    external_roots = require_project_config(root).semantic_layer_paths
-    errors: list[str] = []
-    seen_external: set[Path] = set()
-    for external_root in external_roots:
-        if external_root == local_models.resolve():
-            errors.append(
-                "Configured semantic layer models root duplicates the local "
-                f"project models root: {external_root}"
-            )
-            continue
-        if external_root in seen_external:
-            errors.append(
-                f"Configured semantic layer models root is listed more than once: {external_root}"
-            )
-            continue
-        seen_external.add(external_root)
-        if not external_root.exists():
-            errors.append(f"Configured semantic layer models root does not exist: {external_root}")
-            continue
-        if not external_root.is_dir():
-            errors.append(
-                f"Configured semantic layer models root is not a directory: {external_root}"
-            )
-            continue
-        if not (external_root / "datasources").is_dir():
-            errors.append(
-                "Configured semantic layer models root is missing datasources/: "
-                f"{external_root / 'datasources'}"
-            )
-        if not (external_root / "semantic").is_dir():
-            errors.append(
-                "Configured semantic layer models root is missing semantic/: "
-                f"{external_root / 'semantic'}"
-            )
-    if errors:
-        reason = "; ".join(errors)
+def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
+    loading_file = _current_source_loading_file()
+    if loading_file is not None:
+        constructor = require_profile_for_backend_type(spec.backend_type).authoring_func
         raise DatasourceLoadError(
-            message=reason,
-            expected="valid distinct semantic layer model roots",
-            received=reason,
-            location=str(root / "marivo.toml"),
+            message=f"md.register() cannot persist datasource {spec.name!r} while loading model files.",
+            expected="datasource constructors in declaration files; md.register() outside model loading",
+            received=f"md.register() for datasource {spec.name!r} during model loading",
+            location=str(loading_file),
             repair=repair(
-                kind="configure",
-                canonical_id="load",
-                action="Fix the configured semantic layer roots and reload datasources.",
+                kind="reauthor",
+                canonical_id="register",
+                action=(
+                    f"Remove the md.register(...) wrapper and call md.{constructor}(...) directly "
+                    "in the datasource declaration file. Semantic files reference the datasource "
+                    "through its ref. Run md.register() only in setup scripts outside model loading."
+                ),
             ),
         )
-    return (local_models, *external_roots)
-
-
-def load_all_layered(project_root: Path | None = None) -> dict[str, DatasourceIR]:
-    builtin = default_datasource()
-    datasources: dict[str, DatasourceIR] = {builtin.name: builtin}
-    for models_root in _layered_models_roots(project_root):
-        result = load_datasources(models_root / "datasources")
-        if result.errors:
-            raise result.errors[0]
-        for datasource in result.datasources:
-            existing = datasources.get(datasource.name)
-            if existing is not None:
-                first = existing.location.file
-                second = datasource.location.file
-                raise DatasourceDuplicateError(
-                    message=(
-                        f"Duplicate datasource name: {datasource.name!r}. "
-                        f"First declaration: {first}. Conflicting declaration: {second}."
-                    ),
-                    expected="a unique datasource name across semantic layers",
-                    received=datasource.name,
-                    location=second,
-                    repair=repair(
-                        kind="reauthor",
-                        canonical_id="load",
-                        action="Rename or remove one conflicting datasource declaration.",
-                    ),
-                )
-            datasources[datasource.name] = datasource
-    return datasources
-
-
-def load_one_layered(name: str, project_root: Path | None = None) -> DatasourceIR | None:
-    return load_all_layered(project_root).get(_storage_name(name))
-
-
-def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
     root = project_root or resolve_project_root()
     require_project_config(root)
     require_user_datasource_name(spec.name, location=str(datasource_path(spec.name, root)))
-    _write_datasource_file(
+    location = _write_datasource_file(
         spec=spec,
         project_root=root,
     )
-    datasource = load_one(spec.name, root)
-    if datasource is None:
-        raise DatasourceMissingError(
-            message=f"datasource {spec.name!r} was not written",
-            expected="a persisted datasource declaration",
-            received=spec.name,
-            location="models/datasources/",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource again.",
-                candidates=tuple(list_names(root)),
-            ),
-        )
-    return datasource
+    return spec.to_ir(location=location)
 
 
 def delete_one(name: str, project_root: Path | None = None) -> bool:
@@ -257,7 +178,3 @@ def delete_one(name: str, project_root: Path | None = None) -> bool:
 
 def list_names(project_root: Path | None = None) -> list[str]:
     return sorted(load_all(project_root).keys())
-
-
-def list_names_layered(project_root: Path | None = None) -> list[str]:
-    return sorted(load_all_layered(project_root).keys())

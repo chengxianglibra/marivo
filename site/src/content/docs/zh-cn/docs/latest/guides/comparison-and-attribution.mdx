@@ -1,0 +1,194 @@
+---
+title: 比较与归因
+description: 比较对齐数量、构造参照并分配绝对变化。
+---
+
+使用已有 Session 和约定导入。多数示例使用[分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)
+中的 customer/order 模型。差值是代数结果；在所选 axes 下的分配解释方程，
+不等于解释业务结果的原因。
+
+## 选择比较设计
+
+`current`与 `baseline`是同一 Session 中兼容的观察；已导入 `marivo`用于 focused Help。
+
+{/* example: comparison-designs */}
+
+```python
+relative = current.compare(baseline, value="relative_change")
+union = current.compare(
+    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+)
+quotient = current.ratio(current, pairing=mv.ExactKeys())
+marivo.help("analysis.dsl.NumericComparison.compare")
+marivo.help("analysis.dsl.one_to_one")
+```
+
+TimeChange 在共享捕获目标上比较同一递归数量含义。CohortContrast 在同一观察时间、
+共同 Group/Singleton 坐标上比较不同群体。采用 window-bucket 对齐的 PeriodChange
+配对完整等长原始网格。ExactKeys 要求完整 typed keys 唯一且键集合相同；
+UnionKeys 显式保留缺失对应。绝对变化保留准入的 Decimal scale 或 Duration unit；
+相对变化与 ratio 遵守零分母和 Cell 策略。
+
+## 继续逻辑选择
+
+`customers`、`revenue`、`buyer`、`august_revenue`由流程页的原始 rollup 示例定义。在物化选择之前构造下游 live 依赖。
+
+{/* example: selected-next-month */}
+
+```python
+july = mv.time_scope(start="2026-07-01", end="2026-08-01")
+september = mv.time_scope(start="2026-09-01", end="2026-10-01")
+baseline = customers.observe(revenue, during=july, via=buyer, by=(ms.ref.entity("sales.customer"),))
+change = august_revenue.compare(baseline)
+falling = change.where(change.value.lt(0)).members()
+next_month_mean = (
+    falling.observe(revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),))
+    .summarize(mv.mean())
+    .execute()
+)
+```
+
+只有 Defined、有限且兼容的值可进入数值谓词。如果中间本地算法要求执行后再继续，跟随接收者 contract。
+
+## 保留比率组成状态
+
+line/order 模型还声明了 `sales.aov_from_lines`及两条关系路径。前述流程已绑定 `customers`、`buyer`、`august`。
+
+{/* example: multi-root-ratio */}
+
+```python
+ratio_routes = mv.routes(
+    mv.route(
+        ms.ref.entity("sales.order_line"),
+        through=(ms.ref.relationship("sales.line_order"), buyer),
+    ),
+    mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
+)
+channel = ms.ref.dimension("sales.order.channel")
+aov = customers.observe(
+    ms.ref.metric("sales.aov_from_lines"),
+    during=august,
+    via=ratio_routes,
+    by=(ms.ref.entity("sales.customer"), channel),
+)
+overall_aov = aov.rollup().execute()
+channel_aov = aov.group_by(channel).rollup().execute()
+current_row_mean = aov.summarize(mv.mean()).execute()
+current_row_mean.show()
+```
+
+每个不同根需要自身准入映射。原始 ratio rollup 和对显示行比率取均值回答不同问题。
+
+## 构造固定参照
+
+customer 模型有类别 region 和针对订单贡献的 Count Metric。明确参照 strata 与观察单位。
+
+{/* example: reference-standardization */}
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+counts = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+shares = counts.share_of(counts.rollup())
+selected_shares = shares.where(shares.value.gt(0)).execute()
+penetration = counts.where(counts.value.gt(0)).members().penetration_in(members).execute()
+stratum_counts = counts.group_by(region).rollup()
+composition = stratum_counts.share_of(stratum_counts.rollup())
+weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
+standardized = stratum_counts.standardize(reference=weights).execute()
+standardized.contract().show()
+```
+
+share_of、penetration_in、standardize 使用不同分母。保留的 reference weights 绑定
+确切 strata、unit 和 owner，标签不建立兼容性。标准化回答固定组成下的问题。
+
+## 分配绝对变化
+
+customer/order 模型声明了 order count、buyer、channel、region。两个时期使用相同的准入数量含义。
+
+{/* example: absolute-attribution */}
+
+```python
+attribution_members = session.members(ms.ref.entity("sales.customer"))
+channel = ms.ref.dimension("sales.order.channel")
+current_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(channel,),
+).rollup()
+baseline_counts = attribution_members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(channel,),
+).rollup()
+change = current_counts.compare(baseline_counts)
+allocation = change.attribute(axes=(channel,), top_k=3).execute()
+selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocated_table = mv.table(
+    contribution=selected_allocation.contribution,
+    current=selected_allocation.current,
+    baseline=selected_allocation.baseline,
+).execute()
+allocation.contract().show()
+restored_allocation = session.artifact(allocation.state.artifact_ref)
+```
+
+读取贡献、对应 current/baseline 端点、残差与对账。Joint axes 标识组合；
+分开的 axes 是各自分解，不能相加。组成方程与保留状态决定可执行的分配。
+归因不是因果估计。
+
+## 排名与展示
+
+`counts`、`region`是参照示例中的兼容 relation。并列与分区策略明确。
+
+{/* example: ranking-table */}
+
+```python
+ranking = counts.rank(order="descending", ties="min", partition_by=(region,))
+defined = ranking.where(ranking.ranks.value.is_defined())
+top = defined.where(defined.ranks.value.lte(3))
+prefix = ranking.limit(3)
+result = mv.table(amount=top.values, rank=top.ranks).execute()
+result.show()
+frame = result.to_pandas()
+restored = session.artifact(result.artifact_ref)
+```
+{/* example: scoped-channel-observation */}
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
+top_channels = by_channel.rank(order="descending", ties="ordinal").limit(5).execute()
+top_channels.show()
+```
+{/* example: unscoped-channel-observation */}
+
+```python
+revenue = ms.ref.metric("sales.revenue")
+by_channel = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue,
+        by=(ms.ref.dimension("sales.orders.channel"),),
+    )
+)
+by_channel.rank(order="descending", ties="ordinal").limit(5).execute().show()
+```
+
+最后两种备选使用 `sales.orders`和 channel 贡献坐标，分别带窗口与不带窗口。
+Table 与 `to_pandas()`是终端展示。通过确切 artifact ref 恢复保存的表，
+不要将自定义 DataFrame 重新输入已治理组合。

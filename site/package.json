@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "prebuild": "cd .. && make docs-api",
+    "prebuild": "node scripts/materialize-shared-docs.mjs && cd .. && make docs-api",
     "build": "astro check && astro build",
-    "postbuild": "node scripts/verify-install-script.mjs",
+    "postbuild": "node scripts/verify-install-script.mjs && node scripts/verify-docs-routes.mjs && node scripts/verify-latest-docs.mjs",
     "preview": "astro preview",
-    "verify:content": "node scripts/verify-site-content.mjs"
+    "verify:content": "node scripts/verify-site-content.mjs",
+    "predev": "node scripts/materialize-shared-docs.mjs",
+    "preverify:content": "node scripts/materialize-shared-docs.mjs",
+    "test:shared-docs": "node --test scripts/materialize-shared-docs.test.mjs"
   },
   "dependencies": {
     "@astrojs/starlight": "0.35.3",

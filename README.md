@@ -182,12 +182,37 @@ uv pip install --python .venv/bin/python -e ".[dev,duckdb,trino]"
 Use the repository entrypoints for checks:
 
 ```bash
-make format
 make lint
 make typecheck
 make test
 make check
 ```
+
+Before final checks, apply Ruff fixes and formatting only to the Python files
+owned by the change. `make format` formats the whole checkout.
+`make test` runs the daily regression suite with compact output, short failure
+tracebacks, and a five-failure limit. `make typecheck` also uses compact output;
+both preserve check failures and exit status. `make check` and `make check-agent`
+combine daily tests, static checks, and API documentation checks. Ordinary commits
+keep their installed hooks and do not run the full Runtime suite.
+
+`make release-check` adds the full multi-stage analysis, real-source/worker, and
+process-recovery Runtime suite and packaging checks. Functional tests use local
+Parquet files, with native engine cases for engine-specific contracts. No object
+storage service is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites.
+Use
+`make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'` for a focused
+Runtime test only when needed to verify the development change; daily development
+does not automatically run the full Runtime suite. `runtime-test-agent` provides
+compact output for the same selected scope. Both Runtime targets default to two
+workers; use `RUNTIME_WORKERS=4` to override after measuring available host capacity.
+An explicit test node id containing `::` runs serially. The limit applies per
+invocation, so concurrent test tasks share the host's remaining capacity.
+Tests use work-stealing across workers to avoid slow-module tails.
+Typing remains strict and incremental; cache misses run the full check.
+Installed-environment fingerprints run with the packaging checks in
+`make release-test`. Statistical dependencies load when their operation runs,
+so ordinary worker startup does not import SciPy's statistics package.
 
 Read [`AGENTS.md`](AGENTS.md) before contributing. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full workflow.

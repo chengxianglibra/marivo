@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -10,9 +10,11 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
-from marivo.render import Card, RenderableResult
+from marivo._data_render import _DataCard, _DataResult
 
 if TYPE_CHECKING:
+    import ibis.expr.types as ir
+
     from marivo.datasource.source import AuthoringScope
 
 PreviewKind = Literal[
@@ -94,7 +96,7 @@ class PreviewCoverage:
 
 
 @dataclass(frozen=True, repr=False)
-class PreviewResult(RenderableResult):
+class PreviewResult(_DataResult):
     kind: PreviewKind
     ref: str
     columns: tuple[str, ...]
@@ -120,32 +122,34 @@ class PreviewResult(RenderableResult):
             f"rows={self.returned_row_count}/{self.requested_limit}"
         )
 
-    def _card(self) -> Card:
-        preview_rows = [tuple(str(row.get(col, "")) for col in self.columns) for row in self.rows]
-        status_parts = [
-            f"status={self.status}",
-            f"truncated={self.is_truncated}",
-            (f"scope_coverage={self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}"),
-            (f"sample_policy={self.sample_policy.method}(limit={self.sample_policy.limit})"),
+    def _data_card(self) -> _DataCard:
+        facts = [
+            ("sample_policy", f"{self.sample_policy.method}(limit={self.sample_policy.limit})")
         ]
-        if self.timezones:
-            labels = [
-                f"{column}:read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}"
-                for column, info in sorted(self.timezones.items())
-            ]
-            status_parts.append("; ".join(labels))
-        card = Card(identity=self._repr_identity(), available=(".show()",)).status(
-            " ".join(status_parts)
-        )
-        if self.warnings:
-            card = card.listing(
-                "warnings",
-                (f"{warning.kind}: {warning.message}" for warning in self.warnings),
+        if self.sample_policy.order_by:
+            facts.append(("order_by", ", ".join(self.sample_policy.order_by)))
+        if self.sample_policy.filters:
+            facts.append(("filters", repr(self.sample_policy.filters)))
+        for column, info in sorted(self.timezones.items()):
+            facts.append(
+                (column, f"read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}")
             )
-        return card.table(
-            columns=list(self.columns),
-            rows=preview_rows,
+        return _DataCard(
+            identity=f"PreviewResult kind={self.kind} ref={self.ref}",
+            columns=self.columns,
+            rows=lambda: (tuple(row.get(col, "") for col in self.columns) for row in self.rows),
             row_count=self.returned_row_count,
+            row_scope="returned preview rows; not full-source cardinality",
+            facts=tuple(facts),
+            boundaries=(
+                ("query_limit", str(self.requested_limit)),
+                ("query_truncated", str(self.is_truncated).lower()),
+                (
+                    "scope_coverage",
+                    f"{self.coverage.scope_exhaustion}/{self.coverage.scope_exactness}",
+                ),
+                *((warning.kind, warning.message) for warning in self.warnings),
+            ),
         )
 
 
@@ -287,7 +291,7 @@ def preview_from_pandas(
 
 
 def preview_ibis_table(
-    table: Any,
+    table: ir.Table,
     *,
     kind: PreviewKind,
     ref: str,
@@ -296,9 +300,11 @@ def preview_ibis_table(
     include_types: bool = True,
     timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
     report_tz: str | None = None,
+    read_table: Callable[[ir.Table, int], pd.DataFrame],
 ) -> PreviewResult:
     limit = validate_preview_limit(limit)
-    dataframe = table.limit(limit + 1).execute()
+    bounded = table.limit(limit + 1)
+    dataframe = read_table(bounded, limit + 1)
     schema_types = (
         {name: str(dtype) for name, dtype in table.schema().items()} if include_types else {}
     )
@@ -309,32 +315,6 @@ def preview_ibis_table(
         requested_limit=limit,
         sample_policy=sample_policy,
         types=schema_types,
-        timezones=timezones,
-        report_tz=report_tz,
-    )
-
-
-def preview_ibis_value(
-    value: Any,
-    *,
-    kind: PreviewKind,
-    ref: str,
-    limit: int,
-    column_name: str,
-    sample_policy: PreviewSamplePolicy,
-    include_types: bool = True,
-    timezones: Mapping[str, PreviewTimezoneInfo] | None = None,
-    report_tz: str | None = None,
-) -> PreviewResult:
-    named_value = value.name(column_name) if callable(getattr(value, "name", None)) else value
-    table = named_value.as_table()
-    return preview_ibis_table(
-        table,
-        kind=kind,
-        ref=ref,
-        limit=limit,
-        sample_policy=sample_policy,
-        include_types=include_types,
         timezones=timezones,
         report_tz=report_tz,
     )

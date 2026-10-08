@@ -10,15 +10,25 @@ from typing import Any
 import ibis
 import pytest
 
-from tests.install_marivo_helpers import InstallerEnv, InstallerToolchain
+from tests.packaging.installer_helpers import InstallerEnv, InstallerToolchain
+from tests.packaging.wheel_support import InstalledWheel, prepare_wheel
 from tests.shared_fixtures import (
+    DSL_NAMES,
     FUNNEL_BASE_EVENTS,
     FUNNEL_BASE_ORDERS,
+    DslCase,
+    DslCaseFactory,
+    DslNames,
+    DslScenario,
+    analysis_dsl_project_files,
+    analysis_dsl_rows,
     authoring_evidence_template,
     lifecycle_project_files,
     sales_orders_template,
+    seed_analysis_dsl_database,
     seed_lifecycle_backend,
 )
+from tests.support.source_trace import SourceTrace
 
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
@@ -31,27 +41,62 @@ _original_duckdb_connect = ibis.duckdb.connect
 
 
 def _duckdb_connect_single_thread(*args: object, **kwargs: object) -> object:
-    backend = _original_duckdb_connect(*args, **kwargs)
-    backend.raw_sql("SET threads=1")
-    return backend
+    kwargs["threads"] = 1
+    return _original_duckdb_connect(*args, **kwargs)
 
 
 ibis.duckdb.connect = _duckdb_connect_single_thread
+
+
+@pytest.fixture
+def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DslCaseFactory:
+    """Load one real DSL declaration project per isolated source and Session."""
+    import marivo.analysis.session as session_attach
+    import marivo.semantic as ms
+
+    next_index = 0
+
+    def build(
+        scenario: DslScenario,
+        *,
+        names: DslNames = DSL_NAMES,
+        revenue_unit: str = "CNY",
+    ) -> DslCase:
+        nonlocal next_index
+        next_index += 1
+        root = tmp_path / f"dsl_{next_index}"
+        root.mkdir()
+        database_path = root / "warehouse.duckdb"
+        rows = analysis_dsl_rows(scenario)
+        seed_analysis_dsl_database(
+            database_path,
+            names,
+            rows,
+            float_amount=scenario in ("j4", "j4_ties", "nonfinite"),
+        )
+        (root / "marivo.toml").write_text('[project]\nname = "analysis-dsl-fixture"\n')
+        for relative_path, source in analysis_dsl_project_files(
+            names, database_path, revenue_unit=revenue_unit
+        ).items():
+            destination = (
+                root / "models" / relative_path
+                if relative_path.startswith("datasources/")
+                else root / "models" / "semantic" / relative_path
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(source)
+        catalog = ms.load(workspace_dir=root)
+        monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
+        session = session_attach.get_or_create(f"dsl-{scenario}", report_timezone="UTC")
+        return DslCase(scenario, names, root, database_path, catalog, session)
+
+    return build
 
 
 @pytest.fixture(autouse=True)
 def _disable_telemetry_outside_telemetry_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep unrelated tests from writing local telemetry for every public call."""
     monkeypatch.setenv("MARIVO_TELEMETRY", "off")
-
-
-@pytest.fixture(autouse=True)
-def _reset_analysis_session_process_state():
-    from marivo.analysis.session._runtime import reset_process_state
-
-    reset_process_state()
-    yield
-    reset_process_state()
 
 
 @pytest.fixture(scope="session")
@@ -122,7 +167,16 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "orders = ms.entity(\n"
         "    name='orders',\n"
         "    datasource=ms.ref.datasource('warehouse'),\n"
-        "    source=md.table('orders'),\n"
+        "    source=md.table('orders', columns={\n"
+        "        'query_id': 'query_id',\n"
+        "        'self': 'self',\n"
+        "        'region': 'region',\n"
+        "        'log_date': 'log_date',\n"
+        "        'log_hour': 'log_hour',\n"
+        "        'amount': 'amount',\n"
+        "        'uncommon_date': 'uncommon_date',\n"
+        "        'epoch_like': 'epoch_like',\n"
+        "    }),\n"
         "    primary_key=['query_id'],\n"
         "    ai_context=ms.ai_context(\n"
         "        business_definition='One row per accepted order query.',\n"
@@ -143,7 +197,7 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "    ai_context=ms.ai_context(business_definition='UTC order log date.'),\n"
         ")\n"
         "amount = ms.measure_column(\n"
-        "    name='amount', entity=orders, column='amount', additivity='additive', unit='USD',\n"
+        "    name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD',\n"
         "    ai_context=ms.ai_context(business_definition='Accepted order amount in USD.'),\n"
         ")\n"
         "revenue = ms.aggregate(\n"
@@ -365,8 +419,96 @@ def bootstrap_sales_project(tmp_path, *, with_time: bool = True) -> None:
         "def nonexistent(orders):\n"
         "    return orders.nonexistent\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', "
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), "
         "name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
+
+
+@pytest.fixture
+def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslCase:
+    """Preserve the independent 147 total and selected 140/3 fold oracle."""
+    import duckdb
+
+    import marivo.semantic as ms
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+        connection.execute("DELETE FROM customer WHERE customer_id = 'D'")
+        connection.execute("""INSERT INTO "order" VALUES
+            ('a1', 'A', 'web', 'paid', '2026-08-10T00:00:00+00:00', 100),
+            ('a2', 'A', 'web', 'paid', '2026-08-11T00:00:00+00:00', 20),
+            ('b1', 'B', 'app', 'paid', '2026-08-10T00:00:00+00:00', 20),
+            ('c1', 'C', 'app', 'paid', '2026-08-10T00:00:00+00:00', 7)""")
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text()
+        + "\nmean_amount = ms.aggregate(name='mean_amount', measure=amount, agg='mean', time=ordered_at)\n"
+    )
+    ms.load(workspace_dir=case.root)
+    return case
+
+
+@pytest.fixture
+def source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
+    """Capture native cursor calls and execution-owner receipts."""
+    from tests.support.source_trace import capture_source
+
+    return capture_source(monkeypatch)
+
+
+@pytest.fixture(scope="session")
+def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
+    """Prepare one candidate wheel without replaying development test matrices."""
+    return prepare_wheel(tmp_path_factory.mktemp("installed-wheel"))
+
+
+@pytest.fixture(
+    scope="session", params=("base", "duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+)
+def installed_dependency_wheel(
+    request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
+) -> InstalledWheel:
+    """Keep each extra's dependency graph in a separate noneditable environment."""
+    extra = str(request.param)
+    if extra in ("base", "duckdb"):
+        existing: object = request.getfixturevalue(
+            "installed_base_wheel" if extra == "base" else "installed_wheel"
+        )
+        assert isinstance(existing, InstalledWheel)
+        return existing
+    return prepare_wheel(
+        tmp_path_factory.mktemp("installed-" + extra), extras=() if extra == "base" else (extra,)
+    )
+
+
+@pytest.fixture(scope="session")
+def installed_base_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
+    """Reuse the core-only environment for isolation and real saved Artifact reads."""
+    return prepare_wheel(tmp_path_factory.mktemp("installed-base"), extras=())
+
+
+@pytest.fixture(scope="session")
+def installed_multisource_wheel(installed_wheel: InstalledWheel) -> InstalledWheel:
+    """Add native drivers only for explicitly opted-in installed-source checks."""
+    wheel = installed_wheel.wheel
+    installed_wheel.run(
+        "install-native-drivers",
+        [
+            str(installed_wheel.interpreter),
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--constraint",
+            str(installed_wheel.work / "constraints.txt"),
+            f"{wheel}[all]",
+            "psycopg[binary]",
+        ],
+    )
+    installed_wheel.run(
+        "native-dependency-check", [str(installed_wheel.interpreter), "-m", "pip", "check"]
+    )
+    return installed_wheel

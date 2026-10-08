@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
-from datetime import tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.datasource.engines import profile_for_backend
+from marivo.datasource.errors import DatasourceConnectionError, repair
 
 ReadTimezoneResolution = Literal["engine", "system_fallback"]
 
@@ -29,14 +31,14 @@ def _resolve_system_timezone() -> DatasourceEngineTimezone:
     env_tz = os.environ.get("TZ")
     if env_tz:
         try:
-            tz = ZoneInfo(env_tz)
+            name, tz = parse_timezone(env_tz)
             return DatasourceEngineTimezone(
-                engine_timezone_name=env_tz,
+                engine_timezone_name=name,
                 engine_timezone_tz=tz,
-                engine_timezone_resolution="iana",
+                engine_timezone_resolution="fixed_offset" if isinstance(tz, timezone) else "iana",
                 read_tz_resolution="system_fallback",
             )
-        except ZoneInfoNotFoundError:
+        except (ZoneInfoNotFoundError, ValueError):
             return _fixed_offset_fallback()
 
     localtime = Path("/etc/localtime")
@@ -65,7 +67,7 @@ def _fixed_offset_fallback() -> DatasourceEngineTimezone:
     if local_tz is None:
         local_tz = ZoneInfo("UTC")
     return DatasourceEngineTimezone(
-        engine_timezone_name=str(local_tz),
+        engine_timezone_name=str(timezone(local_tz.utcoffset(None) or timedelta(0))),
         engine_timezone_tz=local_tz,
         engine_timezone_resolution="fixed_offset",
         read_tz_resolution="system_fallback",
@@ -86,47 +88,59 @@ def _fallback(warning: str | None = None) -> DatasourceEngineTimezone:
     return system_tz
 
 
-def _scalar_from_result(result: Any) -> object:
-    if hasattr(result, "iloc"):
-        return result.iloc[0, 0]
-    if isinstance(result, list | tuple):
-        first = result[0]
-        if isinstance(first, list | tuple):
-            return first[0]
-        return first
-    if isinstance(result, dict):
-        return next(iter(result.values()))
-    return result
-
-
-def _execute_scalar(backend: Any, query: str) -> object:
-    sql = getattr(backend, "sql", None)
-    if not callable(sql):
-        raise RuntimeError("backend does not expose sql(query)")
-    expr = sql(query)
-    execute = getattr(expr, "execute", None)
-    if not callable(execute):
-        raise RuntimeError("backend sql(query) did not return an executable expression")
-    return _scalar_from_result(execute())
+def parse_timezone(value: str) -> tuple[str, tzinfo]:
+    """Normalize IANA or explicit offsets without guessing timezone abbreviations."""
+    offset = value[3:] if value.startswith("UTC") else value
+    if re.fullmatch(r"[+-]\d{2}:\d{2}(?::\d{2})?", offset):
+        hours, minutes, *seconds = (int(part) for part in offset[1:].split(":"))
+        if hours >= 24 or minutes >= 60 or (seconds and seconds[0] >= 60):
+            raise ValueError("invalid fixed timezone offset")
+        zone = datetime.fromisoformat("2000-01-01T00:00:00" + offset).tzinfo
+        if zone is None:
+            raise ValueError("missing fixed timezone offset")
+        return "UTC" + offset, zone
+    return value, ZoneInfo(value)
 
 
 def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
-    """Probe the backend's default timezone, falling back to system timezone."""
-
+    """Read a configured or driver-reported timezone without submitting SQL."""
     profile = profile_for_backend(backend)
-    query = profile.timezone_probe_sql
-    if query is None:
+    if profile.name in {"sqlite", "generic"}:
         return _fallback()
+    name = getattr(backend, "_marivo_timezone_name", None)
+    if profile.name == "postgres":
+        connection = getattr(backend, "con", None)
+        info = getattr(connection, "info", None)
+        parameter_status = getattr(info, "parameter_status", None)
+        name = parameter_status("TimeZone") if callable(parameter_status) else None
+    if not isinstance(name, str) or not name:
+        raise DatasourceConnectionError(
+            message="The reader timezone is unavailable from the driver.",
+            expected="a configured or driver-reported IANA timezone",
+            received=f"{profile.name} timezone unavailable",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Use a backend connection with a verifiable timezone before time-sensitive analysis.",
+            ),
+        )
     try:
-        raw_value = _execute_scalar(backend, query)
-        name = str(raw_value)
-        tz = ZoneInfo(name)
-    except Exception as exc:
-        return _fallback(f"engine timezone probe failed: {exc}")
+        normalized, zone = parse_timezone(name)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise DatasourceConnectionError(
+            message="The reader reported an invalid timezone.",
+            expected="a valid IANA timezone or UTC offset",
+            received="invalid_engine_timezone",
+            repair=repair(
+                kind="configure",
+                canonical_id="test",
+                action="Configure a valid reader timezone.",
+            ),
+        ) from exc
     return DatasourceEngineTimezone(
-        engine_timezone_name=name,
-        engine_timezone_tz=tz,
-        engine_timezone_resolution="iana",
+        engine_timezone_name=normalized,
+        engine_timezone_tz=zone,
+        engine_timezone_resolution="fixed_offset" if isinstance(zone, timezone) else "iana",
         read_tz_resolution="engine",
     )
 

@@ -12,16 +12,16 @@ import threading
 import types
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from contextlib import AbstractContextManager, contextmanager, suppress
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from importlib import import_module
 from pathlib import Path
 from time import monotonic
 from typing import Literal, ParamSpec, TypeVar, cast
 
-from marivo import __version__
+from marivo import __version__, _execution_log, _jsonl
 from marivo._compat import UTC
 from marivo.config import STATE_DIR, load_project_config
 from marivo.project import resolve_project_root
@@ -37,7 +37,6 @@ _STARTED_EVENT = "marivo.operation.started"
 _COMPLETED_EVENT = "marivo.operation.completed"
 _INSTALLATION_FILE = "project_instance_id"
 _EVENT_FILE_PREFIX = "events-"
-_EVENT_FILE_SUFFIX = ".jsonl"
 _MAX_EVENT_FILE_BYTES = 128 * 1024 * 1024
 _MAX_HISTORICAL_TELEMETRY_BYTES = 1024 * 1024 * 1024
 _RETENTION_DAYS = 14
@@ -201,83 +200,25 @@ def _entry_date(entry: dict[str, object]) -> date:
     return datetime.fromtimestamp(int(timestamp) // 1_000_000_000, UTC).date()
 
 
-def _managed_event_files(directory: Path, event_date: date | None = None) -> list[Path]:
-    date_part = event_date.isoformat() if event_date is not None else "????-??-??"
-    return sorted(directory.glob(f"{_EVENT_FILE_PREFIX}{date_part}.*{_EVENT_FILE_SUFFIX}"))
-
-
-def _segment_number(path: Path) -> int | None:
-    stem = path.name.removesuffix(_EVENT_FILE_SUFFIX)
-    raw_segment = stem.rpartition(".")[2]
-    return int(raw_segment) if raw_segment.isdigit() else None
-
-
 def _output_path(root: Path, *, event_date: date, payload_bytes: int) -> Path:
-    directory = _output_dir(root)
-    candidates = [
-        (segment, path)
-        for path in _managed_event_files(directory, event_date)
-        if (segment := _segment_number(path)) is not None
-    ]
-    if not candidates:
-        segment = 0
-    else:
-        current_segment, current = max(candidates)
-        try:
-            current_size = current.stat().st_size
-        except OSError:
-            current_size = 0
-        segment = (
-            current_segment + 1
-            if current_size > 0 and current_size + payload_bytes > _MAX_EVENT_FILE_BYTES
-            else current_segment
-        )
-    return (
-        directory
-        / f"{_EVENT_FILE_PREFIX}{event_date.isoformat()}.{segment:03d}{_EVENT_FILE_SUFFIX}"
+    return _jsonl.output_path(
+        _output_dir(root),
+        _EVENT_FILE_PREFIX,
+        event_date=event_date,
+        payload_bytes=payload_bytes,
+        max_bytes=_MAX_EVENT_FILE_BYTES,
     )
 
 
 def _prune_historical_files(directory: Path, *, current_date: date) -> None:
-    resolved_directory = directory.resolve()
-    if _LAST_PRUNED_DATE.get(resolved_directory) == current_date:
-        return
-
-    files: list[tuple[date, Path, int]] = []
-    for path in _managed_event_files(directory):
-        if _segment_number(path) is None:
-            continue
-        raw_date = path.name.removeprefix(_EVENT_FILE_PREFIX).split(".", 1)[0]
-        try:
-            file_date = date.fromisoformat(raw_date)
-            size = path.stat().st_size
-        except (OSError, ValueError):
-            continue
-        if file_date >= current_date:
-            continue
-        files.append((file_date, path, size))
-
-    cutoff = current_date - timedelta(days=_RETENTION_DAYS - 1)
-    retained: list[tuple[date, Path, int]] = []
-    for file_date, path, size in files:
-        if file_date < cutoff:
-            try:
-                path.unlink()
-            except OSError:
-                retained.append((file_date, path, size))
-        else:
-            retained.append((file_date, path, size))
-
-    total_size = sum(size for _, _, size in retained)
-    for _, path, size in retained:
-        if total_size <= _MAX_HISTORICAL_TELEMETRY_BYTES:
-            break
-        try:
-            path.unlink()
-        except OSError:
-            continue
-        total_size -= size
-    _LAST_PRUNED_DATE[resolved_directory] = current_date
+    _jsonl.prune(
+        directory,
+        _EVENT_FILE_PREFIX,
+        current_date=current_date,
+        retention_days=_RETENTION_DAYS,
+        max_historical_bytes=_MAX_HISTORICAL_TELEMETRY_BYTES,
+        last_pruned=_LAST_PRUNED_DATE,
+    )
 
 
 def _instance_id(root: Path) -> str:
@@ -391,14 +332,7 @@ def _write_entry(root: Path, entry: dict[str, object]) -> None:
             payload = (json.dumps(entry, separators=(",", ":")) + "\n").encode()
             event_date = _entry_date(entry)
             path = _output_path(root, event_date=event_date, payload_bytes=len(payload))
-            path.parent.mkdir(parents=True, exist_ok=True)
-            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
-            try:
-                written = os.write(descriptor, payload)
-                if written != len(payload):
-                    raise OSError("short telemetry append")
-            finally:
-                os.close(descriptor)
+            _jsonl.append(path, payload)
             _DROPPED_EVENTS = 0
             with suppress(Exception):
                 _prune_historical_files(path.parent, current_date=event_date)
@@ -478,12 +412,12 @@ def _session_creation_attributes(
     name = arguments.get("name")
     if not isinstance(name, str):
         return attrs
-    db_path = root / STATE_DIR / "analysis" / "session_store.db"
+    db_path = root / STATE_DIR / "analysis" / "generations" / "v9" / "session_store.db"
     if not db_path.is_file():
         attrs["marivo.session.created"] = True
         return attrs
     try:
-        with sqlite3.connect(str(db_path)) as connection:
+        with sqlite3.connect(db_path.as_uri() + "?mode=ro", uri=True) as connection:
             row = connection.execute(
                 "SELECT question FROM sessions WHERE name = ?", (name,)
             ).fetchone()
@@ -821,6 +755,7 @@ class _Operation:
     started: float = field(default_factory=monotonic)
     phase_durations_ms: dict[str, int] = field(default_factory=dict)
     result: object = None
+    _log_scope: AbstractContextManager[_execution_log.ExecutionContext] | None = None
     _stack_token: Token[tuple[_ActiveOperation, ...]] | None = None
     _current_token: Token[object | None] | None = None
     _start_entry: dict[str, object] | None = None
@@ -831,6 +766,20 @@ class _Operation:
     enabled: bool = False
 
     def __enter__(self) -> _Operation:
+        parent = _execution_log.snapshot(self.root).fields.get("operation_id")
+        self._log_scope = _execution_log.scope(
+            self.root,
+            operation_id=self.operation_id,
+            parent_operation_id=parent,
+            session_id=(
+                value
+                if isinstance(value := self.attributes.get("marivo.session.id"), str)
+                else None
+            ),
+            capability=self.capability_id,
+            surface=self.surface,
+        )
+        self._log_scope.__enter__()
         self.mode = _mode(self.root) if self.mode is None else self.mode
         self.enabled = self.mode != "off" and (self.mode == "full" or self.capture != "none")
         if not self.enabled:
@@ -896,7 +845,8 @@ class _Operation:
         exc: BaseException | None,
         traceback: types.TracebackType | None,
     ) -> Literal[False]:
-        del exc_type, traceback
+        if self._log_scope is not None:
+            self._log_scope.__exit__(exc_type, exc, traceback)
         if not self.enabled:
             return False
         if self._current_token is not None:
@@ -999,8 +949,6 @@ def tracked_capability(
 
         @functools.wraps(func)
         def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> _R:
-            if _setting_mode(os.environ.get("MARIVO_TELEMETRY")) == "off":
-                return func(*args, **kwargs)
             if _already_active(surface, capability_id):
                 return func(*args, **kwargs)
             if (
@@ -1022,12 +970,16 @@ def tracked_capability(
                 cast("dict[str, object]", kwargs),
             )
             root = _project_root(arguments)
+            if surface == "analysis" and capability_id == "session.get_or_create":
+                try:
+                    load_project_config(root)
+                except (OSError, ValueError):
+                    # The owning preflight must fail before telemetry creates project state.
+                    return func(*args, **kwargs)
             mode = _mode(root)
             capture = _capture_policy(
                 surface, capability_id, capability_kind, default_stage=default_stage
             )
-            if mode == "off" or (mode == "on" and capture == "none"):
-                return func(*args, **kwargs)
             attrs = _input_attributes(capability_id, arguments)
             attrs.update(_session_creation_attributes(root, capability_id, arguments))
             operation = _Operation(
@@ -1084,6 +1036,8 @@ def install_surface_instrumentation(
     """Install telemetry wrappers for registered public functions and methods."""
     installed: set[str] = set()
     for descriptor in descriptors:
+        if _safe_getattr(descriptor, "telemetry") is False:
+            continue
         capability_id = _safe_getattr(descriptor, "id") or _safe_getattr(descriptor, "canonical_id")
         path = _safe_getattr(descriptor, "callable_path")
         kind = _safe_getattr(descriptor, "kind")
@@ -1091,6 +1045,9 @@ def install_surface_instrumentation(
             continue
         owner, attribute_name = _resolve_owner(path)
         raw = inspect.getattr_static(owner, attribute_name)
+        if (surface, capability_id) in getattr(raw, "__marivo_telemetry_capabilities__", ()):
+            installed.add(capability_id)
+            continue
         if isinstance(raw, (property, type)):
             continue
         descriptor_kind = kind if isinstance(kind, str) else "callable"
@@ -1151,64 +1108,17 @@ def install_surface_instrumentation(
     return frozenset(installed)
 
 
-def _legacy_identity(event_name: str, intent: str) -> tuple[str, str]:
-    prefix = "marivo."
-    if event_name.startswith(prefix):
-        parts = event_name[len(prefix) :].split(".")
-        if parts:
-            return parts[0], ".".join(parts[1:]) or intent
-    return "runtime", intent
-
-
-def track_event(
-    event_name: str,
-    *,
-    family: str,
-    intent: str,
-    session: object | None = None,
-    project_root: Path | None = None,
-    status: str = "ok",
-    duration_ms: int | None = None,
-    error_type: str | None = None,
-    attributes: Mapping[str, TelemetryValue] | None = None,
-) -> None:
-    """Append one custom v3 event without changing caller behavior."""
-    try:
-        arguments: dict[str, object] = {"session": session, "project_root": project_root}
-        root = _project_root(arguments)
-        if not _enabled(root):
-            return
-        surface, capability_id = _legacy_identity(event_name, intent)
-        attrs: dict[str, TelemetryValue] = {
-            "marivo.project.instance_id": _instance_id(root),
-            "marivo.surface": surface,
-            "marivo.capability.id": capability_id,
-            "marivo.capability.kind": family,
-            "marivo.operation.status": status,
-            **_session_attributes(arguments),
-            **dict(attributes or {}),
-        }
-        if duration_ms is not None:
-            attrs["marivo.operation.duration_ms"] = duration_ms
-        if error_type is not None:
-            attrs["marivo.error.class"] = error_type
-        _write_entry(root, _log_entry(event_name, status=status, attributes=attrs))
-    except Exception:
-        return
-
-
 @contextmanager
 def track_operation(
-    event_name: str,
     *,
-    family: str,
-    intent: str,
+    surface: str,
+    capability_id: str,
+    capability_kind: str,
     session: object | None = None,
     project_root: Path | None = None,
     attributes: Mapping[str, TelemetryValue] | None = None,
 ) -> Iterator[_Operation | None]:
-    """Record a mode-selected operation while preserving the internal call shape."""
-    surface, capability_id = _legacy_identity(event_name, intent)
+    """Record a mode-selected operation with an explicit native capability identity."""
     if _already_active(surface, capability_id):
         with telemetry_stage("execute"):
             yield None
@@ -1218,10 +1128,10 @@ def track_operation(
     operation = _Operation(
         surface=surface,
         capability_id=capability_id,
-        capability_kind=family,
+        capability_kind=capability_kind,
         root=root,
         attributes={**_session_attributes(arguments), **dict(attributes or {})},
-        capture=_capture_policy(surface, capability_id, family),
+        capture=_capture_policy(surface, capability_id, capability_kind),
     )
     with operation:
         yield operation
@@ -1231,7 +1141,6 @@ __all__ = [
     "install_surface_instrumentation",
     "staged",
     "telemetry_stage",
-    "track_event",
     "track_operation",
     "tracked_capability",
 ]

@@ -14,20 +14,15 @@ The maintained documentation describes the Python-native Marivo library only.
   a map to the focused specs in the same directory — the datasource layer, the
   semantic object model, the authoring workflow, and loading, validation, and
   introspection.
-- [`specs/analysis/python-analysis-design.md`](specs/analysis/python-analysis-design.md) -
-  analysis layer overview: the design philosophy and a map to the focused specs
-  in the same directory — operators and frames, session state and runtime, the
-  evidence access surface, and timezone and calendar alignment.
+- [`specs/analysis/README.md`](specs/analysis/README.md) -
+  current Analysis architecture and reading order: algebra, method registration,
+  typed definition graph, compiler, Runtime and Store 8. The focused
+  [Python Analysis design](specs/analysis/python-analysis-design.md) owns the DSL
+  model and execution path; the index routes to method, temporal and recovery contracts.
 - [`specs/temporal-semantics.md`](specs/temporal-semantics.md) -
   current cross-layer contract for built-in and fiscal periods, certified
   calendar authority, named scopes, event intervals, work schedules, and
   alignment policy.
-
-## Implementation Designs
-
-- [Injectable datasource credentials](superpowers/specs/2026-09-05-injectable-datasource-credentials-design.md)
-  — host-supplied credential resolver, connection-path coverage, and lifecycle
-  rules. See the [local acceptance evidence](superpowers/specs/2026-09-06-injectable-datasource-credentials-acceptance.md).
 
 ## Agent Guidance
 
@@ -36,5 +31,5 @@ Packaged agent guidance lives under:
 - `../marivo/skills/marivo-semantic`
 - `../marivo/skills/marivo-analysis`
 
-Run `make test TESTS='tests/test_packaged_skill_shape.py'` after changing either
+Run `make test TESTS='tests/packaging/test_skills.py'` after changing either
 packaged skill.

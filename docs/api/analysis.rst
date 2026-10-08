@@ -6,293 +6,529 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-At qualifying catalog-bound runtime parameters, analysis accepts an exact
-current ``marivo.semantic.CatalogEntry`` or its exact
-``marivo.semantic.Ref``. The boundary validates ownership, kind, and current
-membership, then normalizes immediately to the ref. Bare semantic strings,
-stale or cross-catalog entries, arbitrary entry subclasses, and duck-typed
-``.ref`` objects are rejected. Runtime metric constructors and nested Event
-handles retain their existing exact input contracts.
+Construct typed algebra through ``session.members(entity_ref)`` and its owned
+read/observe operations. Journey, History, Anchor and retention use the unified
+graph. The former Population, Metric Dataset and generic Dataset APIs have been retired.
+Logical typed values describe work
+without source I/O. ``execute()`` commits a Run and returns an immutable
+Materialized value. Its owned fields and methods describe valid continuations.
+Use ``show()`` for bounded current state and ``contract()`` for mechanical input
+requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
-Typed regression is not part of the current analysis operator surface. Work
-that requires it remains explicit terminal custom analysis through
-``frame.to_pandas()`` or ``md.raw_sql(...)``; neither terminal result can
-re-enter typed Marivo analysis.
+Business data display uses ``show(*, n=None, max_output_bytes=8192)`` on
+materialized values and tables. The default fits complete rows within 8 KiB;
+there is no fixed five-row cap. ``n=20`` requests at most twenty rows, ``n=0``
+shows metadata only, and ``max_output_bytes=None`` removes the byte cap while
+preserving an explicit ``n``. Counts and recovery hints disclose display
+omissions. Budgets include the printed newline. Values preserve precision;
+Duration cells show integer ticks with their unit. Cell state counts cover the
+whole result. The card shows interpretation facts and conditional evidence
+reads; use ``contract()`` for the full operation directory.
 
-Help and agent surface
-----------------------
+History distribution rows have checkpoint × model_state × full axes grain.
+``seeded_subject_count`` and ``coverage_censored_count`` repeat the checkpoint ×
+axes Subject pool across state rows; do not sum across states. Zero known-state
+cells can include alternate states of seeded Subjects, so their complement does
+not identify NotStarted or censored Subjects. Dwell and Duration fields disclose
+the actual ``duration_unit`` and ticks-to-seconds conversion. History microseconds
+use ``seconds = ticks / 1000000``; exported pandas timedelta columns use
+``.dt.total_seconds()``.
 
-At analysis entry, use the project interpreter to run
-``python -m marivo help`` once and verify the environment fingerprint.
-After entry, use the public object already in hand: ``show()`` reports current
-state, while ``contract()`` describes mechanically valid next actions. Open
-focused ``marivo.help("analysis.<target>")`` only when that object contract is
-insufficient or before first use of an unfamiliar capability. After a failure,
-follow the structured repair. Focused help is not required before every API
-call.
+Association results, coefficient/selected views and terminal table columns
+disclose ``pairing_key`` from the retained original input domain: each Entity,
+field and coordinate role in original order. The complete tuple pairs original
+observations; association output keys identify candidate pairs. These facts use
+frozen definitions without source access or new Runs.
+Identical terminal-column facts are printed once with all applicable column
+labels; different units and keys remain separate. Logical Dwell parent contracts
+already disclose Duration units and conversion before execution, using the
+existing field types; materialized parents read their retained Arrow schema.
 
-Live help owns callable signatures, accepted input families, constraints, and
-recovery guidance. Focused operator help also reports its closed Artifact
-authority policy. ``semantic_current`` consumers reject confirmed scoped drift
-with ``errors.ArtifactStaleError`` and unknown authority with
-``errors.ArtifactAuthorityUnknownError`` before execution. ``materialized_only``
-consumers retain committed-value and integrity checks without consulting the
-current catalog. ``contract()`` remains mechanical and does not perform
-currentness validation.
+Execution retains results as project-local Parquet. There is no analysis result
+storage setting or database result storage. Session recovery reads Store 7;
+older generation files are not migrated or rewritten.
 
-Frames
-------
+Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
+examples and constraints; errors preserve concrete diagnostics and own repair.
+Entry provides Session bootstrap/recovery and source selection. Named method and
+input groups narrow discovery by task. ``dataset.contract().show()`` links current
+admitted calls to their canonical Help leaves; return types and prerequisites
+provide focused continuations without enumerating the entire API. Exact current semantic
+refs or catalog entries select governed inputs, while bound relation fields carry
+exact graph ownership. Cross-Session operands are rejected.
 
-Public artifacts expose ``ref``, ``kind``, ``shape``, ``row_count``,
-``columns``, ``show()``, ``contract()``,
-``quality_summary``, ``evidence_status``, ``evidence_digest``, ``lineage``,
-``state``, and ``to_pandas()``. ``row_count == shape[0]``.
-``contract().issues`` contains typed issues; role-preserving affordances
-describe mechanical compatibility only. A multi-metric contract exposes one
-exact full-id ``frame.metric(...)`` projection repair per carried metric when a
-consumer requires arity 1; it never selects one.
+The admitted J1–J4 Entity-domain path starts at ``session.members(entity_ref)``.
+Its logical relations expose ``execute()`` and ``contract()``; materialized
+relations expose ``show()``, ``to_pandas()`` and ``contract()``. The public
+``AnalysisContract.actions`` tuple contains typed ``AnalysisAction`` values
+with the receiver call and exact Help target. The combined result card redacts
+Entity member keys. ``python -m marivo help`` is only the installed-interpreter
+bootstrap; focused contracts remain in ``marivo.help(...)``.
 
-Every public value returned by ``.contract()`` has bounded ``repr``,
-``render()``, and ``show()`` while retaining its structured fields. This is
-structural conformance, not a shared public contract base class.
+Entity-domain values
+--------------------
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: AnalysisAction
+   :members:
 
-   BaseFrame
-   BaseFrameMeta
-   MetricFrame
-   EventFrame
-   LifecycleFrame
-   SubjectSet
-   ComponentFrame
-   DeltaFrame
-   CoverageFrame
-   AttributionFrame
-   ForecastFrame
-   ArtifactAffordance
-   ArtifactInputRequirement
-   ArtifactColumn
-   ArtifactContract
-   ArtifactPrecondition
-   ArtifactSchema
-   ArtifactState
+.. autoclass:: AnalysisContract
+   :members:
 
-Analysis results and selections
--------------------------------
+.. autoclass:: ReferenceWeights
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: reference_weights
 
-   AssociationResult
-   HypothesisTestResult
-   CandidateSet
-   PointAnomalySelection
-   PeriodShiftSelection
-   DriverAxisSelection
-   SliceSelection
-   WindowSelection
-   CrossSectionalOutlierSelection
-   OntologyMetricCandidate
-   CandidateOrigin
+.. autoclass:: LogicalAnalysisDomain
+   :members:
 
-Evidence
---------
+.. autoclass:: MaterializedAnalysisDomain
+   :members:
 
-``Finding`` is the typed audit record. ``ArtifactDigest`` is the bounded
-operator-local read model; it never performs cross-artifact judgment. A
-``Finding`` renders as one bounded evidence statement with
-``finding.render()`` (English by default) or ``finding.render(language="zh")``.
-``FindingPage.render()`` uses the same statements and retains each canonical
-``finding_id`` for exact follow-up reads.
+.. autoclass:: LogicalNumericRelation
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: MaterializedNumericRelation
+   :members:
 
-   Finding
-   ArtifactDigest
-   ArtifactRevalidation
-   EvidenceRuleIssue
-   AnalysisScope
-   ObservationFact
-   ChangeFact
-   ContributionFact
-   AssociationFact
-   TestDecision
-   ForecastOutput
-   AnomalyCandidate
-   QualityCheckResult
-   DataQualityIssue
-   ComparabilityIssue
-   EvidenceAvailabilityIssue
-   CandidateResolutionIssue
+.. autoclass:: LogicalRatioRelation
+   :members:
 
-Bounded pages
--------------
+.. autoclass:: MaterializedRatioRelation
+   :members:
 
-Pages expose immutable ``items``, ``limit``, ``has_more``, and opaque
-``next_cursor``. They use ordinary newest-first keyset semantics, not snapshot
-isolation.
+.. autoclass:: LogicalTimeRunResult
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: MaterializedTimeRunResult
+   :members:
 
-   FindingPage
-   RunPage
+.. autoclass:: LogicalDeviationResult
+   :members:
 
-Scopes and windows
-------------------
+.. autoclass:: MaterializedDeviationResult
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: LogicalAssociationResult
+   :members:
 
-   TimeScope
-   AbsoluteWindow
-   Grain
+.. autoclass:: MaterializedAssociationResult
+   :members:
+
+.. autoclass:: RowMethod
+   :members:
+
+Member versions and scalar attributes
+-------------------------------------
+
+``Session.members(entity, at=...)`` keeps complete ordered keys. Versioned
+Entities require an aware instant or ``TimeScope.before_end``. Attribute
+``read(field, at=..., via=...)`` binds its version independently and returns
+Numeric, Category, Boolean or Temporal relations. Scalar paths require complete
+single-valued correspondence and coverage. Fixed member projections retain
+Subject parts and cannot introduce a live attribute read.
+
+``members.observe(metric, during=grid)`` computes one observation per complete
+time bucket. ``members.read(field, at=grid.before_end)`` and cumulative
+``members.observe(metric, at=grid.end)`` bind the endpoint grid directly.
+``grid.end`` selects the exact boundary; ``grid.before_end`` selects its symbolic
+left limit for versioned attributes. During and at are alternatives. Spatial
+``by`` classifications cannot create an independent time axis.
+Unversioned attributes retain their stable value in every endpoint cell.
+
+Measure reads admit direct columns and qualified bound row expressions. A
+computed Measure evaluates through Ibis on the consumed owner rows, and its
+definition and bound-field fingerprints are retained in the graph.
+
+.. autoclass:: BeforeEndBoundary
+   :members:
+
+.. autoclass:: LogicalBooleanRelation
+   :members:
+
+.. autoclass:: MaterializedBooleanRelation
+   :members:
+
+.. autoclass:: LogicalTemporalRelation
+   :members:
+
+.. autoclass:: MaterializedTemporalRelation
+   :members:
+
+.. autoclass:: LogicalSelectedBooleanRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedBooleanRelation
+   :members:
+
+.. autoclass:: LogicalSelectedTemporalRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedTemporalRelation
+   :members:
+
+.. autoclass:: LogicalSelectedNumericRelation
+   :members:
+
+.. autoclass:: MaterializedSelectedNumericRelation
+   :members:
+
+Public exports
+--------------
+
+The following entries follow the pinned public export order. Case-colliding
+constructors are documented inline to support case-insensitive filesystems.
+
+.. autoclass:: DatasetByteCount
+   :members:
+
+.. autoclass:: MaterializedDatasetState
+   :members:
+
+.. autoclass:: LogicalHistoryResult
+   :members:
+
+.. autoclass:: MaterializedHistoryResult
+   :members:
+
+.. autoclass:: ForecastHorizon
+   :members:
+
+.. autoclass:: ForecastModel
+   :members:
+
+.. autoclass:: WindowBucketAlignment
+   :members:
+
+.. autoclass:: BoundedCompletenessDeclarationV1
+   :members:
+
+.. autoclass:: SourceOriginCompletenessDeclarationV1
+   :members:
+
+.. autoclass:: DroppedBefore
+   :members:
+
+.. autoclass:: EventPattern
+   :members:
+
+.. autoclass:: EveryStart
+   :members:
+
+.. autoclass:: FirstPerSubject
+   :members:
+
+.. autoclass:: FromInception
+   :members:
+
+.. autoclass:: FunnelLossRate
+   :members:
+
+.. autoclass:: Grain
+   :members:
+
+.. autoclass:: InState
+   :members:
+
+.. autoclass:: PatternStep
+   :members:
+
+.. autoclass:: TimeScope
+   :members:
+
+.. autoclass:: ArtifactDigest
+   :members:
+
+.. autoclass:: ArtifactRef
+   :members:
+
+.. autoclass:: ArtifactSummary
+   :members:
+
+.. autoclass:: FailedRun
+   :members:
+
+.. autoclass:: Finding
+   :members:
+
+.. autoclass:: FindingPage
+   :members:
+
+.. autoclass:: IncompleteRun
+   :members:
+
+.. autoclass:: RunPage
+   :members:
+
+.. autoclass:: SessionGraph
+   :members:
+
+.. autoclass:: SucceededRun
+   :members:
+
+.. autoclass:: Session
+   :members:
+
+.. autofunction:: all_of
+
+.. autofunction:: any_of
+
+.. autofunction:: not_
 
 .. autofunction:: grain
 
-Event Journey, Lifecycle replay, and typed cohorts
----------------------------------------------------
+.. autofunction:: time_scope
 
-``session.events.match(...)`` consumes typed participant roles and a closed
-``EventPattern``. The first step uses the half-open ``TimeScope`` cohort
-window; ``completion_through`` is an inclusive follow-up bound.
-``session.events.funnel(...)`` and ``session.events.time_to_event(...)`` reduce
-the persisted journey assignment without rematching Events.
-``session.select_subjects(...)`` materializes the closed
-``dropped_before(...)`` selection as a persisted ``SubjectSet``. A ready
-SubjectSet may scope ``observe(..., cohort=...)`` and
-``events.match(..., cohort=...)``.
+.. autofunction:: window_bucket
 
-``session.lifecycle.replay(...)`` consumes one exact current StateModel
-entry/ref, an explicit timezone-aware half-open window, and the explicit
-``from_inception()`` seed. It returns ``LifecycleFrame[history]``. Lifecycle
-reducers consume that persisted history without querying Event sources or
-replaying the StateModel again. ``in_state(...)`` is the closed Lifecycle
-selection used by ``session.select_subjects(...)``; a resulting ready
-``SubjectSet`` may scope later metric, Event, or Lifecycle materialization.
-Use focused ``marivo.help("analysis.lifecycle.replay")`` and the returned
-artifact ``contract()`` for the current mechanical contract and continuations.
-Before selecting a window, ``session.events.occurrence_bounds(...)`` returns
-the observed earliest/latest occurrences of one exact Event or StateModel as
-``EventOccurrenceBounds``; it does not establish completeness.
+.. autofunction:: step
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: sequence
 
-   PatternStep
-   EventPattern
-   FirstPerSubject
-   EveryStart
-   CompletenessDeclaration
-   EventOccurrenceBounds
-   DroppedBefore
-   FromInception
-   InState
-   FunnelLossRate
-   funnel_loss_rate
-   EventWatermarkRequest
-   EventWatermarkReceipt
-   step
-   sequence
-   first_per_subject
-   every_start
-   declared_complete_through
-   dropped_before
-   from_inception
-   in_state
+.. autofunction:: first_per_subject
 
-Policies
---------
+.. autofunction:: every_start
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: dropped_before
 
-   AlignmentPolicy
-   AlignmentKind
-   SamplingPolicy
+.. autofunction:: in_state
 
-Refs and lineage
-----------------
+.. autofunction:: funnel_loss_rate
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: from_inception
 
-   ArtifactRef
-   Lineage
-   LineageStep
+.. autofunction:: periods
 
-Session runtime
----------------
+.. autofunction:: naive
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autofunction:: drift
 
-   Session
-   SessionSummary
-   SessionGraph
-   ArtifactSummary
-   IncompleteRun
-   SucceededRun
-   FailedRun
+.. autofunction:: seasonal_naive
 
-Alignment and window helpers
-----------------------------
+.. automodule:: marivo.analysis.runtime_metric
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. automodule:: marivo.analysis.session
+   :members:
 
-   window_bucket
-   day_of_week
-   period_progress
-   period_correspondence
-   occurrence_progress
-   working_day_progress
+R4.5 qualification boundary
+----------------------------------------
 
-Slices
-------
+Public J1–J4 relations share the typed graph Runtime and Store 7. R1 schema-only
+preflight may precede Run allocation; business rows are read only after admission.
+Exact Artifact recovery verifies its snapshot, primary receipt and required parts
+without current Semantic or datasource access. Retired Dataset families have no current API.
+Old-generation projects are preserved and are not migrated or read through a fallback.
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+Ranking and terminal tables
+---------------------------
 
-   SlicePredicate
-   SlicePredicateOp
+.. currentmodule:: marivo.analysis
 
-Submodules
-----------
+``values.rank(order="descending", ties="dense", partition_by=(category,))``
+returns a ranking with fixed ``values`` and ``ranks`` numeric views. Filtering
+and global ``limit`` preserve original ranks, ordering and fixed references.
+For per-partition Top-K, filter ``ranking.ranks.value.is_defined()`` first, then
+filter ``selected.ranks.value.lte(k)`` on that selected result.
 
-.. list-table::
-   :widths: 30 70
-   :header-rows: 0
+``mv.table(amount=ranking.values, rank=ranking.ranks)`` requires complete equal
+keys, one Session and one source/fixed mode. The terminal Artifact exposes
+``artifact_ref``, bounded ``show()`` and an isolated ``to_pandas()`` containing
+keys once and authored value columns. Non-Defined values export as missing;
+only the Artifact and ``show()`` preserve their tags and reasons. Tables have
+no analysis contract or column attributes.
 
-   * - ``marivo.analysis.errors``
-     - Typed analysis errors and local repair contracts.
-   * - ``marivo.analysis.evidence``
-     - Typed findings, bounded digests, issues, pages, and derivation traces.
-   * - ``marivo.analysis.frames``
-     - Frame classes and metadata companions.
-   * - ``marivo.analysis.session``
-     - Session lifecycle helpers (``get_or_create``, ``current``, ``list``, ``delete``).
+Tables retain the original fit authority for every deviation column, including
+tables mixing scores with categories, original values or another fit. A fitted
+ranking's ``ranks`` projection retains its original fit scope and its own rank
+values; both logical and materialized projections expose the same retained parts
+through ``contract()`` and ``show()``. Recovery verifies current values against
+captured fitted and ranking parts without fitting again. Missing or corrupt
+authority rejects with a typed repair.
 
-Type aliases
-------------
+.. autoclass:: LogicalRankingResult
+   :members:
 
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
+.. autoclass:: MaterializedRankingResult
+   :members:
 
-   SliceScalar
-   SliceValue
-   TimeScopeInput
+.. autofunction:: table
+
+.. autoclass:: LogicalTable
+   :members:
+
+.. autoclass:: MaterializedTable
+   :members:
+
+Allocated absolute changes
+--------------------------
+
+``change.attribute(axes=(channel,), mode="joint", top_k=5)`` chooses the
+allocation method from the original endpoint states. Sum/count/linear changes
+use additive differences; mean/weighted_mean/original ratios allocate each
+numerator against its side's total denominator before subtracting. Logical
+inputs may explicitly expand the frozen observations; fixed inputs require
+the axes already retained. Relative/nested changes and direct-only aggregates
+cannot acquire allocation authority.
+
+``joint`` emits complete axis tuples. ``hierarchy`` requires at least two axes
+and emits each authored prefix. A common Top-K mapping uses both endpoint bases;
+typed remainder masks distinguish a real ``"Other"`` label. Every resolution
+reconciles independently, with no balancing residual. The ``contribution``,
+``current`` and ``baseline`` numeric views always share complete keys.
+``where`` keeps the original target, full allocation and reconciliation parts
+and revokes current-subdomain completeness even when every row remains selected.
+
+.. autoclass:: LogicalAttributionResult
+   :members:
+
+.. autoclass:: MaterializedAttributionResult
+   :members:
+
+R6 recovery and retired consumers
+---------------------------------
+
+Comparison, selection/cohort, fixed references, ranking, attribution and terminal
+tables use one typed graph, Runtime and Store 7. ``session.artifact(ref)`` verifies
+complete state before fixed continuation. Missing parts revoke the affected
+operations; recovery does not consult Semantic or lineage sources. Tables remain
+terminal. Original reductions with group keys publish
+``MaterializedGroupedNumericRelation``; Singleton reductions publish
+``MaterializedRolledNumericRelation``. Cold recovery preserves that contract.
+
+The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
+are removed. Their Help targets are unresolved, with no compatibility redirect.
+The private Event funnel Delta/Attribution families and their exclusive codecs
+are removed. The public Journey funnel chain below uses registered graph methods
+and Store 7; fixed continuations never reopen the source or rerun matching.
+
+R7.4 funnel results and frozen Findings
+---------------------------------------
+
+``journeys.funnel(axes=())`` consumes the canonical first-per-subject assignment.
+Seven exact int64 counts and three rates retain their original components.
+Receiver-owned field handles feed ``read(handle)``; ``funnel_loss_rate(step=...)``
+requires an exact noninitial step. Historical axes use the entry-time version,
+complete governed paths and true Null categories.
+
+``current.compare(baseline)`` requires the same explicit population, exact
+pattern/matching/definitions, equal windows/follow-up lengths and complete
+coverage. It pairs complete outer support. ``change.attribute(target=..., axes=...)``
+uses exact Fraction ratio-mix allocation, common Top-K and typed Other; logical
+axis expansion depends on the same assignment, while fixed missing axes reject.
+Filtering retains original reconciliation scope and drops complete partition claims.
+
+Materialized graph results expose ``evidence_digest()``, ``findings(limit=20,
+cursor=None)`` and ``finding(finding_id)``. Compare and allocation use frozen
+extractors capped at 1000, preserving eligible/emitted/truncated authority.
+Every read validates the full collection, bodies, bindings, versions and receipts.
+Artifact, Evidence, Findings and successful terminal publish atomically in Store 7.
+Other producers use the explicit zero-Finding policy.
+
+.. autoclass:: LogicalFunnelResult
+   :members:
+
+.. autoclass:: MaterializedFunnelResult
+   :members:
+
+.. autoclass:: LogicalFunnelComparisonResult
+   :members:
+
+.. autoclass:: MaterializedFunnelComparisonResult
+   :members:
+
+Anchor domains and relative observation
+---------------------------------------
+
+``Session.anchors(event_role, population=members, during=scope, business_order=order)``
+selects each Event start with its full Subject and occurrence identity. Journey
+starts inherit their captured assignment and order; fixed Journey input requires
+a compatible fixed population. ``during`` filters starts only.
+
+``anchors.observe(metric, within=window, via=route)`` returns a NumericRelation
+on the Anchor instance domain. Windows are half-open and exclude the exact Anchor
+occurrence. Overlapping windows retain separate component-use bindings and cannot
+be rolled up by discarding Anchor coordinates. Event elapsed observation uses Ibis;
+calendar and local Journey observation prepare all bounded source candidates before
+local window restriction. Fixed results continue through retained parts; a fixed
+Anchor cannot introduce a new live Metric dependency.
+
+.. autoclass:: Duration
+   :members:
+
+.. autofunction:: duration
+
+.. autoclass:: ElapsedWindow
+   :members:
+
+.. autofunction:: elapsed
+
+.. autoclass:: CalendarWindow
+   :members:
+
+.. autofunction:: calendar_days
+
+.. autoclass:: LogicalAnchorDomain
+   :members:
+
+.. autoclass:: MaterializedAnchorDomain
+   :members:
+
+.. automethod:: LogicalAnchorDomain.observe
+
+.. automethod:: LogicalAnchorDomain.subjects
+
+.. automethod:: MaterializedAnchorDomain.observe
+
+.. automethod:: MaterializedAnchorDomain.subjects
+
+Retention and Subject quantification
+------------------------------------
+
+.. autofunction:: any_anchor
+
+.. autofunction:: every_anchor
+
+.. autoclass:: AnyAnchor
+   :members:
+
+.. autoclass:: EveryAnchor
+   :members:
+
+.. autoclass:: LogicalRetentionResult
+   :members:
+
+.. autoclass:: MaterializedRetentionResult
+   :members:
+
+.. autoclass:: LogicalSubjectRetentionResult
+   :members:
+
+.. autoclass:: MaterializedSubjectRetentionResult
+   :members:
+
+.. automethod:: LogicalAnchorDomain.retention
+
+.. automethod:: MaterializedAnchorDomain.retention
+
+.. automethod:: LogicalRetentionResult.by_subject
+
+.. automethod:: MaterializedRetentionResult.by_subject
+
+.. automethod:: LogicalRetentionResult.known_true
+
+.. automethod:: LogicalRetentionResult.known_false
+
+.. automethod:: LogicalRetentionResult.unknown
+
+R8 Statistical Relations
+------------------------
+
+.. autoclass:: LogicalCoefficientRelation
+   :members:
+
+.. autoclass:: LogicalForecastResult
+   :members:
+
+.. autoclass:: MaterializedForecastResult
+   :members:

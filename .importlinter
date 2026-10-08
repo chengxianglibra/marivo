@@ -20,26 +20,6 @@ source_modules =
 forbidden_modules =
     marivo.analysis
 
-[importlinter:contract:analysis-evidence-isolation]
-name = analysis.evidence must not import analysis internals beyond evidence + frames + lineage + refs + errors + session.persistence
-type = forbidden
-source_modules =
-    marivo.analysis.evidence
-forbidden_modules =
-    marivo.analysis.intents
-    marivo.analysis.executor
-    marivo.analysis.calendar
-    marivo.analysis.windows
-    marivo.analysis.datasources
-    marivo.analysis.profiles
-    marivo.analysis.policies
-# Frame metadata is an allowed evidence dependency. These frames declare a
-# TimeScope field, so evidence reaches marivo.analysis.windows only through
-# frames. Evidence itself must still never import marivo.analysis.windows.
-ignore_imports =
-    marivo.analysis.frames.event -> marivo.analysis.windows.spec
-    marivo.analysis.frames.lifecycle -> marivo.analysis.windows.spec
-
 [importlinter:contract:live-is-neutral-leaf]
 name = introspection.live must not depend on datasource, semantic, or analysis
 type = forbidden
@@ -60,3 +40,50 @@ forbidden_modules =
     marivo.datasource
     marivo.semantic
     marivo.analysis
+
+[importlinter:contract:dataset-core-is-foundational]
+name = Dataset Core must not depend on executing analysis implementations
+type = forbidden
+source_modules =
+    marivo.analysis.datasets
+forbidden_modules =
+    marivo.analysis.session
+    marivo.analysis.observation
+    marivo.analysis.compiler
+    marivo.analysis.materialization
+    marivo.analysis.operators
+    marivo.analysis.domains
+
+[importlinter:contract:dataset-core-has-no-backend-imports]
+name = Dataset Core must not import dataframe or backend implementations
+type = forbidden
+source_modules =
+    marivo.analysis.datasets
+forbidden_modules =
+    pandas
+    ibis
+    pyarrow
+    duckdb
+# The shared typed error edge reaches semantic descriptor backend dependencies. All other direct and indirect Core backend paths remain forbidden.
+# The separate foundational contract keeps its full transitive enforcement.
+ignore_imports =
+    marivo.analysis.datasets.errors -> marivo.analysis.errors
+
+[importlinter:contract:observation-definition-isolation]
+name = Observation definitions must not depend on executing analysis
+type = forbidden
+source_modules =
+    marivo.analysis.observation
+forbidden_modules =
+    marivo.analysis.session
+    marivo.analysis.compiler
+    marivo.analysis.materialization
+
+[importlinter:contract:dataset-compiler-isolation]
+name = Dataset compilation must not depend on runtime publication
+type = forbidden
+source_modules =
+    marivo.analysis.compiler
+forbidden_modules =
+    marivo.analysis.materialization
+    marivo.analysis.session

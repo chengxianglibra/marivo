@@ -1,148 +1,12 @@
+import { docsRoots, docsByVersion, latestOnlyDocs } from '../docs-versions.mjs';
+import { materializeSharedDocs } from './materialize-shared-docs.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
 
-const docsRoots = ['docs', 'zh-cn/docs'];
-const commonDocs = [
-  'index.mdx',
-  'installation.mdx',
-  'quick-start.mdx',
-  'concepts/index.mdx',
-  'concepts/semantic-layer.mdx',
-  'concepts/analysis-workflow.mdx',
-  'concepts/readiness.mdx',
-  'concepts/evidence.mdx',
-  'contributing.mdx',
-];
-const latestOnlyDocs = [
-  'first-analysis.mdx',
-  'guides/business-question.mdx',
-  'reference/project-configuration.mdx',
-  'reference/telemetry.mdx',
-  'reference/deployment.mdx',
-];
-const docsByVersion = {
-  latest: [
-    ...commonDocs,
-    'release-notes/0.5.7.mdx',
-    'release-notes/0.5.6.mdx',
-    'release-notes/0.5.5.mdx',
-    'release-notes/0.5.4.mdx',
-    'release-notes/0.5.3.mdx',
-    'release-notes/0.5.2.mdx',
-    'release-notes/0.5.1.mdx',
-    'release-notes/0.5.0.mdx',
-    'release-notes/0.4.16.mdx',
-    'release-notes/0.4.15.mdx',
-    'release-notes/0.4.14.mdx',
-    'release-notes/0.4.13.mdx',
-    'release-notes/0.4.12.mdx',
-    'release-notes/0.4.11.mdx',
-    'release-notes/0.4.10.mdx',
-    'release-notes/0.4.9.mdx',
-    'release-notes/0.4.8.mdx',
-    'release-notes/0.4.7.mdx',
-    'release-notes/0.4.6.mdx',
-    'release-notes/0.4.5.mdx',
-    'release-notes/0.4.4.mdx',
-    'release-notes/0.4.3.mdx',
-    'release-notes/0.4.2.mdx',
-    'release-notes/0.4.1.mdx',
-    'release-notes/0.4.0.mdx',
-    'release-notes/0.3.3.mdx',
-    'release-notes/0.3.2.mdx',
-    'release-notes/0.3.1.mdx',
-    'release-notes/0.3.0.mdx',
-    'release-notes/0.2.8.mdx',
-    'release-notes/0.2.7.mdx',
-    'release-notes/0.2.6.mdx',
-    'release-notes/0.2.5.mdx',
-    'release-notes/0.2.4.mdx',
-    'release-notes/0.2.3.mdx',
-    'release-notes/0.2.2.mdx',
-    'release-notes/0.2.1.mdx',
-    'release-notes/0.2.0.mdx',
-    'release-notes/0.1.0.mdx',
-  ],
-  'v0.5': [
-    ...commonDocs,
-    'release-notes/0.5.7.mdx',
-    'release-notes/0.5.6.mdx',
-    'release-notes/0.5.5.mdx',
-    'release-notes/0.5.4.mdx',
-    'release-notes/0.5.3.mdx',
-    'release-notes/0.5.2.mdx',
-    'release-notes/0.5.1.mdx',
-    'release-notes/0.5.0.mdx',
-  ],
-  'v0.4': [
-    ...commonDocs,
-    'release-notes/0.4.16.mdx',
-    'release-notes/0.4.15.mdx',
-    'release-notes/0.4.14.mdx',
-    'release-notes/0.4.13.mdx',
-    'release-notes/0.4.12.mdx',
-    'release-notes/0.4.11.mdx',
-    'release-notes/0.4.10.mdx',
-    'release-notes/0.4.9.mdx',
-    'release-notes/0.4.8.mdx',
-    'release-notes/0.4.7.mdx',
-    'release-notes/0.4.6.mdx',
-    'release-notes/0.4.5.mdx',
-    'release-notes/0.4.4.mdx',
-    'release-notes/0.4.3.mdx',
-    'release-notes/0.4.2.mdx',
-    'release-notes/0.4.1.mdx',
-    'release-notes/0.4.0.mdx',
-    'release-notes/0.3.3.mdx',
-    'release-notes/0.3.2.mdx',
-    'release-notes/0.3.1.mdx',
-    'release-notes/0.3.0.mdx',
-    'release-notes/0.2.8.mdx',
-    'release-notes/0.2.7.mdx',
-    'release-notes/0.2.6.mdx',
-    'release-notes/0.2.5.mdx',
-    'release-notes/0.2.4.mdx',
-    'release-notes/0.2.3.mdx',
-    'release-notes/0.2.2.mdx',
-    'release-notes/0.2.1.mdx',
-    'release-notes/0.2.0.mdx',
-    'release-notes/0.1.0.mdx',
-  ],
-  'v0.3': [
-    ...commonDocs,
-    'release-notes/0.3.3.mdx',
-    'release-notes/0.3.2.mdx',
-    'release-notes/0.3.1.mdx',
-    'release-notes/0.3.0.mdx',
-    'release-notes/0.2.8.mdx',
-    'release-notes/0.2.7.mdx',
-    'release-notes/0.2.6.mdx',
-    'release-notes/0.2.5.mdx',
-    'release-notes/0.2.4.mdx',
-    'release-notes/0.2.3.mdx',
-    'release-notes/0.2.2.mdx',
-    'release-notes/0.2.1.mdx',
-    'release-notes/0.2.0.mdx',
-    'release-notes/0.1.0.mdx',
-  ],
-  'v0.2': [
-    ...commonDocs,
-    'release-notes/0.2.8.mdx',
-    'release-notes/0.2.7.mdx',
-    'release-notes/0.2.6.mdx',
-    'release-notes/0.2.5.mdx',
-    'release-notes/0.2.4.mdx',
-    'release-notes/0.2.3.mdx',
-    'release-notes/0.2.2.mdx',
-    'release-notes/0.2.1.mdx',
-    'release-notes/0.2.0.mdx',
-    'release-notes/0.1.0.mdx',
-  ],
-  'v0.1': [...commonDocs, 'release-notes/0.1.0.mdx'],
-};
+materializeSharedDocs(siteRoot, JSON.parse(readFileSync(join(siteRoot, 'shared-docs.json'), 'utf8')));
 
 const requiredFiles = [
   'package.json',
@@ -206,32 +70,9 @@ if (missing.length > 0) {
 }
 
 const sidebarConfig = readFileSync(join(siteRoot, 'astro.config.mjs'), 'utf8');
-const sidebarMismatches = [];
-
-for (const [version, docs] of Object.entries(docsByVersion)) {
-  const match = sidebarConfig.match(
-    new RegExp(`docsItems\\('${version}', \\[([^\\]]*)\\]`),
-  );
-  const configuredReleaseNotes = match
-    ? [...match[1].matchAll(/'([^']+)'/g)].map((entry) => entry[1])
-    : [];
-  const expectedReleaseNotes = docs
-    .filter((doc) => doc.startsWith('release-notes/'))
-    .map((doc) => doc.slice('release-notes/'.length, -'.mdx'.length));
-
-  if (configuredReleaseNotes.join(',') !== expectedReleaseNotes.join(',')) {
-    sidebarMismatches.push(
-      `${version}: expected ${expectedReleaseNotes.join(', ') || '(none)'}, found ${configuredReleaseNotes.join(', ') || '(none)'}`,
-    );
-  }
-}
-
-if (sidebarMismatches.length > 0) {
-  console.error('Release-note sidebar entries are out of sync:');
-  for (const mismatch of sidebarMismatches) {
-    console.error(`- ${mismatch}`);
-  }
-  process.exit(1);
+const configuredVersions = [...sidebarConfig.matchAll(/items: docsItems\('([^']+)'/g)].map((entry) => entry[1]);
+if (configuredVersions.join(',') !== Object.keys(docsByVersion).join(',')) {
+  throw new Error('Documentation sidebar versions are out of sync');
 }
 
 const seoRequirements = new Map([

@@ -4,30 +4,35 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
 import ibis
+import ibis.expr.datatypes as dt
 
 from marivo.datasource import credentials as cr
+from marivo.datasource import store as _store
 from marivo.datasource.errors import (
-    DatasourceConnectionError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     DatasourceMetadataError,
+    DatasourceObservedEffects,
     _backend_failure_summary,
     repair,
 )
 from marivo.datasource.ir import (
     CsvSourceIR,
+    DatasourceIR,
     EntitySourceIR,
     JsonSourceIR,
     ParquetSourceIR,
     TableSourceIR,
     source_name,
 )
-from marivo.datasource.runtime import DatasourceConnectionService, load_datasource
+from marivo.datasource.json_source import read_json_source
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.render import Card, RenderableResult
 
 MetadataWarningKind = Literal[
@@ -35,12 +40,14 @@ MetadataWarningKind = Literal[
     "table_comments_unavailable",
     "column_comments_unavailable",
     "nullable_unavailable",
+    "view_unavailable",
+    "physical_profile_unavailable",
     "partitions_unavailable",
     "primary_keys_unavailable",
     "metadata_query_failed",
     "schema_only_fallback",
     "base_table_metadata_unavailable",
-    "declared_column_unverified",
+    "projected_column_unverified",
     "projected_partition_unavailable",
     "projected_constraint_incomplete",
     "partition_state_unknown",
@@ -179,7 +186,7 @@ class TableMetadata(RenderableResult):
     warnings: tuple[MetadataWarning, ...]
     projectable_columns: tuple[ColumnMetadata, ...] = ()
     partition_state: Literal["known", "none", "unknown"] = "unknown"
-    is_view: bool = False
+    is_view: bool | None = None
     view_definition: str | None = None
     primary_keys: tuple[str, ...] = ()
     unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
@@ -290,6 +297,463 @@ class TableMetadata(RenderableResult):
         }
 
 
+def _schema_columns(table_expr: Any) -> tuple[ColumnMetadata, ...]:
+    schema = table_expr.schema()
+    return tuple(
+        ColumnMetadata(
+            name=str(name),
+            type=str(dtype),
+            nullable=None,
+            comment=None,
+            ordinal_position=index,
+        )
+        for index, (name, dtype) in enumerate(schema.items(), start=1)
+    )
+
+
+def _schema_only(
+    *,
+    datasource: str,
+    table: str,
+    database: str | tuple[str, ...] | None,
+    backend_type: str,
+    table_expr: Any,
+    warnings: Iterable[MetadataWarning],
+    is_view: bool | None = None,
+) -> TableMetadata:
+    return TableMetadata(
+        datasource=datasource,
+        table=table,
+        database=database,
+        backend_type=backend_type,
+        comment=None,
+        columns=_schema_columns(table_expr),
+        partitions=(),
+        partition_state="unknown",
+        is_view=is_view,
+        warnings=(
+            *warnings,
+            *(
+                (
+                    MetadataWarning(
+                        kind="view_unavailable",
+                        message="Table or view kind is unavailable through the bound Ibis schema.",
+                    ),
+                )
+                if is_view is None
+                else ()
+            ),
+            MetadataWarning(
+                kind="nullable_unavailable",
+                message="Column nullability is unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="physical_profile_unavailable",
+                message="Physical row and size estimates are unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="schema_only_fallback",
+                message="metadata inspection returned schema-only metadata",
+            ),
+        ),
+    )
+
+
+def _with_primary_key_capability_warning(metadata: TableMetadata) -> TableMetadata:
+    """Append ``primary_keys_unavailable`` for backends that do not expose PK metadata.
+
+    DuckDB (duckdb_constraints), SQLite (pragma_table_info), PostgreSQL
+    (pg_constraint), MySQL (SHOW INDEX) and Trino (information_schema table
+    constraints) populate primary keys through the provider statement channel
+    and are left alone. ClickHouse has no primary-key concept; its absence is
+    disclosed with a single capability warning so it is never silent.
+    """
+    if metadata.backend_type in {"duckdb", "sqlite", "postgres", "mysql", "trino"}:
+        return metadata
+    if metadata.primary_keys:
+        return metadata
+    if any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings):
+        return metadata
+    return replace(
+        metadata,
+        warnings=(
+            *metadata.warnings,
+            MetadataWarning(
+                kind="primary_keys_unavailable",
+                message=f"{metadata.backend_type} primary key metadata is not exposed by this adapter",
+            ),
+        ),
+    )
+
+
+def inspect_table(
+    datasource: str,
+    *,
+    table: str,
+    database: str | tuple[str, ...] | None = None,
+    include_partitions: bool = True,
+    project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
+) -> TableMetadata:
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return inspect_table(
+                datasource,
+                table=table,
+                database=database,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
+    datasource_ir = _store.load_one(datasource, project_root=project_root)
+    if datasource_ir is None:
+        raise DatasourceMetadataError(
+            message=f"datasource {datasource!r} is not configured",
+            expected="a registered project datasource",
+            received=datasource,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before inspecting it.",
+                candidates=tuple(_store.list_names(project_root)),
+            ),
+        )
+
+    return _inspect_table_from_ir(
+        datasource_ir,
+        table=table,
+        database=database,
+        include_partitions=include_partitions,
+        project_root=project_root,
+        connections=connections,
+    )
+
+
+def _inspect_table_from_ir(
+    datasource_ir: DatasourceIR,
+    *,
+    table: str,
+    database: str | tuple[str, ...] | None = None,
+    include_partitions: bool = True,
+    project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
+) -> TableMetadata:
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return _inspect_table_from_ir(
+                datasource_ir,
+                table=table,
+                database=database,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
+    datasource = datasource_ir.name
+    from ibis.backends import BaseBackend
+
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.engines import require_profile_for_backend_type
+    from marivo.datasource.engines.base import MetadataInspectRequest
+
+    profile = require_profile_for_backend_type(datasource_ir.backend_type)
+    backend: Any = None
+    session: SourceSession | None = None
+    try:
+        try:
+            backend = connections.backend_for(datasource_ir)
+            if isinstance(backend, BaseBackend):
+                session = SourceSession(profile, datasource_ir, backend, owns_backend=False)
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
+        except Exception as exc:
+            exc = cr.safe_backend_exception(exc, backend)
+            failure = _backend_failure_summary(exc)
+            raise DatasourceMetadataError(
+                message=(
+                    f"failed to connect while inspecting datasource table "
+                    f"{datasource!r}.{table!r}: {failure.message}"
+                ),
+                expected="an inspectable datasource table",
+                received=failure.identity,
+                location=f"md.inspect({datasource!r}, {table!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and table name before retrying.",
+                ),
+            ) from exc
+
+        try:
+            table_expr = (
+                session._bind_source(
+                    TableSourceIR(table, database=database),
+                    source_identity=f"metadata:{datasource}:{database}:{table}",
+                ).relation
+                if session is not None
+                else (
+                    backend.table(table)
+                    if database is None
+                    else backend.table(table, database=database)
+                )
+            )
+        except (DatasourceCredentialError, DatasourceCredentialScopeError):
+            raise
+        except Exception as exc:
+            unavailable = profile.metadata.classify_table_resolution_failure(exc)
+            exc = cr.safe_backend_exception(exc, backend)
+            failure = _backend_failure_summary(exc)
+            if unavailable == "metadata_unavailable":
+                raise _TableMetadataUnavailableError(
+                    identity=failure.identity,
+                    message=failure.message,
+                ) from exc
+            raise DatasourceMetadataError(
+                message=(
+                    f"failed to resolve datasource table {datasource!r}.{table!r}: "
+                    f"{failure.message}"
+                ),
+                expected="an inspectable datasource table",
+                received=failure.identity,
+                location=f"md.inspect({datasource!r}, {table!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and table name before retrying.",
+                ),
+            ) from cr.safe_backend_exception(exc, backend)
+
+        try:
+            metadata = profile.metadata.inspect_table(
+                MetadataInspectRequest(
+                    datasource=datasource,
+                    backend=backend,
+                    table=table,
+                    database=database,
+                    table_expr=table_expr,
+                    include_partitions=include_partitions,
+                    datasource_ir=datasource_ir,
+                )
+            )
+        except DatasourceMetadataError:
+            raise
+        except Exception as exc:
+            metadata = _schema_only(
+                datasource=datasource,
+                table=table,
+                database=database,
+                backend_type=datasource_ir.backend_type,
+                table_expr=table_expr,
+                warnings=(
+                    MetadataWarning(
+                        kind="metadata_query_failed",
+                        message=f"{datasource_ir.backend_type} metadata query failed: {cr.safe_backend_exception(exc, backend)}",
+                    ),
+                ),
+            )
+    finally:
+        # The temporary source owner releases its handles; the batch connection
+        # owner releases the borrowed backend after all inspection work.
+        if session is not None:
+            with suppress(Exception):
+                session.close()
+    return _with_primary_key_capability_warning(metadata)
+
+
+def _inspect_source(
+    datasource: str,
+    *,
+    source: EntitySourceIR,
+    include_partitions: bool = True,
+    project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
+) -> TableMetadata:
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return _inspect_source(
+                datasource,
+                source=source,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
+    datasource_ir = _store.load_one(datasource, project_root=project_root)
+    if datasource_ir is None:
+        raise DatasourceMetadataError(
+            message=f"datasource {datasource!r} is not configured",
+            expected="a registered project datasource",
+            received=datasource,
+            location="models/datasources/",
+            repair=repair(
+                kind="register",
+                canonical_id="register",
+                action="Register the datasource before inspecting it.",
+                candidates=tuple(_store.list_names(project_root)),
+            ),
+        )
+    return _inspect_source_from_ir(
+        datasource_ir,
+        source=source,
+        include_partitions=include_partitions,
+        project_root=project_root,
+        connections=connections,
+    )
+
+
+def _inspect_source_from_ir(
+    datasource_ir: DatasourceIR,
+    *,
+    source: EntitySourceIR,
+    include_partitions: bool = True,
+    project_root: Path | None = None,
+    connections: DatasourceConnectionService | None = None,
+) -> TableMetadata:
+    if connections is None:
+        with DatasourceConnectionService(project_root).operation() as owned:
+            return _inspect_source_from_ir(
+                datasource_ir,
+                source=source,
+                include_partitions=include_partitions,
+                project_root=project_root,
+                connections=owned,
+            )
+    datasource = datasource_ir.name
+    if isinstance(source, TableSourceIR):
+        return _inspect_table_from_ir(
+            datasource_ir,
+            table=str(source.table),
+            database=source.database,
+            include_partitions=include_partitions,
+            project_root=project_root,
+            connections=connections,
+        )
+    if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
+        raise DatasourceMetadataError(
+            message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
+            expected="a table, parquet, CSV, or JSON datasource source",
+            received=str(getattr(source, "kind", None)),
+            location=f"datasource {datasource!r}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="inspect",
+                action="Use a supported datasource source kind.",
+            ),
+        )
+
+    if isinstance(source, CsvSourceIR) and datasource_ir.backend_type != "duckdb":
+        raise DatasourceMetadataError(
+            message="CSV source type discovery requires a DuckDB datasource",
+            expected="a DuckDB datasource for CSV source inspection",
+            received=datasource_ir.backend_type,
+            location=f"md.inspect({datasource!r}, {source.path!r})",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Register a DuckDB datasource to inspect a CSV source.",
+            ),
+        )
+    try:
+        backend = connections.backend_for(datasource_ir)
+    except Exception as exc:
+        raise DatasourceMetadataError(
+            message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+            expected="an inspectable datasource file source",
+            received=str(exc),
+            location=f"md.inspect({datasource!r}, {source.path!r})",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="inspect",
+                action="Verify the datasource connection and file source before retrying.",
+            ),
+        ) from exc
+
+    try:
+        try:
+            kwargs: dict[str, object] = {}
+            if isinstance(source, ParquetSourceIR):
+                reader = getattr(backend, "read_parquet", None)
+                if reader is None:
+                    raise AttributeError("backend has no read_parquet()")
+                if source.hive_partitioning:
+                    kwargs["hive_partitioning"] = source.hive_partitioning
+                if source.columns is not None:
+                    kwargs["columns"] = list(source.columns)
+                table_expr = reader(source.path, **kwargs)
+            elif isinstance(source, CsvSourceIR):
+                reader = getattr(backend, "read_csv", None)
+                if reader is None:
+                    raise AttributeError("backend has no read_csv()")
+                if not source.header:
+                    kwargs["header"] = source.header
+                if source.delimiter != ",":
+                    kwargs["delimiter"] = source.delimiter
+                table_expr = reader(source.path, **kwargs)
+                if source.columns:
+                    table_expr = table_expr.select(
+                        *(
+                            table_expr[source_name].name(output_name)
+                            for output_name, source_name in source.columns
+                        )
+                    )
+            elif isinstance(source, JsonSourceIR):
+                if source.path.lower().startswith(("http://", "https://")):
+                    # Inspection must not fetch a remote response only to rediscover types.
+                    table_expr = ibis.table(
+                        {output: dt.null for output, _path in source.columns},
+                        name=source_name(source),
+                    )
+                else:
+                    table_expr = read_json_source(backend, source)
+        except Exception as exc:
+            raise DatasourceMetadataError(
+                message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
+                expected="an inspectable file datasource source",
+                received=str(exc),
+                location=f"md.inspect({datasource!r}, {source.path!r})",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="inspect",
+                    action="Verify the datasource connection and file source before retrying.",
+                ),
+            ) from exc
+
+        result = _with_primary_key_capability_warning(
+            _schema_only(
+                datasource=datasource,
+                table=source_name(source),
+                database=None,
+                backend_type=datasource_ir.backend_type,
+                table_expr=table_expr,
+                is_view=False,
+                warnings=(
+                    MetadataWarning(
+                        kind="comments_unavailable",
+                        message="file source comments are not available",
+                    ),
+                    MetadataWarning(
+                        kind="nullable_unavailable",
+                        message="file source nullable flags are not available",
+                    ),
+                    MetadataWarning(
+                        kind="partitions_unavailable",
+                        message="file source partition metadata is not available",
+                    ),
+                ),
+            )
+        )
+        if isinstance(source, JsonSourceIR) and source.path.lower().startswith(
+            ("http://", "https://")
+        ):
+            result = replace(
+                result,
+                columns=tuple(replace(column, type="unknown") for column in result.columns),
+            )
+        return result
+    finally:
+        pass
+
+
 def _quote_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -309,34 +773,6 @@ def _table_ref(table: str, database: str | tuple[str, ...] | None) -> str:
         return _quote_identifier(table)
     parts = database if isinstance(database, tuple) else (database,)
     return ".".join(_quote_identifier(part) for part in (*parts, table))
-
-
-def _cursor_rows(cursor: Any) -> list[dict[str, object]]:
-    from marivo.datasource.engines.base import decode_cursor_frame
-
-    return list(decode_cursor_frame(cursor, include_types=False, max_rows=None).rows)
-
-
-def _query_rows(backend: Any, sql: str) -> list[dict[str, object]]:
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        return []
-    cursor = raw_sql(sql)
-    return _cursor_rows(cursor)
-
-
-def _schema_columns(table_expr: Any) -> tuple[ColumnMetadata, ...]:
-    schema = table_expr.schema()
-    return tuple(
-        ColumnMetadata(
-            name=str(name),
-            type=str(dtype),
-            nullable=None,
-            comment=None,
-            ordinal_position=index,
-        )
-        for index, (name, dtype) in enumerate(schema.items(), start=1)
-    )
 
 
 def _merge_columns(
@@ -381,7 +817,7 @@ def _int_or_none(value: object) -> int | None:
     if not text:
         return None
     try:
-        return int(float(text))
+        return int(text)
     except ValueError:
         return None
 
@@ -406,9 +842,6 @@ def _bool_from_nullable(value: object) -> bool | None:
     if text in {"NO", "N", "FALSE", "0"}:
         return False
     return None
-
-
-_SIMPLE_PARTITION_COLUMN_RE = re.compile(r'^[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?$')
 
 
 def _split_top_level_expressions(text: str) -> tuple[str, ...]:
@@ -441,6 +874,9 @@ def _split_top_level_expressions(text: str) -> tuple[str, ...]:
     if tail:
         expressions.append(tail)
     return tuple(expressions)
+
+
+_SIMPLE_PARTITION_COLUMN_RE = re.compile(r'^[`"]?([A-Za-z_][A-Za-z0-9_]*)[`"]?$')
 
 
 def _simple_partition_column(expression: object) -> str | None:
@@ -477,263 +913,3 @@ def _partition_columns_from_expression(expression: object) -> tuple[str, ...]:
 def _partition_column_from_expression(expression: object) -> str | None:
     columns = _partition_columns_from_expression(expression)
     return columns[0] if len(columns) == 1 else None
-
-
-def _schema_only(
-    *,
-    datasource: str,
-    table: str,
-    database: str | tuple[str, ...] | None,
-    backend_type: str,
-    table_expr: Any,
-    warnings: Iterable[MetadataWarning],
-) -> TableMetadata:
-    return TableMetadata(
-        datasource=datasource,
-        table=table,
-        database=database,
-        backend_type=backend_type,
-        comment=None,
-        columns=_schema_columns(table_expr),
-        partitions=(),
-        partition_state="unknown",
-        warnings=(
-            *warnings,
-            MetadataWarning(
-                kind="schema_only_fallback",
-                message="metadata inspection returned schema-only metadata",
-            ),
-        ),
-    )
-
-
-def _with_primary_key_capability_warning(metadata: TableMetadata) -> TableMetadata:
-    """Append ``primary_keys_unavailable`` for backends that do not expose PK metadata.
-
-    DuckDB exposes primary keys via ``duckdb_constraints()`` and is left alone.
-    Other backends get a single capability warning so the absence is never silent.
-    """
-    if metadata.backend_type in {"duckdb", "sqlite"}:
-        return metadata
-    if metadata.primary_keys:
-        return metadata
-    if any(warning.kind == "primary_keys_unavailable" for warning in metadata.warnings):
-        return metadata
-    return replace(
-        metadata,
-        warnings=(
-            *metadata.warnings,
-            MetadataWarning(
-                kind="primary_keys_unavailable",
-                message=f"{metadata.backend_type} primary key metadata is not exposed by this adapter",
-            ),
-        ),
-    )
-
-
-def inspect_table(
-    datasource: str,
-    *,
-    table: str,
-    database: str | tuple[str, ...] | None = None,
-    include_partitions: bool = True,
-    project_root: Path | None = None,
-    connections: DatasourceConnectionService | None = None,
-) -> TableMetadata:
-    if connections is None:
-        with DatasourceConnectionService(project_root).operation() as owned:
-            return inspect_table(
-                datasource,
-                table=table,
-                database=database,
-                include_partitions=include_partitions,
-                project_root=project_root,
-                connections=owned,
-            )
-    datasource_ir = load_datasource(datasource, project_root)
-
-    from marivo.datasource.engines import require_profile_for_backend_type
-    from marivo.datasource.engines.base import MetadataInspectRequest
-
-    profile = require_profile_for_backend_type(datasource_ir.backend_type)
-    backend: Any = None
-    try:
-        backend = connections.backend_for(datasource_ir)
-    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
-        raise
-    except Exception as exc:
-        exc = cr.safe_backend_exception(exc, backend)
-        failure = _backend_failure_summary(exc)
-        raise DatasourceMetadataError(
-            message=(
-                f"failed to connect while inspecting datasource table "
-                f"{datasource!r}.{table!r}: {failure.message}"
-            ),
-            expected="an inspectable datasource table",
-            received=failure.identity,
-            location=f"md.inspect({datasource!r}, {table!r})",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="inspect",
-                action="Verify the datasource connection and table name before retrying.",
-            ),
-        ) from exc
-
-    try:
-        table_expr = (
-            backend.table(table) if database is None else backend.table(table, database=database)
-        )
-    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
-        raise
-    except Exception as exc:
-        resolution_failure = profile.metadata.classify_table_resolution_failure(exc)
-        exc = cr.safe_backend_exception(exc, backend)
-        failure = _backend_failure_summary(exc)
-        if resolution_failure == "metadata_unavailable":
-            raise _TableMetadataUnavailableError(
-                identity=failure.identity,
-                message=failure.message,
-            ) from exc
-        raise DatasourceMetadataError(
-            message=(
-                f"failed to resolve datasource table {datasource!r}.{table!r}: {failure.message}"
-            ),
-            expected="an inspectable datasource table",
-            received=failure.identity,
-            location=f"md.inspect({datasource!r}, {table!r})",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="inspect",
-                action="Verify the datasource connection and table name before retrying.",
-            ),
-        ) from exc
-
-    try:
-        metadata = profile.metadata.inspect_table(
-            MetadataInspectRequest(
-                datasource=datasource,
-                backend=backend,
-                table=table,
-                database=database,
-                table_expr=table_expr,
-                include_partitions=include_partitions,
-                datasource_ir=datasource_ir,
-            )
-        )
-    except DatasourceMetadataError:
-        raise
-    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
-        raise
-    except Exception as exc:
-        exc = cr.safe_backend_exception(exc, backend)
-        metadata = _schema_only(
-            datasource=datasource,
-            table=table,
-            database=database,
-            backend_type=datasource_ir.backend_type,
-            table_expr=table_expr,
-            warnings=(
-                MetadataWarning(
-                    kind="metadata_query_failed",
-                    message=f"{datasource_ir.backend_type} metadata query failed: {exc}",
-                ),
-            ),
-        )
-    return _with_primary_key_capability_warning(metadata)
-
-
-def _inspect_source(
-    datasource: str,
-    *,
-    source: EntitySourceIR,
-    include_partitions: bool = True,
-    project_root: Path | None = None,
-    connections: DatasourceConnectionService | None = None,
-) -> TableMetadata:
-    if connections is None:
-        with DatasourceConnectionService(project_root).operation() as owned:
-            return _inspect_source(
-                datasource,
-                source=source,
-                include_partitions=include_partitions,
-                project_root=project_root,
-                connections=owned,
-            )
-    if isinstance(source, TableSourceIR):
-        return inspect_table(
-            datasource,
-            table=str(source.table),
-            database=source.database,
-            include_partitions=include_partitions,
-            project_root=project_root,
-            connections=connections,
-        )
-    if not isinstance(source, (ParquetSourceIR, CsvSourceIR, JsonSourceIR)):
-        raise DatasourceMetadataError(
-            message=f"unsupported datasource source kind {getattr(source, 'kind', None)!r}",
-            expected="a table, parquet, CSV, or JSON datasource source",
-            received=str(getattr(source, "kind", None)),
-            location=f"datasource {datasource!r}",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="inspect",
-                action="Use a supported datasource source kind.",
-            ),
-        )
-
-    datasource_ir = load_datasource(datasource, project_root)
-    backend = None
-    try:
-        kwargs: dict[str, object] = {}
-        if isinstance(source, ParquetSourceIR):
-            backend = connections.backend_for(datasource_ir)
-            reader = getattr(backend, "read_parquet", None)
-            if reader is None:
-                raise AttributeError("backend has no read_parquet()")
-            if source.hive_partitioning:
-                kwargs["hive_partitioning"] = source.hive_partitioning
-            if source.columns is not None:
-                kwargs["columns"] = list(source.columns)
-            table_expr = reader(source.path, **kwargs)
-        elif isinstance(source, CsvSourceIR | JsonSourceIR):
-            # Declared schemas do not require physical acquisition.
-            table_expr = ibis.table(dict(source.schema), name=source_name(source))
-    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
-        raise
-    except Exception as exc:
-        exc = cr.safe_backend_exception(exc, backend)
-        raise DatasourceMetadataError(
-            message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",
-            expected="an inspectable file datasource source",
-            received=str(exc),
-            location=f"md.inspect({datasource!r}, {source.path!r})",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="inspect",
-                action="Verify the datasource connection and file source before retrying.",
-            ),
-        ) from exc
-
-    return _with_primary_key_capability_warning(
-        _schema_only(
-            datasource=datasource,
-            table=source_name(source),
-            database=None,
-            backend_type=datasource_ir.backend_type,
-            table_expr=table_expr,
-            warnings=(
-                MetadataWarning(
-                    kind="comments_unavailable",
-                    message="file source comments are not available",
-                ),
-                MetadataWarning(
-                    kind="nullable_unavailable",
-                    message="file source nullable flags are not available",
-                ),
-                MetadataWarning(
-                    kind="partitions_unavailable",
-                    message="file source partition metadata is not available",
-                ),
-            ),
-        )
-    )

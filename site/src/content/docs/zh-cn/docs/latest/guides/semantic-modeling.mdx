@@ -1,0 +1,341 @@
+---
+title: 编写可复用语义
+description: 以明确业务含义定义实体、字段、指标与关系。
+---
+
+本指南展示声明模式。[本地教程](/zh-cn/docs/latest/guides/python-quick-start/)提供完整可运行模型。
+较大示例假设前提中列出的配套实体、字段和指标已存在，不根据字段名称推断定义。
+确切调用契约从 `marivo.help("authoring")`发现。
+
+## 声明一组完整模型
+
+`warehouse` datasource 和包含所列字段的订单表已存在。将此合并示例保存为 `models/semantic/sales/_domain.py`。每个 domain 目录需要该入口，其他模型文件继承已加载 domain。
+
+{/* example: semantic-model-basics */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+sales = ms.domain(name="sales", owner="Mina Zhang")
+warehouse = ms.ref.datasource("warehouse")
+orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["order_id"])
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(name="order_date", entity=orders, column="order_date", granularity="day", is_default=True)
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+```
+
+Domain 归属来自显式声明或显式默认 domain，不由文件路径推断。
+主键标识实例，snapshot/validity 坐标标识版本而不替代主键。保留每个有序键分量。
+
+## 定义字段与数值含义
+
+`orders`是上面的 Entity；以下展示单独替换的声明模式，不是再添加同名定义。
+
+{/* example: dimension-declaration */}
+
+```python
+region = ms.dimension_column(
+    name="region",
+    entity=orders,
+    column="region",
+    ai_context=ms.ai_context(business_definition="Sales reporting region."),
+)
+```
+{/* example: measure-declaration */}
+
+```python
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+```
+
+Dimension 用于分类，Measure 用于已治理行值。Measure 负责单位与可加性。
+原生整数、浮点与 Decimal 在准入范围内保留其载体；类型转换或相同单位不能使不同数量互换。
+加权计算在需要时保留精确组成状态，并按消费方法的数值契约完成计算。
+
+## 选择 Metric 方程
+
+先绑定每个命名输入。sum 示例使用 `amount`、`order_date`；过滤 Count 需要物理 `state` 列。派生示例还需要已治理 Metric 对象，分别绑定为 `gross_revenue`、`refunds`、`total_amount` 和 `orders_count`。
+
+{/* example: aggregate-declarations */}
+
+```python
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", time=order_date)
+us_revenue = ms.aggregate(name="us_revenue", measure=amount, agg="sum", time=order_date, filter=ms.where(region="US"))
+```
+{/* example: count-declaration */}
+
+```python
+order_count = ms.count(name="order_count", entity=orders, ai_context=ms.ai_context(business_definition="Total number of orders."))
+state = ms.dimension_column(name="state", entity=orders, column="state")
+failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
+```
+{/* example: derived-metrics */}
+
+```python
+net_revenue = ms.linear(name="net_revenue", add=[gross_revenue], subtract=[refunds])
+aov = ms.ratio(name="aov", numerator=total_amount, denominator=orders_count)
+```
+
+Count 计数已治理贡献，不能据此推断 Subject 数量。Ratio rollup 合并分子、分母组成状态，
+而不是对显示比率取平均。`mv.runtime_metric`通过已治理输入构造针对问题的
+aggregate/weighted_mean/ratio/linear/slice 表达式，不把它们保存为新的可复用含义。
+
+## 加权均值与精度
+
+`latency`与 `request_count`是已治理数值 Measure。价格示例另需已声明的 `price`、`units`与 `tax` Measure。
+
+{/* example: weighted-mean-declaration */}
+
+```python
+avg_latency = ms.weighted_mean(
+    name="avg_latency",
+    value=latency,
+    weight=request_count,
+)
+```
+{/* example: native-numeric-arithmetic */}
+
+```python
+average_price = ms.weighted_mean(name="average_price", value=price, weight=units)
+# price can be Decimal and units can be integer.
+```
+
+保留配对加权和与计数。Null、空值、非有限值和溢出策略保持明确；不把缺失值静默变为零，也不强制所有数值输入转为浮点。
+
+## 精确性属于定义
+
+此金额 Metric 显式选择精确或近似分位数。`ordered_at`是已治理时间轴。
+
+{/* example: quantile-declarations */}
+
+```python
+p95_amount = ms.aggregate(
+    name="p95_amount", measure=amount, agg=("percentile", 0.95), time=ordered_at
+)
+p95_estimate = ms.aggregate(
+    name="p95_estimate", measure=amount, agg=("approx_percentile", 0.95), time=ordered_at
+)
+```
+
+Readiness 阻塞已知不支持的 aggregate/backend 定义，不静默替换为近似函数。
+只允许直接计算的分位数或 distinct 聚合，不能从一个标量结果获得原始 rollup。
+跟随返回对象的确切 contract 与[后端限制](/zh-cn/docs/latest/reference/backends-and-limits/)。
+
+## 声明关系
+
+`orders`、`customers`、`order_customer_id`、`customer_id`已声明。Join keys 是具有权威键含义的语义 Dimension。
+
+{/* example: relationship-declaration */}
+
+```python
+ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+{/* example: aggregate-time-route */}
+
+```python
+line_revenue = ms.aggregate(
+    name="line_revenue", measure=line_amount, agg="sum",
+    time=ordered_at, time_via=(line_order,),
+    nulls=ms.nulls.ignore(), empty=ms.empty.zero(),
+)
+order_count = ms.count(name="order_count", entity=orders, time=ordered_at)
+aov = ms.ratio(
+    name="aov", numerator=line_revenue, denominator=order_count,
+    zero_denominator=ms.zero_denominator.undefined(),
+)
+```
+
+第二个示例需要 `line_amount`、`ordered_at`、`line_order`：`time_via`将贡献根连接到
+已声明时间根。分析路径必须连续、显式带键并按 to-one 方向连接；普通 Metric/Count
+路径不设固定跳数上限。多根 Metric 需要每个不同贡献根各自的准入映射。
+
+## 自定义表达式使用 Ibis
+
+以下自定义 Metric 替换简单 revenue 声明，消费已治理的 `amount` Measure。
+
+{/* example: custom-ibis-metric */}
+
+```python
+@ms.metric(
+    entities=[orders],
+    additivity=ms.additive_all(),
+    time=order_date,
+    unit="CNY",
+    nulls=ms.nulls.ignore(),
+    empty=ms.empty.null(),
+    name="revenue",
+    ai_context=ms.ai_context(
+        business_definition="Gross order amount before refunds; historically calculated from paid orders."
+    ),
+)
+def revenue(table):
+    return ms.bind(amount, table).sum()
+```
+{/* example: local-expression-bindings */}
+
+```python
+@ms.measure(entity=orders, additivity=ms.additive_all(), unit="CNY")
+def net_amount(rows):
+    gross = rows["price"] * rows["quantity"]
+    discount = rows["discount"].fill_null(0)
+    return gross - discount
+```
+
+表达式函数体仅返回 Ibis 表达式。允许新建的顺序局部绑定；重赋值、遮蔽与控制流仍受
+validator 限制。SQL 属于 provenance 值对象，不能成为可执行装饰器函数体。
+局部 Measure 示例假设物理表有 price、quantity、discount 列。
+
+## 加载、发现与交接
+
+在包含已声明 sales 模型的项目中运行这些读取。Session 提供其自身 catalog。
+
+{/* example: catalog-loading */}
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()                       # SemanticCatalog
+catalog.show()                            # non-empty collections plus one empty summary
+catalog.domains.show()                    # top-level domains
+catalog.metrics.show()                    # just metrics across all domains
+
+sales = catalog.domains.get("sales")
+orders = sales.entities.get("orders")
+revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
+region = orders.dimensions.get("region")  # one dimension object
+```
+{/* example: catalog-monthly-observation */}
+
+```python
+revenue_entry = catalog.metrics.get("sales.revenue")
+revenue_entry.details().show()
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-01-01", end="2026-04-01"), grain=mv.grain("month")
+)
+dataset = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(revenue_entry.ref, during=grid)
+)
+```
+{/* example: catalog-regional-observation */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+session = mv.session.get_or_create(
+    name="revenue-investigation",
+    question="Why did Q4 revenue drop?",
+    report_timezone="UTC",
+)
+catalog = session.catalog
+revenue_entry = catalog.metrics.get("sales.revenue")
+region_entry = catalog.dimensions.get("sales.orders.region")
+
+revenue_entry.details().show()
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-10-01", end="2027-01-01"), grain=mv.grain("month")
+)
+current = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(
+        revenue_entry.ref,
+        during=grid,
+        by=(region_entry.ref,),
+    )
+)
+```
+{/* example: catalog-discovery */}
+
+```python
+import marivo
+
+marivo.help("analysis.catalog")
+marivo.help("analysis.catalog.metrics")
+
+catalog = session.catalog
+catalog.show()
+collection = catalog.metrics
+collection.show()  # bounded list when identity is unknown
+entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
+entry.show()
+entry.details().show()
+marivo.help(entry)  # identity, usage navigation, kind-level handoff
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-10-01", end="2027-01-01"), grain=mv.grain("month")
+)
+current = (
+    session.members(ms.ref.entity("sales.orders"))
+    .observe(entry.ref, during=grid)
+)
+```
+
+三个观察示例需要 `session`、`mv`、`ms`、orders Entity 的 region/date 字段及所示时间范围。
+Catalog 条目携带确切 typed `.ref`。构造不会发布结果。
+通过[Readiness](/zh-cn/docs/latest/concepts/readiness/)认证新增或修改的根，再将 ready inputs
+交给分析。版本、status folds 和累计 Metric 参见[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)。
+
+## 更长的已声明路径
+
+导入 `mv` 和 `ms`。此独立 sales 模型声明了 `sales.facts`、`sales.number` 及 `sales.hop0` 至 `sales.hop3` 四个关系。将 `population` 绑定为这条路径到达的逻辑成员域。每个有向 to-one hop 连续。本地教程没有这些声明。
+
+{/* example: long-metric-routes */}
+
+```python
+long_routes = mv.routes(
+    mv.route(
+        ms.ref.entity("sales.facts"),
+        through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
+    )
+)
+long_count = population.observe(
+    ms.ref.metric("sales.number"),
+    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+    via=long_routes,
+    by=(ms.ref.entity("sales.orders"),),
+).execute()
+```
+
+结果 contract 仅准入捕获状态支持的转换；直接 distinct 标量不能重建原始成员。
+
+## 针对当前问题的 runtime 表达式
+
+导入 `mv`、`ms`。这些备选表达式需要下面确切的已治理 Measure、Metric 与 Dimension；教程模型未声明 latency、request_count、order_count 或 refunds，需先绑定其已确认定义。
+
+{/* example: runtime-expression-families */}
+
+```python
+runtime_sum = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.orders.amount"), agg="sum", label="question_revenue",
+)
+runtime_mean = mv.runtime_metric.weighted_mean(
+    ms.ref.measure("sales.orders.latency"),
+    ms.ref.measure("sales.orders.request_count"), label="question_latency",
+)
+runtime_rate = mv.runtime_metric.ratio(
+    ms.ref.metric("sales.revenue"), ms.ref.metric("sales.order_count"),
+    label="question_revenue_per_order",
+)
+runtime_net = mv.runtime_metric.linear(
+    add=[ms.ref.metric("sales.revenue")],
+    subtract=[ms.ref.metric("sales.refunds")], label="question_net",
+)
+runtime_east = mv.runtime_metric.slice(
+    runtime_sum, by={ms.ref.dimension("sales.orders.region"): "east"},
+    label="question_east",
+)
+```
+
+这些是闭合表达式，不是已执行结果。通过明确 member domain 和准入的各根路径观察所选表达式。五个 factory 是 aggregate、weighted_mean、ratio、linear、slice；Count 来自已治理 Count Metric。Runtime 表达式不保存新的组织定义。

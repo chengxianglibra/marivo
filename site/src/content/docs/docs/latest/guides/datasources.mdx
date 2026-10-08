@@ -1,0 +1,260 @@
+---
+title: Connect and inspect data
+description: Declare connections, inspect physical facts, and choose bounded source evidence.
+---
+
+Install the selected backend extra first. Use the project’s conventional imports
+`md`, `ms` and `mv`. Declarations belong to `models/datasources/`; the loader
+collects them without an explicit registration call. These examples are alternatives,
+not one script to run against every provider.
+
+## Declare a local connection
+
+Create the DuckDB file first, as in the Python tutorial. Paths bind to the project.
+
+{/* example: duckdb-declaration */}
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+import marivo.semantic as ms
+import marivo.analysis as mv
+
+# The loader collects this declaration without md.register().
+md.duckdb(
+    name="warehouse",
+    path="warehouse.duckdb",
+    ai_context=ms.ai_context(
+        business_definition="Local DuckDB warehouse for sales analysis.",
+        guardrails=["Use only for development or approved local analysis."],
+    ),
+)
+```
+
+Use `md.register(spec, workspace_dir=...)` for an explicit registration outside model loading. Remote accounts should use the required read-only permissions. Datasource connection success does not establish method support.
+
+## Declare remote access
+
+This Trino declaration uses a catalog, schema and an environment-backed credential. Supply real project values locally.
+
+{/* example: trino-declaration */}
+
+```python
+# models/datasources/lake.py
+import marivo.datasource as md
+
+md.trino(
+    name="lake",
+    host="trino.example.internal",
+    catalog="hive",
+    user_env="TRINO_USER",
+    auth_env="TRINO_AUTH",
+)
+```
+
+Author secrets only as `*_env` references. Validated round-trips may cache
+resolved plaintext secrets in user-global `~/.marivo/secrets.toml`. Keep that
+file and project `.marivo/` state out of shared declarations. Source credentials,
+metadata discovery and business authority are separate concerns.
+
+## Inspect before assigning meaning
+
+`warehouse` is the declared Datasource Ref. This inspection example requires an orders table partitioned by `dt`, with physical `order_id`, `region`, `created_at` and `amount` columns; it is not the tutorial's six-order table. Inspection resolves actual physical column names; it does not choose primary keys or business meaning.
+
+{/* example: source-inspection */}
+
+```python
+warehouse = ms.ref.datasource("warehouse")
+orders = md.table("orders")
+
+inspection = md.inspect(warehouse, orders)
+inspection.show()
+inspection.partitions(limit=1, order="asc").show()  # ascending edge
+inspection.partitions(limit=100, order="desc").show()  # descending edge
+scope = md.partition({"dt": "20260710"}, max_rows=1000, timeout_seconds=30)
+scope.show()  # scope kind, guards, and a bounded predicate preview
+snapshot = inspection.sample(
+    scope=scope,
+    columns=("order_id", "region", "created_at", "amount"),
+    persist_values=True,
+)
+snapshot.show()
+snapshot.contract().show()
+profiles = {profile.name: profile for profile in snapshot.profiles}
+profiles["order_id"].sample_distinct_count
+snapshot.retained_values[0]["order_id"]
+```
+{/* example: physical-source-column */}
+
+```python
+inspection = md.inspect(warehouse, md.table("orders"), workspace_dir=".")
+physical_name = inspection.source_column("order_id")
+orders_source = md.table("orders", columns={"order_key": physical_name})
+```
+
+Use authoritative schema facts for types and keys. Read bounded rows only for an unresolved modeling question.
+
+## Bound row evidence
+
+The inspected table has a physical `created_at` column. Use explicit positive row and timeout guards.
+
+{/* example: bounded-source-preview */}
+
+```python
+scope = md.time_range(
+    "created_at",
+    start="2026-07-10T00:00:00+00:00",
+    end="2026-07-11T00:00:00+00:00",
+    max_rows=1000,
+    timeout_seconds=30,
+)
+```
+
+A returned-row limit is not a scan budget. Inspect the result’s actual scope,
+truncation and warnings. `md.raw_sql(...)` is available for physical questions
+inspection cannot express: use its focused Help for datasource, reason, and
+budget arguments. Its returned rows are terminal, have no `contract()` and
+cannot enter typed analysis.
+
+## Choose physical sources
+
+An Entity accepts `md.table`, `md.parquet`, `md.csv` or `md.json` under its datasource’s admitted source contract. For projected fields, preserve actual physical spelling.
+
+{/* example: source-projection */}
+
+```python
+events = ms.entity(
+    name="events",
+    datasource=warehouse,
+    source=md.table(
+        "raw.events",
+        columns={
+            "event_time": "event.timestamp",
+            "score": "generated.score",
+        },
+    ),
+    primary_key=["event_time"],
+)
+```
+
+CSV/JSON source adapters have narrower analysis admission than datasource discovery. See [backend limits](/docs/latest/reference/backends-and-limits/).
+
+## Parameterized JSON
+
+These definitions require the matching local files or scoped HTTP datasource. Use the selected Entity’s exact ref when binding request parameters.
+
+{/* example: http-token-scope */}
+
+```python
+md.duckdb(
+    name="hawkeye",
+    http_scope="http://hawkeye.example/report/api/",
+    http_bearer_token_env="HAWKEYE_TOKEN",
+)
+```
+{/* example: http-header-scope */}
+
+```python
+md.duckdb(
+    name="change_focus",
+    http_scope="http://change-focus.example/api/v2/change/list",
+    http_headers_env={
+        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "x-signature": "CHANGE_FOCUS_SIGNATURE",
+    },
+)
+```
+{/* example: json-sources */}
+
+```python
+events = md.json("data/events/*.json", columns={"event_id": "event_id"}, format="newline_delimited")
+api_events = md.json(
+    "https://api.example.com/events",
+    columns={"event_id": "event_id", "occurred_at": "occurred_at"},
+    records_path="$.result.items",
+    query_params={
+        "query": "sum(pending_containers) by (cluster)",
+        "start": md.source_param("start"),
+        "end": md.source_param("end"),
+        "step": "60s",
+    },
+)
+gpu_servers = md.json(
+    "https://root.example/api/v1/graphql",
+    columns={
+        "name": "name",
+        "bs": "bs",
+        "gpuAbstract": "gpuAbstract",
+        "status": "status",
+    },
+    method="POST",
+    body={"query": "{ queryServers { name bs gpuAbstract status } }"},
+    records_path="$.data.queryServers",
+    query_params={"policy-domain": "gpus"},
+)
+orders_parquet = md.parquet("data/orders/*.parquet")
+orders_csv = md.csv("data/orders/*.csv", columns={"order_id": "order_id"})
+
+md.inspect(warehouse, events).show()
+```
+{/* example: json-post-source */}
+
+```python
+changes = md.json(
+    "http://change-focus.example/api/v2/change/list",
+    columns={
+        "change_id": "change_id",
+        "title": "title",
+        "app_id": "specificsource[].appid",
+        "app_name": "specificsource[].name",
+    },
+    method="POST",
+    body={
+        "platform_id": 1,
+        "source_type": 2,
+        "specific_source": [md.source_param("app_id")],
+        "env_id": [1],
+        "page_num": md.source_param("page_num"),
+        "page_size": 100,
+    },
+    records_path="$.data.change_infos",
+)
+```
+{/* example: source-bindings */}
+
+```python
+with session.source_bindings(
+    {
+        ms.ref.entity("monitoring.api_events"): {
+            "start": "now-3600",
+            "end": "now",
+        },
+    }
+):
+    dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
+        ms.ref.metric("monitoring.pending_containers"), by=(ms.ref.entity("monitoring.api_events"),)
+    )
+```
+
+HTTP scope constrains declared endpoints; header/token secrets remain environment
+references. Result paths and projected JSON fields do not certify pagination or
+business completeness. Declare the question’s bindings before graph construction,
+then follow its execution contract. Preview and raw SQL results support bounded
+`show(n=..., max_output_bytes=...)` and their native `render()` operations.
+
+## Default datasource and host credentials
+
+`ms.ref.datasource("default")` selects a reserved in-memory DuckDB datasource.
+It needs no registration; each connection has independent memory. File Source
+read and Analysis qualification rules still apply.
+
+Wrap acquisition in `md.credential_scope(resolver=host)`. The host implements
+`resolve(request: md.CredentialRequest) -> md.SecretValue`; requests include
+project, datasource, exact reference, fields and deadline/cancellation facts.
+An explicit host resolver never falls back to environment/cache credentials or
+stores injected secrets. Catalog and Session owners retain their resolver;
+conflicting explicit scopes fail with a typed repair.
+
+`md.raw_sql()` retains the complete returned query result in client memory.
+Author predicates, aggregation and LIMIT in SQL to control size. Its display is
+bounded separately; display omissions do not change retained query rows.

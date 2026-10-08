@@ -13,6 +13,8 @@ from ibis.backends import BaseBackend
 from marivo.datasource.ir import DatasourceIR, TableSourceIR
 
 if TYPE_CHECKING:
+    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.capabilities import ProviderHttpCredentials
     from marivo.datasource.metadata import MetadataWarning, TableMetadata
 
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
@@ -129,21 +131,22 @@ class EngineProfile:
     required_modules: tuple[str, ...]
     connect: Callable[[str, Mapping[str, object]], BaseBackend]
     apply_read_only_kwargs: Callable[[Mapping[str, object]], dict[str, object]]
-    timezone_probe_sql: str | None
     identifier_quote: str
     table_name_parts: Callable[[TableRefRequest], tuple[str, ...]]
     inspect_partition_values: Callable[[PartitionProbeRequest], PartitionProbeResult] | None
-    readonly_tx_start: str | None
     metadata: EngineMetadataIntrospection
     authoring_capabilities: AuthoringCapabilities
     translate_strptime_format: Callable[[str], str]
-    postprocess_sql: Callable[[str], str]
     datetime_decode_policy: BackendDatetimeDecodePolicy
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
     authoring_timeout: AuthoringTimeout | None
     connection_thread: Literal["caller", "worker"] = "worker"
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
+    certification_timeout: AuthoringTimeout | None = None
+    http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
+    exact_count_distinct: bool = False
+    exact_quantile: bool = False
 
     def __post_init__(self) -> None:
         timeout_enforced = self.authoring_timeout is not None
@@ -152,6 +155,44 @@ class EngineProfile:
                 "authoring_capabilities.timeout_enforced must match "
                 "whether authoring_timeout is configured"
             )
+
+    def open(
+        self,
+        datasource: DatasourceIR,
+        *,
+        read_only: bool = True,
+        terminal_timeout_seconds: int | None = None,
+    ) -> SourceSession:
+        """Open the selected provider's owned source session."""
+        from marivo.datasource.adapters import SourceSession
+        from marivo.datasource.errors import DatasourceBackendTypeUnsupportedError, repair
+        from marivo.datasource.runtime import open_backend
+
+        if datasource.backend_type != self.name:
+            raise DatasourceBackendTypeUnsupportedError(
+                message="Selected datasource provider differs from the declaration.",
+                expected=self.name,
+                received=datasource.backend_type,
+                location="datasource adapter",
+                repair=repair(
+                    kind="configure",
+                    canonical_id="register",
+                    action="Select the provider named by the datasource declaration.",
+                ),
+            )
+        selected = open_backend(
+            datasource,
+            read_only=read_only,
+            timeout_seconds=terminal_timeout_seconds or 30,
+            terminal_timeout_seconds=terminal_timeout_seconds,
+        )
+        return SourceSession(self, datasource, selected.backend)
+
+    def probe(self, backend: BaseBackend) -> None:
+        """Round-trip an Ibis literal through this provider's native transport."""
+        from marivo.datasource.adapters import _probe_backend
+
+        _probe_backend(self.name, backend)
 
 
 def identity_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
@@ -231,6 +272,33 @@ def generic_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
+def schema_only_metadata_inspect(request: MetadataInspectRequest) -> TableMetadata:
+    """Read physical columns through the bound Ibis relation alone."""
+    from marivo.datasource.metadata import MetadataWarning, _schema_only
+
+    return _schema_only(
+        datasource=request.datasource,
+        table=request.table,
+        database=request.database,
+        backend_type=request.datasource_ir.backend_type,
+        table_expr=request.table_expr,
+        warnings=(
+            MetadataWarning(
+                kind="comments_unavailable",
+                message="Table and column comments are unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="partitions_unavailable",
+                message="Partition metadata is unavailable through the bound Ibis schema.",
+            ),
+            MetadataWarning(
+                kind="primary_keys_unavailable",
+                message="Key constraints are unavailable through the bound Ibis schema.",
+            ),
+        ),
+    )
+
+
 def decode_cursor_frame(
     cursor: object,
     *,
@@ -274,11 +342,9 @@ GENERIC_PROFILE = EngineProfile(
     required_modules=(),
     connect=_generic_connect_unsupported,
     apply_read_only_kwargs=identity_read_only_kwargs,
-    timezone_probe_sql=None,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,
-    readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=generic_metadata_inspect),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=False,
@@ -287,7 +353,6 @@ GENERIC_PROFILE = EngineProfile(
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_str,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,

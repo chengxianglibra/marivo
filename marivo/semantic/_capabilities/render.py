@@ -7,8 +7,10 @@ import re
 from typing import TYPE_CHECKING
 
 from marivo._authoring.model import AuthoringCapability
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo._authoring.render import effect_lines
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.reflect import import_registered_callable as import_callable
+from marivo.introspection.live.render import bounded_help as _bounded
 from marivo.introspection.live.render import enforce_budget, render_fingerprint
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 from marivo.semantic._capabilities.model import (
@@ -27,26 +29,12 @@ if TYPE_CHECKING:
         SemanticHelpRenderClass,
         SemanticTypeContract,
     )
+    from marivo.semantic.errors import SemanticError
 
 _DATASOURCE_IMPORT = "import marivo.datasource as md"
 _SEMANTIC_IMPORT = "import marivo.semantic as ms"
 _ANALYSIS_IMPORT = "import marivo.analysis as mv"
 _MARIVO_IMPORT = "import marivo"
-
-
-def _bounded(text: str, *, root: bool = False) -> str:
-    """Apply the one shared registered render budget."""
-    return enforce_budget(
-        text,
-        max_lines=(
-            SURFACE_LIMITS.root_help_max_lines if root else SURFACE_LIMITS.focused_help_max_lines
-        ),
-        max_codepoints=(
-            SURFACE_LIMITS.root_help_max_codepoints
-            if root
-            else SURFACE_LIMITS.focused_help_max_codepoints
-        ),
-    )
 
 
 _HELP_CALL_RE = re.compile(
@@ -145,7 +133,6 @@ def render_reference_briefing(
             "    entry.ref",
             "    entry.show()",
             "    entry.details().show()",
-            "    catalog.readiness(refs=[entry]).show()",
         ]
         runtime_checks = _runtime_check_lines(ref.kind.value)
         if runtime_checks:
@@ -165,7 +152,8 @@ def render_reference_briefing(
         lines.extend(
             (
                 "",
-                "  Readiness is not inferred here; use catalog.readiness(refs=[entry]).",
+                '  Analysis preflight: marivo.help("semantic.readiness").',
+                "  Readiness and operation-specific admission are not inferred here.",
                 "  No datasource connectivity or inspection evidence was queried.",
             )
         )
@@ -187,13 +175,8 @@ def _target_text(target: LiveHelpTarget) -> str:
     return target.canonical_id
 
 
-def _with_python_imports(
-    text: str,
-    *,
-    render_class: SemanticHelpRenderClass,
-    examples_or_snippets: int,
-) -> str:
-    """Make a focused semantic help page executable from a cold start."""
+def _python_help_text(text: str) -> str:
+    """Add the imports needed by one semantic help page."""
     from marivo.introspection.live.model import EnvironmentFingerprint
 
     imports = [_MARIVO_IMPORT, _SEMANTIC_IMPORT]
@@ -202,20 +185,27 @@ def _with_python_imports(
     if "mv." in text:
         imports.insert(0, _ANALYSIS_IMPORT)
     lines = text.splitlines()
-    rendered = _bounded(
-        "\n".join(
-            (
-                lines[0],
-                f"  Marivo: {EnvironmentFingerprint.current().marivo_version}",
-                "  Python imports:",
-                *(f"    {statement}" for statement in imports),
-                "",
-                *lines[1:],
-            )
+    return "\n".join(
+        (
+            lines[0],
+            f"  Marivo: {EnvironmentFingerprint.current().marivo_version}",
+            "  Python imports:",
+            *(f"    {statement}" for statement in imports),
+            "",
+            *lines[1:],
         )
     )
+
+
+def _with_python_imports(
+    text: str,
+    *,
+    render_class: SemanticHelpRenderClass,
+    examples_or_snippets: int,
+) -> str:
+    """Make a focused semantic help page executable from a cold start."""
     return enforce_semantic_help_budget(
-        rendered,
+        _bounded(_python_help_text(text)),
         render_class=render_class,
         examples_or_snippets=examples_or_snippets,
     )
@@ -288,11 +278,6 @@ def _render_navigation_topic(
                 "    models/datasources/<datasource>.py",
                 "    models/semantic/<domain>/_domain.py",
                 "    models/semantic/<domain>/<module>.py",
-                "",
-                "  Author one dependency-coherent slice, then load once:",
-                "    catalog = ms.load()",
-                "    entry = catalog.require(ms.ref.<kind>('<canonical identity>'))",
-                "    catalog.readiness(refs=[entry]).show()",
             )
         )
 
@@ -321,7 +306,6 @@ def _render_navigation_topic(
             (
                 "",
                 "  Help never settles unresolved business meaning from physical evidence.",
-                "  Preview only when it answers a concrete runtime risk.",
             )
         )
     return _bounded("\n".join(lines))
@@ -463,15 +447,7 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
         lines.append(f"  Preconditions: {', '.join(descriptor.preconditions)}")
     effects = descriptor.effects
     assert effects is not None
-    lines.extend(
-        (
-            "  Effects:",
-            f"    data access: {effects.data_access}",
-            f"    connection: {effects.connection}",
-            f"    mutations: {', '.join(effects.mutations) or 'none'}",
-            f"    flags: {', '.join(effects.flags) or 'none'}",
-        )
-    )
+    lines.extend(effect_lines(effects))
     source_contract = REGISTRY.source_contract(descriptor.canonical_id)
     if source_contract is not None:
         lines.extend(
@@ -501,7 +477,6 @@ def _render_descriptor(descriptor: AuthoringCapability) -> str:
                 "    catalog = ms.load()",
                 (f"    entry = catalog.{source_contract.catalog_collection}.get({identity!r})"),
                 "    entry.show()",
-                "    catalog.readiness(refs=[entry]).show()",
             )
         )
     consumers = [
@@ -553,6 +528,7 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append("  Public fields: " + ", ".join(contract.public_properties))
     if contract.public_methods:
         lines.append("  Public consumption: " + ", ".join(contract.public_methods))
+    lines.extend("  " + line for line in contract.guidance)
     if contract.consumers:
         lines.append(
             "  Consumers: " + ", ".join(_target_text(target) for target in contract.consumers)
@@ -593,8 +569,8 @@ def _render_type(type_name: str, original: object | None) -> str:
             "entry.ref only when a stable configured or persisted identity is needed."
         )
         lines.append(
-            "  Agent briefing: marivo.help(entry) combines current details, semantic "
-            "continuation, and the kind-level analysis handoff."
+            "  Usage briefing: marivo.help(entry) reports identity, usage navigation, "
+            "and kind-level analysis handoff; entry.show() and entry.details() own definitions."
         )
     if type_name == "CatalogCollection":
         lines.extend(
@@ -628,37 +604,110 @@ def _render_error_contract(error_name: str) -> str:
     lines = [
         error_name,
         "  Semantic error contract.",
-        "  Concrete repair guidance is available only when an instance carries repair.help_target.",
+        "  Instance help preserves concrete failure facts; repair is optional.",
     ]
+    if error_name == "SemanticLoadFailed":
+        lines.append("  Public fields: errors (ordered SemanticError instances).")
+    else:
+        lines.extend(
+            (
+                "  Public fields: kind, message, expected, received, semantic_refs, location, "
+                "location_label, hint, constraint_id, repair.",
+                "  Repair: kind, action, snippet, candidates, help_target when present.",
+            )
+        )
     return _bounded("\n".join(lines))
+
+
+def _error_fact_lines(error: SemanticError) -> list[str]:
+    """Project concrete error facts without reloading or resolving evidence."""
+    lines = [f"  Kind: {error.kind}", f"  Message: {error.message}"]
+    if error.expected is not None:
+        lines.append(f"  Expected: {error.expected}")
+    if error.received is not None:
+        lines.append(f"  Received: {error.received}")
+    if error.semantic_refs:
+        lines.append("  Refs: " + ", ".join(error.semantic_refs))
+    if error.location is not None:
+        lines.append(f"  Location: {error.location.file}:{error.location.line}")
+    if error.location_label is not None:
+        lines.append(f"  Location: {error.location_label}")
+    if error.hint is not None:
+        lines.append(f"  Hint: {error.hint}")
+    if error.repair is not None:
+        lines.extend((f"  Repair kind: {error.repair.kind}", f"  Action: {error.repair.action}"))
+        if error.repair.candidates:
+            lines.append("  Candidates: " + ", ".join(error.repair.candidates))
+        lines.append(f"  Next help: {_help_invocation(error.repair.help_target)}")
+    return lines
 
 
 def _render_error_briefing(error_name: str, original: object) -> str:
-    lines = [error_name, "  Semantic error repair."]
-    for name in ("message", "expected", "received", "location", "location_label"):
-        value = getattr(original, name, None)
-        if value is not None:
-            label = "Location" if name == "location_label" else name.title()
-            lines.append(f"  {label}: {value}")
+    """Bound dynamic error facts while retaining an explicit full read path."""
+    from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 
-    repair = getattr(original, "repair", None)
-    help_target = getattr(repair, "help_target", None)
-    if repair is None or not isinstance(help_target, LiveHelpTarget):
-        raise RuntimeError("error_briefing requires repair.help_target")
-    lines.extend(
-        (
-            "  Repair:",
-            f"    Kind: {repair.kind}",
-            f"    Action: {repair.action}",
+    if isinstance(original, SemanticLoadFailed):
+        errors = original.errors
+        recovery = "  Full errors: for error in exc.errors: print(error)"
+    elif isinstance(original, SemanticError):
+        errors = (original,)
+        recovery = (
+            "  Full facts: exc.message, exc.expected, exc.received, exc.semantic_refs, exc.repair"
         )
+    else:
+        raise RuntimeError("error_briefing requires a registered semantic error instance")
+
+    budget = REGISTRY.render_budget("current_briefing")
+    lines = [error_name, f"  Semantic failure facts ({len(errors)} errors)."]
+    omitted_fields = 0
+    shown = 0
+    snippets = 0
+
+    def fits(candidate: list[str]) -> bool:
+        text = _python_help_text("\n".join(candidate))
+        return (
+            len(text.splitlines()) <= budget.max_lines
+            and len(text) <= budget.max_codepoints
+            and len(_rendered_help_targets(text)) <= budget.max_outgoing_routes
+        )
+
+    for index, error in enumerate(errors):
+        block = [f"  Error {index + 1}: {type(error).__name__}"]
+        facts = _error_fact_lines(error)
+        value_limit = budget.max_codepoints // (2 * max(8, len(facts)))
+        for fact in facts:
+            # Keep all fact labels visible even when one dynamic value is very large.
+            fact = fact.replace("\r\n", "\n").replace("\n", "\\n")
+            if len(fact) > value_limit:
+                fact = fact[:value_limit] + " [value omitted; read full facts]"
+                omitted_fields += 1
+            block.append(fact)
+        remaining = len(errors) - index - 1
+        footer = [
+            f"  Omitted errors: {remaining}",
+            "  Some facts/snippets omitted; read full facts.",
+            recovery,
+        ]
+        if not fits([*lines, *block, *footer]):
+            break
+        lines.extend(block)
+        shown += 1
+        if error.repair is not None and error.repair.snippet is not None:
+            snippet = ["  Snippet:", *(f"    {line}" for line in error.repair.snippet.splitlines())]
+            if snippets < budget.max_examples_or_snippets and fits([*lines, *snippet, *footer]):
+                lines.extend(snippet)
+                snippets += 1
+            else:
+                omitted_fields += 1
+
+    if len(errors) > shown:
+        lines.append(f"  Omitted errors: {len(errors) - shown}")
+    if omitted_fields:
+        lines.append("  Some facts/snippets omitted; read full facts.")
+    lines.append(recovery)
+    return _with_python_imports(
+        "\n".join(lines), render_class="current_briefing", examples_or_snippets=snippets
     )
-    if repair.snippet is not None:
-        lines.append("    Snippet:")
-        lines.extend(f"      {line}" for line in repair.snippet.splitlines())
-    if repair.candidates:
-        lines.append("    Candidates: " + ", ".join(repair.candidates))
-    lines.append(f"    Next help: {_help_invocation(help_target)}")
-    return _bounded("\n".join(lines))
 
 
 def render_help_target(
@@ -713,10 +762,5 @@ def render_help_target(
     if resolved.kind == "error_briefing" and resolved.error_name is not None:
         if resolved.original is None:
             raise RuntimeError("error_briefing requires original target")
-        repair = getattr(resolved.original, "repair", None)
-        return _with_python_imports(
-            _render_error_briefing(resolved.error_name, resolved.original),
-            render_class="current_briefing",
-            examples_or_snippets=int(getattr(repair, "snippet", None) is not None),
-        )
+        return _render_error_briefing(resolved.error_name, resolved.original)
     raise RuntimeError(f"unsupported semantic help resolution: {resolved.kind}")

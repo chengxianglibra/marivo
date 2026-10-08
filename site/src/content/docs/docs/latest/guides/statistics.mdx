@@ -1,0 +1,173 @@
+---
+title: Statistical analysis
+description: Screen values, find runs, describe association and forecast complete time grids.
+---
+
+These examples require compatible numeric relations from one Session. Here
+`revenue` and `order_count` are observed relations, not semantic refs; `daily`
+is a complete regularly spaced numeric time-grid relation. Fit scopes, pairing,
+lag, Cell state and selection determine the result’s interpretation.
+
+## Read signed deviation
+
+`current` and `baseline` are compatible numeric relations. In this section only, `revenue` is a governed Metric Ref and `buyer` is its Relationship Ref for follow-up observation; `marivo`, `mv` and `ms` are imported. The change fits one explicit deviation population.
+
+{/* example: signed-deviation */}
+
+```python
+scored = current.compare(baseline).deviation(method="mad")
+defined = scored.where(scored.score.value.is_defined())
+positive = defined.where(defined.score.value.gt(0))
+followup = positive.observed.members().observe(
+    revenue,
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
+)
+followup.summarize(method=mv.count_defined()).execute().show()
+fixed = scored.execute()
+fixed.contract().show()
+ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()
+ranking.ranks.contract().show()
+mv.table(score=ranking.values, rank=ranking.ranks).execute().show()
+marivo.help("analysis.dsl.NumericComparison.deviation")
+```
+
+Positive/negative scores retain direction. A score is not a probability or
+proof of a business anomaly. Select Defined scores before numeric filters;
+filtering a retained result does not refit its original reference population.
+
+## Find maximal runs
+
+`daily` has a complete, admitted grid and a compatible threshold.
+
+{/* example: complete-grid-runs */}
+
+```python
+segments = daily.runs(where=daily.value.gt(20))
+fixed = segments.execute()
+selected = fixed.where(fixed.count.value.gt(1)).execute()
+mv.table(start=selected.start, end=selected.end, count=selected.count,
+         duration=selected.duration).execute().show()
+```
+
+A run is a maximal consecutive segment under its condition, partition and
+retained grid ordering. Unknown or missing opportunities do not silently count
+as false. Duration uses its exact ticks and unit, not an inferred row count.
+
+## Use all nine methods
+
+Bind `revenue`, `order_count` and `daily` as described above. Forecast input needs enough regular history for the chosen model and seasonal period.
+
+{/* example: nine-statistical-methods */}
+
+```python
+zscore = revenue.deviation(method="zscore")
+mad = revenue.deviation(method="mad")
+fixed = zscore.execute()
+chosen = fixed.where(fixed.score.value.is_defined())
+chosen = chosen.where(chosen.score.value.gt(0)).execute()
+chosen.contract().show()
+mv.table(observed=chosen.observed, reference=chosen.reference,
+         deviation=chosen.deviation, score=chosen.score).execute().show()
+chosen.score.rank(order="descending", ties="dense").limit(2).execute().show()
+mad.execute().show()
+
+segments = daily.runs(where=daily.value.gt(0)).execute()
+segments.where(segments.count.value.gt(1)).execute().show()
+
+pearson = revenue.correlate(order_count, method="pearson")
+spearman = revenue.correlate(order_count, method="spearman")
+kendall = revenue.correlate(order_count, method="kendall")
+for associations in (pearson, spearman, kendall):
+    fixed_associations = associations.execute()
+    selected = fixed_associations.where(fixed_associations.selected.value.eq(True)).execute()
+    mv.table(coefficient=selected.coefficient, selected=selected.selected).execute().show()
+    selected.coefficient.rank(order="descending", ties="dense").limit(1).execute().show()
+
+naive = daily.forecast(horizon=mv.periods(2), model=mv.naive())
+drift = daily.forecast(horizon=mv.periods(2), model=mv.drift())
+seasonal = daily.forecast(horizon=mv.periods(2), model=mv.seasonal_naive(periods=2))
+for future in (naive, drift, seasonal):
+    fixed_future = future.execute()
+    selected = fixed_future.where(fixed_future.prediction.value.gt(0)).execute()
+    mv.table(prediction=selected.prediction, lower=selected.lower,
+             upper=selected.upper).execute().show()
+    selected.contract().show()
+```
+
+zscore and mad retain their fit reference. Pearson, Spearman and Kendall
+retain the paired domain, statuses and selection; association is descriptive,
+not causal. Naive, drift and seasonal-naive forecasts retain model assumptions,
+horizon and interval outputs. Intervals are not calibrated business guarantees.
+Original rollup, rank, where and terminal tables are admitted by each view’s
+retained parts, not by the displayed scalar alone.
+
+## Inspect focused continuations
+
+The association inputs have equal admitted domains. The forecast is a time-grid relation with its current model contract.
+
+{/* example: association-forecast */}
+
+```python
+import marivo.analysis as mv
+
+association = revenue.correlate(order_count, method="spearman")
+selected = association.where(association.selected.value.eq(True))
+coefficients = selected.coefficient.execute()
+coefficients.show()
+
+future = daily.forecast(horizon=mv.periods(3), model=mv.drift())
+report = mv.table(prediction=future.prediction, lower=future.lower, upper=future.upper)
+report.execute().show()
+```
+{/* example: customer-association */}
+
+```python
+order_count = customers.observe(
+    ms.ref.metric("sales.order_count"),
+    during=august,
+    via=buyer,
+    by=(ms.ref.entity("sales.customer"),),
+)
+association = august_revenue.correlate(order_count, method="spearman").execute()
+coefficient = association.coefficient
+negative = coefficient.where(coefficient.value.lt(0)).execute()
+```
+{/* example: deviation-original-rollup */}
+
+```python
+local_total = values.deviation(method="zscore").observed.rollup().execute()
+```
+
+The customer-association snippet instead uses `customers`, `august_revenue`,
+`august`, `buyer` and a governed order-count Metric. The final original-rollup
+snippet needs `values` with retained original components. Local statistical
+preparation may capture full vectors; batch transport does not mean the algorithm
+streams. Unsupported numerical or source combinations reject without fallback.
+
+## Direct distribution aggregates
+
+This independent sales model declares `sales.facts.amount` with a default event axis, `sales.subjects` and a directed to-one `sales.facts_subject` relationship. Import `mv` and `ms`, and open a Session for that model. These declarations are absent from the local tutorial.
+
+{/* example: runtime-distinct */}
+
+```python
+scalar_distinct = mv.runtime_metric.aggregate(
+    ms.ref.measure("sales.facts.amount"),
+    agg="count_distinct",
+    label="distinct_values",
+)
+distribution = (
+    session.members(ms.ref.entity("sales.subjects"))
+    .observe(
+        scalar_distinct,
+        during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+        via=ms.ref.relationship("sales.facts_subject"),
+        by=(ms.ref.entity("sales.subjects"),),
+    )
+    .execute()
+)
+```
+
+The result contract admits only transformations supported by the captured state; a direct distinct scalar does not reconstruct original membership.

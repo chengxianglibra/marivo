@@ -19,6 +19,7 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
+from marivo._data_render import _display_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.catalog_members import (
@@ -59,9 +60,14 @@ INPUT_FAMILIES = frozenset(
         "Ref[measure]",
         "Ref[metric]",
         "Ref[relationship]",
+        "tuple[Ref[relationship], ...]",
+        "NullInputPolicyV1",
+        "EmptyContributionPolicyV1",
+        "ZeroDenominatorPolicyV1",
         "Ref[event]",
         "Ref[event] | ParticipantRoleHandle",
         "Ref[state_model]",
+        "Ref[business_order]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[work_schedule]",
@@ -99,6 +105,7 @@ INPUT_FAMILIES = frozenset(
         "SqlDialect",
         "AggFunc",
         "Additivity",
+        "ValuePolicy",
         "Unit",
         "Granularity",
         "Granularity | Grain",
@@ -137,6 +144,10 @@ INPUT_FAMILIES = frozenset(
         "StateTransition",
         "ModelStateHandle",
         "StateModelName",
+        "BusinessOrderName",
+        "EventSequence",
+        "EventPrecedence",
+        "SequenceOrder",
         "LifecycleStateName",
         "PeriodCorrespondence",
         "Grain",
@@ -165,7 +176,6 @@ OUTPUT_FAMILIES = frozenset(
         "RelationshipCardinalitySourceCheck",
         "SourceHealthReport",
         "RichnessReport",
-        "ParityResult",
         "Ref",
         "Ref[domain]",
         "Ref[datasource]",
@@ -177,15 +187,16 @@ OUTPUT_FAMILIES = frozenset(
         "Ref[relationship]",
         "Ref[event]",
         "Ref[state_model]",
+        "Ref[business_order]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[work_schedule]",
         "Ref[dimension | time_dimension]",
         "Ref[dimension | time_dimension | measure]",
         "JoinKey",
-        "SqlProvenance",
         "AiContextValue",
         "Additivity",
+        "ValuePolicy",
         "ValiditySpec",
         "DateTimeSpec",
         "TimestampSpec",
@@ -202,6 +213,8 @@ OUTPUT_FAMILIES = frozenset(
         "LifecycleState",
         "Inception",
         "StateTransition",
+        "EventSequence",
+        "EventPrecedence",
         "ModelStateHandle",
         "PeriodCorrespondence",
         "Grain",
@@ -265,6 +278,8 @@ def _effects(
     mutations: tuple[MutationEffect, ...] = (),
     flags: tuple[EffectFlag, ...] = (),
 ) -> AuthoringEffects:
+    if connection == "opens_connection" and "project_state" not in mutations:
+        mutations = (*mutations, "project_state")
     return AuthoringEffects(
         data_access=data_access,
         connection=connection,
@@ -300,15 +315,13 @@ _CERTIFYING_PREVIEW = _effects(
         "may_publish_certified_artifact",
     ),
 )
-_PARITY = _effects("potentially_unbounded_read", "opens_connection")
 
 _ADDITIVITY_HELP = (
-    "\n  additivity: 'additive', 'non_additive', or ms.semi_additive(over=..., fold=...)."
+    "\n  additivity: ms.additive(over=...), ms.additive_all(except_=...), or ms.non_additive()."
     "\n  unit=None leaves the declared unit unspecified."
 )
 _FOLD_HELP = (
-    "\n  fold: 'mean', 'min', 'max', 'first', 'last', or ('percentile', q), 0 < q < 1;"
-    " folds the governed status-time axis, not rows within a query group."
+    "\n  status_time_fold folds the governed status-time axis, not rows within a query group."
 )
 
 
@@ -328,6 +341,7 @@ def _capability(
     see_also: tuple[LiveHelpTarget, ...] = (),
     public_entrypoint: str | None = None,
     invocation_shape: Literal["direct", "decorator"] = "direct",
+    telemetry: bool = True,
 ) -> AuthoringCapability:
     return AuthoringCapability(
         canonical_id=canonical_id,
@@ -346,6 +360,7 @@ def _capability(
         see_also=see_also,
         repair_kinds=repair_kinds,
         invocation_shape=invocation_shape,
+        telemetry=telemetry,
     )
 
 
@@ -405,6 +420,7 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
         ),
         SemanticKind.RELATIONSHIP: ("relationship",),
         SemanticKind.EVENT: ("event",),
+        SemanticKind.BUSINESS_ORDER: ("business_order",),
         SemanticKind.STATE_MODEL: ("state_model",),
         SemanticKind.PERIOD_CALENDAR: ("period_calendar",),
         SemanticKind.TEMPORAL_SET: ("temporal_set",),
@@ -786,19 +802,19 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "How may values aggregate across business dimensions?",
                     "measure_column",
                     "measure",
-                    "semi_additive",
+                    "additive_all",
                 ),
                 _business_decision(
                     "temporal_additivity",
                     "How may values aggregate across time?",
                     "measure_column",
                     "measure",
-                    "semi_additive",
+                    "additive_all",
                 ),
                 _source_business_decision(
                     "semi_additive_axis_fold",
                     "If semi-additive, which status axis and fold are authoritative?",
-                    "semi_additive",
+                    "additive_all",
                 ),
                 _source_decision(
                     "construction_mode",
@@ -814,7 +830,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             relationships=(
                 _relationship("owned_by", "objects.entity", "The Entity ref fixes fact ownership."),
             ),
-            supporting=("semi_additive", "ai_context", "bind"),
+            supporting=("additive", "additive_all", "non_additive", "ai_context", "bind"),
             checks=("load", "readiness", "preview", "source_check.not_null", "source_health"),
         ),
         _object_contract(
@@ -874,11 +890,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "trailing",
                 ),
                 _business_decision(
-                    "provenance",
-                    "Does governed SQL provenance require parity evidence?",
-                    "from_sql",
-                ),
-                _business_decision(
                     "guardrails",
                     "Which reusable exclusions and interpretation guardrails apply?",
                     "ai_context",
@@ -906,12 +917,18 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "may_reference", "objects.metric", "Derived Metrics compose other Metrics."
                 ),
             ),
-            supporting=("where", "from_sql", "grain_to_date", "trailing", "ai_context", "bind"),
-            checks=("load", "readiness", "preview", "parity_check"),
+            supporting=(
+                "where",
+                "grain_to_date",
+                "trailing",
+                "ai_context",
+                "bind",
+            ),
+            checks=("load", "readiness", "preview"),
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
-            "Executable directed join contract between Entities.",
+            "Directed Entity mapping with derived structural cardinality; match completeness belongs to each consumer.",
             decisions=(
                 _business_decision(
                     "directed_meaning",
@@ -935,7 +952,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "multiplicity_fanout",
                     "Which multiplicity and fanout implications are expected?",
                     "relationship",
-                    "ai_context",
                 ),
                 _source_decision(
                     "evidence_checks",
@@ -1065,8 +1081,8 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
                 _decision(
                     "excluded_replay_policies",
-                    "Which replay, seed, ordering, or violation policies are deliberately excluded?",
-                    "StateModel owns normative lifecycle meaning only; analysis owns replay policy.",
+                    "Which replay, seed, or violation policies are deliberately excluded?",
+                    "StateModel owns normative lifecycle meaning and an optional order ref; analysis owns replay policy.",
                     "business_authority",
                     unsupported_reason=(
                         "The current StateModel object does not encode replay policy; use the exact "
@@ -1086,6 +1102,11 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "objects.event",
                     "Inceptions and transitions use exact Event triggers or participant handles.",
                 ),
+                _relationship(
+                    "may_reference",
+                    "objects.business_order",
+                    "A StateModel may bind one default business order.",
+                ),
             ),
             supporting=(
                 "lifecycle_state",
@@ -1095,6 +1116,50 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "participant_role",
                 "ai_context",
             ),
+            checks=("load", "readiness"),
+        ),
+        _object_contract(
+            SemanticKind.BUSINESS_ORDER,
+            "Named same-subject sequence and simultaneous-precedence authority.",
+            decisions=(
+                _business_decision(
+                    "order_rationale",
+                    "Why does this business order hold?",
+                    "business_order",
+                    "ai_context",
+                ),
+                _business_decision(
+                    "sequence_order",
+                    "Which exact Event value order is authoritative?",
+                    "event_sequence",
+                ),
+                _business_decision(
+                    "simultaneous_precedence",
+                    "Which same-subject roles have precedence?",
+                    "precedes",
+                ),
+            ),
+            construction_modes=(
+                _mode(
+                    "Declare one versioned same-subject order authority.",
+                    "default",
+                    "business_order",
+                ),
+            ),
+            relationships=(
+                _relationship(
+                    "owned_by", "objects.entity", "The Subject's complete K fixes order ownership."
+                ),
+                _relationship(
+                    "requires", "objects.event", "Each ordered occurrence has an exact Event role."
+                ),
+                _relationship(
+                    "consumed_by",
+                    "objects.state_model",
+                    "StateModels may bind this order as their default.",
+                ),
+            ),
+            supporting=("event_sequence", "precedes", "participant_role", "ai_context"),
             checks=("load", "readiness"),
         ),
         _object_contract(
@@ -1283,14 +1348,35 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
         (
             "builders.field_metric_support",
             "Field and Metric support",
-            "Build Field and Metric parameters, provenance, anchors, and expressions.",
-            ("where", "semi_additive", "bind", "from_sql", "grain_to_date", "trailing"),
+            "Build Field and Metric parameters, context, anchors, and expressions.",
+            (
+                "where",
+                "additive_all",
+                "additive",
+                "non_additive",
+                "nulls",
+                "nulls.reject",
+                "empty",
+                "empty.zero",
+                "zero_denominator",
+                "zero_denominator.error",
+                "bind",
+                "grain_to_date",
+                "trailing",
+            ),
         ),
         (
             "builders.relationship_event",
             "Relationship and Event support",
             "Build join keys, participants, participant handles, and all-row predicates.",
-            ("join_on", "participant", "participant_role", "all_rows"),
+            (
+                "join_on",
+                "participant",
+                "participant_role",
+                "all_rows",
+                "event_sequence",
+                "precedes",
+            ),
         ),
         (
             "builders.state_model",
@@ -1382,12 +1468,6 @@ def _check_topic() -> SemanticCheckTopic:
                 (_target("source_health"),),
                 "Ephemeral current source evidence for declared checks.",
                 "Business approval or readiness mutation.",
-            ),
-            route(
-                "Does a Metric agree with its governed SQL provenance?",
-                (_target("parity_check"),),
-                "The exact parity result for the declared comparison.",
-                "General correctness outside that comparison.",
             ),
             route(
                 "Is the semantic project rich enough for current demand?",
@@ -1505,6 +1585,61 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             preserves_evidence=True,
         ),
         SemanticRepairContract(
+            error_kind="invalid_binding_ref",
+            kind="reauthor",
+            help_target=_target("bind"),
+            action=(
+                "Assign an exact Dimension, TimeDimension, or Measure Ref to a module-level "
+                "name before the decorator, then pass that bare name to ms.bind. For a "
+                "cross-file field, use ms.ref.<kind>(the field's exact existing path)."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="missing_time_fold",
+            kind="reauthor",
+            help_target=_target("additive_all"),
+            action=(
+                "Keep the sampled status_time_dimension in additive_all(except_=...) "
+                "and declare status_time_fold with the required business aggregation."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="binding_target_missing",
+            kind="reauthor",
+            help_target=_target("bind"),
+            action=(
+                "Check the field Ref path named in this error against the loaded catalog. "
+                "Declare the missing field or correct its module-level Ref, then reload "
+                "before binding it to its owning Entity parameter."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="binding_alias_not_direct",
+            kind="reauthor",
+            help_target=_target("bind"),
+            action=(
+                "Call ms.bind(field_ref, entity_parameter) with two positional bare names: "
+                "an exact field Ref visible before decoration and a direct Entity parameter. "
+                "Move Ref construction outside the body; remove attribute/factory arguments "
+                "and transformed or locally aliased Entity arguments."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="binding_entity_mismatch",
+            kind="reauthor",
+            help_target=_target("bind"),
+            action=(
+                "Use the direct Entity parameter that owns the referenced field. Compare "
+                "the expected and received Entity refs in this error before changing either "
+                "the field Ref or the metric's Entity parameters."
+            ),
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
             error_kind="invalid_filter",
             kind="reauthor",
             help_target=_target("where"),
@@ -1575,12 +1710,40 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             preserves_evidence=True,
         ),
         SemanticRepairContract(
+            error_kind="entity_constructor_as_decorator",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Assign ms.entity(...) to a name and remove the decorated function body.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="duplicate_identity_key",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Remove repeated names from primary_key.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="missing_identity_key_column",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Add each missing identity key to columns=... or omit the source projection.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
+            error_kind="identity_version_overlap",
+            kind="reauthor",
+            help_target=_target("entity"),
+            action="Remove version coordinates from primary_key and keep them in versioning.",
+            preserves_evidence=True,
+        ),
+        SemanticRepairContract(
             error_kind="organization_error",
             kind="reauthor",
             help_target=_target("authoring"),
             action=(
-                "Repair the failing semantic source file inside the registered project layout, "
-                "then reload the catalog."
+                "Read the original exception and traceback when present, repair the failing "
+                "declaration or import, then restart Python and reload the catalog."
             ),
             preserves_evidence=True,
         ),
@@ -2157,7 +2320,7 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
         _capability(
             "source_check.relationship_matches",
             "marivo.semantic.source_health.SourceCheckNamespace.relationship_matches",
-            "Require declared relationship keys to match on the selected side.",
+            "Check unmatched relationship keys only within the selected bounded source scopes.",
             kind="method",
             output="RelationshipMatchesSourceCheck",
             inputs=(
@@ -2205,28 +2368,85 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "temporal_set": (("name",), ("occurrence_id",), ("start",), ("end",), ("category",)),
         "work_schedule": (("name",), ("date",), ("is_working",)),
         "calendar_grain": (("calendar",), ("level",)),
-        "measure": (("name",), ("entity",), ("additivity",)),
-        "measure_column": (("name",), ("entity",), ("column",), ("additivity",)),
-        "aggregate": (("name",), ("measure",), ("agg",), ("fold",), ("filter",)),
-        "count": (("name",), ("entity",), ("filter",)),
+        "measure": (
+            ("name",),
+            ("entity",),
+            ("additivity",),
+            ("status_time_dimension",),
+            ("status_time_fold",),
+        ),
+        "measure_column": (
+            ("name",),
+            ("entity",),
+            ("column",),
+            ("additivity",),
+            ("status_time_dimension",),
+            ("status_time_fold",),
+        ),
+        "aggregate": (
+            ("name",),
+            ("measure",),
+            ("agg",),
+            ("time",),
+            ("time_via",),
+            ("nulls",),
+            ("empty",),
+            ("fold",),
+            ("filter",),
+            ("unit",),
+        ),
+        "count": (("name",), ("entity",), ("time",), ("filter",)),
         "where": ((),),
         "cumulative": (("name",), ("base",), ("anchor",)),
-        "ratio": (("name",), ("numerator",), ("denominator",)),
+        "ratio": (("name",), ("numerator",), ("denominator",), ("zero_denominator",)),
         "weighted_mean": (("name",), ("value",), ("weight",)),
         "linear": (("name",), ("add",)),
-        "relationship": (("name",), ("from_entity",), ("to_entity",), ("keys",)),
+        "relationship": (
+            ("name",),
+            ("from_entity",),
+            ("to_entity",),
+            ("keys",),
+        ),
         "event": (("name",), ("identity",), ("occurred_at",), ("participants",)),
+        "event_sequence": (("event",), ("value",), ("order",)),
+        "precedes": (("before",), ("after",)),
+        "business_order": (
+            ("name",),
+            ("subject",),
+            ("sequences",),
+            ("conflicts",),
+            ("ai_context",),
+        ),
         "participant": (("name",), ("path",)),
         "participant_role": (("event",), ("name",)),
         "lifecycle_state": (("name",),),
         "inception": (("on",),),
         "transition": (("from_state",), ("on",), ("to_state",)),
-        "state_model": (("name",), ("subject",), ("states",), ("transitions",), ("transitions",)),
+        "state_model": (
+            ("name",),
+            ("subject",),
+            ("states",),
+            ("transitions",),
+            ("transitions",),
+            ("business_order",),
+        ),
         "model_state": (("model",), ("name",)),
         "join_on": (("from_key", "to_key"),),
-        "from_sql": (("sql",), ("dialect",)),
         "bind": (("field",), ("entity_alias",)),
-        "metric": (("name",), ("entities",), ("additivity",)),
+        "metric": (
+            ("name",),
+            ("entities",),
+            ("time",),
+            ("unit",),
+            ("additivity",),
+            ("status_time_dimension",),
+            ("status_time_fold",),
+            ("nulls",),
+            ("empty",),
+            ("zero_denominator",),
+        ),
+        "additive": (("over",),),
+        "additive_all": (("except_",),),
         "snapshot": (("partition_field",),),
         "validity": (("valid_from", "valid_to"),),
         "grain_to_date": (("grain",),),
@@ -2236,7 +2456,6 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "source_health": ((), ("refs",), ("checks",), ("scope",)),
         "readiness": ((), ("refs",)),
         "richness": (("demand",),),
-        "parity_check": (("name",), ("rel_tol",), ("abs_tol",), ("force",)),
         "SemanticCatalog.items": ((), ("kind",)),
         "SemanticCatalog.require": ((), ("ref",)),
         "CatalogCollection.get": ((), ("key",)),
@@ -2251,12 +2470,12 @@ _OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
         ("measure", 0),
         ("cumulative", 2),
         ("event", 0),
+        ("business_order", 2),
+        ("business_order", 3),
+        ("state_model", 5),
         ("participant", 1),
         ("metric", 0),
         ("readiness", 1),
-        ("parity_check", 1),
-        ("parity_check", 2),
-        ("parity_check", 3),
     }
 )
 
@@ -2314,6 +2533,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             output="SemanticCatalog",
             effects=_LOCAL,
+            preconditions=(
+                "Restart Python after package upgrades or model edits/deletions; ordinary imports are not guaranteed to hot-reload.",
+                "Execution failures expose exception_type and the complete original traceback.",
+            ),
             example="catalog = ms.load()\ncatalog.show()",
         ),
         *_ref_factory_capabilities(),
@@ -2334,8 +2557,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "entity",
             "marivo.semantic._authoring_decorators.entity",
             (
-                "Declare a semantic entity backed by a datasource table, directly or as a "
-                "one-expression decorator over the declared source."
+                "Declare a semantic entity backed by a datasource source. Table columns "
+                "map output names to physical column names; types come from source metadata "
+                "when execution needs them, not from this declaration. Use md.inspect for "
+                "current physical column names and types."
+                " Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own all downstream fields and identity/version rules."
             ),
             output="Ref[entity]",
             inputs=_inputs(
@@ -2344,17 +2570,26 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("dependency", "TableName"),
             ),
             effects=_AUTHOR,
-            constraints=("active_loader_context", "ref_shape"),
+            constraints=(
+                "active_loader_context",
+                "ref_shape",
+                "entity_constructor_assignment",
+                "entity_identity_key_unique",
+                "entity_version_key_separate",
+            ),
             example=(
                 "warehouse = ms.ref.datasource('warehouse')\n"
-                "# Decorator form: omitting name derives the entity name from the function;\n"
-                "# the body returns one Ibis Table expression over the injected source table.\n"
-                "@ms.entity(datasource=warehouse, source=md.table('orders'))\n"
-                "def orders(raw):\n"
-                "    '''Remove duplicate whole rows from the source.'''\n"
-                "    return raw.distinct()"
+                "orders = ms.entity(\n"
+                "    name='orders', datasource=warehouse,\n"
+                "    source=md.table('orders', columns={'order_id': 'id', 'amount': 'total'}),\n"
+                "    primary_key=['order_id'],\n"
+                ")"
             ),
-            invocation_shape="decorator",
+            see_also=(
+                LiveHelpTarget(surface="datasource", canonical_id="table"),
+                LiveHelpTarget(surface="datasource", canonical_id="inspect"),
+            ),
+            invocation_shape="direct",
         ),
         _capability(
             "dimension",
@@ -2369,8 +2604,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
             example=(
                 "@ms.dimension(name='region', entity=orders)\n"
-                "def region(row):\n"
-                "    return row.region"
+                "def region(rows):\n"
+                "    return rows.region"
             ),
             invocation_shape="decorator",
         ),
@@ -2406,10 +2641,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_granularity_parse_compatible",
             ),
             example=(
-                "@ms.time_dimension(name='log_date', entity=orders, granularity='day', "
-                "parse=ms.strptime('%Y%m%d'))\n"
-                "def log_date(row):\n"
-                "    return row.log_date"
+                "@ms.time_dimension(name='log_date', entity=orders, granularity='day')\n"
+                "def log_date(rows):\n"
+                "    return rows.log_date"
             ),
             invocation_shape="decorator",
         ),
@@ -2535,17 +2769,21 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_decorators.measure",
             "Declare a calculated measure on an entity." + _ADDITIVITY_HELP,
             output="Ref[measure]",
-            inputs=_inputs(
-                ("mapping_key", "MeasureName"),
-                ("subject", "Ref[entity]"),
-                ("dependency", "Additivity"),
+            inputs=(
+                *_inputs(
+                    ("mapping_key", "MeasureName"),
+                    ("subject", "Ref[entity]"),
+                    ("dependency", "Additivity"),
+                ),
+                _optional_input("dependency", "Ref[time_dimension]"),
+                _optional_input("dependency", "TimeFold"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
             example=(
-                "@ms.measure(name='amount', entity=orders, additivity='additive')\n"
-                "def amount(row):\n"
-                "    return row.amount"
+                "@ms.measure(name='amount', entity=orders, additivity=ms.additive_all())\n"
+                "def amount(rows):\n"
+                "    return rows.amount"
             ),
             invocation_shape="decorator",
         ),
@@ -2554,39 +2792,49 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_decorators.measure_column",
             "Declare a column-backed measure on an entity." + _ADDITIVITY_HELP,
             output="Ref[measure]",
-            inputs=_inputs(
-                ("mapping_key", "MeasureName"),
-                ("subject", "Ref[entity]"),
-                ("dependency", "ColumnName"),
-                ("dependency", "Additivity"),
+            inputs=(
+                *_inputs(
+                    ("mapping_key", "MeasureName"),
+                    ("subject", "Ref[entity]"),
+                    ("dependency", "ColumnName"),
+                    ("dependency", "Additivity"),
+                ),
+                _optional_input("dependency", "Ref[time_dimension]"),
+                _optional_input("dependency", "TimeFold"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
             example=(
                 "amount = ms.measure_column("
-                "name='amount', entity=orders, column='amount', additivity='additive')"
+                "name='amount', entity=orders, column='amount', additivity=ms.additive_all())"
             ),
         ),
         _capability(
             "aggregate",
             "marivo.semantic._authoring_declarations.aggregate",
             (
-                "Declare an aggregate metric from a measure."
-                "\n  agg: 'sum', 'count', 'count_distinct', 'min', 'max', 'mean', 'median',"
-                " or ('percentile', q), 0 < q < 1, across rows in each query group."
-                + _FOLD_HELP
-                + "\n  fold=None inherits the semi-additive measure's fold; an explicit fold"
-                " requires a semi-additive measure and overrides only its temporal fold."
-                "\n  unit=None inherits the measure's unit, except count/count_distinct derive none."
-                " filter=None includes all rows."
+                "Declare an aggregate Metric; agg owns exact/approximate intent. "
+                "count_distinct, median and percentile require exact operations; approx_* "
+                "explicitly permits approximation. Backend support is required: scoped "
+                "readiness blocks known incompatibilities without connecting, and execution "
+                "never substitutes the definition. "
+                "Filters name dimensions on the Measure's Entity. unit= overrides the "
+                "derived unit; omitted units inherit the Measure's unit for value aggregates "
+                "and derive '1' for count/count_distinct/approx_count_distinct. ms.count "
+                "counts Entity rows with fixed unit '1' and accepts no unit= parameter."
             ),
             output="Ref[metric]",
             inputs=(
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
                 AuthoringInputRequirement(role="subject", family="Ref[measure]"),
                 AuthoringInputRequirement(role="dependency", family="AggFunc"),
+                _optional_input("dependency", "Ref[time_dimension]"),
+                _optional_input("dependency", "tuple[Ref[relationship], ...]"),
+                _optional_input("dependency", "NullInputPolicyV1"),
+                _optional_input("dependency", "EmptyContributionPolicyV1"),
                 _optional_input("dependency", "TimeFold"),
                 _optional_input("dependency", "WhereFilter"),
+                _optional_input("dependency", "Unit"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -2597,38 +2845,58 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_fold_requires_semi_additive",
             ),
             example=(
+                "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
                 "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "
                 "filter=ms.where(region='US'))"
             ),
+            see_also=(_target("count"), _target("where"), _target("readiness")),
         ),
         _capability(
             "count",
             "marivo.semantic._authoring_declarations.count",
-            "Declare a count metric on an entity.",
+            (
+                "Declare a row-count metric on an Entity. Counting has fixed unit '1' "
+                "(unit one), so count accepts no unit= parameter. Entity identity and the "
+                "metric definition describe what is counted. Filters name declared local "
+                "Dimensions on this Entity. Use aggregate for Measure aggregation and its "
+                "optional unit override."
+            ),
             output="Ref[metric]",
             inputs=(
                 AuthoringInputRequirement(role="mapping_key", family="MetricName"),
                 AuthoringInputRequirement(role="subject", family="Ref[entity]"),
+                _optional_input("dependency", "Ref[time_dimension]"),
                 _optional_input("dependency", "WhereFilter"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "composition_shape"),
             example=(
+                "state = ms.dimension_column(name='state', entity=orders, column='state')\n"
                 "failed = ms.count(name='failed', entity=orders, filter=ms.where(state='FAILED'))"
             ),
+            see_also=(_target("aggregate"), _target("where")),
         ),
         _capability(
             "where",
             "marivo.semantic._authoring_declarations.where",
             (
                 "Build an AND filter over declared local dimensions; scalars mean "
-                "equality and tuple/list values mean membership."
+                "equality and non-empty tuple/list values mean membership. Each keyword "
+                "must name a declared Dimension on count's Entity or aggregate's Measure "
+                "Entity, never a physical column or a dimension reached through a relationship."
             ),
             output="WhereFilter",
             inputs=_inputs(("subject", "FilterConditions")),
             effects=_NONE,
             constraints=("filter_condition_valid",),
-            example="ms.where(type=(2, 4), query_kind='Select')",
+            example=(
+                "state = ms.dimension_column(name='state', entity=orders, column='state')\n"
+                "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
+                "failed = ms.count(\n"
+                "    name='failed', entity=orders,\n"
+                "    filter=ms.where(state=('FAILED', 'ERROR'), region='US'),\n"
+                ")"
+            ),
             see_also=(_target("count"), _target("aggregate")),
         ),
         _capability(
@@ -2654,10 +2922,13 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "marivo.semantic._authoring_metrics.ratio",
             "Declare a recursively composable ratio metric; each lowered node is validated independently.",
             output="Ref[metric]",
-            inputs=_inputs(
-                ("mapping_key", "MetricName"),
-                ("subject", "Ref[metric]"),
-                ("dependency", "Ref[metric]"),
+            inputs=(
+                *_inputs(
+                    ("mapping_key", "MetricName"),
+                    ("subject", "Ref[metric]"),
+                    ("dependency", "Ref[metric]"),
+                ),
+                _optional_input("dependency", "ZeroDenominatorPolicyV1"),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "composition_shape"),
@@ -2666,7 +2937,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "weighted_mean",
             "marivo.semantic._authoring_declarations.weighted_mean",
-            "Declare an exact weighted mean that multiplies and aggregates two same-row measures.",
+            "Declare a weighted mean of same-row numeric measures; types may differ and native rounding applies.",
             output="Ref[metric]",
             inputs=_inputs(
                 ("mapping_key", "MetricName"),
@@ -2693,7 +2964,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "relationship",
             "marivo.semantic._authoring_decorators.relationship",
-            "Declare a relationship between two entities.",
+            "Declare a directed Entity mapping; key coverage derives structural cardinality, not required matches.",
             output="Ref[relationship]",
             inputs=_inputs(
                 ("mapping_key", "RelationshipName"),
@@ -2705,6 +2976,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             constraints=(
                 "active_loader_context",
                 "relationship_endpoints",
+                "relationship_mapping",
                 "ref_shape",
             ),
             example=(
@@ -2789,6 +3061,53 @@ def _build_registry() -> SemanticCapabilityRegistry:
             see_also=(_target("event"),),
         ),
         _capability(
+            "event_sequence",
+            "marivo.semantic.business_order.event_sequence",
+            "Declare an Event source field with one explicit business value order.",
+            output="EventSequence",
+            inputs=_inputs(
+                ("subject", "Ref[event]"),
+                ("dependency", "Ref[dimension]"),
+                ("dependency", "SequenceOrder"),
+            ),
+            effects=_NONE,
+            example="ms.event_sequence(payment, sequence_number, order='integer')",
+            see_also=(_target("business_order"),),
+        ),
+        _capability(
+            "precedes",
+            "marivo.semantic.business_order.precedes",
+            "Declare same-subject precedence for simultaneous Event roles.",
+            output="EventPrecedence",
+            inputs=_inputs(
+                ("subject", "ParticipantRoleHandle"),
+                ("dependency", "ParticipantRoleHandle"),
+            ),
+            effects=_NONE,
+            example="ms.precedes(activated_role, deactivated_role)",
+            see_also=(_target("business_order"), _target("participant_role")),
+        ),
+        _capability(
+            "business_order",
+            "marivo.semantic.business_order.business_order",
+            "Declare one named same-subject business order authority.",
+            output="Ref[business_order]",
+            inputs=_inputs(
+                ("mapping_key", "BusinessOrderName"),
+                ("subject", "Ref[entity]"),
+                ("dependency", "EventSequence"),
+                ("dependency", "EventPrecedence"),
+                ("evidence", "AiContextValue"),
+            ),
+            effects=_AUTHOR,
+            example=(
+                "ms.business_order(name='payment_order', subject=orders, "
+                "sequences=(ms.event_sequence(payment, sequence_number, order='integer'),), "
+                "ai_context=ms.ai_context(business_definition='Ledger order per subject'))"
+            ),
+            see_also=(_target("event_sequence"), _target("precedes"), _target("state_model")),
+        ),
+        _capability(
             "lifecycle_state",
             "marivo.semantic.state_model.lifecycle_state",
             "Declare one immutable local state for a StateModel.",
@@ -2840,6 +3159,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ("dependency", "LifecycleState"),
                 ("dependency", "Inception"),
                 ("dependency", "StateTransition"),
+                ("dependency", "Ref[business_order]"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -2857,6 +3177,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _target("inception"),
                 _target("transition"),
                 _target("model_state"),
+                _target("business_order"),
             ),
         ),
         _capability(
@@ -2885,22 +3206,23 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             example="ms.join_on(order_customer_id, customer_id)",
         ),
-        _capability(
-            "from_sql",
-            "marivo.semantic._authoring_values.from_sql",
-            "Build a SQL provenance value for parity checking.",
-            output="SqlProvenance",
-            inputs=_inputs(("subject", "SqlText"), ("dependency", "SqlDialect")),
-            effects=_AUTHOR,
-            example="ms.from_sql(sql='SELECT SUM(amount) FROM orders', dialect='duckdb')",
-        ),
         # ------------------------------------------------------------------
         # Low-level expression builders (public authoring surface)
         # ------------------------------------------------------------------
         _capability(
             "bind",
             "marivo.semantic._expression_binding.bind",
-            "Apply one semantic field ref to a direct entity alias in an expression body.",
+            (
+                "Apply a semantic field definition, not a physical column, to a direct Entity "
+                "parameter. Pass a bare name holding an exact field Ref before decoration. "
+                "For cross-file fields, assign ms.ref.<kind>(path) at module scope; no import "
+                "of the declaration module is needed. The target must exist and belong to "
+                "the bound Entity. Bare names enable static dependency/ownership checks. "
+                "Inline "
+                "ms.bind(rows.amount, rows), ms.bind(factory('amount'), rows), and "
+                "ms.bind(ms.ref.measure('sales.orders.amount'), rows) are invalid. "
+                "The second argument cannot be a transformed table or a local alias."
+            ),
             output="IbisValue",
             inputs=_inputs(
                 ("subject", "Ref[dimension | time_dimension | measure]"),
@@ -2909,20 +3231,40 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_NONE,
             constraints=("expression_binding",),
             example=(
-                "@ms.metric(entities=[orders], additivity='additive', name='revenue')\n"
-                "def revenue_metric(orders):\n"
-                "    return ms.bind(amount, orders).sum()"
+                "# Consumer module; the Entity and Dimension are declared in another file.\n"
+                "query_info = ms.ref.entity('trino_query.trino_query_info')\n"
+                "state = ms.ref.dimension('trino_query.trino_query_info.state')\n"
+                "@ms.metric(name='failed_segments', entities=[query_info], additivity=ms.additive_all())\n"
+                "def failed_segments(rows):\n"
+                "    return (ms.bind(state, rows) == 'FAILED').cast('int64').sum()"
             ),
+            see_also=(_target("metric"), _target("ref.dimension"), _target("ref.measure")),
         ),
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            "Declare a base metric with an expression body." + _ADDITIVITY_HELP,
+            (
+                "Declare a base metric with an expression body. Use ms.bind(field_ref, rows) "
+                "to consume a declared semantic field, including its calculated expression; "
+                "rows.amount accesses the physical source column and bypasses that definition. "
+                "A status_time_dimension must be fixed in additive_all(except_=...). "
+                "status_time_fold requires that axis and is required for sampled status time; "
+                "non-sampled status declarations may omit the fold."
+            ),
             output="Ref[metric]",
-            inputs=_inputs(
-                ("mapping_key", "MetricName"),
-                ("subject", "Ref[entity]"),
-                ("dependency", "Additivity"),
+            inputs=(
+                *_inputs(
+                    ("mapping_key", "MetricName"),
+                    ("subject", "Ref[entity]"),
+                ),
+                _optional_input("dependency", "Ref[time_dimension]"),
+                _optional_input("dependency", "Unit"),
+                AuthoringInputRequirement(role="dependency", family="Additivity"),
+                _optional_input("dependency", "Ref[time_dimension]"),
+                _optional_input("dependency", "TimeFold"),
+                _optional_input("dependency", "ValuePolicy"),
+                _optional_input("dependency", "ValuePolicy"),
+                _optional_input("dependency", "ValuePolicy"),
             ),
             effects=_AUTHOR,
             constraints=(
@@ -2931,12 +3273,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "ast_forbidden_statement",
                 "metric_entities_required",
                 "metric_additivity_required",
+                "expression_binding",
             ),
             example=(
-                "@ms.metric(name='revenue', entities=[orders], additivity='additive')\n"
-                "def revenue(row):\n"
-                "    return ms.bind(amount, row).sum()"
+                "@ms.measure(name='amount', entity=orders, additivity=ms.additive_all())\n"
+                "def amount(rows):\n"
+                "    return rows.price * rows.quantity\n"
+                "@ms.metric(name='revenue', entities=[orders], additivity=ms.additive_all())\n"
+                "def revenue(rows):\n"
+                "    return ms.bind(amount, rows).sum()"
             ),
+            see_also=(_target("bind"), _target("additive_all")),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2971,15 +3318,108 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
         ),
         _capability(
-            "semi_additive",
-            "marivo.semantic._authoring_values.semi_additive",
+            "additive",
+            "marivo.semantic._dsl_authoring.additive",
+            "Declare exactly the native coordinates on which values may be added.",
+            output="Additivity",
+            inputs=_inputs(("dependency", "Ref[dimension | time_dimension]")),
+            effects=_AUTHOR,
+            example="ms.additive(over=(region,))",
+        ),
+        _capability(
+            "additive_all",
+            "marivo.semantic._dsl_authoring.additive_all",
             (
-                "Build an additivity specification: additive off the over time axis."
-                " over requires a TimeDimension ref; fold is required." + _FOLD_HELP
+                "Declare additivity on all native coordinates except fixed axes. except_ "
+                "alone declares fixed coordinates, not a time fold. For a status fact, the "
+                "Measure or Metric declares status_time_dimension as a time axis in except_. "
+                "status_time_fold requires that axis; sampled status time requires the fold, "
+                "while non-sampled status time may omit it."
             ),
             output="Additivity",
+            inputs=(_optional_input("dependency", "Ref[dimension | time_dimension]"),),
             effects=_AUTHOR,
-            example="ms.semi_additive(over=snapshot_date, fold='last')",
+            example=(
+                "sample_time = ms.time_dimension_column(\n"
+                "    name='sample_time', entity=inventory, column='sample_time',\n"
+                "    granularity='minute',\n"
+                "    parse=ms.timestamp(timezone='UTC', sample_interval=(5, 'minute')),\n"
+                ")\n"
+                "quantity = ms.measure_column(\n"
+                "    name='quantity', entity=inventory, column='quantity',\n"
+                "    additivity=ms.additive_all(except_=(sample_time,)),\n"
+                "    status_time_dimension=sample_time, status_time_fold='last',\n"
+                ")"
+            ),
+            see_also=(_target("measure_column"), _target("metric")),
+        ),
+        _capability(
+            "non_additive",
+            "marivo.semantic._dsl_authoring.non_additive",
+            "Declare that displayed values cannot be added across native coordinates.",
+            output="Additivity",
+            effects=_AUTHOR,
+            example="ms.non_additive()",
+        ),
+        _capability(
+            "nulls",
+            "marivo.semantic._dsl_authoring._Nulls.ignore",
+            "Declare whether aggregate inputs ignore or reject Null.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.nulls.ignore()",
+            public_entrypoint="ms.nulls.ignore",
+            telemetry=False,
+        ),
+        _capability(
+            "nulls.reject",
+            "marivo.semantic._dsl_authoring._Nulls.reject",
+            "Reject aggregate inputs that contain Null.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.nulls.reject()",
+            public_entrypoint="ms.nulls.reject",
+            telemetry=False,
+        ),
+        _capability(
+            "empty",
+            "marivo.semantic._dsl_authoring._Empty.null",
+            "Declare the value of a complete empty contribution.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.empty.null()",
+            public_entrypoint="ms.empty.null",
+            telemetry=False,
+        ),
+        _capability(
+            "empty.zero",
+            "marivo.semantic._dsl_authoring._Empty.zero",
+            "Use zero for a complete empty contribution.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.empty.zero()",
+            public_entrypoint="ms.empty.zero",
+            telemetry=False,
+        ),
+        _capability(
+            "zero_denominator",
+            "marivo.semantic._dsl_authoring._ZeroDenominator.undefined",
+            "Declare how a zero denominator is handled.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.zero_denominator.undefined()",
+            public_entrypoint="ms.zero_denominator.undefined",
+            telemetry=False,
+        ),
+        _capability(
+            "zero_denominator.error",
+            "marivo.semantic._dsl_authoring._ZeroDenominator.error",
+            "Reject a zero denominator during an admitted division method.",
+            output="ValuePolicy",
+            effects=_AUTHOR,
+            example="ms.zero_denominator.error()",
+            public_entrypoint="ms.zero_denominator.error",
+            telemetry=False,
         ),
         _capability(
             "datetime",
@@ -3002,10 +3442,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Build a strptime parse variant for time dimensions.",
+            "Declare a canonical source encoding and strptime parse for time dimensions.",
             output="StrptimeSpec",
             effects=_AUTHOR,
-            constraints=("time_granularity_parse_compatible",),
+            constraints=("time_granularity_parse_compatible", "time_dimension_partition_pushdown"),
             example="ms.strptime('%Y%m%d')",
         ),
         _capability(
@@ -3054,7 +3494,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "Run one scoped data preview for a current catalog entry or exact ref. "
                 "Metric previews aggregate at most 10,000 Entity output rows and report "
                 "an approximate result; period calendars, temporal sets, and work "
-                "schedules publish their dedicated certified artifacts."
+                "schedules publish their dedicated certified artifacts. Build scopes with "
+                "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
+                "md.partition (physical partition values), all with positive row/time guards. "
+                "For multiple dependency Entities, supply an exact Entity-ref-to-scope mapping."
             ),
             kind="method",
             output="PreviewResult",
@@ -3081,6 +3524,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect",),
             public_entrypoint="catalog.preview",
+            see_also=tuple(
+                LiveHelpTarget(surface="datasource", canonical_id=target)
+                for target in ("unpruned", "time_range", "partition")
+            ),
         ),
         _capability(
             "preview_many",
@@ -3178,7 +3625,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Statically certify current entries, exact refs, or runtime metric expressions through governed leaves and fixed graph budgets; operation-specific executability remains owned by the consuming analysis call.",
+            "Statically certify requested inputs through the compiled dependency closure, fixed graph budgets and declared aggregate/backend support without connecting or querying. Known incompatibilities block affected roots; unrelated load warnings are excluded. Physical types and operation-specific executability remain with analysis.",
             kind="method",
             output="ReadinessReport",
             inputs=_inputs(
@@ -3201,26 +3648,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             inputs=(_optional_input("dependency", "DemandSignal"),),
             effects=_LOCAL,
             example="report = ms.richness()",
-        ),
-        _capability(
-            "parity_check",
-            "marivo.semantic.parity_check",
-            "Run parity check for a metric against its source SQL.",
-            output="ParityResult",
-            inputs=_inputs(
-                ("subject", "Ref[metric]"),
-                ("dependency", "RelTol"),
-                ("dependency", "AbsTol"),
-                ("dependency", "ForceFlag"),
-            ),
-            effects=_PARITY,
-            constraints=(
-                "provenance_dialect_required",
-                "parity_value_match",
-                "parity_scalar_result",
-            ),
-            example="result = ms.parity_check('sales.revenue')",
-            repair_kinds=("reauthor",),
         ),
         # ------------------------------------------------------------------
         # SemanticCatalog methods
@@ -3290,11 +3717,20 @@ REGISTRY = _build_registry()
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
     from marivo.preview import PreviewResult
-    from marivo.refs import PeriodCalendarKind, Ref, SemanticKind, WorkScheduleKind
+    from marivo.refs import (
+        BusinessOrderKind,
+        PeriodCalendarKind,
+        Ref,
+        SemanticKind,
+        WorkScheduleKind,
+    )
     from marivo.refs import ref as ref_factory
     from marivo.semantic._authoring_metrics import GrainToDate
     from marivo.semantic._authoring_temporal import PeriodCorrespondence
+    from marivo.semantic.business_order import EventPrecedence, EventSequence
     from marivo.semantic.catalog import (
+        BusinessOrderDetails,
+        BusinessOrderEntry,
         CalendarLevelDetails,
         CalendarPeriodPage,
         CatalogCollection,
@@ -3331,8 +3767,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
     from marivo.semantic.definition import SemanticDefinition
     from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.ir import JoinKey, SqlProvenance
-    from marivo.semantic.parity import ParityResult
+    from marivo.semantic.ir import JoinKey
     from marivo.semantic.readiness import (
         ReadinessInputSummary,
         ReadinessIssue,
@@ -3356,6 +3791,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str | LiveHelpTarget, ...] = (),
+        guidance: tuple[str, ...] = (),
         notes: tuple[str, ...] = (),
         example: str | None = None,
     ) -> None:
@@ -3369,6 +3805,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             producers=targets(producers),
             public_properties=properties,
             public_methods=methods,
+            guidance=guidance,
             consumers=targets(consumers),
             notes=notes,
             example=example,
@@ -3561,6 +3998,18 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=show_render,
     )
     add(
+        BusinessOrderEntry,
+        "BusinessOrderEntry",
+        (),
+        methods=("details", "show", "render"),
+    )
+    add(
+        BusinessOrderDetails,
+        "BusinessOrderDetails",
+        (),
+        methods=show_render,
+    )
+    add(
         StateModelEntry,
         "StateModelEntry",
         (),
@@ -3717,6 +4166,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "sample_policy",
         ),
         methods=show_render,
+        guidance=_display_help(),
     )
     add(
         PreviewBatchResult,
@@ -3789,12 +4239,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("show", "render", "to_dict"),
     )
     add(
-        ParityResult,
-        "ParityResult",
-        ("parity_check",),
-        properties=("ok", "expected", "actual", "rel_tol", "abs_tol", "error"),
-    )
-    add(
         ReadinessInputSummary,
         "ReadinessInputSummary",
         (),
@@ -3839,6 +4283,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "relationship",
             "event",
             "state_model",
+            "business_order",
             "period_calendar",
             "temporal_set",
             "work_schedule",
@@ -3857,6 +4302,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "ref",
         (),
         methods=factory_methods("ref"),
+    )
+    add(
+        BusinessOrderKind,
+        "BusinessOrderKind",
+        ("business_order",),
     )
     add(
         PeriodCalendarKind,
@@ -3889,6 +4339,20 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("participant",),
         properties=("name", "path", "cardinality"),
         consumers=("event",),
+    )
+    add(
+        EventSequence,
+        "EventSequence",
+        ("event_sequence",),
+        properties=("event", "value", "order"),
+        consumers=("business_order",),
+    )
+    add(
+        EventPrecedence,
+        "EventPrecedence",
+        ("precedes",),
+        properties=("before", "after"),
+        consumers=("business_order",),
     )
     add(
         ParticipantRoleHandle,
@@ -3937,11 +4401,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ("join_on",),
         methods=("to_tuple",),
     )
-    add(
-        SqlProvenance,
-        "SqlProvenance",
-        ("from_sql",),
-    )
     # Enum and value types
     add(
         SemanticKind,
@@ -3970,7 +4429,6 @@ def _error_types() -> Mapping[str, type]:
         SemanticHelpTargetError,
         SemanticLoadError,
         SemanticLoadFailed,
-        SemanticParityError,
         SemanticRuntimeError,
     )
 
@@ -3981,7 +4439,6 @@ def _error_types() -> Mapping[str, type]:
             "SemanticDefinitionReadError": SemanticDefinitionReadError,
             "SemanticLoadError": SemanticLoadError,
             "SemanticRuntimeError": SemanticRuntimeError,
-            "SemanticParityError": SemanticParityError,
             "SemanticHelpTargetError": SemanticHelpTargetError,
             "SemanticContractScopeError": SemanticContractScopeError,
             "SemanticLoadFailed": SemanticLoadFailed,

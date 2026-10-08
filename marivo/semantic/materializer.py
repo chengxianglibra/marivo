@@ -17,9 +17,8 @@ from ibis.expr.operations.relations import Relation, SQLQueryResult
 
 from marivo._compat import UTC
 from marivo.datasource import credentials as cr
-from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError
-from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
+from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import read_json_source
 from marivo.datasource.source import AuthoringScope, PartitionScope
 from marivo.datasource.table_source import table_source_expression
@@ -30,7 +29,7 @@ from marivo.semantic._expression_binding import (
     evaluate_expression_body,
 )
 from marivo.semantic._filter_runtime import authored_filter_predicate
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
 from marivo.semantic.ir import (
     AggKind,
     CsvSourceIR,
@@ -114,6 +113,19 @@ class Materializer:
         source_bindings: (
             Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] | None
         ) = None,
+        source_binder: (
+            Callable[
+                [
+                    str,
+                    str,
+                    DatasourceIR,
+                    EntitySourceIR,
+                    dict[str, QueryParamScalar | QueryParamScalarList] | None,
+                ],
+                ir.Table,
+            ]
+            | None
+        ) = None,
     ) -> None:
         self._project = project
         self._backend_factory = backend_factory
@@ -122,6 +134,8 @@ class Materializer:
         self._source_bindings = {
             entity_id: dict(params) for entity_id, params in (source_bindings or {}).items()
         }
+        self._source_binder = source_binder
+        self._backend_by_datasource: dict[str, IbisBackend] = {}
         self._entity_cache: dict[str, ibis.Table] = {}
         self._dimension_cache: dict[str, ir.Value] = {}
         self._measure_cache: dict[str, ir.Value] = {}
@@ -217,7 +231,16 @@ class Materializer:
         backend = self._get_backend(ds_ir.datasource)
 
         try:
-            source_table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
+            if self._source_binder is None:
+                source_table = self._materialize_dataset_source(semantic_id, backend, ds_ir.source)
+            else:
+                source_table = self._source_binder(
+                    ds_ir.datasource,
+                    semantic_id,
+                    registry.datasources[ds_ir.datasource],
+                    ds_ir.source,
+                    self._source_bindings.get(semantic_id),
+                )
         except DatasourceError:
             raise
         except SemanticRuntimeError:
@@ -282,33 +305,17 @@ class Materializer:
         ds_ir: EntityIR,
         source_table: ibis.Table,
     ) -> ibis.Table:
-        """Evaluate the Entity body once, or keep identity for direct forms."""
-        _registry, sidecar = self._get_registry_and_sidecar()
-        body = sidecar.bodies.get(ref_factory.entity(semantic_id))
-        if body is None:
-            return source_table
-        result = self._evaluate_expression(
-            cast("Ref[SemanticKindTag]", ref_factory.entity(semantic_id)),
-            (ref_factory.entity(ds_ir.semantic_id),),
-            (source_table,),
-            table_result=True,
-        )
-        if not isinstance(result, ibis.Table):
-            _raise(
-                ErrorKind.BINDING_RESULT_INVALID,
-                f"Entity {semantic_id!r} body did not return an Ibis Table relation.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-                expected="ibis.expr.types.Table",
-                received=type(result).__name__,
-            )
-        self._require_single_source_boundary(
-            semantic_id=semantic_id,
+        registry, sidecar = self._get_registry_and_sidecar()
+        compiled_state = self._project._compiled_state
+        if compiled_state is None:
+            raise RuntimeError("semantic project has no immutable compiled state")
+        return materialize_entity_output(
+            registry=registry,
+            sidecar=sidecar,
+            entity=ds_ir,
             source_table=source_table,
-            result=result,
+            catalog_definition_fingerprint=compiled_state.definition_fingerprint,
         )
-        self._require_output_keys(semantic_id=semantic_id, ds_ir=ds_ir, result=result)
-        return result
 
     @staticmethod
     def _require_output_keys(
@@ -354,8 +361,8 @@ class Materializer:
             ),
         )
 
+    @staticmethod
     def _require_single_source_boundary(
-        self,
         *,
         semantic_id: str,
         source_table: ibis.Table,
@@ -439,16 +446,26 @@ class Materializer:
                     refs=(semantic_id,),
                     details={"source_kind": source.kind},
                 )
-            csv_kwargs: dict[str, object] = {"columns": dict(source.schema)}
+            csv_kwargs: dict[str, object] = {}
             if not source.header:
                 csv_kwargs["header"] = source.header
             if source.delimiter != ",":
                 csv_kwargs["delimiter"] = source.delimiter
-            return reader(source.path, **csv_kwargs)
+            table = reader(source.path, **csv_kwargs)
+            if source.columns:
+                table = table.select(
+                    *(
+                        table[source_name].name(output_name)
+                        for output_name, source_name in source.columns
+                    )
+                )
+            return table
 
         if isinstance(source, JsonSourceIR):
             reader = getattr(backend, "read_json", None)
-            if not callable(reader):
+            is_http = source.path.lower().startswith(("http://", "https://"))
+            can_register_arrow = callable(getattr(backend, "create_table", None))
+            if (not is_http and not callable(reader)) or (is_http and not can_register_arrow):
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
                     (
@@ -935,25 +952,30 @@ class Materializer:
         *,
         backend_type: str | None = None,
     ) -> ir.Value:
-        agg_name = agg[0] if isinstance(agg, tuple) else agg
-        if agg_name in {"median", "percentile"}:
-            profile = (
-                require_profile_for_backend_type(backend_type) if backend_type is not None else None
-            )
-            if profile is not None and profile.name == "sqlite":
+        from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+        if backend_type is not None:
+            action = aggregate_repair(agg, backend_type)
+            if action is not None:
                 _raise(
                     ErrorKind.MATERIALIZE_FAILED,
-                    f"Metric {semantic_id!r} uses {agg_name}, which is not supported by "
-                    "the SQLite backend. Use a supported aggregation or another backend.",
+                    f"Metric {semantic_id!r} has no source-native implementation satisfying its aggregate definition.",
                     cls=SemanticRuntimeError,
                     refs=(semantic_id,),
+                    expected=f"source-native agg={agg!r} with its declared exactness",
+                    received=f"backend={backend_type}",
+                    hint=action,
+                    repair_value=repair(kind="reauthor", canonical_id="aggregate", action=action),
                 )
+        agg_name = agg[0] if isinstance(agg, tuple) else agg
         if agg_name == "sum":
             return column.sum()
         if agg_name == "count":
             return column.count()
         if agg_name == "count_distinct":
             return column.nunique()
+        if agg_name == "approx_count_distinct":
+            return column.approx_nunique()
         if agg_name == "min":
             return column.min()
         if agg_name == "max":
@@ -961,13 +983,13 @@ class Materializer:
         if agg_name == "mean":
             return column.mean()
         if agg_name == "median":
-            if profile is not None and profile.percentile_uses_approx_quantile:
-                return column.approx_quantile(0.5)
             return column.median()
         if agg_name == "percentile":
-            if profile is not None and profile.percentile_uses_approx_quantile:
-                return column.approx_quantile(agg[1])
             return column.quantile(agg[1])
+        if agg_name == "approx_median":
+            return column.approx_quantile(0.5)
+        if agg_name == "approx_percentile":
+            return column.approx_quantile(agg[1])
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
             f"Metric {semantic_id!r} has unsupported aggregation {agg!r}.",
@@ -1220,3 +1242,44 @@ class Materializer:
     def _check_single_datasource(self, metric_ir: MetricIR, registry: Registry) -> None:
         """All entities in a base metric must share the same datasource."""
         self._resolve_single_datasource(metric_ir, registry)
+
+
+def materialize_entity_output(
+    *,
+    registry: Registry,
+    sidecar: CompiledExpressionSidecar | None,
+    entity: EntityIR,
+    source_table: ibis.Table,
+    catalog_definition_fingerprint: str,
+) -> ibis.Table:
+    """Resolve one Entity relation over its exact governed Source boundary."""
+    owning_ref = ref_factory.entity(entity.semantic_id)
+    body = sidecar.bodies.get(owning_ref) if sidecar is not None else None
+    if body is None or sidecar is None:
+        return source_table
+    result = evaluate_expression_body(
+        catalog_definition_fingerprint=catalog_definition_fingerprint,
+        expression_sidecar=sidecar,
+        owning_ref=owning_ref,
+        body=body,
+        entity_refs=(owning_ref,),
+        aliases=(source_table,),
+        table_result=True,
+    )
+    if not isinstance(result, ibis.Table):
+        raise TypeError("Entity expression must return an Ibis Table")
+    Materializer._require_single_source_boundary(
+        semantic_id=entity.semantic_id, source_table=source_table, result=result
+    )
+    Materializer._require_output_keys(semantic_id=entity.semantic_id, ds_ir=entity, result=result)
+    from marivo.semantic.validator import _expression_entity_output_schema_errors
+
+    errors = _expression_entity_output_schema_errors(
+        registry=registry,
+        sidecar=sidecar,
+        entity=entity,
+        output_columns=tuple(result.columns),
+    )
+    if errors:
+        raise errors[0]
+    return result

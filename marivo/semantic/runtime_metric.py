@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypeAlias, TypedDict, cast
+from typing import Any, Literal, TypeAlias, cast
+
+from typing_extensions import TypedDict
 
 from marivo.refs import (
     FieldKind,
@@ -140,19 +142,29 @@ def _normalize_label(label: str) -> str:
 
 def _normalize_agg(agg: AggKind) -> AggKind:
     if isinstance(agg, str):
-        if agg not in {"sum", "count", "count_distinct", "min", "max", "mean", "median"}:
+        if agg not in {
+            "sum",
+            "count",
+            "count_distinct",
+            "min",
+            "max",
+            "mean",
+            "median",
+            "approx_count_distinct",
+            "approx_median",
+        }:
             raise ValueError(f"unsupported runtime aggregate kind {agg!r}")
         return cast("AggKind", agg)
     if (
         not isinstance(agg, tuple)
         or len(agg) != 2
-        or agg[0] != "percentile"
+        or agg[0] not in ("percentile", "approx_percentile")
         or isinstance(agg[1], bool)
         or not isinstance(agg[1], int | float)
         or not 0 < float(agg[1]) < 1
     ):
         raise ValueError("aggregate percentile must be ('percentile', q) with 0 < q < 1")
-    return ("percentile", float(agg[1]))
+    return (agg[0], float(agg[1]))
 
 
 def _normalize_fold(fold: AggregateFoldInput) -> AggregateFoldInput:
@@ -628,6 +640,14 @@ def aggregate(
     Args:
         measure: Exact loaded ``Ref[measure]`` to aggregate.
         agg: Registered aggregate kind, including ``("percentile", q)``.
+            ``"approx_count_distinct"``, ``"approx_median"`` and
+            ``("approx_percentile", q)`` explicitly permit approximation;
+            observation cannot change the declared aggregate.
+            Unsupported exact operations report the corresponding approximate
+            definition and whether the datasource supports it; no automatic substitution.
+            Scoped catalog.readiness() checks known aggregate/backend incompatibilities
+            without opening a datasource. Passing does not certify physical types or
+            operation-specific execution.
         fold: Optional temporal-fold override. A semi-additive measure supplies
             the governed status-time axis and default fold when this is omitted.
         slice_by: Optional branch-local typed slice copied into the descriptor.
@@ -648,6 +668,9 @@ def aggregate(
         ... )
 
     Constraints:
+        Native bounded single-column distinct accepts comparable scalar and Decimal carriers;
+        native quantiles accept int64/float64 on their existing method/backend routes.
+        Outside DuckDB, Decimal quantiles and Duration retain structured precision/capability refusals.
         Only governed measure and dimension refs are accepted. The constructor
         does not execute data, create catalog authority, or accept custom code.
         A supplied fold requires a semi-additive measure; it overrides that
@@ -700,7 +723,8 @@ def weighted_mean(
     Constraints:
         Both refs must resolve to measures on the same entity and physical row
         grain, and ``weight`` must be additive. Null value/weight pairs are
-        excluded together and a zero paired weight sum produces null.
+        excluded together and a zero paired weight sum produces null. Numeric
+        types may differ; Ibis/backend rounding applies.
     """
 
     if type(value) is not Ref or value.kind is not SemanticKind.MEASURE:

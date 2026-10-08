@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from typing import Any, NoReturn, SupportsIndex
-from urllib.parse import urlsplit
 
 from ibis.backends import BaseBackend
 
@@ -18,13 +16,8 @@ from marivo.datasource.engines import (
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import (
-    DatasourceConnectionError,
-    DatasourceFieldInvalidError,
-    DatasourceMetadataError,
-    repair,
-)
-from marivo.datasource.ir import DatasourceIR, JsonSourceIR
+from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError, repair
+from marivo.datasource.ir import DatasourceIR
 
 
 @dataclass(frozen=True)
@@ -34,7 +27,34 @@ class EffectiveDatasourceKwargs:
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def _effective_kwargs(datasource: DatasourceIR) -> EffectiveDatasourceKwargs:
+def _reject_unqualified_http_auth(datasource: DatasourceIR, profile: Any) -> None:
+    if (
+        any(
+            stem == "http_bearer_token" or stem.startswith("http_header:")
+            for stem in datasource.env_refs
+        )
+        and getattr(profile, "http_credentials", None) is None
+    ):
+        raise DatasourceFieldInvalidError(
+            message=(
+                "Authenticated HTTP sources require a provider that owns scoped HTTP credentials."
+            ),
+            expected="an unauthenticated HTTP source or a credentials-owning provider",
+            received=f"authenticated HTTP datasource on backend {datasource.backend_type!r}",
+            location=f"datasource {datasource.name!r}",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action=(
+                    "Use an unauthenticated source, switch to a provider that owns "
+                    "scoped HTTP credentials, or stage authenticated data upstream."
+                ),
+            ),
+        )
+
+
+def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDatasourceKwargs:
+    _reject_unqualified_http_auth(datasource, profile)
     resolved: dict[str, Any] = dict(datasource.fields)
     env_sourced: list[secrets.ResolvedSecret] = []
     resolver = cr.current_resolver()
@@ -102,138 +122,36 @@ class BuiltDatasourceBackend:
         raise TypeError("Live datasource backends cannot be serialized.")
 
 
-@dataclass(frozen=True)
-class _DuckDBHttpAuth:
-    scope: str
-    headers: tuple[tuple[str, str], ...] = field(repr=False)
-
-
-def _configure_duckdb_http_auth(
-    backend: object,
-    *,
-    scope: object,
-    bearer_token: object,
-    headers: object,
-) -> _DuckDBHttpAuth | None:
-    if bearer_token is None and not headers:
-        return None
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        raise DatasourceFieldInvalidError(
-            message="DuckDB HTTP auth requires a backend with raw_sql support",
-            expected="a DuckDB backend",
-            received=type(backend).__name__,
-            location="DuckDB HTTP auth",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="test",
-                action="Reconnect using the declared DuckDB datasource.",
-            ),
-        )
-    if not isinstance(scope, str):
-        raise DatasourceFieldInvalidError(
-            message="DuckDB HTTP auth scope was not resolved",
-            expected="an HTTP(S) scope string",
-            received=repr(scope),
-            location="DuckDB HTTP auth",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="duckdb",
-                action="Declare an explicit HTTP(S) scope on the DuckDB datasource.",
-            ),
-        )
-    if isinstance(bearer_token, str):
-        raw_sql(
-            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)",
-            parameters=[bearer_token, scope],
-        )
-        return _DuckDBHttpAuth(
-            scope=scope,
-            headers=(("Authorization", f"Bearer {bearer_token}"),),
-        )
-    if (
-        isinstance(headers, dict)
-        and headers
-        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
-    ):
-        raw_sql(
-            "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)",
-            parameters=[headers, scope],
-        )
-        return _DuckDBHttpAuth(scope=scope, headers=tuple(headers.items()))
-    raise DatasourceFieldInvalidError(
-        message="DuckDB custom HTTP authentication was not fully resolved",
-        expected="environment-sourced custom HTTP headers",
-        received="incomplete HTTP authentication fields",
-        location="DuckDB HTTP auth",
-        repair=repair(
-            kind="reauthor",
-            canonical_id="duckdb",
-            action="Declare one complete environment-backed HTTP auth mode.",
-        ),
-    )
-
-
-def _url_is_in_http_scope(url: str, scope: str) -> bool:
-    candidate = urlsplit(url)
-    configured = urlsplit(scope)
-    if candidate.scheme.lower() != configured.scheme.lower():
-        return False
-    if candidate.netloc.lower() != configured.netloc.lower():
-        return False
-    scope_path = configured.path.rstrip("/")
-    return candidate.path == scope_path or candidate.path.startswith(f"{scope_path}/")
-
-
-def json_http_headers(backend: object, url: str) -> dict[str, str]:
-    """Return datasource-owned headers only when a URL is inside its declared scope."""
-    auth = getattr(backend, "_marivo_duckdb_http_auth", None)
-    if not isinstance(auth, _DuckDBHttpAuth) or not _url_is_in_http_scope(url, auth.scope):
-        return {}
-    return dict(auth.headers)
-
-
-_HTTP_SCHEME = re.compile(r"^https?://", re.IGNORECASE)
-
-
-def apply_json_http_settings(backend: object, source: object) -> None:
-    """Enable force_download for http(s) JSON sources; no-op for local paths."""
-    if not isinstance(source, JsonSourceIR):
-        return
-    if not _HTTP_SCHEME.match(source.path):
-        return
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        raise DatasourceMetadataError(
-            message=(
-                f"json source {source.path!r} is http(s), but this datasource "
-                "backend cannot read remote JSON. md.json(...) remote GET and "
-                "JSON-body POST sources require a DuckDB backend."
-            ),
-            expected="a DuckDB backend with httpfs support",
-            received="backend without raw_sql",
-            location=f"md.json({source.path!r})",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="json",
-                action="Use a local JSON path or configure a DuckDB datasource.",
-                snippet='source = md.json("data/events/*.json", format="newline_delimited")',
-            ),
-        )
-    raw_sql("SET force_download=true")
-
-
-def build_backend(
+def build_backend_with_secrets(
     datasource: DatasourceIR,
     *,
     read_only: bool = False,
+    terminal_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
     profile = require_profile_for_backend_type(datasource.backend_type)
-    effective = _effective_kwargs(datasource)
+    effective = _effective_kwargs(datasource, profile)
+    return _build_backend_from_effective(
+        datasource,
+        effective,
+        read_only=read_only,
+        terminal_timeout_seconds=terminal_timeout_seconds,
+    )
+
+
+def _build_backend_from_effective(
+    datasource: DatasourceIR,
+    effective: EffectiveDatasourceKwargs,
+    *,
+    read_only: bool = False,
+    terminal_timeout_seconds: int | None = None,
+) -> BuiltDatasourceBackend:
+    """Open from already resolved operation-local credentials without resolving twice."""
+    profile = require_profile_for_backend_type(datasource.backend_type)
+    _reject_unqualified_http_auth(datasource, profile)
     kwargs = dict(effective.kwargs)
-    http_scope = None
-    http_bearer_token = None
+    http_scope: object = None
+    http_bearer_token: object = None
     http_headers: dict[str, object] = {}
     if datasource.backend_type == "duckdb":
         http_scope = kwargs.pop("http_scope", None)
@@ -241,21 +159,47 @@ def build_backend(
         for key in tuple(kwargs):
             if key.startswith("http_header:"):
                 http_headers[key.removeprefix("http_header:")] = kwargs.pop(key)
+    if terminal_timeout_seconds is not None:
+        if datasource.backend_type == "postgres":
+            kwargs["autocommit"] = False
+            kwargs["options"] = (
+                f"-c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
+            )
+        elif datasource.backend_type == "trino":
+            properties = kwargs.get("session_properties")
+            kwargs["session_properties"] = {
+                **(properties if isinstance(properties, dict) else {}),
+                "query_max_run_time": f"{terminal_timeout_seconds}s",
+            }
+    if datasource.backend_type == "trino":
+        kwargs["timezone"] = "UTC"
     if read_only:
         kwargs = profile.apply_read_only_kwargs(kwargs)
     try:
         backend = profile.connect(datasource.name, kwargs)
+    except ImportError as exc:
+        raise DatasourceConnectionError(
+            message="The selected datasource driver could not be imported.",
+            expected=f"installed optional dependencies for {profile.name}",
+            received=exc.name or type(exc).__name__,
+            location=f"datasource {datasource.name}",
+            repair=repair(
+                kind="configure",
+                canonical_id="register",
+                action=f"Install marivo[{profile.name}] in the active Python environment and retry the connection.",
+            ),
+        ) from exc
     except Exception as exc:
         if profile.connection_conflict(exc):
             raise DatasourceConnectionError(
-                message="DuckDB already has a connection with an incompatible open mode.",
-                expected="a connection compatible with the declared datasource configuration",
-                received="conflicting live DuckDB connection",
+                message="An existing DuckDB connection uses a different configuration.",
+                expected="matching connection settings for one database",
+                received="conflicting live connection settings",
                 location=f"datasource {datasource.name!r}",
                 repair=repair(
                     kind="reconnect",
-                    canonical_id="connect",
-                    action="Close the Session or explicit connection holding this DuckDB file, or use matching declared read_only settings, then retry.",
+                    canonical_id="test",
+                    action="Close the existing connections and retry with consistent read-only settings.",
                 ),
             ) from None
         if effective.injected:
@@ -267,19 +211,36 @@ def build_backend(
         injected=effective.injected,
         thread_affine=profile.connection_thread == "caller",
     )
-    lease = built.lease
     try:
         if datasource.backend_type == "duckdb":
-            http_auth = _configure_duckdb_http_auth(
-                backend,
-                scope=http_scope,
-                bearer_token=http_bearer_token,
-                headers=http_headers,
-            )
-            if http_auth is not None:
-                backend._marivo_duckdb_http_auth = http_auth
+            install_credentials = profile.http_credentials
+            if install_credentials is not None:
+                credentials = install_credentials(
+                    backend,
+                    scope=http_scope,
+                    bearer_token=http_bearer_token,
+                    headers=http_headers or None,
+                )
+                if credentials is not None:
+                    backend._marivo_duckdb_http_auth = credentials
+        if terminal_timeout_seconds is not None:
+            if datasource.backend_type == "mysql":
+                control_kwargs = {
+                    **kwargs,
+                    "connect_timeout": 1,
+                    "read_timeout": 1,
+                    "write_timeout": 1,
+                }
+                control = profile.connect(datasource.name, control_kwargs)
+                backend._marivo_authoring_cancel_control = control
+                backend._marivo_authoring_thread_id = backend.con.thread_id()
+                backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
+            if datasource.backend_type == "postgres":
+                backend.con.read_only = True
+            if datasource.backend_type in {"postgres", "trino"}:
+                backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
     except BaseException as exc:
-        lease.close()
+        built.disconnect()
         if effective.injected and isinstance(exc, Exception):
             raise cr.connection_error(exc, effective.injected) from None
         raise
@@ -288,9 +249,23 @@ def build_backend(
         secrets.remember_env_sourced(backend, effective.env_sourced_secrets)
         with cr.operation_context() as operation:
             if operation.cancelled:
-                lease.close()
+                built.disconnect()
                 raise TimeoutError("Datasource connection operation was cancelled.")
     except BaseException:
-        lease.close()
+        built.disconnect()
         raise
     return built
+
+
+def build_backend(
+    datasource: DatasourceIR,
+    *,
+    read_only: bool = False,
+    terminal_timeout_seconds: int | None = None,
+) -> Any:
+    """Open and return a live ibis backend for the given datasource."""
+    return build_backend_with_secrets(
+        datasource,
+        read_only=read_only,
+        terminal_timeout_seconds=terminal_timeout_seconds,
+    ).backend

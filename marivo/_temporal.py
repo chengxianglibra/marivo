@@ -20,7 +20,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
-    Annotated,
     Any,
     Literal,
     Protocol,
@@ -349,6 +348,30 @@ def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
     return _SemanticGrain(calendar=calendar, level=level)
 
 
+_CIVIL_DAY_SECONDS = 86_400
+_SUBDAY_UNIT_SECONDS = {"second": 1, "minute": 60, "hour": 3_600}
+
+
+def civil_midnight_width_seconds(grain: Grain) -> int | None:
+    """Return one sub-day grain's admitted width on the civil-midnight grid.
+
+    A multi-unit sub-day bucket restarts at the local midnight of its own day,
+    which is only well defined when its width divides one civil day.  Widths
+    that do not divide the day have no unique anchor, so they return ``None``
+    and every consumer fails closed instead of choosing an origin.  Divisibility
+    is the only rule: the constructor already rejects a non-positive count, which
+    is a construction error rather than an absent anchor.
+    """
+    if grain.kind != "builtin":
+        return None
+    value = cast("_BuiltinGrain", grain)
+    unit_seconds = _SUBDAY_UNIT_SECONDS.get(value.unit)
+    if unit_seconds is None:
+        return None
+    width = unit_seconds * value.count
+    return None if _CIVIL_DAY_SECONDS % width != 0 else width
+
+
 def period_calendar_definition_digest(
     *,
     calendar_ref: Ref[PeriodCalendarKind],
@@ -558,6 +581,31 @@ class TimeScopeContractV1(BaseModel):
         return self.render()
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class BeforeEndBoundary:
+    """Exact left limit of a TimeScope end, without a precision-dependent tick."""
+
+    end: date | datetime
+    boundary_timezone: str | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.end) not in (date, datetime):
+            raise ValueError("BeforeEndBoundary requires a date or datetime end")
+        if self.boundary_timezone is not None:
+            ZoneInfo(self.boundary_timezone)
+
+    def show(self) -> None:
+        """Print the boundary. Args: None. Returns: None.
+
+        Example: ``scope.before_end.show()``.
+        Constraints: Does not resolve a source or select an available version.
+        """
+        print(f"before_end={self.end.isoformat()}")
+
+    def __repr__(self) -> str:
+        return f"<BeforeEndBoundary end={self.end.isoformat()}; use .show()>"
+
+
 class TimeScope(BaseModel):
     """One immutable public selection window shared by semantic and analysis.
 
@@ -582,6 +630,19 @@ class TimeScope(BaseModel):
     # semantically identical scopes have stable equality and hashing.
     start: date | datetime
     end: date | datetime
+
+    @property
+    def before_end(self) -> BeforeEndBoundary:
+        """Return the symbolic left limit of this scope's end.
+
+        Args: None.
+        Returns: A BeforeEndBoundary retaining the exact end.
+        Example: ``members = session.members(entity, at=scope.before_end)``.
+        Constraints: Never subtracts a timestamp tick or selects a latest version.
+        """
+        return BeforeEndBoundary(
+            self.end, None if self.kind == "absolute" else self.boundary_timezone
+        )
 
     # Provenance belongs to the private concrete variants.  These declarations
     # keep the dependency-neutral base usable by statically typed internal
@@ -990,196 +1051,6 @@ class WorkScheduleBindingV1(BaseModel):
 
 PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
 TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1 | WorkScheduleBindingV1
-
-
-class TimeAxisTimeZoneV1(BaseModel):
-    """The timezone authority actually adopted for one time axis (issue #103).
-
-    Recorded on the frame temporal authority so post-hoc audits can see which
-    source timezone each time axis used, independent of the report
-    ``display_timezone``.
-    """
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        serialize_by_alias=True,
-    )
-
-    time_dimension: str
-    timezone: str
-    source: Literal["declared", "physical", "datasource_read"]
-
-
-class FrameTemporalContractV1(BaseModel):
-    """Versioned temporal authority carried by an observed frame."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        populate_by_name=True,
-        serialize_by_alias=True,
-    )
-
-    schema_: Literal["frame-temporal/v1"] = Field(
-        default="frame-temporal/v1",
-        alias="schema",
-        serialization_alias="schema",
-    )
-    time_scope: TimeScopeContractV1 | None = None
-    observation_period: PeriodBindingV1 | None = None
-    cumulative_reset_period: PeriodBindingV1 | None = None
-    actual_start: date | datetime | None = None
-    actual_end: date | datetime | None = None
-    data_extent_end: date | datetime | None = None
-    output_period_keys: tuple[_JSON_SCALAR, ...] = ()
-    period_key_absence_reason: str | None = None
-    display_timezone: str
-    time_axis_timezones: tuple[TimeAxisTimeZoneV1, ...] = ()
-
-    @model_validator(mode="after")
-    def _validate_contract(self) -> FrameTemporalContractV1:
-        if (self.actual_start is None) != (self.actual_end is None):
-            raise ValueError("frame temporal bounds must be provided together")
-        if (
-            self.actual_start is not None
-            and self.actual_end is not None
-            and (
-                type(self.actual_start) is not type(self.actual_end)
-                or self.actual_start >= self.actual_end
-            )
-        ):
-            raise ValueError("frame temporal bounds must be one non-empty half-open interval")
-        if not self.display_timezone:
-            raise ValueError("frame temporal contract requires display_timezone")
-        return self
-
-
-class AlignmentEvidenceV1(BaseModel):
-    """Bounded evidence for one comparison pairing decision."""
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        strict=True,
-        serialize_by_alias=True,
-    )
-
-    schema_: Literal["alignment-evidence/v1"] = Field(
-        default="alignment-evidence/v1",
-        alias="schema",
-        serialization_alias="schema",
-    )
-    candidate_current_points: int = Field(ge=0)
-    candidate_baseline_points: int = Field(ge=0)
-    paired_points: int = Field(ge=0)
-    current_only_points: int = Field(ge=0)
-    baseline_only_points: int = Field(ge=0)
-    unmatched_points: int = Field(ge=0)
-    dropped_points: int = Field(ge=0)
-    dropped_reason: str | None = None
-    policy_excluded_current_points: int = Field(default=0, ge=0)
-    policy_excluded_baseline_points: int = Field(default=0, ge=0)
-    execution_path: Literal["backend", "local"]
-    backend_optimized: bool = False
-
-    @model_validator(mode="after")
-    def _validate_counts(self) -> AlignmentEvidenceV1:
-        if self.paired_points + self.current_only_points > self.candidate_current_points:
-            raise ValueError("current pairing counts exceed candidate current points")
-        if self.paired_points + self.baseline_only_points > self.candidate_baseline_points:
-            raise ValueError("baseline pairing counts exceed candidate baseline points")
-        if self.unmatched_points != self.current_only_points + self.baseline_only_points:
-            raise ValueError(
-                "unmatched_points must equal current_only_points plus baseline_only_points"
-            )
-        if self.dropped_points > self.unmatched_points:
-            raise ValueError("dropped_points cannot exceed unmatched_points")
-        if self.dropped_points == 0 and self.dropped_reason is not None:
-            raise ValueError("dropped_reason requires dropped_points")
-        return self
-
-
-class _WindowBucketAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["window_bucket"] = "window_bucket"
-    mode: Literal["ordinal_bucket", "calendar_bucket"] = "ordinal_bucket"
-    strict_lengths: bool = False
-
-
-class _DayOfWeekAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    kind: Literal["day_of_week"] = "day_of_week"
-    within: Grain = Field(default_factory=lambda: builtin_grain("month"))
-    unmatched: Literal["fail", "drop"] = "fail"
-
-
-class _PeriodProgressAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["period_progress"] = "period_progress"
-    unmatched: Literal["fail", "drop"] = "fail"
-
-
-class _PeriodCorrespondenceAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["period_correspondence"] = "period_correspondence"
-    correspondence: str
-    unmatched: Literal["fail", "drop"] = "fail"
-
-    @model_validator(mode="after")
-    def _validate_correspondence(self) -> _PeriodCorrespondenceAlignmentPayloadV1:
-        if not self.correspondence.strip():
-            raise ValueError("correspondence must be a non-empty name")
-        return self
-
-
-class _OccurrenceProgressAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["occurrence_progress"] = "occurrence_progress"
-    anchor: Literal["start", "end"] = "start"
-    unmatched: Literal["fail", "drop"] = "fail"
-
-
-class _WorkingDayProgressAlignmentPayloadV1(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
-
-    kind: Literal["working_day_progress"] = "working_day_progress"
-    schedule_ref: str
-    unmatched: Literal["fail", "drop"] = "fail"
-
-
-_AlignmentPolicyPayloadV1 = Annotated[
-    _WindowBucketAlignmentPayloadV1
-    | _DayOfWeekAlignmentPayloadV1
-    | _PeriodProgressAlignmentPayloadV1
-    | _PeriodCorrespondenceAlignmentPayloadV1
-    | _OccurrenceProgressAlignmentPayloadV1
-    | _WorkingDayProgressAlignmentPayloadV1,
-    Field(discriminator="kind"),
-]
-
-
-class ComparisonTemporalContractV1(BaseModel):
-    """Closed temporal authority and pairing evidence for a comparison artifact."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True, serialize_by_alias=True)
-
-    schema_: Literal["comparison-temporal/v1"] = Field(
-        default="comparison-temporal/v1",
-        alias="schema",
-    )
-    current: FrameTemporalContractV1
-    baseline: FrameTemporalContractV1
-    alignment_policy: _AlignmentPolicyPayloadV1 | None = None
-    resolved_target_period: PeriodBindingV1 | None = None
-    work_schedule: WorkScheduleBindingV1 | None = None
-    alignment_evidence: AlignmentEvidenceV1
 
 
 def period_binding_for_grain(

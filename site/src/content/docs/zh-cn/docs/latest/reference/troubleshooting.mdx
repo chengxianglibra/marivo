@@ -1,0 +1,72 @@
+---
+title: 问题排查
+description: 使用具体错误与自有契约修复配置和分析。
+---
+
+先读结构化错误的 expected input、received facts 和具体 repair。
+修复所述边界时保留原业务含义；下一次调用不熟悉时再读确切 Help。
+
+## 选择正确环境与项目
+
+运行所选解释器的 `-m marivo doctor --project-root <project>`。Doctor 是只读的。
+缺少可选配置使用默认值；无效 TOML 或配置的 layer root 缺失需要修复。
+在同一环境安装所选 datasource extra。保持 secret 环境引用，验证所需 datasource
+时不展示凭据值。
+
+## 修复语义输入
+
+未知 ref 需要通过 catalog 发现，而不是猜名称。Readiness blockers 属于所选语义闭包，
+跟随确切 repair。Richness warnings 是建议性的。有界 preview 与 source-health 失败
+不改变 Readiness，连接成功不能授权 Metric 方程。
+
+## 修复混合输入
+
+Python 教程绑定 `current`、`baseline`后，此故意失败示例把保存输入与 live 定义混合。
+
+{/* example: mixed-input-setup */}
+
+```python
+saved_current = current.execute()
+```
+
+{/* example: mixed-input-error */}
+
+```python
+# This intentionally combines fixed and live inputs and must fail.
+saved_current.compare(baseline).execute()
+```
+
+明确问题：像教程一样比较当前 live 定义，或执行两端后比较其兼容保留结果。
+不要上传保存行绕过准入。物化选择前构造下游 live 观察，或跟随接收者要求的执行边界。
+
+## 修复谓词与对应关系
+
+这套独立 commerce 模型声明 order amount、customer region、order_customer 关系。`current`和 `reference`是兼容数量。
+
+{/* example: verification-premises */}
+
+```python
+orders = session.members(ms.ref.entity("commerce.order"))
+amounts = orders.read(ms.ref.measure("commerce.order.amount"))
+regions = orders.read(
+    ms.ref.dimension("commerce.customer.region"),
+    via=ms.ref.relationship("commerce.order_customer"),
+    match_verification="assume",
+)
+quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
+change = current.compare(
+    reference, design=mv.TimeChange(pairing=mv.ExactKeys(verification="check"))
+)
+quotient.contract().show()
+```
+
+先选择 Defined 值，再调用数值谓词。完整 typed key tuples、Session ownership 与单位
+必须匹配。`verification="assume"`和 `match_verification="assume"`是明确调用方前提，
+不是验证成功；只有真实独立依据时使用。Checked premise 失败需要修复输入或对齐，
+不能只把声明改为 assume。
+
+## 修复恢复与输出
+
+保留确切 Session ID、Artifact ref 和项目本地状态。旧代拒绝读取且不迁移；
+恢复不能通过重放来源修复不可读或缺失的所需数据。需要当前数据时，显式创建新的 live 结果。
+`show(n=0)`可查看元数据，按需提高展示预算。展示限制不改变查询或执行预算。

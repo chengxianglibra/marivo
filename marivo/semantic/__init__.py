@@ -15,7 +15,7 @@ Public surface::
     orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
     amount = ms.measure_column(
         name="amount", entity=orders, column="amount",
-        additivity="additive", unit="USD",
+        additivity=ms.additive_all(), unit="USD",
     )
 
     revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
@@ -26,6 +26,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from marivo.refs import (
+    BusinessOrderKind,
     PeriodCalendarKind,
     Ref,
     SemanticKind,
@@ -38,10 +39,13 @@ from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
     GrainToDate,
     PeriodCorrespondence,
+    additive,
+    additive_all,
     aggregate,
     ai_context,
     all_rows,
     bind,
+    business_order,
     calendar_grain,
     count,
     cumulative,
@@ -49,9 +53,10 @@ from marivo.semantic.authoring import (
     dimension,
     dimension_column,
     domain,
+    empty,
     entity,
     event,
-    from_sql,
+    event_sequence,
     grain_to_date,
     hour_prefix,
     inception,
@@ -62,13 +67,15 @@ from marivo.semantic.authoring import (
     measure_column,
     metric,
     model_state,
+    non_additive,
+    nulls,
     participant,
     participant_role,
     period_calendar,
     period_correspondence,
+    precedes,
     ratio,
     relationship,
-    semi_additive,
     snapshot,
     state_model,
     strptime,
@@ -82,8 +89,12 @@ from marivo.semantic.authoring import (
     weighted_mean,
     where,
     work_schedule,
+    zero_denominator,
 )
+from marivo.semantic.business_order import EventPrecedence, EventSequence
 from marivo.semantic.catalog import (
+    BusinessOrderDetails,
+    BusinessOrderEntry,
     CalendarLevelDetails,
     CalendarPeriodPage,
     CatalogCollection,
@@ -128,9 +139,7 @@ from marivo.semantic.ir import (
     AggregateFoldInput,
     AggregateFoldValue,
     JoinKey,
-    SqlProvenance,
 )
-from marivo.semantic.parity import ParityResult
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -186,46 +195,13 @@ def richness(
     return project.richness(demand=demand)
 
 
-def parity_check(
-    name: str,
-    *,
-    rel_tol: float | None = None,
-    abs_tol: float | None = None,
-    force: bool = False,
-) -> ParityResult:
-    """Run parity check for a metric against its source SQL.
-
-    Datasource backends are resolved internally via the connection service.
-
-    Args:
-        name: Fully qualified metric ref (e.g. ``"sales.revenue"``).
-        rel_tol: Relative tolerance for numeric comparison. None uses default.
-        abs_tol: Absolute tolerance for numeric comparison. None uses default.
-        force: If True, re-runs parity even if cached results exist.
-
-    Returns:
-        ParityResult with comparison details and pass/fail status.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> result = ms.parity_check("sales.revenue")
-        >>> result.show()
-
-    Constraints:
-        Requires the metric to declare ``provenance=ms.from_sql(sql=..., dialect=...)``.
-        Raises ``SemanticRuntimeError`` if the metric has no provenance.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    return project.parity_check(name, rel_tol=rel_tol, abs_tol=abs_tol, force=force)
-
-
 __all__ = [
     "AggregateFoldInput",
     "AggregateFoldValue",
     "AiContextValue",
+    "BusinessOrderDetails",
+    "BusinessOrderEntry",
+    "BusinessOrderKind",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
     "CatalogCollection",
@@ -241,6 +217,8 @@ __all__ = [
     "EntityEntry",
     "EventDetails",
     "EventEntry",
+    "EventPrecedence",
+    "EventSequence",
     "GrainToDate",
     "Inception",
     "JoinKey",
@@ -250,7 +228,6 @@ __all__ = [
     "MetricDetails",
     "MetricEntry",
     "ModelStateHandle",
-    "ParityResult",
     "Participant",
     "ParticipantRoleHandle",
     "PeriodCalendarDetails",
@@ -273,7 +250,6 @@ __all__ = [
     "SourceCheck",
     "SourceHealthCheckResult",
     "SourceHealthReport",
-    "SqlProvenance",
     "StateModelDetails",
     "StateModelEntry",
     "StateTransition",
@@ -286,10 +262,13 @@ __all__ = [
     "WorkScheduleDetails",
     "WorkScheduleEntry",
     "WorkScheduleKind",
+    "additive",
+    "additive_all",
     "aggregate",
     "ai_context",
     "all_rows",
     "bind",
+    "business_order",
     "calendar_grain",
     "count",
     "cumulative",
@@ -297,10 +276,11 @@ __all__ = [
     "dimension",
     "dimension_column",
     "domain",
+    "empty",
     "entity",
     "errors",
     "event",
-    "from_sql",
+    "event_sequence",
     "grain_to_date",
     "hour_prefix",
     "inception",
@@ -312,16 +292,17 @@ __all__ = [
     "measure_column",
     "metric",
     "model_state",
-    "parity_check",
+    "non_additive",
+    "nulls",
     "participant",
     "participant_role",
     "period_calendar",
     "period_correspondence",
+    "precedes",
     "ratio",
     "ref",
     "relationship",
     "richness",
-    "semi_additive",
     "snapshot",
     "source_check",
     "state_model",
@@ -337,6 +318,7 @@ __all__ = [
     "weighted_mean",
     "where",
     "work_schedule",
+    "zero_denominator",
 ]
 
 

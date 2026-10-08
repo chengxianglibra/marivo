@@ -5,21 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from marivo.datasource import credentials as cr
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.errors import DatasourceMissingError, repair
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    DatasourceConnection,
     DatasourceDescription,
     DatasourceList,
     DatasourceSummary,
     DatasourceTestResult,
-    connect,
-    describe,
-    test,
+    _describe_in_project,
+    _test_in_project,
 )
 from marivo.project import resolve_project_root
 from marivo.render import Card, RenderableResult
@@ -81,7 +78,7 @@ class DatasourceCatalog(RenderableResult):
             nearest ancestor manifest, or current directory when omitted.
 
     Returns:
-        DatasourceCatalog with list(), get(), describe(), connect(), and
+        DatasourceCatalog with list(), get(), describe(), and
         test() methods.
 
     Example:
@@ -93,6 +90,8 @@ class DatasourceCatalog(RenderableResult):
 
     Constraints:
         catalog is obtained via md.load(), not constructed directly.
+        Methods retain this workspace and read its current local and configured
+        external declarations. They do not follow later cwd or environment changes.
     """
 
     workspace_dir: Path
@@ -119,7 +118,8 @@ class DatasourceCatalog(RenderableResult):
             A ``DatasourceSummary`` for the named datasource.
 
         Raises:
-            DatasourceMissingError: When the name is neither built-in nor declared.
+            DatasourceMissingError: When the name is absent from this workspace's
+                local and configured external model roots.
 
         Example:
             >>> catalog = md.load()
@@ -137,7 +137,7 @@ class DatasourceCatalog(RenderableResult):
                     kind="register",
                     canonical_id="register",
                     action="Register the datasource before retrying.",
-                    candidates=tuple(_store.list_names()),
+                    candidates=tuple(_store.list_names(self.workspace_dir)),
                 ),
             )
         return DatasourceSummary(
@@ -157,30 +157,7 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> catalog.describe("wh")
         """
-        return describe(name)
-
-    def connect(
-        self,
-        name: str,
-        *,
-        timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    ) -> DatasourceConnection:
-        """Connect to a datasource by name.
-
-        Args:
-            name: The datasource name to connect to.
-            timeout_seconds: Wall-clock deadline for the backend-connect
-                handshake. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
-
-        Returns:
-            A ``DatasourceConnection`` proxy for the datasource backend.
-
-        Example:
-            >>> with catalog.connect("wh") as con:
-            ...     con.raw_sql("SELECT 1")
-        """
-        with cr.operation_context(project_root=self.workspace_dir, timeout_seconds=timeout_seconds):
-            return connect(name, timeout_seconds=timeout_seconds)
+        return _describe_in_project(name, project_root=self.workspace_dir)
 
     def test(
         self,
@@ -202,8 +179,11 @@ class DatasourceCatalog(RenderableResult):
         Example:
             >>> result = catalog.test("wh")
         """
-        with cr.operation_context(project_root=self.workspace_dir, timeout_seconds=timeout_seconds):
-            return test(name, timeout_seconds=timeout_seconds)
+        return _test_in_project(
+            name,
+            timeout_seconds=timeout_seconds,
+            project_root=self.workspace_dir,
+        )
 
     def _repr_identity(self) -> str:
         count = len(_store.load_all(self.workspace_dir))
@@ -220,7 +200,6 @@ class DatasourceCatalog(RenderableResult):
                 ".list()",
                 ".get(name)",
                 ".describe(name)",
-                ".connect(name)",
                 ".test(name)",
                 ".show()",
             ),
@@ -229,7 +208,7 @@ class DatasourceCatalog(RenderableResult):
             card = card.field(label="datasources", value="none")
         for datasource in datasources:
             if datasource.name == DEFAULT_DATASOURCE_NAME:
-                card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+                card = card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
             card = card.listing(
                 label=datasource.name,
                 items=(
@@ -268,8 +247,12 @@ def load(
 
     Constraints:
         The catalog is read-only; use ``md.register()`` and ``md.remove()``
-        to modify project datasources. The built-in ``default`` is always available
-        and cannot be replaced or removed.
+        to modify project datasources.
+        Reads include local and configured external model roots. Conflicting
+        names fail; catalog methods retain the exact resolved workspace.
+        Restart Python after package upgrades or model edits/deletions;
+        ordinary imported dependencies are not guaranteed to hot-reload.
+        Execution failures expose their original exception type and traceback.
     """
     if workspace_dir is None:
         workspace_dir = resolve_project_root()

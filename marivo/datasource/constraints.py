@@ -30,14 +30,14 @@ class ConstraintId(StrEnum):
     DATASOURCE_LOADER_CONTEXT = "datasource_loader_context"
     DATASOURCE_UNIQUE_NAME = "datasource_unique_name"
     DATASOURCE_FILE_LOADABLE = "datasource_file_loadable"
+    DATASOURCE_REGISTER_OUTSIDE_LOADER = "datasource_register_outside_loader"
     DATASOURCE_CONFIGURED = "datasource_configured"
+    DATASOURCE_PROJECT_ROOTS = "datasource_project_roots"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
     DUCKDB_HTTP_AUTH_SCOPED = "duckdb_http_auth_scoped"
     JSON_REQUEST_SHAPE = "json_request_shape"
     JSON_SOURCE_PARAMS_EXACT = "json_source_params_exact"
-    TABLE_COLUMN_BINDINGS_CLOSED = "table_column_bindings_closed"
-    TABLE_COLUMN_TYPE_ASSERTION = "table_column_type_assertion"
     PROJECTED_SOURCE_RUNTIME_EVIDENCE = "projected_source_runtime_evidence"
     PARTITION_LISTING_BOUNDED = "partition_listing_bounded"
     SNAPSHOT_VALUE_PERSISTENCE = "snapshot_value_persistence"
@@ -137,7 +137,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         SUPPORTED_BACKEND_TYPES,
         "Datasource declarations can only be made while loading models/datasources/ files.",
         "Datasource declarations are collected by the project loader, not registered into global process state.",
-        "Put datasource declarations under models/datasources/*.py and load them with md.load_datasources(...).",
+        "Put datasource declarations under models/datasources/*.py and read them with md.load().",
     ),
     ConstraintId.DATASOURCE_UNIQUE_NAME: _constraint(
         ConstraintId.DATASOURCE_UNIQUE_NAME,
@@ -155,7 +155,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("load_datasources",),
         "Datasource files must load as valid datasource declarations.",
         "Project datasource metadata is executable Python collected by the loader; syntax or runtime failures prevent deterministic datasource discovery.",
-        "Open the failing models/datasources/ file, fix the reported error, then rerun md.load_datasources(...).",
+        "Fix the reported declaration or model-root path, then reread the project with md.load().",
+    ),
+    ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER: _constraint(
+        ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER,
+        "DatasourceLoad",
+        "assembly",
+        ("register",),
+        "md.register() requires execution outside model loading; declaration files call the datasource constructor directly.",
+        "Registering saves only the target declaration; project loading separately validates the complete datasource set.",
+        "Remove the md.register(...) wrapper from declaration files and call the datasource constructor directly. Use md.register() only in setup scripts outside model loading.",
+        example='md.duckdb(name="warehouse", path=":memory:")',
     ),
     ConstraintId.DATASOURCE_CONFIGURED: _constraint(
         ConstraintId.DATASOURCE_CONFIGURED,
@@ -165,6 +175,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Named datasources must exist before analysis runtime lookup.",
         "Sessions resolve source refs through built-in or declared datasource metadata; unknown names never fall back.",
         "Use the built-in default for file sources, or register the explicitly referenced datasource before creating the session.",
+    ),
+    ConstraintId.DATASOURCE_PROJECT_ROOTS: _constraint(
+        ConstraintId.DATASOURCE_PROJECT_ROOTS,
+        "DatasourceLoad",
+        "assembly",
+        ("load", "inspect", "DatasourceCatalog"),
+        "Datasource reads use one project root and its configured external model roots.",
+        "An explicit workspace is exact; otherwise project selection uses MARIVO_PROJECT_ROOT, the nearest ancestor manifest, then cwd. Conflicting datasource names are rejected.",
+        "Pass workspace_dir to md.load(), ms.load(), or md.inspect(); catalog methods retain their workspace, and register/remove write only locally.",
     ),
     ConstraintId.DATASOURCE_ENV_AVAILABLE: _constraint(
         ConstraintId.DATASOURCE_ENV_AVAILABLE,
@@ -204,11 +223,11 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("json", "source_param"),
         "JSON sources keep stable output aliases and correlate one shared array traversal.",
         "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
-        "Use schema for output names and Ibis types, field_paths for nested selectors, and one flat non-empty scalar list when a request parameter needs repeated values.",
+        "Use columns to map output names to JSON field paths, records_path to select wrapped records, and one flat non-empty scalar list when a request parameter needs repeated values.",
         example=(
             'md.json("https://api.example/items", '
-            'schema={"id": "string", "app_name": "string"}, '
-            'records_path="$.data", field_paths={"app_name": "apps[].name"})'
+            'columns={"id": "id", "app_name": "apps[].name"}, '
+            'records_path="$.data")'
         ),
     ),
     ConstraintId.JSON_SOURCE_PARAMS_EXACT: _constraint(
@@ -220,36 +239,14 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Missing or extra values would make snapshot identity differ from the physical request that produced it.",
         "Pass source_params={...} with exactly every md.source_param(...) name; use a flat non-empty list for repeated query keys or a JSON array body value.",
     ),
-    ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED: _constraint(
-        ConstraintId.TABLE_COLUMN_BINDINGS_CLOSED,
-        "DatasourceFieldInvalid",
-        "decorator",
-        ("table", "source_column"),
-        "Projected tables require complete identifier-only bindings; arbitrary SQL remains terminal through md.raw_sql(...).",
-        "Mixing inferred and declared columns would make the source schema depend on live metadata.",
-        "Bind every projected output with md.source_column(...); use md.raw_sql(...) only for terminal arbitrary SQL.",
-        example=(
-            'md.table("events", columns={"event_time": '
-            'md.source_column("event.timestamp", data_type="timestamp")})'
-        ),
-    ),
-    ConstraintId.TABLE_COLUMN_TYPE_ASSERTION: _constraint(
-        ConstraintId.TABLE_COLUMN_TYPE_ASSERTION,
-        "DatasourceFieldInvalid",
-        "decorator",
-        ("table", "source_column"),
-        "A table column data_type asserts the output schema and never casts the physical value.",
-        "A declared type keeps projected materialization typed without introducing an authored expression.",
-        "Declare the canonical physical type accepted by ibis.dtype(...); change the source or use a view when a cast is required.",
-    ),
     ConstraintId.PROJECTED_SOURCE_RUNTIME_EVIDENCE: _constraint(
         ConstraintId.PROJECTED_SOURCE_RUNTIME_EVIDENCE,
         "DatasourceFieldInvalid",
         "runtime",
-        ("table", "source_column", "inspect", "SourceInspection.sample"),
-        "Projected inspection is metadata-only and declared-only bindings require bounded runtime evidence.",
-        "Catalog absence does not prove that a physical identifier is queryable.",
-        "Inspect first, then acquire an explicit bounded sample before semantic preview or readiness.",
+        ("table", "inspect", "SourceInspection.sample"),
+        "A projected column absent from catalog metadata requires bounded runtime evidence.",
+        "Catalog absence does not prove that a projected physical identifier is queryable.",
+        "Inspect the source, then acquire an explicit bounded sample to prove projection queryability.",
     ),
     ConstraintId.PARTITION_LISTING_BOUNDED: _constraint(
         ConstraintId.PARTITION_LISTING_BOUNDED,

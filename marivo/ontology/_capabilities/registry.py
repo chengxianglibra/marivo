@@ -53,12 +53,14 @@ _DESCRIPTORS = (
             "Construct edges only with mo.influences(...) or mo.related_to(...).",
             "All endpoints are exact EntityRef, MeasureRef, or MetricRef values.",
             "Ontology supplies discovery context only; it cannot execute semantic meaning.",
+            "Ontology and semantic catalog fingerprints jointly identify this association.",
         ),
         output_family="OntologyCatalog",
         constraints=(
             "semantic must be an exact current SemanticCatalog.",
             "Only models/ontology.py is read; an absent source returns configured=False.",
             "Every endpoint must resolve in the supplied catalog; invalid sources return no partial catalog.",
+            "Edges grant no causal, analysis-admission, or Artifact authority.",
         ),
         minimal_example=(
             "semantic_catalog = ms.load()\n"

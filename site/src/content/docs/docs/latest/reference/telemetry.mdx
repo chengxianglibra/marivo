@@ -3,6 +3,74 @@ title: Local telemetry
 description: Control the local usage records written by a Marivo project.
 ---
 
+## Execution logs and telemetry have separate responsibilities
+
+Execution logs diagnose one concrete query or analysis execution. Telemetry
+summarizes public capability usage, outcomes and operation durations across runs.
+Both can carry the same operation/session identifiers; neither replaces the
+Runtime/Store records that own execution lineage and recovery.
+
+Actual Marivo-owned SQL submissions are always recorded in project-local files:
+
+```text
+.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl
+```
+
+There is no execution-log or SQL switch. `MARIVO_TELEMETRY=off` and
+`[telemetry].enabled = "off"` only disable usage telemetry. Both sinks stay local.
+Logging covers governed source queries and checks, connectivity probes, registered
+provider metadata/control statements and `md.raw_sql()`. SQL generated but never
+submitted is not recorded as an executed query. Third-party driver/Ibis bootstrap
+SQL and the Store's own SQLite persistence statements are outside this coverage.
+
+`query.submitted` stores the complete SQL text and a unique `query_id` before the
+driver call. `query.completed` records elapsed time, outcome and actual consumed
+rows; governed Arrow streams also report consumed Arrow bytes. Stream completion
+follows exhaustion or early close and cursor release, rather than merely a
+successful execute call. `closed_early` does not claim full consumption. Later
+owner-release facts can appear as `query.cleanup`; remote termination remains
+unknown unless the execution owner has confirmed it.
+
+Analysis logs include execution and phase start/completion, result counts, and
+cache reuse. Python/Arrow phases have no invented SQL. Available operation,
+session, run, datasource, backend and stage identifiers link the records.
+`execution.reused` identifies a retained artifact hit and does not imply a new
+source query. Errors contain their type, available backend codes and a bounded,
+redacted summary. Parameterized credential statements log the template only,
+without parameter values or credential-bearing failure messages. Result rows and
+exception local variables are not logged. Full SQL can contain business literals;
+review execution logs before sharing them.
+
+Execution files roll by UTC day and at approximately 128 MiB per segment. A single
+record stays intact even when larger than the segment threshold. On the first
+successful write of each UTC day, managed historical files older than 14 days are
+removed, then the oldest historical segments are removed until historical files
+occupy at most 1 GiB. Current-day segments, unrelated files and legacy telemetry
+files are not removed. The historical cap is not a hard cap on the whole log
+directory. Directories use `0700` and files use `0600` permissions. Write or
+cleanup failures leave execution semantics intact, produce a rate-limited warning,
+and recovered writes include the number of dropped records for that project.
+
+For example, after a governed diagnostic:
+
+{/* example: execution-log-diagnostic */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+result = md.raw_sql(
+    ms.ref.datasource("warehouse"),
+    "SELECT 1 AS marker",
+    reason="diagnose the query path",
+)
+```
+
+Read the project's `execution-*.jsonl` files to find the verbatim SQL and the
+matching completion by `query_id`. Read `events-*.jsonl` to analyze operation
+usage and outcomes; telemetry deliberately excludes SQL text and exception
+messages.
+
 ## Understand local telemetry
 
 Marivo writes OpenTelemetry-shaped JSONL events to UTC-dated files in the
@@ -23,54 +91,48 @@ that cleanup. A legacy `.marivo/telemetry/events.jsonl` file from an earlier
 Marivo version is left untouched; archive or remove it explicitly after deciding
 whether its events are still needed.
 
-Telemetry schema v3 records selected public operations by default. The read-only
-`marivo doctor` command is deliberately not instrumented and never creates local
-state or telemetry. In the default `on` mode, semantic load, datasource connection
-and live reads, and analysis execution write a correlated pair:
+Telemetry schema v2 covers CLI init and help plus explicit public datasource,
+semantic, and analysis operations. The read-only `marivo doctor` command is
+deliberately not instrumented. Without `--connect`, it creates no local state;
+explicit `--connect` probes write execution logs but do not write telemetry or cache secrets. Each
+instrumented operation writes a correlated pair:
 
 - `marivo.operation.started`
 - `marivo.operation.completed`
 
-The pair shares an operation ID. Session lifecycle changes, datasource
-registration/removal, and CLI init write only a completed event. Selected
-lightweight reads, Help, and authoring declarations write only on failure.
-Analysis constructors and semantic references are omitted even when they fail;
-successful catalog lookups and delegated calls are also omitted. Failed
-delegated calls link to a recorded parent when one exists.
-Completed events include status, duration, stable structured error and repair
-fields, or a bounded result summary. Expensive operations may also include
-validation, execution, persistence, and evidence phase durations.
+The pair shares an operation ID. Nested public calls include a parent operation
+ID, and completed events include status, total duration, stable structured error
+and repair fields, or a bounded result summary. Expensive operations may also
+include validation, execution, persistence, and evidence phase durations.
 The `marivo.operation.origin` attribute distinguishes top-level `explicit`
 calls from `delegated` calls and declarations executed during `internal_load`.
+Successful internal declarations are omitted when an existing analysis session
+reloads its semantic catalog; the enclosing semantic `load` operation and any
+failed declaration remain recorded.
 
-Session-bound events can include the persisted `session.question`. Analysis
-operations include `analysis_purpose` when supplied, and `md.raw_sql(...)`
-includes its required `reason`. Completed session acquisition events record
-whether the session was created and whether an explicit requested question was
-applied as the current value; omitting `question` preserves the persisted value.
+The native analysis surface instruments explicit Session creation/resume,
+abandonment and Dataset execution. Pure Dataset construction, predicates,
+`.contract()` and read-only methods do not write analysis operation events.
+Session-bound events can include the persisted `session.question`;
+`md.raw_sql(...)` includes its required `reason`. Session acquisition records
+whether the Session was created and whether an explicit question was applied;
+omitting `question` preserves the persisted value.
 
-Input summaries can include canonical metric, dimension, datasource, semantic,
-and artifact identifiers together with counts, types, options, limits, and
-fingerprints. String collections that are not defined identifier collections,
-including guardrails and datasource client tags, include only count and item
-types. Recorded artifact reads such as `to_pandas()` include the receiver
-artifact/ref and producing job so consumers can connect a result to its later
-use. In the opt-in `full` mode, successful `show()` and `contract()` reads are
-also recorded. Result summaries can include artifact and job
-identifiers, content hash, result kind and status, row and issue counts, cache
-state, truncation, and evidence status. Marivo never writes credentials,
-resolved secrets, datasource hosts, DSNs, SQL text, filesystem paths, slice
-values, frame row values, free-text collection items, arbitrary object
-representations, or exception messages to telemetry.
+Input and result summaries include only admitted identifiers, types, counts,
+options, limits and fingerprints available on that operation. The Runtime's
+exact Run and Artifact records own execution lineage and recovery state.
+Marivo never writes credentials, resolved secrets, datasource hosts, DSNs,
+SQL text, filesystem paths, slice values, Dataset rows, free-text collection
+items, arbitrary object representations or exception messages to telemetry.
 
 The legacy `events.jsonl` file can contain schema v1 lines after an upgrade.
-Marivo does not migrate that file or existing v2 records in dated files.
-Consumers reading retained history should scan the dated `events-*.jsonl`
-files and, when needed, read the legacy file separately. New records have
-`marivo.event.schema_version` equal to `3`.
+Marivo does not migrate that file. Consumers reading retained history should
+scan the dated `events-*.jsonl` files and, when needed, read the legacy file
+separately. They should select records whose `marivo.event.schema_version`
+attribute is `2`.
 
 These events stay local. Marivo does not upload them. The raw session question,
-analysis purpose, and raw-SQL reason are stored in the local event file; review
+and raw-SQL reason are stored in the local event file; review
 that file before sharing project state outside your environment.
 
 Disable local telemetry for one process:
@@ -83,11 +145,16 @@ Set a project default in `marivo.toml`:
 
 ```toml
 [telemetry]
-enabled = "off" # "on", "off", or "full"
+enabled = "off" # "on" or "off"
 ```
 
 `MARIVO_TELEMETRY=on|off|full` overrides `[telemetry].enabled` for the current
-process. If neither is set, local telemetry defaults to `"on"`. Use `"full"`
-only for a bounded diagnostic run: it restores broad v2-style paired coverage,
-including successful lightweight calls, while writing v3 records. It can
-produce substantially more events.
+process. If neither is set, local telemetry defaults to `"on"`.
+
+## Capture modes
+
+`on` is the default and records failures, query execution, Artifact publication
+and reuse, and one outer decision operation. Pure discovery/read operations are
+omitted. `full` records the broader capability matrix; `off` disables usage
+telemetry. Execution logs remain enabled in every mode. Event schema is v3 and
+records capture policy explicitly.

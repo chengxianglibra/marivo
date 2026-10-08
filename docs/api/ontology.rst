@@ -7,10 +7,14 @@ marivo.ontology
    :no-members:
 
 Ontology is an optional contextual extension over the executable semantic
-catalog. It can suggest unscored Metric hypotheses through
-``session.discover.semantic_hypotheses(...)``; it cannot define identity,
-joins, filters, readiness, SQL, or causal evidence. Use
+catalog. ``mo.load(semantic=catalog)`` validates authored edges against exact
+Semantic refs. Analysis-side hypothesis discovery is not a current public
+entrypoint. Artifact association requires the R4/R10 Runtime handoff. Ontology
+cannot define identity, joins, filters, readiness, SQL, or causal evidence. Use
 ``marivo.help("ontology.authoring")`` for the live authoring contract.
+``OntologyCatalog.definition_fingerprint`` and
+``semantic_catalog_fingerprint`` jointly identify the current contextual
+association. An ontology edge does not bind or authorize an Artifact.
 
 Catalog and identity
 --------------------

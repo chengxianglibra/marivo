@@ -5,11 +5,11 @@ Agent-facing semantic reading goes through ``ms.load()`` and ``SemanticCatalog``
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from marivo.config import AUTHORED_DIR, SEMANTIC_DIR, load_semantic_layer_paths
 from marivo.datasource import credentials as cr
@@ -29,7 +29,6 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.loader import LoadResult, load_project
 from marivo.semantic.materializer import EntityRuntimeMetadata
-from marivo.semantic.parity import ParityResult, parity_check
 from marivo.semantic.readiness import (
     ReadinessInputSummary,
     ReadinessIssue,
@@ -132,11 +131,10 @@ class SemanticProject:
         self._compiled_state: CompiledSemanticState | None = None
         self._filtered_domains: tuple[str, ...] = ()
         self._runtime_metadata: dict[str, EntityRuntimeMetadata] = {}
-        self._parity_results: dict[str, ParityResult] = {}
+        self._connection_service_instance: DatasourceConnectionService | None = None
         self._connection_config = DatasourceConnectionConfig(
             project_root=self._workspace_dir,
             resolver=cr.current_resolver(),
-            include_semantic_layers=True,
         )
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
 
@@ -180,7 +178,6 @@ class SemanticProject:
             self._expression_sidecar = None
             self._compiled_state = None
             self._runtime_metadata = {}
-            self._parity_results = {}
             self._datasource_irs = ()
         if self._semantic_root.exists() and not self._semantic_root.is_dir():
             _raise(
@@ -389,31 +386,29 @@ class SemanticProject:
             seen |= self._flatten_ids(node)
         return len(seen - set(refs))
 
-    # -- parity -------------------------------------------------------------
-
-    def parity_check(
-        self,
-        name: str,
-        *,
-        rel_tol: float | None = None,
-        abs_tol: float | None = None,
-        force: bool = False,
-    ) -> ParityResult:
-        """Run parity check for a metric against its source SQL.
-
-        See :func:`marivo.semantic.parity.parity_check` for details.
-        Datasource backends are resolved internally via
-        ``DatasourceConnectionService``.
-        """
-        return parity_check(
-            self,
-            name,
-            rel_tol=rel_tol,
-            abs_tol=abs_tol,
-            force=force,
-        )
-
     # -- readiness ----------------------------------------------------------
+
+    def _connection_service(self) -> DatasourceConnectionService:
+        """Return the lazily-created DatasourceConnectionService."""
+        if self._connection_service_instance is None:
+            with cr.bind_resolver(self._connection_config.resolver):
+                self._connection_service_instance = DatasourceConnectionService(
+                    project_root=self._workspace_dir,
+                )
+        return self._connection_service_instance
+
+    def _session_backend_factory(self) -> Callable[[str], Any]:
+        """Return a factory callable backed by the internal connection service.
+
+        This is used by Materializer and other callers that expect a
+        ``Callable[[str], Any]`` backend factory.
+        """
+        service = self._connection_service()
+
+        def _factory(name: str) -> Any:
+            return service.session_backend(name)
+
+        return _factory
 
     def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]:
         """Create an operation owner using this reader's captured resolver."""

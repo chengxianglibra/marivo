@@ -16,7 +16,9 @@ from typing import Any, Literal, TypeAlias, cast
 import pandas as pd
 from pandas.api.types import is_object_dtype
 
+from marivo import _execution_log
 from marivo._authoring.model import AuthoringRepair
+from marivo._data_render import _DataCard, _DataResult
 from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
@@ -40,16 +42,22 @@ from marivo.datasource.errors import (
     repair,
 )
 from marivo.datasource.runtime import (
-    DEFAULT_CONNECTION_TIMEOUT_SECONDS as DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-)
-from marivo.datasource.runtime import (
     DatasourceConnectionService,
     deadline_worker,
     load_datasource,
     open_backend,
 )
+from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
+
+DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
+"""Default wall-clock deadline for ``md.test`` and internal connections.
+
+Bounds both the backend-connect handshake and the Ibis literal round-trip.
+Callers may override it with a keyword ``timeout_seconds``; a non-positive
+value is rejected before any connection is attempted.
+"""
 
 
 @dataclass(frozen=True, repr=False)
@@ -70,7 +78,7 @@ class DatasourceSummary(RenderableResult):
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         if self.name == DEFAULT_DATASOURCE_NAME:
-            card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+            card = card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
         return card
 
 
@@ -102,20 +110,14 @@ class DatasourceList(RenderableResult):
         return f"DatasourceList count={len(self._items)}"
 
     def _card(self) -> Card:
-        rows = [
-            [
-                item.name,
-                item.backend_type,
-                DEFAULT_DATASOURCE_DESCRIPTION
-                if item.name == DEFAULT_DATASOURCE_NAME
-                else "Project declaration",
-            ]
-            for item in self._items
-        ]
-        return Card(
+        rows = [[item.name, item.backend_type] for item in self._items]
+        card = Card(
             identity=self._repr_identity(),
             available=(".items", ".ids()", ".show()"),
-        ).table(columns=["name", "backend", "source"], rows=rows, row_count=len(self._items))
+        ).table(columns=["name", "backend"], rows=rows, row_count=len(self._items))
+        if any(item.name == DEFAULT_DATASOURCE_NAME for item in self._items):
+            card = card.field("default", DEFAULT_DATASOURCE_DESCRIPTION)
+        return card
 
 
 @dataclass(frozen=True, repr=False)
@@ -136,13 +138,14 @@ class DatasourceDescription(RenderableResult):
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
         env_ref_names = sorted(self.env_refs)
-        card = Card(identity=self._repr_identity(), available=(".show()",))
-        if self.name == DEFAULT_DATASOURCE_NAME:
-            card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
-        return card.field(
+        card = Card(identity=self._repr_identity(), available=(".show()",)).field(
             label="columns",
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
+
+        if self.name == DEFAULT_DATASOURCE_NAME:
+            card = card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
+        return card
 
 
 @dataclass(frozen=True)
@@ -219,7 +222,7 @@ class DatasourceTestResult(RenderableResult):
 
 
 @dataclass(frozen=True, repr=False)
-class RawSqlResult(RenderableResult):
+class RawSqlResult(_DataResult):
     """Complete terminal query result from the datasource raw-SQL execution path."""
 
     datasource: Ref[DatasourceKind]
@@ -237,18 +240,18 @@ class RawSqlResult(RenderableResult):
     def __post_init__(self) -> None:
         if self.returned_row_count != len(self.rows):
             raise ValueError(
-                "returned_row_count must equal the number of returned rows: "
+                "returned_row_count must equal the number of returned query rows: "
                 f"returned_row_count={self.returned_row_count}, rows={len(self.rows)}"
             )
 
     @property
     def shape(self) -> tuple[int, int]:
-        """Return query result rows by declared columns."""
+        """Return complete query rows by declared columns."""
         return (self.returned_row_count, len(self.columns))
 
     @property
     def row_count(self) -> int:
-        """Return query result rows, not full-source cardinality."""
+        """Return the complete query row count."""
         return self.returned_row_count
 
     def _repr_identity(self) -> str:
@@ -257,57 +260,23 @@ class RawSqlResult(RenderableResult):
             f"rows={self.returned_row_count} terminal_only"
         )
 
-    def _card(self) -> Card:
-        preview_rows = tuple(
-            tuple(str(row.get(column)) for column in self.columns) for row in self.rows
+    def _data_card(self) -> _DataCard:
+        return _DataCard(
+            identity=f"RawSqlResult datasource={self.datasource.path} terminal_only",
+            columns=self.columns,
+            rows=lambda: (tuple(row.get(column) for column in self.columns) for row in self.rows),
+            row_count=self.returned_row_count,
+            row_scope="complete returned query rows; not full-source cardinality",
+            facts=(("reason", self.reason),),
+            boundaries=(
+                ("business_coverage", "unknown; raw SQL does not establish semantic coverage"),
+                ("boundary", "terminal only; no semantic identity or typed analysis reentry"),
+                *(("warning", warning) for warning in self.warnings),
+            ),
         )
-        card = (
-            Card(
-                identity=self._repr_identity(),
-                available=(
-                    ".rows",
-                    ".columns",
-                    ".types",
-                    ".shape",
-                    ".row_count",
-                    ".to_pandas()",
-                    ".show()",
-                ),
-            )
-            .status(f"terminal query result warnings={len(self.warnings)}")
-            .field("terminal_only", "true")
-            .field("typed_reentry", "false")
-            .field("row_count_semantics", "returned_query_rows")
-            .field("returned_row_count", str(self.returned_row_count))
-            .field(
-                "preserves",
-                "query result rows, declared columns/types, datasource, SQL reason",
-            )
-            .field(
-                "does_not_preserve",
-                "semantic identity, canonical lineage, typed affordances",
-            )
-            .field(
-                "row_count_scope",
-                "returned rows are not full-source cardinality",
-            )
-            .field("datasource", self.datasource.path)
-            .field("backend_type", self.backend_type)
-            .field("reason", self.reason)
-            .field("timeout_seconds", str(self.timeout_seconds))
-            .field("duration_ms", str(self.duration_ms))
-            .table(self.columns, preview_rows, row_count=self.returned_row_count)
-            .field(
-                "scope",
-                'callers control query size; SQL LIMIT does not bound scan cost; see marivo.help("datasource.raw_sql")',
-            )
-        )
-        if self.warnings:
-            card.listing("warnings", self.warnings)
-        return card
 
     def to_pandas(self) -> pd.DataFrame:
-        """Return a defensively isolated pandas DataFrame from complete query result rows.
+        """Return a defensively isolated pandas DataFrame from bounded result rows.
 
         The DataFrame is built in declared column order. Object-dtype columns
         are recursively deep-copied so mutations to the DataFrame or mutable
@@ -322,7 +291,7 @@ class RawSqlResult(RenderableResult):
         return df
 
 
-class DatasourceConnection:
+class _DatasourceConnection:
     """Context-manageable datasource backend connection.
 
     Args:
@@ -333,13 +302,15 @@ class DatasourceConnection:
 
     Example:
         >>> import marivo.datasource as md
-        >>> with md.connect("wh") as con:
-        ...     con.raw_sql("SELECT 1")
+        >>> with _connect("wh") as con:
+        ...     con.list_tables()
 
     Constraints:
         ``with`` blocks yield the raw ibis backend and disconnect on exit.
         Scripts that cannot use ``with`` may call ``.disconnect()`` manually.
         The ``.backend`` property exposes the raw backend for explicit handoff.
+        Direct backend calls bypass governed ``SourceSession`` reads and the
+        reason, row and timeout guards of ``md.raw_sql``.
     """
 
     def __init__(self, backend: Any) -> None:
@@ -399,11 +370,15 @@ def register(
         >>> md.register(spec)
 
     Constraints:
+        Call only from setup scripts outside datasource and semantic model
+        loading. Declaration files call datasource constructors directly;
+        constructors auto-declare while the datasource loader runs.
         Use one of the public typed specs. Sensitive fields use named
         ``*_env`` references, not plaintext literals or generic keyword bags.
-        The built-in name ``default`` is reserved and cannot be registered.
         Every explicit ``*_env`` name is persisted; no credential names are
         inferred or omitted by convention.
+        Saves only the local target file without loading other declarations.
+        Success confirms persistence; load the project separately to validate it.
     """
     stored = _store.save_one(spec, project_root=project_root)
     return DatasourceSummary(name=stored.name, backend_type=stored.backend_type)
@@ -425,7 +400,6 @@ def remove(name: str) -> bool:
 
     Constraints:
         Only the project-local ``models/datasources/<name>.py`` file is removed.
-        The built-in ``default`` datasource cannot be removed.
     """
     return _store.delete_one(name)
 
@@ -442,8 +416,8 @@ def list() -> DatasourceList:
         >>> md.list().items
 
     Constraints:
-        Includes the built-in in-memory DuckDB ``default`` without registration
-        or a project file, plus persisted project datasources.
+        Includes local and configured external model roots. Conflicting names
+        fail instead of overriding another declaration.
     """
     return DatasourceList(
         tuple(
@@ -467,10 +441,14 @@ def describe(name: str) -> DatasourceDescription:
         >>> md.describe("wh")
 
     Constraints:
-        Includes the built-in ``default`` datasource. Raises
-        ``DatasourceMissingError`` for unknown names; no fallback is applied.
+        Reads local and configured external model roots. Raises
+        ``DatasourceMissingError`` when the name is absent from the project.
     """
-    datasource = _store.load_one(name)
+    return _describe_in_project(name, project_root=resolve_project_root())
+
+
+def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescription:
+    datasource = _store.load_one(name, project_root)
     if datasource is None:
         raise DatasourceMissingError(
             message=f"datasource {name!r} is not configured",
@@ -482,7 +460,7 @@ def describe(name: str) -> DatasourceDescription:
                 canonical_id="register",
                 action="Register the datasource before retrying.",
                 snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
-                candidates=tuple(_store.list_names()),
+                candidates=tuple(_store.list_names(project_root)),
             ),
         )
     return DatasourceDescription(
@@ -493,67 +471,28 @@ def describe(name: str) -> DatasourceDescription:
     )
 
 
-def connect(
-    name: str,
-    *,
-    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-) -> DatasourceConnection:
-    """Open a context-manageable live ibis backend for a datasource.
-
-    Args:
-        name: The datasource name to connect to.
-        timeout_seconds: Wall-clock deadline for the backend-connect handshake.
-            Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive
-            value is rejected before any connection is attempted.
-
-    Returns:
-        A ``DatasourceConnection`` proxy that delegates backend methods and
-        disconnects automatically when used as a context manager.
-
-    Example:
-        >>> import marivo.datasource as md
-        >>> with md.connect("wh") as con:
-        ...     con.raw_sql("SELECT 1")
-
-    Constraints:
-        The built-in ``default`` opens an independent in-memory DuckDB. Its
-        temporary tables are not shared with other connections or processes.
-        Prefer ``with md.connect(...) as con`` so cleanup is automatic. For
-        manual lifetime management, call ``connection.disconnect()`` when done.
-        Env-sourced secrets used to open this backend are remembered on the
-        connection object so that a subsequent round-trip validation can persist
-        them via ``secrets.persist_backend_env_sourced``.
-
-        The connect handshake is fail-closed: if the backend cannot establish
-        within ``timeout_seconds`` a ``DatasourceConnectionTimeoutError`` with
-        ``stage="connection_timeout"`` is raised. The timeout is a Marivo-side
-        wall-clock bound and does not rely on the backend's own query timeout.
-
-        Thread-affine backends (SQLite) are opened inline on the calling thread
-        so the returned connection stays usable there; every other backend is
-        opened on a deadline worker thread so a hanging gateway fails closed
-        rather than blocking indefinitely.
-    """
-    return _connect_internal(name, timeout_seconds=timeout_seconds)
-
-
 def _connect_internal(
     name: str,
     *,
     project_root: Path | None = None,
-    include_semantic_layers: bool = False,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-) -> DatasourceConnection:
+) -> _DatasourceConnection:
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
     project_root = cr.operation_root(project_root)
-    datasource = load_datasource(
-        name, project_root, include_semantic_layers=include_semantic_layers
-    )
+    datasource = load_datasource(name, project_root)
     built = open_backend(datasource, project_root=project_root, timeout_seconds=timeout_seconds)
-    connection = DatasourceConnection(built.backend)
+    connection = _DatasourceConnection(built.backend)
     connection._lease = built.lease
+    cr.remember_injected(connection, built.injected)
+    _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
     return connection
+
+
+def _connect(
+    name: str, *, timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS
+) -> _DatasourceConnection:
+    return _connect_internal(name, timeout_seconds=timeout_seconds)
 
 
 def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
@@ -629,7 +568,7 @@ def _failure_code_for_phase(phase: str) -> DatasourceFailureCode:
 
 
 def _release_connection(connection: object) -> None:
-    if isinstance(connection, DatasourceConnection):
+    if isinstance(connection, _DatasourceConnection):
         connection._disconnect(suppress_errors=True)
         return
     disconnect = getattr(connection, "disconnect", None)
@@ -772,7 +711,7 @@ def test(
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
         timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the ``SELECT 1`` round-trip. Defaults to
+            and the Ibis literal round-trip. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
 
@@ -780,7 +719,7 @@ def test(
         A ``DatasourceTestResult`` with ok status, latency, structured failure,
         and typed repair. A timeout is reported as a structured failure whose
         ``code`` is ``connection_timeout`` (handshake) or
-        ``connection_roundtrip_timeout`` (``SELECT 1``), with a truthful
+        ``connection_roundtrip_timeout`` (Ibis literal), with a truthful
         ``latency_ms`` and a ``repair`` suggesting a larger timeout or a
         reachability check.
 
@@ -792,25 +731,45 @@ def test(
         On success, env-sourced secrets that resolved correctly are
         offered to the user-global plaintext cache. Cache write failures
         emit a warning without changing the successful result. The backend
-        is always disconnected.
+        is always disconnected. Actual probe SQL and execution diagnostics are
+        always written to project-local ``.marivo/logs/`` independently of telemetry.
 
-        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; neither depends on the backend's
         own query timeout. If the deadline is exceeded the call fails closed
         rather than blocking indefinitely, even when the backend itself cannot
         be interrupted.
     """
+    return _test_in_project(name, timeout_seconds=timeout_seconds, project_root=None)
+
+
+def _test_in_project(
+    name: str | Ref[DatasourceKind],
+    *,
+    timeout_seconds: int,
+    project_root: Path | None,
+) -> DatasourceTestResult:
     datasource_name = _datasource_name(name)
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
-        state["backend"] = connect(datasource_name, timeout_seconds=timeout_seconds)
+        state["backend"] = (
+            _connect(datasource_name, timeout_seconds=timeout_seconds)
+            if project_root is None
+            else _connect_internal(
+                datasource_name, project_root=project_root, timeout_seconds=timeout_seconds
+            )
+        )
         state["phase"] = "roundtrip"
-        state["backend"].raw_sql("SELECT 1")
+        from marivo.datasource.adapters import provider_for
+
+        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        provider_for(selected_backend.name).probe(selected_backend)
         with cr.operation_context() as operation:
-            if not operation.cancelled:
-                _secrets.try_persist_backend_env_sourced(state["backend"])
+            if operation.cancelled:
+                raise TimeoutError("Datasource round-trip was cancelled before persistence.")
+        _secrets.try_persist_backend_env_sourced(state["backend"])
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -820,11 +779,13 @@ def test(
             repair=None,
         )
 
-    return _run_roundtrip_with_deadline(
-        roundtrip,
-        timeout_seconds=timeout_seconds,
-        datasource_name=datasource_name,
-    )
+    with _execution_log.scope(project_root, datasource=datasource_name):
+        return _run_roundtrip_with_deadline(
+            roundtrip,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+            project_root=project_root,
+        )
 
 
 def test_no_persist(
@@ -832,14 +793,13 @@ def test_no_persist(
     *,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
     project_root: Path | None = None,
-    include_semantic_layers: bool = False,
 ) -> DatasourceTestResult:
     """Round-trip the backend without persisting resolved secrets.
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
         timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the ``SELECT 1`` round-trip. Defaults to
+            and the Ibis literal round-trip. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
         project_root: Optional project root for tests and embedded callers.
@@ -853,9 +813,9 @@ def test_no_persist(
     Constraints:
         Intended for read-only diagnostics such as ``marivo doctor --connect``.
         Does not write ``~/.marivo/secrets.toml``. The backend is always
-        disconnected.
+        disconnected. Actual probe SQL is recorded in project-local execution logs.
 
-        Both the connect handshake and the ``SELECT 1`` round-trip are bounded
+        Both the connect handshake and the Ibis literal round-trip are bounded
         by a Marivo-side wall-clock deadline; if the deadline is exceeded the
         call fails closed rather than blocking indefinitely.
     """
@@ -867,10 +827,13 @@ def test_no_persist(
         state["backend"] = _connect_internal(
             datasource_name,
             project_root=project_root,
-            include_semantic_layers=include_semantic_layers,
+            timeout_seconds=timeout_seconds,
         )
         state["phase"] = "roundtrip"
-        state["backend"].raw_sql("SELECT 1")
+        from marivo.datasource.adapters import provider_for
+
+        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        provider_for(selected_backend.name).probe(selected_backend)
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -880,12 +843,13 @@ def test_no_persist(
             repair=None,
         )
 
-    return _run_roundtrip_with_deadline(
-        roundtrip,
-        timeout_seconds=timeout_seconds,
-        datasource_name=datasource_name,
-        project_root=project_root,
-    )
+    with _execution_log.scope(project_root, datasource=datasource_name):
+        return _run_roundtrip_with_deadline(
+            roundtrip,
+            timeout_seconds=timeout_seconds,
+            datasource_name=datasource_name,
+            project_root=project_root,
+        )
 
 
 def _require_raw_sql_reason(reason: str) -> str:
@@ -894,59 +858,26 @@ def _require_raw_sql_reason(reason: str) -> str:
     return reason.strip()
 
 
-def _has_sql_statement(sql: str) -> bool:
-    """Look past leading separators and comments without parsing executable SQL."""
-    position = 0
-    comment_depth = 0
-    while position < len(sql):
-        if comment_depth:
-            if sql.startswith("/*", position):
-                comment_depth += 1
-                position += 2
-            elif sql.startswith("*/", position):
-                comment_depth -= 1
-                position += 2
-            else:
-                position += 1
-        elif sql[position].isspace() or sql[position] == ";":
-            position += 1
-        elif sql.startswith("--", position) or sql[position] == "#":
-            while position < len(sql) and sql[position] not in "\r\n":
-                position += 1
-        elif sql.startswith("/*", position):
-            # MySQL/MariaDB executable comments must reach the backend unchanged.
-            if sql.startswith(("/*!", "/*M!"), position):
-                return True
-            comment_depth = 1
-            position += 2
-        else:
-            return True
-    return False
-
-
-def _require_single_statement(sql: str) -> str:
-    """Reject SQL without a statement and ``;``-separated multi-statement input.
-
-    This check only guards statement count. Read-only execution depends on backend
-    connection/transaction protections or database permissions, never this check.
-    """
-    text = sql.strip()
-    if not _has_sql_statement(text):
-        raise ValueError(
-            "sql must contain a statement, not only whitespace, semicolons, or comments."
-        )
-    stripped = text.rstrip(";")
-    if ";" in stripped:
-        raise ValueError("raw_sql accepts a single read-only statement.")
-    return stripped
+def _require_nonempty_sql(sql: str) -> str:
+    """Validate presence without parsing or rewriting the caller's SQL."""
+    if not isinstance(sql, str) or not sql.strip():
+        raise ValueError("sql must be non-empty.")
+    return sql
 
 
 def _extract_raw_sql_frame(
-    cursor: object,
+    cursor: Any,
     include_types: bool,
+    *,
+    limit: int | None = None,
 ) -> tuple[tuple[str, ...], tuple[dict[str, object], ...], dict[str, str]]:
-    """Decode the complete query result without a client-side row limit."""
-    frame = decode_cursor_frame(cursor, include_types=include_types, max_rows=None)
+    """Extract columns, rows, and best-effort types from a backend cursor.
+
+    Delegates to ``decode_cursor_frame`` which handles both the DB-API
+    ``description``+``fetchall`` path (DuckDB/Postgres/Trino/MySQL) and the
+    ``column_names``+``result_rows`` path (ClickHouse).
+    """
+    frame = decode_cursor_frame(cursor, include_types=include_types, max_rows=limit)
     return frame.columns, frame.rows, frame.types
 
 
@@ -964,8 +895,7 @@ def raw_sql(
     Args:
         datasource: Datasource reference returned by ``ms.ref.datasource("warehouse")``.
         sql: Single read-only SQL statement in the datasource's native dialect.
-            Apart from trimming whitespace and trailing semicolons, the statement
-            executes unchanged, without rewriting or an injected row limit.
+            The statement executes verbatim, without parsing, rewriting, or an injected row limit.
         reason: Required exploration reason shown in the result. Name the
             physical or semantic question and disclose inferred assumptions.
         timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
@@ -984,9 +914,7 @@ def raw_sql(
         >>> md.raw_sql(ms.ref.datasource("default"), "SELECT 1 AS ok LIMIT 1", reason="check query path")
 
     Constraints:
-        Rejects empty reasons, SQL without a statement (including comment-only
-        or semicolon-only input), multi-statement SQL, and non-positive
-        timeout before execution. All returned rows are loaded into client memory;
+        Rejects empty reasons, empty SQL, and non-positive timeout before execution. SQL syntax and permissions are enforced by the selected backend. All returned rows are loaded into client memory;
         there is no client-side row or byte cap and no truncation probe. Callers
         must control query size using filters, partition predicates, aggregation,
         and SQL ``LIMIT``. A returned-row limit does not bound backend scan cost.
@@ -1013,7 +941,7 @@ def raw_sql(
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
     reason_text = _require_raw_sql_reason(reason)
-    statement = _require_single_statement(sql)
+    statement = _require_nonempty_sql(sql)
     datasource_id = _storage_name(datasource)
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)
     if datasource_ir is None:
@@ -1047,21 +975,56 @@ def raw_sql(
             ),
         )
     service = DatasourceConnectionService(project_root)
-    with service.use_backend(datasource_id, read_only=True) as backend:
+    with service.use_backend(
+        datasource_id,
+        read_only=True,
+        terminal_timeout_seconds=timeout_seconds,
+    ) as backend:
         start = time.monotonic()
+        query_started = False
         try:
             with timeout(backend, timeout_seconds):
-                cursor = backend.raw_sql(statement)
-                columns, rows, types = _extract_raw_sql_frame(
-                    cursor,
-                    include_types,
-                )
+                query_started = True
+                with (
+                    _execution_log.QueryLog(
+                        statement,
+                        backend=backend_type,
+                        purpose="datasource.raw_sql",
+                        project_root=project_root,
+                        datasource=datasource_id,
+                        sensitive=bool(cr.injected_values(backend)),
+                    ) as query,
+                ):
+                    cursor = backend.raw_sql(statement)
+                    try:
+                        columns, extracted_rows, types = _extract_raw_sql_frame(
+                            cursor,
+                            include_types,
+                        )
+                        query.rows = len(extracted_rows)
+                    finally:
+                        close = getattr(cursor, "close", None)
+                        if callable(close):
+                            close()
         except DatasourceError:
             raise
         except Exception as exc:
+            if not query_started:
+                raise DatasourceRawSqlError(
+                    message="raw_sql timeout control is unavailable before execution.",
+                    expected="an enforceable backend timeout for this connection",
+                    received=type(exc).__name__,
+                    location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+                    effect_observed=DatasourceObservedEffects(query_executed=False),
+                    repair=repair(
+                        kind="configure",
+                        canonical_id="raw_sql",
+                        action="Use a backend connection with an enforceable query timeout.",
+                    ),
+                ) from exc
             raise DatasourceRawSqlError(
                 message="raw_sql execution or result fetching failed.",
-                expected="a read-only diagnostic the datasource backend can execute",
+                expected="SQL the datasource backend can execute under its connection permissions",
                 received=cr.redact(str(exc), cr.injected_values(backend)),
                 location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
                 effect_observed=DatasourceObservedEffects(query_executed=True),
@@ -1072,9 +1035,11 @@ def raw_sql(
                 ),
             ) from cr.safe_backend_exception(exc, backend)
         duration_ms = int((time.monotonic() - start) * 1000)
+        rows = extracted_rows
         warnings = [
-            "raw SQL diagnostics can be expensive; callers control query size and all returned rows load into client memory",
+            "raw SQL diagnostics can be expensive; all returned rows load into client memory",
             "terminal custom analysis; no metric, time-scope, slice, lineage, or canonical analysis contract",
+            "read-only behavior depends on connection and backend permissions; writes may be possible",
         ]
         return RawSqlResult(
             datasource=datasource,

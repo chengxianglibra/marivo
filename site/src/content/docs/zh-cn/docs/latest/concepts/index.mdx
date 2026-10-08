@@ -1,16 +1,26 @@
 ---
 title: 核心概念
-description: Marivo 语义建模和分析流程中的核心概念。
+description: 读取已治理分析结果所需术语。
 ---
 
-主要使用路径位于侧边栏的**开始使用**和**与智能体协作**中：先从
-[开始使用](/zh-cn/docs/latest/)进入，然后阅读[让智能体完成第一次分析](/zh-cn/docs/latest/first-analysis/)
-和[梳理业务问题](/zh-cn/docs/latest/guides/business-question/)。需要检查这条路径背后的集成契约时，
-再把本节作为参考地图使用；它不是通常的首次使用入口。
+某个术语影响计算含义时使用此对照。确切类型与调用契约由 native Help 提供。
 
-- [语义层](/zh-cn/docs/latest/concepts/semantic-layer/)：语义对象与编写契约。
-- [分析流程](/zh-cn/docs/latest/concepts/analysis-workflow/)：分析操作、类型化 frame、产物和恢复行为。
-- [就绪检查](/zh-cn/docs/latest/concepts/readiness/)：就绪报告字段，以及语义变更的显式认证。
-- [证据链](/zh-cn/docs/latest/concepts/evidence/)：类型化证据项、有界产物摘要、
-  推断边界和审计追踪。
-- [Python API 参考](/api/)：实现工作所需的准确公共 modules、classes、函数和 signatures。
+## 术语
+
+| 术语 | 含义 |
+| --- | --- |
+| Semantic Ref | 已治理声明的稳定 typed identity |
+| Entity / Subject | 业务实例及其完整有序身份 |
+| Member domain | 显式选择的实例；版本不替代实例键 |
+| Coordinate / grain | 保留输出位置与观察单位 |
+| Quantity | 方程、单位、贡献身份与状态策略 |
+| Cell | Defined、Null、Undefined、Unknown；对应关系缺失是独立事实 |
+| Logical / Materialized | 已计划计算 / 已提交保留结果 |
+| 原始 rollup / 行统计 | 合并原始充分组成状态 / 从当前行派生新数量 |
+| Run / Artifact | 执行记录 / 确切已提交输出 |
+| Evidence / Finding | 记录的计算事实 / typed 提取事实 |
+| 覆盖 / 删失 | 观察可以确定什么 / 跟踪限制 |
+
+## 找到所属指南
+
+[语义含义](/zh-cn/docs/latest/concepts/semantic-layer/)、[分析状态](/zh-cn/docs/latest/concepts/analysis-workflow/)、[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)、[Readiness](/zh-cn/docs/latest/concepts/readiness/)与[Evidence](/zh-cn/docs/latest/concepts/evidence/)分别负责详细说明。

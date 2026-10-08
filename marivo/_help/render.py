@@ -100,13 +100,13 @@ def help(target: PublicHelpTarget = None) -> None:
     >>> import marivo
     >>> marivo.help()
     >>> marivo.help("analysis")
-    >>> marivo.help("analysis.observe")
+    >>> marivo.help("analysis.session.members")
     """
     attributes = {"marivo.help.target_kind": _target_kind(target)}
     with track_operation(
-        "marivo.help",
-        family="read",
-        intent="help",
+        surface="help",
+        capability_kind="read",
+        capability_id="help",
         attributes=attributes,
     ) as operation:
         try:

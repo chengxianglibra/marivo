@@ -13,8 +13,6 @@ Registration & lifecycle
    :toctree: api/
    :nosignatures:
 
-   connect
-   DatasourceConnection
    register
    DatasourceSpec
    DuckDBSpec
@@ -27,28 +25,6 @@ Registration & lifecycle
    list
    remove
    test
-
-Connection ownership
---------------------
-
-``connect()`` returns a caller-owned connection; prefer ``with md.connect(...)``.
-Inspection, sampling, semantic preview, source health, and parity release their
-operation-owned connections before returning. Analysis caches connections until
-``Session.close()``. Connections retain validated environment-secret provenance;
-host-injected secrets are never cached.
-
-Internal handshakes have an independent 30-second deadline. ``raw_sql`` and
-sampling/preview scopes retain their execution timeout, rather than an end-to-end
-budget. ``test()`` retains its whole-roundtrip deadline. SQLite opens locally on
-its caller's thread and cannot be forcibly interrupted during synchronous open.
-
-Credential injection
---------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
    credential_scope
    CredentialRequest
    CredentialResolver
@@ -74,7 +50,6 @@ Source constructors
    clickhouse
    trino
    table
-   source_column
 
 Inspection & snapshots
 ----------------------
@@ -125,6 +100,10 @@ operations and intentionally has no ``md.help()`` alias. A
 ``SourceInspection`` card points to
 ``marivo.help("datasource.SourceInspection.sample")`` for the complete
 single-process acquisition and query-free projection chain.
+For inspected tables, ``inspection.source_column(name)`` returns the physical
+field name for use in a projection. Source constructors use ``columns`` only
+to select and name fields; source types are read or inferred when execution
+first needs them.
 
 .. autosummary::
    :toctree: api/
@@ -166,7 +145,6 @@ Metadata & sources
    :nosignatures:
 
    TableSource
-   TableColumnBindingIR
    PartitionScope
    UnprunedScope
 
@@ -180,6 +158,13 @@ and ``row_count`` describe returned bounded rows:
 full-source cardinality. Ordered ``columns`` and isolated ``to_pandas()`` are
 available, but ``RawSqlResult`` has no ``contract()``, typed affordances, or
 typed-analysis re-entry.
+
+``RawSqlResult.show(n=None, max_output_bytes=8192)`` displays all returned rows
+that fit the UTF-8 budget, including the printed newline. ``n=0`` shows only
+metadata and columns; ``max_output_bytes=None`` removes the display budget,
+not the query limit. ``render()`` accepts the same controls and returns text
+without a newline. Display omissions and query truncation are reported separately.
+Business coverage remains unknown: Raw SQL does not establish semantic coverage.
 
 .. autosummary::
    :toctree: api/

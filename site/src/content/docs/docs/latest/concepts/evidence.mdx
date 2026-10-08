@@ -1,64 +1,83 @@
 ---
-title: Evidence
-description: Audit Findings through their owning Artifact while keeping authority and freshness distinct.
+title: Evidence and recovery
+description: Inspect committed facts and recover exact Store 9 results.
 ---
 
-Marivo records deterministic analysis evidence. It does not combine Findings,
-judge causality or business validity, or choose a next action.
+Artifacts own saved rows, retained parts and execution evidence. Runs record
+execution identity and success or failure. The agent owns cross-result synthesis,
+business judgment and causal interpretation.
 
-## Read the current Artifact
+## Read the producing Run
+
+`current` and `baseline` are compatible logical numeric observations in the same Session.
+
+{/* example: evidence-producing-run */}
 
 ```python
-artifact = session.compare(current, baseline)
+artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_status, artifact.finding_count)
+artifact.contract().show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-`evidence_status` is `complete`, `partial`, or `unavailable`. The embedded
-`evidence_digest` is a bounded immediate recap. Audit omitted or exact evidence
-through the same Artifact:
+`contract()` describes retained state and admitted continuations; it does not certify unchanged file bytes. Logical values have no committed Evidence before execution.
+
+## Read bounded Findings
+
+`artifact` is a committed result from the preceding example.
+
+{/* example: evidence-findings */}
 
 ```python
-page = artifact.findings(limit=20)
-finding = artifact.finding(page.items[0].finding_id)
+digest = artifact.evidence_digest()
+print(digest.finding_count)
+findings = artifact.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-`FindingPage` is immutable. Pass `next_cursor` back to the same method when
-`has_more` is true. Each Finding retains its complete derivation, source
-Artifact, source fields and refs, and retained digest-item refs, so there is no
-separate derivation-trace API.
+Evidence/Findings publish with the result. A finding cursor belongs to its exact
+owning Artifact; use `has_more` and `next_cursor` for pagination. Empty Findings
+mean an empty committed set. Findings report deterministic computation facts,
+not a generated narrative or causal explanation.
 
-## Recover after a cold start
+## Recover an exact successful result
+
+`session`, `mv` and a recorded `run_id` are available. Check the Run variant before reading success-only fields.
+
+{/* example: evidence-recovery */}
 
 ```python
-runs = session.runs(limit=20)
-run = session.get_run(runs.items[0].run_id)
-artifact = session.artifact(run.output_artifact_ref)
-graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    artifact = session.artifact(run.output_artifact_ref)
+    artifact.show()
 ```
 
-Run history and SessionGraph project persisted runtime facts only. They do not
-check current semantic authority or datasource freshness. For a succeeded or
-failed Run, inspect `run.queries` when exact executed SQL matters; the default
-Run card shows only bounded query summaries.
+Store 9 keeps project-local Parquet and SQLite metadata under
+`.marivo/analysis/generations/v9/`. Committed local results, Evidence and Findings
+are trusted: reads decode required typed data without content-hash comparison,
+producer replay or re-extracting Findings. Missing/unreadable parts, incompatible
+formats and foreign Session/cursor ownership still fail explicitly.
 
-## Check current authority
+Store 8 and earlier cannot be resumed or migrated. Their directories remain
+untouched when a new Session creates Store 9 in the same project. There is no
+revalidation or automatic reconstruction path. A new live execution creates a
+new result; recovery preserves the prior result’s exact scope and time authority.
 
-```python
-check = session.revalidate(artifact.ref)
-check.show()
-```
+## Interpret evidence within its scope
 
-Revalidation checks persisted identity, current scoped semantic authority, and
-Evidence integrity. It still does not query datasource health or prove
-freshness. `admissible` does not mean business-valid, recommended, or current at
-the source.
+Observation describes its retained scope. Comparison/attribution are algebraic;
+association is descriptive; a forecast is a model output. Screening and Journey/
+History summaries retain fit, assignment, coverage and censoring limits. None
+establishes business authority, freshness or causal conclusions by itself.
 
-## Failure boundaries
+Follow `marivo.help("analysis.evidence")`, or run [the local recovery tutorial](/docs/latest/guides/python-quick-start/).
 
-- An unreadable ledger raises `EvidenceStoreUnavailableError`; it is never an empty page.
-- An id not owned by the Artifact raises `FindingNotFoundError`.
-- Incompatible Store, Run, or Artifact schema fails before projection and leaves old bytes unchanged.
-- There is no Session Evidence namespace, digest page, Finding-selection compatibility, or alias.
-
-Start from `marivo.help("analysis.evidence")` for the current canonical routes.
+Saved Artifacts use compact Cell bindings internally; `show()` and `to_pandas()`
+keep their existing value, tag and reason fields. Older Artifact formats cannot
+be recovered or continued. Preserve the history and files, then re-execute the
+producing source analysis to save a current Artifact. Earlier Store generations are preserved without migration.

@@ -2,7 +2,9 @@
 
 Date: 2026-08-30
 
-Status: proposed
+Revised: 2026-09-07
+
+Status: accepted for the lazy Dataset v3 cutover
 
 ## Relationship to Existing Contracts
 
@@ -34,12 +36,12 @@ This design supersedes the public recovery names and topology in:
   audit is Session-scoped; this design removes the Session Evidence namespace,
   keeps digest and Finding reads on their owning Artifact, folds trace into
   `Finding`, and removes public selection compatibility;
-- [`2026-07-18-evidence-typed-digest-refactor-design.md`](2026-07-18-evidence-typed-digest-refactor-design.md),
+- the historical `2026-07-18-evidence-typed-digest-refactor-design.md`,
   only for its session recap and recovery API layout;
 - [`evidence-compatibility-and-revalidation-design.md`](evidence-compatibility-and-revalidation-design.md),
   for the complete public `EvidenceCompatibility` API, result algebra, Help,
   skill, documentation, and multi-Finding combination promise; its Artifact
-  revalidation contract remains authoritative;
+  historical revalidation contract is superseded by the lazy integrity amendment below;
 - [`2026-08-27-progressive-analysis-live-help-design.md`](2026-08-27-progressive-analysis-live-help-design.md),
   only for removing the now-singleton `runtime.artifacts`, replacing
   `runtime.jobs` with `runtime.runs`, and removing the now-singleton Evidence
@@ -55,10 +57,461 @@ arbitrary caller-selected set of Findings is mechanically safe to combine.
 This is a clean public-surface cutover. The final release contains no aliases,
 deprecation wrappers, dual read paths, or two public vocabularies for the same
 capability. Internal persistence names such as `jobs`, `frames`, and
-`output_frame_ref` may remain implementation details until separately cleaned
-up; they must not leak into the new public contract.
+`output_frame_ref` may remain in the current eager implementation only until
+the atomic Slice 8 deletion; they do not leak into or survive the lazy public
+contract.
 
-## Summary
+## Accepted Lazy Dataset v3 Amendment
+
+The owner accepted this amendment on 2026-09-04 and revised its persistence
+boundary on 2026-09-05 and its Finding coordinate contract on 2026-09-07. The
+coordinate revision is accepted design authority, not implemented behavior or
+runtime acceptance evidence. It is the sole target contract
+for the lazy Dataset cutover. Later sections retain useful current-state history
+and non-conflicting result-protocol guidance, but any eager Frame, v2 Store,
+query-text, reused-Run, `reuses`-edge, separate Evidence database, metadata
+sidecar, Artifact-commit-before-Run-completion, blanket cross-Session input
+rejection, or datasource-freshness verdict is superseded by this section. Slice 8 removes those paths; it does not preserve them as aliases.
+
+### Artifact identity, digest, and summary
+
+```text
+ArtifactRef
+  ref: non-empty opaque str
+
+ArtifactDigest
+  digest_version: Literal["v3"]
+  artifact_ref: ArtifactRef
+  evidence_schema: Literal["marivo.dataset_evidence/v1"]
+  quality_summary_digest: str
+  typed_issue_digest: str
+  evidence_digest: str
+  finding_count: non-negative int
+  finding_set_digest: str
+  extractor_contract_versions: tuple[str, ...]
+
+ArtifactEvidenceSummary
+  quality_summary_digest: str
+  typed_issue_digest: str
+  evidence_digest: str
+  finding_count: non-negative int
+  finding_set_digest: str
+
+ArtifactIssueCounts
+  warning: non-negative int
+  blocking: non-negative int
+
+ArtifactSummary
+  artifact_ref: ArtifactRef
+  artifact_session_ref: non-empty str
+  run_admitted_at: timezone-aware datetime
+  run_finished_at: timezone-aware datetime
+  family_id: registered non-empty str
+  shape_id: registered non-empty str
+  definition_fingerprint: str
+  committed_at: timezone-aware datetime
+  producing_run_ref: str
+  realized_row_count: non-negative int
+  realized_byte_count: DatasetByteCount
+  storage_kind_id: registered non-empty str
+  content_authority_digest: str
+  evidence: ArtifactEvidenceSummary
+  issue_counts: ArtifactIssueCounts
+```
+
+`ArtifactRef` is immutable and unique within the project Store; its original
+producing Session never changes when another Session selects the ref. It accepts one positional `ref`
+or exact `ref=` construction and has no `id` alias. `ArtifactDigest` is the
+exact v1 Evidence-envelope projection; it contains no old digest items,
+inference boundaries, fallback payload, Finding selection, or compatibility
+surface. `MaterializedDataset.evidence_digest` is its only producer.
+
+`ArtifactSummary` is constructed from one committed v3 Session Store snapshot,
+including the Artifact descriptor, producer admission/terminal, and Evidence-envelope columns. Graph reads
+do not scan Finding bodies; no separate Evidence database or metadata sidecar
+exists in the lazy generation.
+There is no nullable eager `semantic_shape`, `analysis_purpose`, `content_hash`,
+or materialization-mode field.
+
+### Revalidation
+
+```text
+ArtifactRevalidationIssue
+  axis: artifact_integrity | storage_authority | evidence_integrity
+  kind: registered non-empty str
+  safe_message: bounded str
+  expected: str | None
+  received: str | None
+  repair: AnalysisRepair | None
+
+ArtifactRevalidation
+  revalidation_version: Literal["v2"]
+  artifact_ref: ArtifactRef
+  checked_at: timezone-aware datetime
+  artifact_integrity: valid | invalid | unverifiable
+  storage_authority: readable | unauthorized | missing | mutated | unknown
+  evidence_integrity: valid | invalid | unverifiable
+  issues: tuple[ArtifactRevalidationIssue, ...]
+```
+
+The three axes cover metadata/part contracts, storage integrity/access, and the
+complete Evidence/Finding set. Full inspection includes all retained parts and
+may scan content and Findings; unavailable checks are reported without claiming
+validity. It never compares a current semantic catalog or origin source state,
+emits a freshness/reuse verdict, or repairs data. Issues name safe part/Finding
+identities where relevant. Normal reads validate only their actual dependencies.
+
+For simultaneous storage problems the summary priority is `mutated`, `missing`,
+`unauthorized`, then `unknown`, retaining every problem in `issues`. Only
+successful checks of all declared storage yield `readable`.
+
+The lazy Run page is `runs(*, status=None, limit=20, cursor=None)`, ordered by
+`(admitted_at, run_id)` newest first. The old `capability_id` filter is absent:
+the only admitted action is `execute()`. Session history retains `recent` and
+`inspect`; their private v3 summaries use `run_count` and `artifact_count`.
+Finding pages follow the committed canonical `finding_ordinal` order, ascending.
+Every Finding in an Artifact shares its publication time; the old v2
+newest-first timestamp pagination does not reorder this immutable set.
+
+### Finding records
+
+```text
+FindingCoordinateV1
+  field_id: DatasetFieldId
+  identity: DatasetFieldIdentity
+  value: str | int | finite float | bool | Decimal | date | datetime | None
+
+AssociationFindingSubjectV1
+  kind: Literal["association"]
+  metric_a: DatasetFieldIdentity
+  metric_b: DatasetFieldIdentity
+
+MetricFindingSubjectV1
+  kind: Literal["metric"]
+  metric: DatasetFieldIdentity
+
+FunnelFindingSubjectV1
+  kind: Literal["event_funnel"]
+  subject_entity_ref: RefPayloadV1
+  pattern_fingerprint: str
+
+FindingSubjectV1
+  = AssociationFindingSubjectV1 | MetricFindingSubjectV1 |
+    FunnelFindingSubjectV1, discriminated by kind
+
+FindingDerivationV1
+  producer_id: registered non-empty str
+  extractor_contract_id: registered non-empty str
+  extractor_contract_version: non-empty str
+  source_artifact_refs: ordered duplicate-free tuple[ArtifactRef, ...]
+  source_fields: ordered duplicate-free tuple[DatasetFieldId, ...]
+
+Finding
+  finding_id: non-empty str
+  artifact_ref: ArtifactRef
+  session_id: non-empty str
+  finding_type: association | delta | contribution | forecast_point |
+                funnel_delta
+  epistemic_kind: algebraic | estimated | predicted
+  subject: FindingSubjectV1
+  coordinates: tuple[FindingCoordinateV1, ...]
+  canonical_item_key: bounded canonical str
+  value: FindingValueV1
+  derivation: FindingDerivationV1
+  committed_at: timezone-aware datetime
+
+FindingPage
+  items: tuple[Finding, ...]
+  limit: int in [1, 100]
+  has_more: bool
+  next_cursor: str | None
+```
+
+`FindingCoordinateV1.value` preserves the existing scalar path, matching the
+bound field's logical type. `None` is admitted only for the exact Dimension-cell
+states below. It is not a general missing-value policy. The closed
+`semantic_null`, `inactive_axis`, and `other` classifications are internal
+validation states derived from the row contract and existing contribution
+masks; no new public value wrapper, constructor, export, Help target, or
+independently authored null-kind field is added.
+
+Coordinate admission is owned by the exact producer/extractor registration.
+Its closed first-cutover field classes are:
+
+- retained governed Dimension coordinates;
+- retained time coordinates and the exact paired `current_time` and
+  `baseline_time` fields attached to an admitted comparison scope;
+- the generated `comparison_ordinal` bound to that same comparison scope;
+- generated step coordinates explicitly registered by the Event/Funnel owner.
+
+An arbitrary generated field is not admitted by having an integer, time, or
+string value. Comparison Findings preserve the ordered scope and paired times
+under the producing Delta/Attribution contract; they never invent one common
+time axis or omit the ordinal to collapse different comparison rows. Entity
+and subject identity fields are rejected before value classification, including
+when null, redacted, hashed, or packaged in a generated field. Entity-scoped
+Attribution produces no Findings.
+
+Only a retained governed Dimension whose exact row contract permits the
+corresponding null cell can use `None`. For an Attribution axis at
+position `i`, the producer's complete masks select its value deterministically:
+
+| Source axis cell and mask state | Public value and internal validation state |
+| --- | --- |
+| active, not Other, non-null cell | exact typed scalar; defined |
+| active, not Other, null cell admitted as a semantic Dimension member | `None`; `semantic_null` |
+| inactive, not Other, null cell | `None`; `inactive_axis` |
+| active, Other, null cell | `None`; `other` |
+
+An inactive Other cell, a non-null inactive/Other cell, mismatched mask length,
+or an unregistered null cell is a publication/read integrity contradiction.
+Outside Attribution decomposition axes, only a nullable retained Dimension
+may use `None`, with `semantic_null` meaning; inactive and Other states are
+forbidden. Time, comparison ordinal, and step coordinates require non-null
+typed scalar values.
+These rules do not encode missing comparison sides, unavailable calculations,
+NaN, infinity, or arbitrary source nulls as coordinates.
+
+Resolution and Other masks remain once in `ContributionFindingValueV1`; the
+internal null classifications are derived from them, not independent
+authoring authority or duplicated persisted tags. The canonical item key remains the exact producer row-key
+encoding, including scope, resolution, axes, and Other distinction. Real null,
+inactive, and Other cells therefore remain distinct without string sentinels
+or identity-bearing values in a Finding. Extraction and cold reads validate the
+same closed contract and never repair an invalid cell or mask from source data.
+
+Association Findings use `AssociationFindingSubjectV1`; Metric Delta, Metric
+Attribution, and Forecast use `MetricFindingSubjectV1`; Funnel Delta and Funnel
+Attribution use `FunnelFindingSubjectV1`.
+
+`FindingValueV1` is the closed discriminated union of
+`AssociationFindingValueV1`, `DeltaFindingValueV1`,
+`ContributionFindingValueV1`, `ForecastPointFindingValueV1`, and
+`FunnelDeltaFindingValueV1`. Typed Operators owns the first four exact field
+tables and Subject/Event/Lifecycle owns the fifth. No arbitrary mapping, `Any`,
+JSON fallback, identity-bearing coordinate, or unregistered Finding kind is
+admitted. `has_more` is true exactly when `next_cursor` is non-null, and page
+items never exceed `limit`.
+
+The derivation value is the sole owner of source Artifact and field facts. Old
+top-level `source_artifact_ref`, `source_fields`, `source_refs`, and
+`retained_digest_item_refs` fields are removed.
+
+### Run records
+
+Every variant carries this immutable common envelope:
+
+```text
+RunDatasetInput
+  definition_fingerprint: str
+  shape_id: DatasetShapeId
+  row_contract_fingerprint: str
+  row_set_contract_fingerprint: str
+  bounded_operator_ids: tuple[str, ...]
+  bounded_semantic_dependency_refs: tuple[str, ...]
+
+common Run fields
+  run_id: non-empty str
+  session_id: non-empty str
+  admitted_at: timezone-aware datetime
+  dataset_input: RunDatasetInput
+  input_artifact_refs: tuple[ArtifactRef, ...]
+```
+
+`RunDatasetInput.shape_id` is a bounded audit projection derived from its
+row-contract authority, not an independently authored family or shape identity.
+The only admitted action is zero-argument `execute()`, so this generation has
+no generic Run argument or omitted-argument surface.
+
+`IncompleteRun` adds no invented terminal field. The terminal variants add:
+
+```text
+SucceededRun
+  finished_at: timezone-aware datetime
+  output_artifact_ref: ArtifactRef
+
+FailedRun
+  failed_at: timezone-aware datetime
+  failure: RunFailure
+
+RunFailure
+  phase: closed RunFailurePhase
+  kind: registered non-empty str
+  safe_message: bounded str
+  safe_location: str | None
+  expected: bounded JsonValue | None
+  received: bounded JsonValue | None
+  repair: AnalysisRepair | None
+  backend_class: registered str | None
+  retry_disposition: retryable | not_retryable
+
+RunPage
+  items: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
+  limit: int in [1, 100]
+  has_more: bool
+  next_cursor: str | None
+```
+
+Run values contain identity, bounded input provenance, timing, output, or failure.
+No compiler-audit object or fingerprint/count inventory is stored or exposed as
+a nested result. Opt-in compiler diagnostics remain execution-local and cannot
+gate success. Materialization facts derive from the committed output Artifact.
+Harmless cleanup obligations remain private journal rows, including after success,
+without changing the public Run lifecycle or blocking unrelated work.
+
+There is no `RunQuery`, query collection, SQL text, output-mode field, old
+`error_type`/`message` failure alias, or public writer-guard handle. An exact
+execution-key Artifact hit recovers the existing Materialized Dataset and
+creates no Run.
+
+### Session graph
+
+```text
+SessionGraphEdge
+  kind: consumes | produces
+  run_id: str
+  artifact_ref: ArtifactRef
+
+SessionGraph
+  session_id: str
+  artifacts: tuple[ArtifactSummary, ...]
+  runs: tuple[IncompleteRun | SucceededRun | FailedRun, ...]
+  edges: tuple[SessionGraphEdge, ...]
+  root_run_ids: tuple[str, ...]
+  head_artifact_refs: tuple[ArtifactRef, ...]
+  failed_run_ids: tuple[str, ...]
+  incomplete_run_ids: tuple[str, ...]
+  boundary_artifact_refs: tuple[ArtifactRef, ...]
+  boundary_run_ids: tuple[str, ...]
+  truncated: bool
+```
+
+Graph reuses the exact terminal Artifact and Run values; there is no graph-node
+copy. The `reuses` edge is removed because binding recovery admits no Run.
+
+Run reads expose no separate authority requirement summary or authority audit.
+Semantic dependency provenance and exact input refs are read from the Artifact
+and normalized Run inputs; no current-definition comparison is offered. Successful execution carries no stored access grant
+or general reuse verdict. Input-check failures use the structured Run failure.
+
+### Explicit cross-Session reads and graph boundaries
+
+`target_session.artifact(ref)` reads an exact Artifact from any Session in the
+same Store into the target execution context. It preserves original ownership,
+producer, backing, Evidence, and Findings, and writes no state. The Materialized
+state's `artifact_session_ref` and `ArtifactSummary.artifact_session_ref` derive
+from the original Artifact row. `run_admitted_at`/`run_finished_at` derive from
+its producing Run; `committed_at` remains the Artifact publication time. They
+are not data freshness, event-time coverage, or suitability claims.
+
+The Agent explicitly selects results using those facts and normal discovery
+from the original Session. There is no automatic cross-Session search/matching,
+age policy, reparenting, import, or reuse certification. Finding `session_id`
+continues to identify the producing Artifact's Session. New computations record
+original input refs while their own Runs/outputs belong to the consuming Session.
+
+Session Run browsing and counts remain local. A Session graph contains its
+local Runs and outputs plus exact external input Artifacts referenced by those
+Runs. Foreign inputs have `consumes` edges to local Runs, keep their original
+owner summaries, and join `boundary_artifact_refs`. Their producing Runs are
+validated by exact reference but never expanded into the current graph. A ref
+read alone adds no graph node. Focused traversal may target an external Artifact
+only if a local Run consumes it; it stops at the Session boundary.
+
+`root_run_ids` is determined from all local Run input edges, including foreign
+inputs. `head_artifact_refs` contains only locally produced Artifacts with no
+succeeded local consumer. Consumers in other Sessions do not alter that local
+head set. `boundary_artifact_refs` now includes both scope boundaries and selected
+nodes with budget-omitted adjacency; `artifact_session_ref` distinguishes foreign
+scope. A foreign boundary alone does not set `truncated`; only omitted nodes
+within the Session-scoped graph do. Existing deterministic selection, node
+budgets, and no-datasource/no-mutation rules remain in force.
+
+No originating Session lock, activation, or recovery is performed by these reads.
+A busy or recovery-blocked originating Session does not block a committed input.
+Inconsistent selected metadata fails on lookup; missing backing fails when an
+operation accesses it, without recomputation;
+foreign Logical graphs and cross-Store objects remain invalid.
+
+### Operation-scoped reads and full integrity inspection
+
+`session.artifact(ref)` constructs a handle from selected Store metadata without
+opening backing or scanning Findings. A preview reads only primary data; a typed
+operator also validates private roles it requires. Finding reads validate selected
+records; they do not recompute the complete Finding-set digest for every page.
+Run reads validate their own admission, terminal, input identities and normalized
+output relationship. They do not decode an output Artifact's descriptor or
+Evidence unless that Artifact is separately selected by the operation. A focused
+Graph budget therefore cannot pull omitted output bodies into its dependency set.
+`revalidate(ref)` is the explicit full scan of metadata, primary data, every part,
+and all Findings. Partial reads never claim full revalidation or reuse approval.
+
+Opening existing v3 state never initializes a database, activates a Session,
+reconciles work or changes logical records and timestamps. SQLite may maintain
+WAL/SHM snapshot-coordination files in a writable existing generation. A clean
+database and directory that are both nonwritable can use immutable SQLite reads
+only when no WAL exists; any existing WAL remains part of the selected authority.
+
+The accepted amendment removes all older semantic-current/stale revalidation
+examples and mandatory compiler-audit descriptions below from the lazy contract.
+It also removes binding-existence disclosure from Logical cards: only `execute()`
+looks up the key. No card cache or second discovery path is introduced.
+
+### Export and Help ownership
+
+The top-level exported terminal type leaves are exactly `ArtifactRef`,
+`ArtifactDigest`, `ArtifactRevalidation`, `ArtifactSummary`, `Finding`,
+`FindingPage`, `IncompleteRun`, `SucceededRun`, `FailedRun`, `RunPage`, and
+`SessionGraph`. `EvidenceIntegrityError` remains the exported structured
+integrity failure. All nested types named above resolve through owner-nested
+focused Help leaves but do not join `mv.__all__` or root discovery.
+
+The exact owner-nested Help leaves are `ArtifactEvidenceSummary`,
+`ArtifactIssueCounts`, `ArtifactRevalidationIssue`, `FindingCoordinateV1`,
+`AssociationFindingSubjectV1`, `MetricFindingSubjectV1`,
+`FunnelFindingSubjectV1`, `FindingDerivationV1`,
+`AssociationFindingValueV1`, `DeltaFindingValueV1`,
+`ContributionFindingValueV1`, `ForecastPointFindingValueV1`,
+`FunnelDeltaFindingValueV1`, `RunDatasetInput`, `RunFailure`,
+and `SessionGraphEdge`.
+
+The 2026-09-05 persistence amendment uses one writer lock per `session_ref`.
+Activation and recovery use the resolved Session's guard; exact Artifact,
+Finding, history, and Graph reads are read-only and do not acquire it. A blocked
+Session does not prevent another Session from executing. The shared current
+pointer is navigation state and cannot redirect an existing Session handle.
+Run-to-Artifact production has one owner, the unique succeeded terminal edge;
+`producing_run_ref` in metadata is its read projection. The full Artifact value
+is assembled from normalized Store rows and its descriptor, not a sidecar.
+
+Public `session.delete` is removed in lazy v3. This read design does not invent
+a partially durable metadata and external-storage deletion protocol.
+
+Discovery ownership is exact:
+
+```text
+analysis.runtime
+  -> session.graph
+  -> session.artifact
+  -> runtime.runs
+
+analysis.runtime.runs
+  -> session.runs
+  -> session.get_run
+
+analysis.evidence
+  -> artifact.evidence_digest
+  -> artifact.findings
+  -> artifact.finding
+  -> session.revalidate
+```
+
+The `artifact.*` capability ids bind the corresponding Materialized Dataset
+members; they do not introduce an Artifact wrapper. There are no Help leaves
+for union aliases, page bases, persistence payloads, `RunQuery`, old Frame
+types, or reuse edges.
+
+## Pre-cutover Summary (superseded for lazy v3)
 
 Replace the storage-shaped Session recovery surface with one agent-shaped
 runtime model:
@@ -68,7 +521,8 @@ Session
   -> exposes typed analysis Capabilities
   -> each admitted materializing Capability execution becomes one Run
   -> Runs consume zero or more Artifacts
-  -> successful Runs produce or reuse one Artifact
+  -> successful Runs produce one Artifact
+  -> exact execution-binding recovery creates no Run
   -> Artifacts carry commit-time Evidence, quality, and Finding ownership
   -> each Finding provides one exact raw audit record and derivation trace
 ```
@@ -88,7 +542,7 @@ Exact Artifact recovery and authority remain explicit:
 
 ```python
 session.artifact(ref)                   # exact live Artifact recovery
-session.revalidate(ref)                 # explicit current authority check
+session.revalidate(ref)                 # explicit full integrity inspection
 ```
 
 Evidence drill-down is discovered from the exact Artifact rather than mixed
@@ -272,7 +726,7 @@ persistence explicit and typed.
    deterministically ordered.
 5. Represent branching, merging, Artifact reuse, failed Runs, incomplete Runs,
    and both upstream and downstream Artifact navigation truthfully.
-6. Keep commit-time state, current semantic authority, and datasource freshness
+6. Keep commit-time state, operation-scoped integrity checks, and Agent freshness judgment
    visibly distinct.
 7. Preserve exact Artifact recovery and Artifact-scoped raw Finding audit
    without requiring private storage inspection.
@@ -342,6 +796,15 @@ conclusion. Each retry creates a new Run. A successful attempt that reuses an
 existing Artifact is still a distinct Run because the attempt, inputs, safe
 arguments, time, and reuse outcome are facts of the current Session history.
 
+Lazy Dataset amendment, 2026-09-02: a same-Session
+`LogicalDataset.execute()` write-once execution-binding hit is exact Artifact
+recovery, not an admitted execution attempt. It performs no datasource work and
+creates no Run or graph edge. The 2026-09-05 runtime amendment serializes all
+writes within that Session through one writer guard. A guarded binding miss
+admits a Run; overlapping writes fail busy without a Run. Different Sessions
+may execute concurrently. Artifact, descriptor, Evidence, Findings, and success
+commit in one SQLite transaction; reads do not perform lifecycle repair.
+
 This layer is necessary because failed and incomplete attempts have no output
 Artifact, while multiple attempts may return the same content-addressed
 Artifact. Neither Capability nor Artifact identity can truthfully represent
@@ -400,7 +863,7 @@ The following axes remain independent:
 | Artifact materialization | `ArtifactState` | existing closed materialization values | commit time |
 | Evidence availability | Artifact metadata | `complete`, `partial`, `unavailable` | commit time |
 | Quality | `QualitySummary` and typed issues | existing closed summary/issues | commit time |
-| Semantic authority | `ArtifactRevalidation` | `current`, `stale`, `indeterminate` | explicit revalidation time |
+| Artifact and storage integrity | `ArtifactRevalidation` | three-axis lazy amendment above | explicit full inspection time |
 | Evidence integrity | `ArtifactRevalidation` | existing revalidation values | explicit revalidation time |
 | Datasource freshness | datasource/runtime authority | not reported by this surface | outside this contract |
 
@@ -408,11 +871,10 @@ The following axes remain independent:
 other. They must not compute labels such as `healthy`, `ready`, `valid`,
 `successful analysis`, or `safe to report` from them.
 
-When semantic authority or freshness was not checked, the renderer states the
-boundary rather than silently omitting it:
+A graph renderer may explain the boundary of its metadata-only view:
 
 ```text
-current authority: not checked; call session.revalidate('<ref>')
+full integrity: not checked; call session.revalidate('<ref>')
 source freshness: not checked by SessionGraph
 ```
 
@@ -507,9 +969,9 @@ artifact.finding(finding_id: str) -> Finding
 ```
 
 `artifact.findings()` is newest-first keyset pagination bounded to `[1, 100]`.
-It opens the owning Session ledger through the immutable `session_id` and
-`project_root` already persisted in Artifact metadata; no mutable Session
-handle or public wrapper is attached to the Artifact. `artifact.finding(id)`
+For lazy v3 it reads the shared Store by exact Artifact identity and preserves
+the original owner on every Finding. A different execution context cannot
+redirect Finding lookup or rewrite original Session identity. `artifact.finding(id)`
 requires the canonical Finding to name `artifact.ref` as its owner. An unknown
 id or a Finding owned by another Artifact raises the existing
 `FindingNotFoundError` scoped to this Artifact; no second ownership-error class
@@ -533,9 +995,10 @@ sequence:
 session.revalidate(session.get_frame(ref))
 ```
 
-Internally the method performs exact Artifact recovery and the existing
-revalidation algorithm. Its authority, Evidence, freshness, mutation, and
-error boundaries do not change.
+For lazy v3 this method directly inspects selected metadata and every declared
+primary/private payload and Finding. It can report corrupt or unverifiable parts
+without requiring an ordinary handle read to succeed first. It compares no current
+semantic catalog or origin source; it neither repairs nor mutates state.
 
 ### Run collection
 
@@ -630,7 +1093,7 @@ promise that multiple Findings are safe to combine.
 count persisted by the producing Artifact. Session browsing reads that metadata
 fact and never opens the Evidence ledger merely to fill the field.
 
-## Public Result Types
+## Pre-cutover Public Result Types (superseded for lazy v3)
 
 ### ArtifactSummary
 
@@ -835,7 +1298,7 @@ Public errors named by this design join the existing Analysis error family,
 `__all__` snapshot, API reference, and focused error Help. They do not implement
 the result protocol or enter root discovery.
 
-## SessionGraph Contract
+## Pre-cutover SessionGraph Contract (superseded for lazy v3)
 
 ### Entrypoint
 
@@ -941,19 +1404,21 @@ incomplete ids likewise name only selected attention Runs. Boundary tuples name
 selected records with omitted adjacency; any other unselected records are
 reported only by `truncated=True` and the readable omission summary.
 
-A root Run consumes no Session Artifact. It may still depend on governed
-semantic definitions, datasource snapshots, or external values retained in its
+A root Run consumes no Artifact, including an input from another Session. It may still depend on governed
+semantic definitions, datasource inputs, or external values retained in its
 Artifact lineage. Those remain Run/Artifact metadata and are not promoted to
 graph nodes in V1.
 
-A head Artifact has no indexed `consumed_by` edge to a succeeded Run in the
-complete Session Store snapshot. This definition is global and does not change
+A head Artifact is produced in the requested Session and has no indexed
+`consumed_by` edge to a succeeded Run in that Session in the complete Store
+snapshot. Consumers in other Sessions do not change this head set. It does not change
 when a focused or truncated Graph selects only part of the Session. A failed or
 incomplete Run may consume a head Artifact; the Artifact remains a materialized
 head while the Run appears in the attention set.
 
-The two boundary tuples identify selected records with omitted adjacent records
-when the `max_nodes` bound truncates a graph. Separate Artifact and Run tuples
+The two boundary tuples identify selected records with budget-omitted adjacency.
+The lazy amendment additionally includes external input Artifact scope boundaries
+without treating that scope limit as truncation. Separate Artifact and Run tuples
 avoid another public identity wrapper and prevent a bounded subgraph root or
 head from being mistaken for a complete-session root or head.
 
@@ -994,16 +1459,18 @@ deterministic queue discipline.
 - reads one Session Store snapshot and immutable Artifact metadata;
 - validates Session ownership and identity agreement;
 - does not load Artifact parquet rows;
-- does not open the Evidence ledger merely to repeat metadata;
+- reads Evidence-envelope columns without scanning Finding bodies;
 - does not execute SQL or contact a datasource;
-- does not revalidate semantic authority;
+- does not perform full integrity inspection;
 - does not recompute quality or Evidence;
 - does not mutate Session state;
 - does not infer analytical importance or recommend an operator.
 
-An unavailable Evidence store therefore does not prevent Graph construction.
-The Graph reports the Artifact's committed `evidence_status` and makes no claim
-about current ledger readability.
+Graph construction depends on the shared Session Store, but not on decoding
+Finding bodies or accessing immutable data storage. It reports commit-time
+Evidence facts without claiming current Finding/content integrity. A busy
+Session writer or unresolved external execution does not block metadata-only
+reads; database unavailability still fails explicitly.
 
 ## Graph Construction and Integrity
 
@@ -1018,7 +1485,7 @@ The projection uses each source only for facts it owns:
 | Artifact identity, canonical producer, family, state, Evidence, quality | Artifact metadata |
 | historical computation ancestry | Artifact lineage, as an integrity cross-check |
 | exact Findings and derivations | Evidence ledger, not read by Graph |
-| current semantic authority | explicit revalidation, not read by Graph |
+| complete payload/Evidence integrity | explicit full inspection, not read by Graph |
 
 The Session Store canonical Run record owns output mode and exact input refs;
 the normalized Run-input relation is only a navigation index. Artifact metadata
@@ -1044,7 +1511,7 @@ quality, and content hash.
 
 The graph fails closed when any selected fact is structurally contradictory:
 
-- a Run input names an Artifact registered to another Session;
+- a Run input names a missing/cross-Store Artifact or forges its original owner;
 - a produced output is missing from the Session Store;
 - a Run claims `produced` but Artifact metadata names another producer;
 - a Run claims `reused` but Artifact metadata names the same Run as producer;
@@ -1075,7 +1542,7 @@ when the next indexed adjacency would exceed `max_nodes`, marks the selected
 boundary, and returns `truncated=True`. This keeps focused reads bounded even
 when one Artifact has a very large downstream impact graph.
 
-## Run Lifecycle Persistence
+## Pre-cutover Run Lifecycle Persistence (superseded for lazy v3)
 
 ### Admission boundary
 
@@ -1169,7 +1636,7 @@ attention:
 heads:
 - delta_... DeltaFrame evidence=complete
 - attr_... AttributionFrame evidence=partial
-current authority: not checked; call session.revalidate('<ref>')
+full integrity: not checked; call session.revalidate('<ref>')
 source freshness: not checked by Session reads
 available:
 - .graph()
@@ -1258,7 +1725,7 @@ docs. There is no compatibility subclass or duplicate public error spelling.
 An empty `SessionGraph`, `RunPage`, or `FindingPage` means the healthy owning
 store matched no records. Store unavailability and corruption always raise.
 
-## Help and Disclosure Contract
+## Pre-cutover Help and Disclosure Contract (superseded for lazy v3)
 
 ### Progressive disclosure invariants
 
@@ -1327,7 +1794,7 @@ ownership explicit:
 Artifact commit-time Evidence -> BaseFrame.show / artifact.evidence_digest
 browse Artifact Findings      -> artifact.findings
 read one exact Finding        -> artifact.finding
-current Artifact authority    -> session.revalidate
+full Artifact integrity       -> session.revalidate
 quality                       -> Artifact quality summary and issues
 source freshness              -> outside this Session surface
 ```
@@ -1422,7 +1889,7 @@ It teaches:
 7. trust `artifact.show()` for immediate commit-time Evidence, use
    `artifact.evidence_digest` for structured digest access, and use
    `artifact.findings()` / `artifact.finding(id)` for canonical raw audit;
-8. revalidate explicitly when current semantic authority matters;
+8. request full integrity inspection explicitly when all data/parts/Findings must be checked;
 9. never treat Graph structure, Evidence completeness, or successful Runs as a
    business conclusion or datasource-freshness proof.
 
@@ -1452,7 +1919,7 @@ not teach both old and new public names. Current Session/runtime guidance states
 that pre-cutover state is incompatible, remains untouched, and must be replaced
 by a newly named Session rather than migrated or imported.
 
-## Persistence and Incompatible State
+## Pre-cutover Persistence and Incompatible State (superseded for lazy v3)
 
 ### Session Store
 
@@ -1589,7 +2056,7 @@ Tests must prove:
 - exact Run records expose bounded safe argument facts rather than only an
   opaque parameter digest;
 - `artifact.evidence_digest` returns the Artifact's immutable commit-time
-  snapshot without a second Evidence Store lookup or recomputation;
+  snapshot without a Finding-body scan or recomputation;
 - `artifact.finding_count` and `ArtifactEvidenceSummary.finding_count` are exact
   non-negative integers for every exact current-schema Artifact;
 - `artifact.findings()` is bounded, Artifact-scoped, and explicit about ledger
@@ -1597,6 +2064,16 @@ Tests must prove:
 - exact `artifact.finding(id)` rejects a Finding owned by another Artifact;
 - each exact Finding carries its complete derivation trace without a second
   public read;
+- scoped Attribution Findings preserve comparison ordinals, paired times, and
+  unrequested Dimension coordinates; repeated axis members on different days
+  retain distinct canonical item keys after cold recovery;
+- real-null, inactive-axis, and Other coordinate cells round-trip under the
+  exact nullable Dimension and mask contract; mismatched masks, arbitrary
+  generated coordinates, null time/ordinal/step, unregistered `None`, NaN, and infinity
+  fail extraction or reading without a fallback;
+- Entity/subject identity is rejected before coordinate value classification,
+  including null/hashed/redacted disguises; Entity-scoped Attribution emits no
+  Findings and no raw identity enters Finding keys or diagnostics;
 - public Help, exports, structured repairs, digest continuations, skills, and
   current docs contain no `session.evidence` route,
   `EvidenceDigestNotAvailableError`, Finding-selection compatibility API, or
@@ -1629,7 +2106,7 @@ Deterministic fixtures must cover:
 - focused ancestor projection;
 - focused descendant projection with failed and incomplete consumers;
 - focused lookup through the normalized Run-input index without a full scan;
-- missing Run record, missing Artifact, cross-Session input, producer mismatch,
+- missing Run record, missing Artifact, cross-Store input, forged owner, producer mismatch,
   unsupported schema, and directed cycle;
 - stable normalized ordering across repeated cold reads;
 - changed returned facts after one committed Run or Artifact fact changes.
@@ -1638,12 +2115,13 @@ Deterministic fixtures must cover:
 
 Tests must independently prove:
 
-- complete Evidence does not imply current semantic authority;
-- current semantic authority does not imply datasource freshness;
-- successful Run does not imply complete Evidence or clean quality;
+- commit-time Evidence does not imply all current backing has been scanned;
+- full integrity inspection does not imply semantic/source freshness;
+- a successful lazy Run guarantees complete commit-time Evidence, but does not
+  imply clean quality or currently valid storage/Evidence integrity;
 - failed Run does not mutate or invalidate an upstream Artifact;
-- unavailable Evidence store does not become an empty Finding page and does not
-  prevent metadata-only Graph construction;
+- unreadable Finding bodies never become an empty Finding page; Graph reads
+  do not decode those bodies, while shared Store unavailability fails explicitly;
 - Graph construction never calls datasource execution, revalidation, quality
   evaluation, or Evidence projection.
 
@@ -1715,7 +2193,7 @@ cold-start recovery journeys must demonstrate:
 2. locate the Run that produced one Artifact;
 3. identify a failed downstream Run in an oversized Session through focused
    descendant navigation without treating its input as failed;
-4. distinguish partial Evidence from stale or unchecked semantic authority;
+4. distinguish commit-time Evidence summaries from operation-scoped checks and full inspection;
 5. distinguish two Runs with the same capability and inputs but different safe
    arguments;
 6. recover one exact Artifact, inspect its bounded digest, then recover exact
@@ -1920,7 +2398,7 @@ This design is complete only when all of the following are true:
    uses Run refs or Graph summaries rather than a second collection.
 5. `session.artifact(ref)` and `session.get_run(id)` are exact typed reads, and
    the Run read exposes bounded safe argument facts.
-6. `session.revalidate(ref)` is the one-step current-authority read.
+6. `session.revalidate(ref)` is the explicit full integrity inspection read.
 7. Artifact digest has one semantic owner and public read path: the Artifact;
    there is no public Session Evidence namespace.
 8. Canonical Finding browse and exact audit are Artifact-scoped, every Finding

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from marivo.datasource.table_source import TableLookupBackend, TableSqlBackend
+from marivo.datasource.table_source import TableLookupBackend
 from marivo.datasource.typing import AiContextValue as AiContextValue
 
 if TYPE_CHECKING:
@@ -16,7 +16,7 @@ __all__ = [
 ]
 
 
-class IbisBackend(TableLookupBackend, TableSqlBackend, Protocol):
+class IbisBackend(TableLookupBackend, Protocol):
     """Protocol for ibis backend objects used by entity functions."""
 
     def read_parquet(self, path: str, /, **options: object) -> ibis.Table: ...

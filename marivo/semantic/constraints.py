@@ -31,6 +31,7 @@ class ConstraintId(StrEnum):
     ACTIVE_DOMAIN_REQUIRED = "active_domain_required"
     UNIQUE_SEMANTIC_NAME = "unique_semantic_name"
     REF_SHAPE = "ref_shape"
+    ENTITY_CONSTRUCTOR_ASSIGNMENT = "entity_constructor_assignment"
     FILTER_CONDITION_VALID = "filter_condition_valid"
     COMPOSITION_SHAPE = "composition_shape"
     CUMULATIVE_ANCHOR = "cumulative_anchor"
@@ -52,6 +53,7 @@ class ConstraintId(StrEnum):
     TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
     TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
+    RELATIONSHIP_MAPPING = "relationship_mapping"
     PROJECT_ORGANIZATION = "project_organization"
     PROJECT_ROOT_VALID = "project_root_valid"
     METRIC_EXISTS = "metric_exists"
@@ -64,20 +66,18 @@ class ConstraintId(StrEnum):
     LINEAR_UNIT_COMMENSURABLE = "linear_unit_commensurable"
     METRIC_ROOT_ENTITY_REQUIRED = "metric_root_entity_required"
     METRIC_ROOT_ENTITY_VALID = "metric_root_entity_valid"
-    METRIC_VERIFICATION_MODE_VALID = "metric_verification_mode_valid"
     METRIC_ROOT_ONLY_AGGREGATE = "metric_root_only_aggregate"
     METRIC_FANOUT_POLICY_VALID = "metric_fanout_policy_valid"
     METRIC_FANOUT_POLICY_DERIVED = "metric_fanout_policy_derived"
     ENTITY_VERSIONING_VALID = "entity_versioning_valid"
+    ENTITY_IDENTITY_KEY_UNIQUE = "entity_identity_key_unique"
+    ENTITY_IDENTITY_KEY_PROJECTED = "entity_identity_key_projected"
+    ENTITY_VERSION_KEY_SEPARATE = "entity_version_key_separate"
     MATERIALIZE_EXECUTION = "materialize_execution"
     BACKEND_DIALECT_MATCH = "backend_dialect_match"
     COMPILE_EXPRESSION = "compile_expression"
     EXPRESSION_BINDING = "expression_binding"
     SINGLE_DATASOURCE_METRIC = "single_datasource_metric"
-    PROVENANCE_DIALECT_REQUIRED = "provenance_dialect_required"
-    PROVENANCE_VERIFIED = "provenance_verified"
-    PARITY_VALUE_MATCH = "parity_value_match"
-    PARITY_SCALAR_RESULT = "parity_scalar_result"
     AMBIGUOUS_REFERENCE = "ambiguous_reference"
     BACKEND_FACTORY_AVAILABLE = "backend_factory_available"
     INSPECT_SOURCE_AVAILABLE = "inspect_source_available"
@@ -103,10 +103,9 @@ class ConstraintId(StrEnum):
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
-    name="single_return_ibis_expression",
+    name="sequential_bindings_ibis_expression",
     single_return=True,
     forbidden_statements=(
-        "Assign",
         "AugAssign",
         "AnnAssign",
         "Import",
@@ -165,6 +164,15 @@ def _constraint(
 
 
 CONSTRAINTS: dict[ConstraintId, Constraint] = {
+    ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT: _constraint(
+        ConstraintId.ENTITY_CONSTRUCTOR_ASSIGNMENT,
+        "entity_constructor_as_decorator",
+        "decorator",
+        ("entity",),
+        "ms.entity(...) is an assignment-style constructor, not a decorator.",
+        "It returns a non-callable Ref[entity] when the declaration is evaluated.",
+        "Assign the result of ms.entity(...) to a name and remove the decorated function body.",
+    ),
     ConstraintId.ACTIVE_LOADER_CONTEXT: _constraint(
         ConstraintId.ACTIVE_LOADER_CONTEXT,
         "outside_loader_context",
@@ -383,9 +391,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "metric_body_not_single_return",
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
-        "Decorator function bodies must be a single return expression.",
+        "Expression decorators allow fresh sequential local bindings and one final return; Events require one return.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
-        "Inline the expression directly as return <ibis expression>.",
+        "Finish with return <ibis expression>; define each local name once before use.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.STATE_MODEL_SHAPE: _constraint(
@@ -420,9 +428,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_component_body",
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
-        "Decorator bodies cannot contain statements, imports, assignments, lambdas, or nested definitions.",
+        "Decorator bodies allow only fresh local expression bindings and a final return; imports, control flow, writes, lambdas, and nested definitions are forbidden.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
-        "Keep the body to a single return expression. For a metric composed from "
+        "Use fresh local bindings and one final return expression (Events allow only the return). For a metric composed from "
         "other metrics, use the body-free constructors instead: "
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
         "ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>). For conditionals, use ibis "
@@ -435,8 +443,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
         "Raw SQL calls are not allowed in Python-track expression bodies.",
-        "The Python semantic track stores ibis expressions; SQL text is provenance only.",
-        "Use ibis expressions in the body and put the original SQL in provenance=ms.from_sql(...) on metrics.",
+        "The Python semantic track stores Ibis expressions; SQL text cannot execute in a metric body.",
+        "Use Ibis expressions in the body; describe historical SQL in ai_context if needed.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_IBIS_ATTR_SHADOW: _constraint(
@@ -508,9 +516,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_dimension_pushdown_advisory",
         "assembly",
         ("time_dimension",),
-        "Partition time dimensions should preserve raw sortable encodings when possible.",
-        "Raw day/hour partition comparisons are easier for SQL engines to push down than parsed or cast expressions.",
-        "For day/hour partition columns such as dt, log_date, event_date, hh, or log_hour, prefer string or integer format with date_format and a bare column body; keep cast/parse expressions only when business time semantics require them.",
+        "ms.strptime(format) requires canonical source encoding: directive widths, zero padding, exact separators and valid calendar values. Ordered encodings permit bare-column ranges without partition enumeration or validation queries; excluded values are not inspected for violations.",
+        "Ordered calendar encodings permit equivalent bare-column time ranges without partition enumeration or validation queries; unqualified inverses retain parsed filtering.",
+        "Declare the raw string/integer column with ms.strptime(format). Keep its values canonical; excluded values are not inspected for violations. Use UTC or a fixed offset for supported clock inverses; named-zone conversion retains parsed filtering.",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,
@@ -545,6 +553,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The compiler uses relationships to plan joins between known entities.",
         "Pass Ref[entity] values or qualified entity ids to from_entity and to_entity.",
     ),
+    ConstraintId.RELATIONSHIP_MAPPING: _constraint(
+        ConstraintId.RELATIONSHIP_MAPPING,
+        "invalid_relationship_mapping",
+        "assembly",
+        ("relationship",),
+        "Relationship keys must be direct Dimensions on their exact endpoints; a structural one side follows complete stable identity coverage.",
+        "Versioned endpoints still require exact version selection before a one side is single-valued.",
+        "Bind direct endpoint Dimensions for every key; cardinality follows complete primary_key coverage.",
+    ),
     ConstraintId.PROJECT_ORGANIZATION: _constraint(
         ConstraintId.PROJECT_ORGANIZATION,
         "organization_error",
@@ -570,7 +587,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare additivity.",
         "Additivity determines how metric values aggregate across dataset rows.",
-        "Set additivity to 'additive', 'semi_additive', or 'non_additive' on @ms.metric().",
+        "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive() on @ms.metric().",
     ),
     ConstraintId.MEASURE_ADDITIVITY_REQUIRED: _constraint(
         ConstraintId.MEASURE_ADDITIVITY_REQUIRED,
@@ -579,7 +596,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "A measure used by a tier-1 metric must declare additivity.",
         "Add additivity= to the @ms.measure(...) declaration.",
-        "Set additivity to 'additive', 'semi_additive', or 'non_additive'.",
+        "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive().",
     ),
     ConstraintId.MEASURE_AGGREGATION_VALID: _constraint(
         ConstraintId.MEASURE_AGGREGATION_VALID,
@@ -617,15 +634,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The root entity anchors the metric's aggregation grain.",
         "Use an Ref[entity] from the metric's entities list as root_entity.",
     ),
-    ConstraintId.METRIC_VERIFICATION_MODE_VALID: _constraint(
-        ConstraintId.METRIC_VERIFICATION_MODE_VALID,
-        "invalid_verification_mode",
-        "assembly",
-        ("metric",),
-        "Metric provenance must be consistent.",
-        "provenance enables SQL parity verification; derived metrics must omit provenance.",
-        "Base metrics: use provenance=ms.from_sql(sql=..., dialect=...). Derived metrics: remove provenance.",
-    ),
     ConstraintId.METRIC_ROOT_ONLY_AGGREGATE: _constraint(
         ConstraintId.METRIC_ROOT_ONLY_AGGREGATE,
         "non_root_metric_aggregate",
@@ -642,7 +650,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "fanout_policy must be 'block' or 'aggregate_then_join', authored on base metrics only.",
         "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
-        "Set fanout_policy='aggregate_then_join' only on additive/semi_additive base metrics; derived metrics must keep the default.",
+        "Set fanout_policy='aggregate_then_join' only on base metrics with an admitted additive or semi-additive declaration; derived metrics must keep the default.",
     ),
     ConstraintId.METRIC_FANOUT_POLICY_DERIVED: _constraint(
         ConstraintId.METRIC_FANOUT_POLICY_DERIVED,
@@ -659,9 +667,36 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_entity_versioning",
         "assembly",
         ("entity",),
-        "Snapshot versioning partition field must be part of primary_key.",
+        "Snapshot versioning coordinates must be separate from stable primary_key identity.",
         "The partition field determines which rows are used for latest snapshot joins.",
-        "Add the partition column to the entity's primary_key list.",
+        "Keep stable identity columns in primary_key and declare the partition coordinate in versioning.",
+    ),
+    ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE: _constraint(
+        ConstraintId.ENTITY_IDENTITY_KEY_UNIQUE,
+        "duplicate_identity_key",
+        "assembly",
+        ("entity",),
+        "Each stable Entity identity key appears once in primary_key.",
+        "A repeated name cannot define one ordered identity tuple.",
+        "Remove repeated names from primary_key.",
+    ),
+    ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED: _constraint(
+        ConstraintId.ENTITY_IDENTITY_KEY_PROJECTED,
+        "missing_identity_key_column",
+        "assembly",
+        ("entity",),
+        "Every identity key must be exposed by an explicit source projection.",
+        "Identity keys are resolved from the source when analysis first needs their types.",
+        "Add each missing identity key to columns=... or omit the source projection.",
+    ),
+    ConstraintId.ENTITY_VERSION_KEY_SEPARATE: _constraint(
+        ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
+        "identity_version_overlap",
+        "assembly",
+        ("entity",),
+        "Stable identity keys exclude snapshot and validity row coordinates.",
+        "The source row key derives from identity and the independent version coordinate.",
+        "Remove version coordinates from primary_key and keep them in versioning.",
     ),
     ConstraintId.METRIC_EXISTS: _constraint(
         ConstraintId.METRIC_EXISTS,
@@ -731,11 +766,13 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_binding_ref",
         "runtime",
         ("bind", "dimension", "time_dimension", "measure", "metric"),
-        "Semantic fields bind explicitly inside an active expression body.",
+        "ms.bind takes a bare field-Ref name and a direct Entity parameter inside an active expression body.",
         "Ref values carry identity only; the loaded expression context owns field bodies, "
         "entity ownership, and cycle checks.",
         "Use ms.bind(field_ref, entity_alias) with a dimension, time_dimension, or measure "
-        "and one direct decorated-body entity parameter.",
+        "and one direct decorated-body entity parameter. Assign cross-file refs from "
+        "ms.ref.<kind>(exact_path) at module scope before decoration; inline attributes, "
+        "factories, ref construction, and locally aliased Entity arguments are invalid.",
     ),
     ConstraintId.SINGLE_DATASOURCE_METRIC: _constraint(
         ConstraintId.SINGLE_DATASOURCE_METRIC,
@@ -745,42 +782,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A metric can only span one datasource.",
         "Cross-datasource metric execution has no single backend to compile against.",
         "Keep component datasets on one datasource or model the integration upstream.",
-    ),
-    ConstraintId.PROVENANCE_DIALECT_REQUIRED: _constraint(
-        ConstraintId.PROVENANCE_DIALECT_REQUIRED,
-        "provenance_dialect_missing",
-        "parity",
-        ("metric",),
-        "Metric provenance SQL requires a dialect.",
-        "The parity engine compares Python metric output with the original SQL.",
-        "Add provenance=ms.from_sql(sql=..., dialect=...) to the metric decorator.",
-    ),
-    ConstraintId.PROVENANCE_VERIFIED: _constraint(
-        ConstraintId.PROVENANCE_VERIFIED,
-        "unverified_provenance",
-        "parity",
-        ("metric",),
-        "Source SQL provenance should be parity checked.",
-        "Agents need to know whether Python semantics match the original SQL definition.",
-        "Run project.parity_check(...) or semantic check --parity.",
-    ),
-    ConstraintId.PARITY_VALUE_MATCH: _constraint(
-        ConstraintId.PARITY_VALUE_MATCH,
-        "parity_value_mismatch",
-        "parity",
-        ("metric",),
-        "Parity expected and actual values must match.",
-        "A mismatch means the Python metric has drifted from source SQL semantics.",
-        "Compare the compiled metric expression with provenance SQL and update the metric body.",
-    ),
-    ConstraintId.PARITY_SCALAR_RESULT: _constraint(
-        ConstraintId.PARITY_SCALAR_RESULT,
-        "parity_not_scalar",
-        "parity",
-        ("metric",),
-        "Parity SQL must return exactly one scalar result.",
-        "Scalar parity compares one metric value to one source SQL value.",
-        "Adjust provenance SQL so it returns one row and one column.",
     ),
     ConstraintId.AMBIGUOUS_REFERENCE: _constraint(
         ConstraintId.AMBIGUOUS_REFERENCE,
@@ -841,9 +842,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_time_fold",
         "decorator",
         ("metric",),
-        "time_fold must be a supported fold kind with valid parameters.",
+        "status_time_fold or aggregate fold must be a supported fold kind with valid parameters.",
         "Fold kinds define how sampled time series are compressed into a single representative value.",
-        "Use time_fold='mean', 'min', 'max', 'first', 'last', or ('percentile', q) with 0 < q < 1.",
+        "Use status_time_fold= (or aggregate fold=) with 'mean', 'min', 'max', 'first', 'last', or ('percentile', q) where 0 < q < 1.",
     ),
     ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
         ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
@@ -867,10 +868,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ConstraintId.TIME_FOLD_MISSING,
         "missing_time_fold",
         "assembly",
-        ("metric",),
-        "Semi-additive metrics on sampled entities must declare a time_fold.",
+        ("measure", "metric"),
+        "Sampled status-time declarations require status_time_fold.",
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
-        "Add time_fold='mean' (or another fold kind) to the metric declaration.",
+        "Set status_time_fold to the business fold on the Measure or Metric declaration.",
     ),
     ConstraintId.STATUS_TIME_DIMENSION_REQUIRED: _constraint(
         ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,

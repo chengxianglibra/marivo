@@ -17,7 +17,9 @@ from marivo.refs import (
     MeasureKind,
     MetricKind,
     Ref,
+    RelationshipKind,
     SemanticKind,
+    TimeDimensionKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -38,20 +40,24 @@ from marivo.semantic._authoring_validation import (
     _compute_agg_hash,
     _normalize_additivity,
     _normalize_time_fold,
-    _validate_metric_provenance,
     _validate_unit,
+    _validate_value_policies,
 )
 from marivo.semantic._authoring_values import _build_ai_context
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
-    Additivity,
     AggKind,
     AggregateFoldInput,
     DomainIR,
     MetricIR,
-    SqlProvenance,
     WeightedMeanAggregation,
     WhereFilter,
     WhereValue,
@@ -125,6 +131,10 @@ def aggregate(
     name: str,
     measure: Ref[MeasureKind],
     agg: AggKind,
+    time: Ref[TimeDimensionKind] | None = None,
+    time_via: tuple[Ref[RelationshipKind], ...] = (),
+    nulls: NullInputPolicyV1 | None = None,
+    empty: EmptyContributionPolicyV1 | None = None,
     fold: AggregateFoldInput = None,
     filter: WhereFilter | None = None,
     unit: str | None = None,
@@ -143,27 +153,47 @@ def aggregate(
         agg: Aggregation kind: ``"sum"``, ``"count"``, ``"count_distinct"``,
             ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
             ``("percentile", q)`` for the q-th percentile across rows in each
-            query group.
+            query group. ``"approx_count_distinct"``, ``"approx_median"`` and
+            ``("approx_percentile", q)`` explicitly permit source-native
+            approximation. Observation never overrides this definition.
+            Unsupported exact operations report the corresponding approximate
+            definition and whether the datasource supports it; no automatic substitution.
+            Loading preserves valid declarations. Scoped catalog.readiness()
+            blocks known aggregate/backend incompatibilities without opening
+            the datasource; passing does not certify a particular analysis operation.
+        time: Business event-time dimension for windowed observation.
+        time_via: Ordered to-one relationships from the measure Entity to the time Entity.
+        nulls: Declared input-Null policy for admitted Analysis methods.
+        empty: Declared complete-empty-contribution policy.
         fold: Time-axis fold override for semi-additive measures. It does not
             change aggregation additivity (for example, ``agg="mean"`` remains
             non-additive while still folding its sampled time series):
             ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
-            ``("percentile", q)``. Same fold as ``ms.semi_additive(over, fold)``;
-            collapses the ``over`` time axis. Distinct from
+            ``("percentile", q)``. It collapses the declared status-time axis.
+            Distinct from
             ``agg=("percentile", q)``, which aggregates across rows in each
             query group rather than along the time axis.
         filter: Optional ``ms.where(dimension=value, ...)`` to aggregate only
             rows matching local semantic dimensions (e.g. a subset sum).
             ``None`` aggregates all rows.
         unit: Override the unit derived from ``measure`` at load. Leave None to
-            inherit the measure's unit (count/count_distinct derive nothing).
+            inherit the measure's unit for value aggregates. Count,
+            count_distinct, and approx_count_distinct derive unit ``"1"``.
         domain: Override the active domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
+
+    Returns:
+        A stable ``Ref[metric]`` for the aggregate declared in the active loader context.
 
     Example:
         >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
         >>> inventory = ms.aggregate(name="inventory", measure=quantity, agg="sum", fold="last")
         >>> p95_latency = ms.aggregate(name="p95_latency", measure=latency, agg=("percentile", 0.95))
+
+    Constraints:
+        Declare inside a loaded domain module. Aggregate exactness belongs to
+        this definition; static readiness checks known backend incompatibilities,
+        while the consuming analysis operation owns physical-type and shape checks.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -173,11 +203,30 @@ def aggregate(
         expected=(SemanticKind.MEASURE,),
     )
     entity_id = measure_id.rsplit(".", 1)[0]
+    event_time_id = (
+        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+        if time is not None
+        else None
+    )
+    if type(time_via) is not tuple or (time_via and event_time_id is None):
+        _raise(
+            ErrorKind.INVALID_REF,
+            "time_via requires time and a tuple of Relationship refs.",
+            cls=SemanticDecoratorError,
+            constraint_id=ConstraintId.REF_SHAPE,
+        )
+    time_path = tuple(
+        _require_ref_id(item, parameter=f"time_via[{index}]", expected=(SemanticKind.RELATIONSHIP,))
+        for index, item in enumerate(time_via)
+    )
     obj_name = name
     semantic_id = f"{resolved_domain}.{obj_name}"
     ref = ref_factory.metric(semantic_id)
     _check_duplicate(ctx, semantic_id, MetricIR)
     _validate_unit(unit, semantic_id)
+    _validate_value_policies(
+        semantic_id=semantic_id, nulls=nulls, empty=empty, zero_denominator=None
+    )
     fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
     ai_ctx = _build_ai_context(ai_context)
     location = _caller_location()
@@ -192,7 +241,6 @@ def aggregate(
         measure=measure_id,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir, filter=filter_pairs),
         python_symbol=obj_name,
@@ -204,6 +252,10 @@ def aggregate(
         aggregation_target=measure_id,
         aggregation_target_kind="measure",
         filter=filter_pairs,
+        event_time_dimension=event_time_id,
+        event_time_path=time_path,
+        null_policy=nulls,
+        empty_policy=empty,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref
@@ -219,11 +271,12 @@ def weighted_mean(
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[MetricKind]:
-    """Declare an exact tier-1 weighted mean over two row-level measures.
+    """Declare a tier-1 weighted mean over two row-level measures.
 
     Marivo computes ``sum(value * weight) / sum(weight)`` over rows where both
     inputs are non-null. A zero total weight produces null. The two measures
-    must resolve to the same entity and the weight must be additive.
+    must resolve to the same entity and the weight must be additive. Numeric
+    input types may differ; Ibis arithmetic determines native precision.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -248,7 +301,6 @@ def weighted_mean(
         measure=None,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=_build_ai_context(ai_context),
         body_ast_hash=body_hash,
         python_symbol=name,
@@ -295,6 +347,8 @@ def where(
     """Build an AND-joined filter for ``ms.count`` / ``ms.aggregate``.
 
     Each keyword is a local semantic dimension name on the target entity.
+    For ``count``, this is its Entity; for ``aggregate``, the Measure's Entity.
+    Physical columns and dimensions on related Entities are not filter names.
     A scalar value means equality; a non-empty tuple/list means membership.
     Use this to express subset counts and aggregates without a hand-written
     metric body.
@@ -309,10 +363,11 @@ def where(
         A :class:`WhereFilter` to pass as ``filter=``.
 
     Example:
+        >>> state = ms.dimension_column(name="state", entity=queries, column="state")
         >>> terminal = ms.count(
         ...     name="terminal_count",
         ...     entity=queries,
-        ...     filter=ms.where(type=(2, 4)),
+        ...     filter=ms.where(state=("FAILED", "ERROR")),
         ... )
     """
     if not conditions:
@@ -386,6 +441,7 @@ def count(
     *,
     name: str,
     entity: Ref[EntityKind],
+    time: Ref[TimeDimensionKind] | None = None,
     filter: WhereFilter | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[MetricKind]:
@@ -395,6 +451,7 @@ def count(
         name: Metric name inside the entity's domain.
         entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
             so agents do not guess raw semantic ids.
+        time: Native business event-time dimension for windowed observation.
         filter: Optional ``ms.where(dimension=value, ...)`` to count only rows
             matching local semantic dimensions (e.g. a failure/error subset).
             ``None`` counts all rows.
@@ -407,15 +464,23 @@ def count(
     Example:
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> order_count = ms.count(name="order_count", entity=orders)
+        >>> state = ms.dimension_column(name="state", entity=orders, column="state")
         >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
 
     Constraints:
-        Counts rows of the target entity. Use ``ms.aggregate(...)`` for measure
+        Counts rows of the target entity with fixed unit ``"1"`` (unit one).
+        No ``unit=`` parameter is accepted. The Entity and metric definition
+        identify what is counted. Use ``ms.aggregate(...)`` for measure
         aggregation and ``@ms.metric(...)`` for custom expressions.
     """
     ctx = _require_ctx()
     entity_ref = _require_entity_ref(entity, parameter="entity")
     entity_id = entity_ref.path
+    event_time_id = (
+        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+        if time is not None
+        else None
+    )
     resolved_domain = _domain_from_ref_id(entity_id)
     semantic_id = f"{resolved_domain}.{name}"
     ref = ref_factory.metric(semantic_id)
@@ -433,7 +498,6 @@ def count(
         measure=None,
         composition=None,
         additivity=None,
-        provenance=None,
         ai_context=ai_ctx,
         body_ast_hash=_compute_agg_hash(entity_id, "count", None, filter=filter_pairs),
         python_symbol=name,
@@ -441,7 +505,9 @@ def count(
         root_entity=entity_id,
         aggregation_target=entity_id,
         aggregation_target_kind="entity",
+        unit="1",
         filter=filter_pairs,
+        event_time_dimension=event_time_id,
     )
     _push_ir(ctx, ref, metric_ir, None)
     return ref
@@ -451,11 +517,16 @@ def metric(
     *,
     name: str | None = None,
     entities: list[Ref[EntityKind]],
-    additivity: Additivity,
+    additivity: AdditivityPolicy,
+    time: Ref[TimeDimensionKind] | None = None,
+    status_time_dimension: Ref[TimeDimensionKind] | None = None,
+    status_time_fold: AggregateFoldInput = None,
+    nulls: NullInputPolicyV1 | None = None,
+    empty: EmptyContributionPolicyV1 | None = None,
+    zero_denominator: ZeroDenominatorPolicyV1 | None = None,
     root_entity: Ref[EntityKind] | None = None,
     fanout_policy: Literal["block", "aggregate_then_join"] = "block",
     unit: str | None = None,
-    provenance: SqlProvenance | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[..., Any]], Ref[MetricKind]]:
@@ -464,11 +535,16 @@ def metric(
     Args:
         name: Metric name. Defaults to the function name.
         entities: List of entity refs.
-        additivity: ``"additive"``, ``"non_additive"``, or ``ms.semi_additive(over, fold)``.
+        additivity: Closed coordinate-additivity policy.
+        time: Business event-time dimension for windowed observation.
+        status_time_dimension: Optional business status-time axis.
+        status_time_fold: Fold over the status-time axis, when declared.
+        nulls: Explicit selected-input Null policy.
+        empty: Explicit complete-empty-contribution policy.
+        zero_denominator: Explicit division-by-zero policy.
         root_entity: Required when more than one entity is provided.
         fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
         unit: UCUM unit token.
-        provenance: Optional ``SqlProvenance`` from ``ms.from_sql(sql=..., dialect=...)``.
         domain: Override the active domain namespace.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
@@ -476,9 +552,19 @@ def metric(
         A decorator that returns a ``Ref[metric]``.
 
     Example:
-        >>> @ms.metric(entities=[orders], additivity="additive")
-        ... def gmv(orders):
-        ...     return (orders.price * orders.qty).sum()
+        >>> @ms.measure(entity=orders, additivity=ms.additive_all())
+        ... def amount(rows):
+        ...     return rows.price * rows.quantity
+        >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
+        ... def revenue(rows):
+        ...     return ms.bind(amount, rows).sum()
+
+    Constraints:
+        Use ``ms.bind(field_ref, rows)`` to consume a semantic field's definition;
+        ``rows.amount`` accesses the physical column. A status-time axis must
+        appear in ``additive_all(except_=...)``. ``status_time_fold`` requires
+        that axis and is required for sampled status time; non-sampled status
+        declarations may omit the fold.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -489,7 +575,12 @@ def metric(
         ref = ref_factory.metric(semantic_id)
         _check_duplicate(ctx, semantic_id, MetricIR)
         _validate_unit(unit, semantic_id)
-        _validate_metric_provenance(provenance)
+        _validate_value_policies(
+            semantic_id=semantic_id,
+            nulls=nulls,
+            empty=empty,
+            zero_denominator=zero_denominator,
+        )
         entity_refs = _resolve_entity_refs(entities)
         if len(entity_refs) == 0:
             _raise(
@@ -525,6 +616,25 @@ def metric(
                 cls=SemanticDecoratorError,
                 constraint_id=ConstraintId.METRIC_ROOT_ENTITY_REQUIRED,
             )
+        event_time_id = (
+            _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
+            if time is not None
+            else None
+        )
+        status_id = (
+            _require_ref_id(
+                status_time_dimension,
+                parameter="status_time_dimension",
+                expected=(SemanticKind.TIME_DIMENSION,),
+            )
+            if status_time_dimension is not None
+            else None
+        )
+        status_fold = (
+            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
+            if status_time_fold is not None
+            else None
+        )
         metric_ir = MetricIR(
             semantic_id=semantic_id,
             domain=resolved_domain,
@@ -534,8 +644,12 @@ def metric(
             aggregation=None,
             measure=None,
             composition=None,
-            additivity=_normalize_additivity(additivity, semantic_id=semantic_id),
-            provenance=provenance,
+            additivity=_normalize_additivity(
+                additivity,
+                semantic_id=semantic_id,
+                status_time_dimension=status_id,
+                status_time_fold=status_fold,
+            ),
             ai_context=ai_ctx,
             body_ast_hash=expression_body.body_ast_hash,
             python_symbol=fn.__name__,
@@ -544,6 +658,13 @@ def metric(
             fanout_policy=fanout_policy,
             unit=unit,
             unit_override=unit,
+            dsl_additivity=additivity,
+            event_time_dimension=event_time_id,
+            status_time_dimension=status_id,
+            status_time_fold=status_fold,
+            null_policy=nulls,
+            empty_policy=empty,
+            zero_denominator_policy=zero_denominator,
         )
         _push_ir(ctx, ref, metric_ir, expression_body)
         return ref

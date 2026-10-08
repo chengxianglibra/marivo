@@ -4,11 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from dataclasses import dataclass
 from threading import Timer
 from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
 
+from marivo.datasource.capabilities import (
+    ProviderStatement,
+    execute_provider_statement,
+    register_provider_statements,
+    url_is_in_http_scope,
+)
 from marivo.datasource.engines.base import (
     AuthoringCapabilities,
     EngineMetadataIntrospection,
@@ -18,9 +25,192 @@ from marivo.datasource.engines.base import (
     default_table_name_parts,
     identity_str,
 )
+from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
+
+register_provider_statements(
+    "duckdb",
+    {
+        "connection.read_only": ProviderStatement(
+            statement_id="duckdb.connection.read_only",
+            template="BEGIN TRANSACTION READ ONLY",
+            allowed_purposes=frozenset({"datasource.connection"}),
+        ),
+        "http_secret_bearer": ProviderStatement(
+            statement_id="duckdb.http_secret_bearer",
+            template=(
+                "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
+            ),
+            parameterized=True,
+            allowed_purposes=frozenset({"datasource.http_credentials"}),
+        ),
+        "http_secret_headers": ProviderStatement(
+            statement_id="duckdb.http_secret_headers",
+            template=(
+                "CREATE OR REPLACE SECRET marivo_http_auth "
+                "(TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
+            ),
+            parameterized=True,
+            allowed_purposes=frozenset({"datasource.http_credentials"}),
+        ),
+        "tables.comment_size": ProviderStatement(
+            statement_id="duckdb.tables.comment_size",
+            template=(
+                "SELECT comment, estimated_size FROM duckdb_tables() "
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "tables.comment": ProviderStatement(
+            statement_id="duckdb.tables.comment",
+            template=(
+                "SELECT comment FROM duckdb_tables() WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} LIMIT 1"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "tables.columns": ProviderStatement(
+            statement_id="duckdb.tables.columns",
+            template=(
+                "SELECT column_name, data_type, is_nullable, comment "
+                "FROM duckdb_columns() "
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table} "
+                "ORDER BY column_index"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "namespace.current": ProviderStatement(
+            statement_id="duckdb.namespace.current",
+            template="SELECT current_database() AS database_name, current_schema() AS schema_name",
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "views.schema_qualified": ProviderStatement(
+            statement_id="duckdb.views.schema_qualified",
+            template=(
+                "SELECT sql FROM duckdb_views() "
+                "WHERE view_name = {table} AND internal = false AND schema_name = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "views.database_qualified": ProviderStatement(
+            statement_id="duckdb.views.database_qualified",
+            template=(
+                "SELECT sql FROM duckdb_views() "
+                "WHERE view_name = {table} AND internal = false "
+                "AND database_name = {database} AND schema_name = {schema} "
+                "LIMIT 1"
+            ),
+            literal_slots=frozenset({"table", "database", "schema"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+        "constraints": ProviderStatement(
+            statement_id="duckdb.constraints",
+            template=(
+                "SELECT constraint_type, constraint_column_names "
+                "FROM duckdb_constraints() "
+                "WHERE database_name = {database} AND schema_name = {schema} AND table_name = {table}"
+            ),
+            literal_slots=frozenset({"database", "schema", "table"}),
+            allowed_purposes=frozenset({"datasource.metadata.duckdb"}),
+        ),
+    },
+)
+
+
+@dataclass(frozen=True)
+class DuckDbHttpCredentials:
+    """Scoped HTTP credentials installed on one DuckDB connection."""
+
+    scope: str
+    headers: tuple[tuple[str, str], ...]
+
+    def headers_for(self, url: str) -> dict[str, str]:
+        if not url_is_in_http_scope(url, self.scope):
+            return {}
+        return dict(self.headers)
+
+
+def http_credentials(
+    backend: BaseBackend,
+    *,
+    scope: object,
+    bearer_token: object,
+    headers: object,
+) -> DuckDbHttpCredentials | None:
+    """Install the declared scoped HTTP secret and return in-memory headers.
+
+    The secret values are passed as statement parameters, so they never appear
+    in rendered SQL text or the capability submission log.
+    """
+    if bearer_token is None and not headers:
+        return None
+    raw_sql = getattr(backend, "raw_sql", None)
+    if not callable(raw_sql):
+        raise DatasourceFieldInvalidError(
+            message="DuckDB HTTP auth requires a backend with raw_sql support",
+            expected="a DuckDB backend",
+            received=type(backend).__name__,
+            location="DuckDB HTTP auth",
+            repair=repair(
+                kind="reconnect",
+                canonical_id="test",
+                action="Reconnect using the declared DuckDB datasource.",
+            ),
+        )
+    if not isinstance(scope, str):
+        raise DatasourceFieldInvalidError(
+            message="DuckDB HTTP auth scope was not resolved",
+            expected="an HTTP(S) scope string",
+            received=repr(scope),
+            location="DuckDB HTTP auth",
+            repair=repair(
+                kind="reauthor",
+                canonical_id="duckdb",
+                action="Declare an explicit HTTP(S) scope on the DuckDB datasource.",
+            ),
+        )
+    if isinstance(bearer_token, str):
+        execute_provider_statement(
+            backend,
+            PROFILE,
+            "duckdb.http_secret_bearer",
+            purpose="datasource.http_credentials",
+            parameters=[bearer_token, scope],
+        )
+        return DuckDbHttpCredentials(
+            scope=scope,
+            headers=(("Authorization", f"Bearer {bearer_token}"),),
+        )
+    if (
+        isinstance(headers, Mapping)
+        and headers
+        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
+    ):
+        execute_provider_statement(
+            backend,
+            PROFILE,
+            "duckdb.http_secret_headers",
+            purpose="datasource.http_credentials",
+            parameters=[dict(headers), scope],
+        )
+        return DuckDbHttpCredentials(scope=scope, headers=tuple(headers.items()))
+    raise DatasourceFieldInvalidError(
+        message="DuckDB custom HTTP authentication was not fully resolved",
+        expected="environment-sourced custom HTTP headers",
+        received="incomplete HTTP authentication fields",
+        location="DuckDB HTTP auth",
+        repair=repair(
+            kind="reauthor",
+            canonical_id="duckdb",
+            action="Declare one complete environment-backed HTTP auth mode.",
+        ),
+    )
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -30,21 +220,23 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs: dict[str, object] = dict(kwargs)
     connect_kwargs.pop("path", None)
     connect_kwargs["database"] = path
+    connect_kwargs["threads"] = 1
+    connect_kwargs["TimeZone"] = "UTC"
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
-    # DuckDB cannot open an in-memory database in connection-level read-only
-    # mode. A read-only transaction still permits the temporary views used by
-    # Ibis file readers while rejecting writes to database tables.
     memory_read_only = path == ":memory:" and bool(connect_kwargs.get("read_only"))
     if memory_read_only:
         connect_kwargs["read_only"] = False
     backend = ibis.duckdb.connect(**connect_kwargs)
     if memory_read_only:
         try:
-            backend.raw_sql("BEGIN TRANSACTION READ ONLY")
+            execute_provider_statement(
+                backend, PROFILE, "duckdb.connection.read_only", purpose="datasource.connection"
+            )
         except BaseException:
             backend.disconnect()
             raise
+    backend._marivo_timezone_name = "UTC"
     return backend
 
 
@@ -61,32 +253,12 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     return out
 
 
-def _duckdb_view_predicate(
-    table: str,
-    database: str | tuple[str, ...] | None,
-    *,
-    default_database: str | None = None,
-    default_schema: str = "main",
-) -> str:
-    from marivo.datasource.metadata import _quote_literal
-
-    predicates = [
-        f"view_name = {_quote_literal(table)}",
-        "internal = false",
-    ]
-    if isinstance(database, tuple):
-        if len(database) == 1:
-            predicates.append(f"schema_name = {_quote_literal(database[0])}")
-        elif len(database) >= 2:
-            predicates.append(f"database_name = {_quote_literal(database[0])}")
-            predicates.append(f"schema_name = {_quote_literal(database[1])}")
-    elif database is not None:
-        predicates.append(f"schema_name = {_quote_literal(database)}")
-    else:
-        if default_database is not None:
-            predicates.append(f"database_name = {_quote_literal(default_database)}")
-        predicates.append(f"schema_name = {_quote_literal(default_schema)}")
-    return " AND ".join(predicates)
+def _duckdb_rows(
+    backend: Any, statement_id: str, values: Mapping[str, object] = {}
+) -> tuple[dict[str, object], ...]:
+    return execute_provider_statement(
+        backend, PROFILE, statement_id, values=values, purpose="datasource.metadata.duckdb"
+    )
 
 
 def _inspect_duckdb(
@@ -98,6 +270,7 @@ def _inspect_duckdb(
     table_expr: Any,
     include_partitions: bool,
 ) -> TableMetadata:
+    from marivo.datasource.errors import _backend_failure_summary
     from marivo.datasource.metadata import (
         ColumnMetadata,
         MetadataWarning,
@@ -108,25 +281,43 @@ def _inspect_duckdb(
         _empty_to_none,
         _int_or_none,
         _merge_columns,
-        _query_rows,
-        _quote_literal,
         _schema_columns,
+        _schema_only,
     )
 
     schema_columns = _schema_columns(table_expr)
     warnings: list[MetadataWarning] = []
     table_comment: str | None = None
     catalog_columns: dict[str, ColumnMetadata] = {}
-    is_view = False
+    is_view: bool | None = None
     view_definition: str | None = None
     physical_profile: TablePhysicalProfile | None = None
 
+    namespace = table_expr.op().namespace
     try:
-        table_rows = _query_rows(
-            backend,
-            "SELECT comment, estimated_size FROM duckdb_tables() "
-            f"WHERE table_name = {_quote_literal(table)} LIMIT 1",
+        current = _duckdb_rows(backend, "duckdb.namespace.current")[0]
+        facts = {
+            "database": namespace.catalog or current["database_name"],
+            "schema": namespace.database or current["schema_name"],
+            "table": table,
+        }
+    except Exception as exc:
+        return _schema_only(
+            datasource=datasource,
+            table=table,
+            database=database,
+            backend_type="duckdb",
+            table_expr=table_expr,
+            warnings=(
+                MetadataWarning(
+                    kind="metadata_query_failed",
+                    message=f"duckdb namespace metadata unavailable: {_backend_failure_summary(exc).message}",
+                ),
+            ),
         )
+
+    try:
+        table_rows = _duckdb_rows(backend, "duckdb.tables.comment_size", facts)
         if table_rows:
             row = table_rows[0]
             table_comment = _empty_to_none(row.get("comment"))
@@ -141,35 +332,31 @@ def _inspect_duckdb(
                 )
     except Exception as exc:
         try:
-            table_rows = _query_rows(
-                backend,
-                "SELECT comment FROM duckdb_tables() "
-                f"WHERE table_name = {_quote_literal(table)} LIMIT 1",
-            )
+            table_rows = _duckdb_rows(backend, "duckdb.tables.comment", facts)
             if table_rows:
                 table_comment = _empty_to_none(table_rows[0].get("comment"))
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"duckdb physical profile query failed: {exc}",
+                    message=(
+                        "duckdb physical profile query failed: "
+                        f"{_backend_failure_summary(exc).message}"
+                    ),
                 )
             )
         except Exception as exc2:
             warnings.append(
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"duckdb table metadata query failed: {exc2}",
+                    message=(
+                        "duckdb table metadata query failed: "
+                        f"{_backend_failure_summary(exc2).message}"
+                    ),
                 )
             )
 
     try:
-        column_rows = _query_rows(
-            backend,
-            "SELECT column_name, data_type, is_nullable, comment "
-            "FROM duckdb_columns() "
-            f"WHERE table_name = {_quote_literal(table)} "
-            "ORDER BY column_index",
-        )
+        column_rows = _duckdb_rows(backend, "duckdb.tables.columns", facts)
         for index, row in enumerate(column_rows, start=1):
             name = str(row.get("column_name"))
             catalog_columns[name] = ColumnMetadata(
@@ -183,28 +370,15 @@ def _inspect_duckdb(
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"duckdb column metadata query failed: {exc}",
+                message=(
+                    f"duckdb column metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
     try:
-        default_database: str | None = None
-        default_schema = "main"
-        if database is None:
-            namespace_rows = _query_rows(
-                backend,
-                "SELECT current_database() AS database_name, current_schema() AS schema_name",
-            )
-            if namespace_rows:
-                default_database = _empty_to_none(namespace_rows[0].get("database_name"))
-                default_schema = _empty_to_none(namespace_rows[0].get("schema_name")) or "main"
-        view_rows = _query_rows(
-            backend,
-            "SELECT sql FROM duckdb_views() "
-            "WHERE "
-            f"{_duckdb_view_predicate(table, database, default_database=default_database, default_schema=default_schema)} "
-            "LIMIT 1",
-        )
+        view_rows = _duckdb_rows(backend, "duckdb.views.database_qualified", facts)
+        is_view = bool(view_rows)
         if view_rows:
             is_view = True
             view_definition = _empty_to_none(view_rows[0].get("sql"))
@@ -212,19 +386,16 @@ def _inspect_duckdb(
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"duckdb view metadata query failed: {exc}",
+                message=(
+                    f"duckdb view metadata query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
     primary_keys: tuple[str, ...] = ()
     unique_constraints: tuple[UniqueConstraintMetadata, ...] = ()
     try:
-        constraint_rows = _query_rows(
-            backend,
-            "SELECT constraint_type, constraint_column_names "
-            "FROM duckdb_constraints() "
-            f"WHERE table_name = {_quote_literal(table)}",
-        )
+        constraint_rows = _duckdb_rows(backend, "duckdb.constraints", facts)
         pk_columns: list[str] = []
         uq_rows: list[UniqueConstraintMetadata] = []
         for row in constraint_rows:
@@ -245,7 +416,9 @@ def _inspect_duckdb(
         warnings.append(
             MetadataWarning(
                 kind="metadata_query_failed",
-                message=f"duckdb constraint query failed: {exc}",
+                message=(
+                    f"duckdb constraint query failed: {_backend_failure_summary(exc).message}"
+                ),
             )
         )
 
@@ -317,11 +490,9 @@ PROFILE = EngineProfile(
     connect=connect,
     connection_conflict=connection_conflict,
     apply_read_only_kwargs=apply_read_only_kwargs,
-    timezone_probe_sql="select current_setting('TimeZone') as timezone",
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,
-    readonly_tx_start=None,
     metadata=EngineMetadataIntrospection(inspect_table=inspect_table),
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
@@ -330,9 +501,11 @@ PROFILE = EngineProfile(
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_str,
-    postprocess_sql=identity_str,
     datetime_decode_policy="local_naive_label",
+    exact_count_distinct=True,
+    exact_quantile=True,
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,
     authoring_timeout=authoring_timeout,
+    http_credentials=http_credentials,
 )

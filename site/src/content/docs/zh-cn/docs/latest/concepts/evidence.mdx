@@ -1,58 +1,74 @@
 ---
-title: 证据链
-description: 通过 Artifact 自有的 Finding 读取保持可审计，同时区分语义权威与数据源新鲜度。
+title: 证据与恢复
+description: 检查已提交事实并恢复确切 Store 9 结果。
 ---
 
-Marivo 的证据层记录确定性分析事实，但不替智能体组合 Finding、判断因果或业务有效性。
+Artifact 管理保存的行、保留状态与执行证据；Run 记录执行身份及成功或失败。
+跨结果综合、业务判断与因果解释由 Agent 负责。
 
-## 读取当前 Artifact
+## 读取产生结果的 Run
+
+`current`与 `baseline`是同一 Session 中兼容的 Logical 数值观察。
+
+{/* example: evidence-producing-run */}
 
 ```python
-artifact = session.compare(current, baseline)
+artifact = current.compare(baseline).execute()
 artifact.show()
-print(artifact.evidence_status, artifact.finding_count)
+artifact.contract().show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-`evidence_status` 为 `complete`、`partial` 或 `unavailable`。内嵌
-`evidence_digest` 是有界的即时摘要；遗漏项通过同一 Artifact 审计：
+`contract()`描述保留状态与准入后续操作，不认证文件字节未改变。Logical 值在执行之前没有已提交 Evidence。
+
+## 读取有界 Findings
+
+`artifact`是前述示例的已提交结果。
+
+{/* example: evidence-findings */}
 
 ```python
-page = artifact.findings(limit=20)
-finding = artifact.finding(page.items[0].finding_id)
+digest = artifact.evidence_digest()
+print(digest.finding_count)
+findings = artifact.findings(limit=20)
+for finding in findings.items:
+    finding.show()
+run = session.get_run(artifact.state.producing_run_ref)
+run.show()
 ```
 
-`FindingPage` 不可变，`has_more` 为真时把 `next_cursor` 传回同一方法。
-Finding 保留完整 derivation、来源 Artifact、字段、引用以及被摘要保留的 item 引用，
-因此不再提供独立 derivation trace API。
+Evidence/Findings 与结果共同发布。Finding cursor 属于确切 owning Artifact，
+通过 `has_more`、`next_cursor`分页。空 Findings 表示空的已提交集合。
+Findings 报告确定性计算事实，不是生成叙事或因果解释。
 
-## 冷启动恢复
+## 恢复确切成功结果
+
+已有 `session`、`mv`与记录的 `run_id`。读取成功专属字段前先检查 Run variant。
+
+{/* example: evidence-recovery */}
 
 ```python
-runs = session.runs(limit=20)
-run = session.get_run(runs.items[0].run_id)
-artifact = session.artifact(run.output_artifact_ref)
-graph = session.graph(artifact_ref=artifact.ref, direction="ancestors")
+run = session.get_run(run_id)
+if isinstance(run, mv.SucceededRun):
+    artifact = session.artifact(run.output_artifact_ref)
+    artifact.show()
 ```
 
-Run 与 Graph 只投影持久化的运行事实。它们不检查当前语义权威，也不检查数据源新鲜度。
-需要核对 succeeded 或 failed Run 的实际 SQL 时读取 `run.queries`；默认 Run card
-只展示有界的查询摘要。
+Store 9 将项目本地 Parquet 和 SQLite 元数据保存在
+`.marivo/analysis/generations/v9/`。信任本地已提交结果、Evidence 和 Findings；
+读取解码所需 typed data，不比较内容哈希、不重放 producer、不重新提取 Findings。
+缺失或不可读 part、格式不兼容和跨 Session/cursor ownership 仍明确失败。
 
-## 当前权威
+Store 8 及更早代不能恢复或迁移。在同一项目创建新的 Session 时，Store 9 使用独立目录，旧目录保持不变。
+没有 revalidation 或自动重建入口。新的 live 执行创建新结果；恢复保留原结果的确切范围与时间依据。
 
-```python
-check = session.revalidate(artifact.ref)
-check.show()
-```
+## 在证据范围内解释
 
-revalidation 检查持久化身份、当前作用域语义权威和证据完整性，但仍不查询数据源健康状态，
-也不证明新鲜度。`admissible` 不能被解读为业务有效、推荐行动或数据源当前。
+观察描述保留范围。比较与归因是代数的，关联是描述性的，预测是模型输出。
+筛选与 Journey/History 汇总保留拟合、assignment、覆盖和删失限制。
+它们本身都不建立业务依据、新鲜度或因果结论。
 
-## 失败边界
+跟随 `marivo.help("analysis.evidence")`，或运行[本地恢复教程](/zh-cn/docs/latest/guides/python-quick-start/)。
 
-- ledger 不可读会抛出 `EvidenceStoreUnavailableError`，不会伪装为空页面；
-- 不属于该 Artifact 的 id 会抛出 `FindingNotFoundError`；
-- 不兼容 Store、Run 或 Artifact schema 会在投影前失败，旧目录保持不变；
-- 不提供 Session Evidence namespace、digest page、Finding selection compatibility 或兼容别名。
-
-从 `marivo.help("analysis.evidence")` 获取当前唯一入口。
+已保存的 Artifact 内部使用紧凑 Cell 绑定；`show()` 与 `to_pandas()` 仍保留原有的值、标签和原因字段。旧格式 Artifact 不能恢复或继续执行。请保留历史记录与文件，重新执行来源分析，保存当前格式的 Artifact。旧 Store 代际保留原文件，不执行迁移。

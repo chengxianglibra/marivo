@@ -1,0 +1,467 @@
+"""Public API tests for marivo.datasource manage (registry)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import ibis
+import pytest
+
+import marivo.datasource as md
+from marivo.datasource import secrets as datasource_secrets
+from marivo.datasource.authoring import (
+    ClickHouseSpec,
+    DatasourceSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
+)
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMissingError
+
+
+class _ProbeResult:
+    result_rows = [(1,)]
+
+
+class _ProbeCursor:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self._failure = failure
+        self._read = False
+
+    def execute(self, sql: str) -> None:
+        assert sql == "SELECT 1"
+        if self._failure is not None:
+            raise self._failure
+
+    def fetchmany(self, _size: int) -> list[tuple[int]]:
+        if self._read:
+            return []
+        self._read = True
+        return [(1,)]
+
+    def close(self) -> None:
+        return None
+
+
+class _ProbeConnection:
+    def __init__(self, failure: Exception | None = None) -> None:
+        self._failure = failure
+
+    def cursor(self) -> _ProbeCursor:
+        return _ProbeCursor(self._failure)
+
+
+@pytest.fixture
+def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
+    if backend_type == "duckdb":
+        return DuckDBSpec(name=name, **fields)
+    if backend_type == "trino":
+        return TrinoSpec(name=name, **fields)
+    if backend_type == "mysql":
+        return MySQLSpec(name=name, **fields)
+    if backend_type == "postgres":
+        return PostgresSpec(name=name, **fields)
+    if backend_type == "clickhouse":
+        return ClickHouseSpec(name=name, **fields)
+    raise AssertionError(f"unexpected backend_type: {backend_type}")
+
+
+def test_set_returns_summary(project_root: Path) -> None:
+    summary = md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    assert summary.name == "wh"
+    assert summary.backend_type == "duckdb"
+    assert (project_root / "models" / "datasources" / "wh.py").is_file()
+
+
+def test_set_rejects_model_qualified_name(project_root: Path) -> None:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
+        md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
+    assert exc_info.value.expected == "[a-z][a-z0-9_]*"
+    assert "sales_warehouse" in str(exc_info.value.repair.action)
+    assert "Update references to use the new identity" in str(exc_info.value.repair.action)
+
+
+def test_list_returns_sorted_summaries(project_root: Path) -> None:
+    md.register(_spec("b", backend_type="duckdb", path=":memory:"))
+    md.register(_spec("a", backend_type="duckdb", path=":memory:"))
+    names = [p.name for p in md.list()]
+    assert names == ["a", "b", "default"]
+
+
+def test_describe_redacts_secrets(project_root: Path) -> None:
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            port=8080,
+            catalog="hive",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
+    )
+    desc = md.describe("wh")
+    assert desc.literal_fields == {"host": "trino.example", "port": 8080, "catalog": "hive"}
+    assert desc.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
+
+
+def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+        )
+    )
+
+    class _FakeBackend:
+        disconnected = False
+        name = "trino"
+        con = _ProbeConnection()
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
+        def raw_sql(self, sql: str):
+            assert sql == "SELECT 1"
+            return _ProbeResult()
+
+        def list_tables(self):
+            raise AssertionError("list_tables requires a default schema for Trino")
+
+        def disconnect(self) -> None:
+            self.disconnected = True
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+
+    monkeypatch.setattr(registry_mod, "_connect", lambda _name, **kwargs: backend)
+
+    result = md.test("wh")
+
+    assert result.ok is True, result.failure
+    assert result.repair is None
+    assert backend.disconnected is True
+
+
+def test_connect_context_manager_yields_backend_and_disconnects(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def raw_sql(self, sql: str) -> str:
+            assert sql == "SELECT 1"
+            return "ok"
+
+        def list_tables(self) -> list[str]:
+            return ["orders"]
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource import backends
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        backends,
+        "build_backend_with_secrets",
+        lambda _datasource, **kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets={}
+        ),
+    )
+
+    connection = registry_mod._connect("wh")
+    assert connection.backend is backend
+    assert connection.list_tables() == ["orders"]
+
+    with connection as con:
+        assert con is backend
+        assert con.raw_sql("SELECT 1") == "ok"
+        assert backend.disconnect_calls == 0
+
+    assert backend.disconnect_calls == 1
+
+
+def test_connect_context_manager_disconnects_after_error(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource import backends
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        backends,
+        "build_backend_with_secrets",
+        lambda _datasource, **kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets={}
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"), registry_mod._connect("wh"):
+        raise RuntimeError("boom")
+
+    assert backend.disconnect_calls == 1
+
+
+def test_connect_manual_disconnect_is_idempotent(
+    project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+
+    class _FakeBackend:
+        disconnect_calls = 0
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+
+    backend = _FakeBackend()
+    import marivo.datasource.manage as registry_mod
+    from marivo.datasource import backends
+    from marivo.datasource.backends import BuiltDatasourceBackend
+
+    monkeypatch.setattr(
+        backends,
+        "build_backend_with_secrets",
+        lambda _datasource, **kwargs: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets={}
+        ),
+    )
+
+    connection = registry_mod._connect("wh")
+    connection.disconnect()
+    connection.disconnect()
+    with connection:
+        pass
+
+    assert backend.disconnect_calls == 1
+
+
+def test_datasource_test_success_persists_env_sourced_secret(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import provider_for
+
+    provider_for("trino")
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
+    )
+    monkeypatch.setenv("TRINO_USER", "reader")
+    monkeypatch.setenv("TRINO_AUTH", "validated-secret")
+    persisted: list[tuple[str, str]] = []
+
+    class _FakeBackend:
+        name = "trino"
+        con = _ProbeConnection()
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
+        def raw_sql(self, sql: str) -> object:
+            assert sql == "SELECT 1"
+            return _ProbeResult()
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "persist_env_sourced",
+        lambda resolved: persisted.extend((item.name, item.value) for item in resolved),
+    )
+
+    class _FakeTrino:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            assert kwargs["user"] == "reader"
+            assert kwargs["auth"] == "validated-secret"
+            return _FakeBackend()
+
+    monkeypatch.setattr(ibis, "trino", _FakeTrino())
+
+    result = md.test("wh")
+
+    assert result.ok is True, result.failure
+    assert result.failure is None
+    assert persisted == [
+        ("TRINO_USER", "reader"),
+        ("TRINO_AUTH", "validated-secret"),
+    ]
+
+
+def test_datasource_test_failure_does_not_persist_env_sourced_secret(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import provider_for
+
+    provider_for("trino")
+    md.register(
+        _spec(
+            "wh",
+            backend_type="trino",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+            auth_env="TRINO_AUTH",
+        )
+    )
+    monkeypatch.setenv("TRINO_USER", "reader")
+    monkeypatch.setenv("TRINO_AUTH", "bad-secret")
+    persisted: list[tuple[str, str]] = []
+
+    class _FakeBackend:
+        name = "trino"
+        con = _ProbeConnection(RuntimeError("authentication failed"))
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
+        def raw_sql(self, sql: str) -> object:
+            raise RuntimeError("authentication failed")
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        datasource_secrets,
+        "persist_env_sourced",
+        lambda resolved: persisted.extend((item.name, item.value) for item in resolved),
+    )
+
+    class _FakeTrino:
+        @staticmethod
+        def connect(**kwargs: object) -> object:
+            assert kwargs["auth"] == "bad-secret"
+            return _FakeBackend()
+
+    monkeypatch.setattr(ibis, "trino", _FakeTrino())
+
+    result = md.test("wh")
+
+    assert result.ok is False
+    assert result.failure is not None
+    assert result.failure.code == "connection_roundtrip_failed"
+    assert result.failure.exception_type == "RuntimeError", result.failure.message
+    assert result.failure.message == "authentication failed"
+    assert result.repair is not None
+    assert result.repair.kind == "reconnect"
+    assert not hasattr(result, "contract")
+    assert persisted == []
+
+
+def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from marivo.datasource import manage as manage_mod
+
+    monkeypatch.setattr(
+        manage_mod,
+        "_connect",
+        lambda _name, **kwargs: (_ for _ in ()).throw(
+            RuntimeError(
+                "connect postgresql://alice:uri-secret@db.example "
+                'password=super-secret "token":"json-secret"'
+            )
+        ),
+    )
+    open_failure = md.test("wh")
+
+    assert open_failure.failure is not None
+    assert open_failure.failure.code == "connection_open_failed"
+    assert "uri-secret" not in open_failure.failure.message
+    assert "super-secret" not in open_failure.failure.message
+    assert "json-secret" not in open_failure.failure.message
+    assert "://<redacted>@db.example" in open_failure.failure.message
+    assert "password=<redacted>" in open_failure.failure.message
+    assert '"token"=<redacted>' in open_failure.failure.message
+
+    class _FakeBackend:
+        name = "trino"
+        con = _ProbeConnection()
+
+        def compile(self, _expression: object, *, limit: None) -> str:
+            return "SELECT 1"
+
+        def raw_sql(self, _sql: str) -> object:
+            return _ProbeResult()
+
+        def disconnect(self) -> None:
+            return None
+
+    monkeypatch.setattr(manage_mod, "_connect", lambda _name, **kwargs: _FakeBackend())
+    monkeypatch.setattr(
+        manage_mod._secrets,
+        "persist_backend_env_sourced",
+        lambda _backend: (_ for _ in ()).throw(
+            PermissionError(
+                "cache denied for /Users/alice/.marivo/secrets.toml password=super-secret"
+            )
+        ),
+    )
+    caplog.set_level("WARNING", logger="marivo.datasource.secrets")
+    cache_failure = md.test("wh")
+
+    assert cache_failure.ok is True
+    assert cache_failure.failure is None
+    assert cache_failure.repair is None
+    warnings = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "marivo.datasource.secrets"
+    ]
+    assert warnings == [
+        "Validated datasource secrets could not be cached; "
+        "continuing without persistence (error_type=PermissionError)"
+    ]
+    assert "cache denied" not in warnings[0]
+    assert "/Users/alice" not in warnings[0]
+    assert "super-secret" not in warnings[0]
+
+
+def test_describe_missing_raises_with_hint(project_root: Path) -> None:
+    with pytest.raises(DatasourceMissingError) as exc_info:
+        md.describe("nope")
+    rendered = str(exc_info.value)
+    assert "md.register" in rendered
+    assert "'nope'" in rendered
+
+
+def test_remove_returns_bool(project_root: Path) -> None:
+    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    assert md.remove("wh") is True
+    assert md.remove("wh") is False

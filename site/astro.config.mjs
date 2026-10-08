@@ -1,7 +1,11 @@
+import { docsByVersion } from './docs-versions.mjs';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-function docsItems(version, releaseNotes, isLatest) {
+function docsItems(version, isLatest = false) {
+  const releaseNotes = docsByVersion[version]
+    .filter((page) => page.startsWith('release-notes/'))
+    .map((page) => page.slice('release-notes/'.length, -'.mdx'.length));
   const versionSlug = `docs/${version}`;
   const releaseNotesGroup = {
     label: 'Release Notes',
@@ -38,28 +42,47 @@ function docsItems(version, releaseNotes, isLatest) {
           { slug: `${versionSlug}/installation` },
           { slug: `${versionSlug}/quick-start` },
           { slug: `${versionSlug}/first-analysis` },
+          { slug: `${versionSlug}/guides/python-quick-start` },
         ],
       },
       {
-        label: 'Work with an agent',
+        label: 'Common workflows',
         translations: {
-          'zh-CN': '与智能体协作',
+          'zh-CN': '常用工作流',
         },
         items: [
           { slug: `${versionSlug}/guides/business-question` },
           { slug: `${versionSlug}/concepts/semantic-layer` },
           { slug: `${versionSlug}/concepts/analysis-workflow` },
-          { slug: `${versionSlug}/concepts/readiness` },
-          { slug: `${versionSlug}/concepts/evidence` },
+          { slug: `${versionSlug}/guides/datasources` },
+          { slug: `${versionSlug}/guides/semantic-modeling` },
         ],
       },
       {
-        label: 'Integration and reference',
+        label: 'Complete guides',
         translations: {
-          'zh-CN': '集成与参考',
+          'zh-CN': '完整专题',
+        },
+        items: [
+          { slug: `${versionSlug}/guides/time-and-cohorts` },
+          { slug: `${versionSlug}/guides/comparison-and-attribution` },
+          { slug: `${versionSlug}/guides/statistics` },
+          { slug: `${versionSlug}/guides/events-and-funnels` },
+          { slug: `${versionSlug}/guides/lifecycle-and-retention` },
+          { slug: `${versionSlug}/guides/calendars-and-schedules` },
+        ],
+      },
+      {
+        label: 'Reference',
+        translations: {
+          'zh-CN': '参考',
         },
         items: [
           { slug: `${versionSlug}/concepts` },
+          { slug: `${versionSlug}/concepts/readiness` },
+          { slug: `${versionSlug}/concepts/evidence` },
+          { slug: `${versionSlug}/reference/backends-and-limits` },
+          { slug: `${versionSlug}/reference/troubleshooting` },
           { slug: `${versionSlug}/reference/project-configuration` },
           { slug: `${versionSlug}/reference/telemetry` },
           { slug: `${versionSlug}/reference/deployment` },
@@ -146,31 +169,31 @@ export default defineConfig({
           translations: {
             'zh-CN': '最新版',
           },
-          items: docsItems('latest', ['0.5.7', '0.5.6', '0.5.5', '0.5.4', '0.5.3', '0.5.2', '0.5.1', '0.5.0', '0.4.16', '0.4.15', '0.4.14', '0.4.13', '0.4.12', '0.4.11', '0.4.10', '0.4.9', '0.4.8', '0.4.7', '0.4.6', '0.4.5', '0.4.4', '0.4.3', '0.4.2', '0.4.1', '0.4.0', '0.3.3', '0.3.2', '0.3.1', '0.3.0', '0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0'], true),
+          items: docsItems('latest', true),
         },
         {
           label: 'v0.5',
-          items: docsItems('v0.5', ['0.5.7', '0.5.6', '0.5.5', '0.5.4', '0.5.3', '0.5.2', '0.5.1', '0.5.0']),
+          items: docsItems('v0.5'),
           collapsed: true,
         },
         {
           label: 'v0.4',
-          items: docsItems('v0.4', ['0.4.16', '0.4.15', '0.4.14', '0.4.13', '0.4.12', '0.4.11', '0.4.10', '0.4.9', '0.4.8', '0.4.7', '0.4.6', '0.4.5', '0.4.4', '0.4.3', '0.4.2', '0.4.1', '0.4.0', '0.3.3', '0.3.2', '0.3.1', '0.3.0', '0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0']),
+          items: docsItems('v0.4'),
           collapsed: true,
         },
         {
           label: 'v0.3',
-          items: docsItems('v0.3', ['0.3.3', '0.3.2', '0.3.1', '0.3.0', '0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0']),
+          items: docsItems('v0.3'),
           collapsed: true,
         },
         {
           label: 'v0.2',
-          items: docsItems('v0.2', ['0.2.8', '0.2.7', '0.2.6', '0.2.5', '0.2.4', '0.2.3', '0.2.2', '0.2.1', '0.2.0', '0.1.0']),
+          items: docsItems('v0.2'),
           collapsed: true,
         },
         {
           label: 'v0.1',
-          items: docsItems('v0.1', ['0.1.0']),
+          items: docsItems('v0.1'),
           collapsed: true,
         },
         {

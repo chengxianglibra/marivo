@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
+from marivo._errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
 
@@ -51,6 +52,8 @@ def _backend_failure_summary(exc: Exception) -> _BackendFailureSummary:
         message = message[: _MAX_BACKEND_MESSAGE_CODEPOINTS - 3] + "..."
 
     raw_code = getattr(exc, "code", None)
+    if raw_code is None and exc.args and type(exc.args[0]) is int:
+        raw_code = exc.args[0]
     if raw_code is None:
         code_match = _BACKEND_CODE_RE.search(raw_message)
         backend_code = code_match.group(1) if code_match is not None else None
@@ -125,14 +128,14 @@ def _connection_timeout_repair(
         )
     else:
         action = (
-            "The SELECT 1 round-trip did not complete within the deadline; "
+            "The Ibis literal round-trip did not complete within the deadline; "
             "verify the backend responds to queries, then retry with a larger "
             "timeout_seconds."
         )
     return repair(kind="reconnect", canonical_id="test", action=action)
 
 
-class DatasourceError(Exception):
+class DatasourceError(MarivoError):
     """Base datasource error with the stable recovery field set."""
 
     def __init__(
@@ -144,6 +147,8 @@ class DatasourceError(Exception):
         location: str | None = None,
         effect_observed: DatasourceObservedEffects | None = None,
         repair: AuthoringRepair | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -152,6 +157,8 @@ class DatasourceError(Exception):
         self.location = location
         self.effect_observed = effect_observed
         self.repair = repair
+        self.exception_type = exception_type
+        self.traceback = traceback
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
@@ -159,6 +166,7 @@ class DatasourceError(Exception):
             ("Location", self.location),
             ("Expected", self.expected),
             ("Received", self.received),
+            ("Exception type", self.exception_type),
         ):
             if value is not None:
                 lines.append(f"{label}: {value}")
@@ -178,6 +186,8 @@ class DatasourceError(Exception):
             if target.canonical_id is not None:
                 qualified = f"{target.surface}.{target.canonical_id}"
                 lines.append(f"Help: marivo.help({qualified!r})")
+        if self.traceback is not None:
+            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 
@@ -261,7 +271,30 @@ class DatasourceLoadError(DatasourceError):
 
 
 class DatasourceDuplicateError(DatasourceError):
-    pass
+    def __init__(
+        self,
+        *,
+        message: str,
+        declaration_paths: tuple[str, ...] = (),
+        expected: str | None = None,
+        received: str | None = None,
+        location: str | None = None,
+        effect_observed: DatasourceObservedEffects | None = None,
+        repair: AuthoringRepair | None = None,
+        exception_type: str | None = None,
+        traceback: str | None = None,
+    ) -> None:
+        self.declaration_paths = declaration_paths
+        super().__init__(
+            message=message,
+            expected=expected,
+            received=received,
+            location=location,
+            effect_observed=effect_observed,
+            repair=repair,
+            exception_type=exception_type,
+            traceback=traceback,
+        )
 
 
 class DatasourceMissingError(DatasourceError):
@@ -370,7 +403,7 @@ class DatasourceConnectionError(DatasourceError):
 class DatasourceConnectionTimeoutError(DatasourceConnectionError):
     """A datasource connection phase exceeded its bounded wall-clock deadline.
 
-    Raised when either the backend-connect handshake or the ``SELECT 1``
+    Raised when either the backend-connect handshake or the Ibis literal
     round-trip exceeds ``timeout_seconds``. Carries the failed ``stage``
     (``connection_timeout`` vs ``connection_roundtrip_timeout``), the configured
     timeout, the measured elapsed time, and the datasource name so callers can
@@ -390,12 +423,10 @@ class DatasourceConnectionTimeoutError(DatasourceConnectionError):
         self.timeout_seconds = timeout_seconds
         self.elapsed_ms = elapsed_ms
         self.datasource_name = datasource_name
-        phase = "connection handshake" if stage == "connection_timeout" else "SELECT 1 round-trip"
-        resolved_location = location or (
-            f"md.connect({datasource_name!r})"
-            if stage == "connection_timeout"
-            else f"md.test({datasource_name!r})"
+        phase = (
+            "connection handshake" if stage == "connection_timeout" else "Ibis literal round-trip"
         )
+        resolved_location = location or f"md.test({datasource_name!r})"
         super().__init__(
             message=(
                 f"datasource {datasource_name!r} {stage} exceeded the "

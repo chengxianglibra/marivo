@@ -3,24 +3,28 @@
 from __future__ import annotations
 
 import os
-import secrets
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import duckdb
 import ibis
 
-from marivo._compat import UTC
-from marivo.refs import EntityKind, Ref
-from marivo.refs import ref as ref_factory
-
 if TYPE_CHECKING:
+    from marivo._help.render import PublicHelpTarget
+    from marivo.analysis.core.graph import MethodNode
+    from marivo.analysis.core.time_authority import TemporalExecution
+    from marivo.analysis.materialization.graph_store import GraphArtifact
+    from marivo.analysis.session.core import Session
+    from marivo.refs import EntityKind, MeasureKind, Ref
+    from marivo.semantic._dsl_authoring import AdditivityPolicy
     from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.ir import DimensionIR, MetricIR, TargetDimensionContract
     from marivo.semantic.loader import LoadResult
 
 # ---------------------------------------------------------------------------
@@ -33,7 +37,350 @@ _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
 
 
-def rendered_help(target: object | None = None, *, owner: str | None = None) -> str:
+def observation_temporal(
+    axis: TargetDimensionContract, physical_type: str = "timestamp(6)"
+) -> TemporalExecution:
+    """Bind explicit UTC test inputs to the same closed observation authority."""
+    from marivo.analysis.compiler.source_time import source_time
+    from marivo.analysis.core.time_authority import ReportTimeAuthority, TemporalExecution
+
+    value = ibis.table({axis.source_column: physical_type})[axis.source_column]
+    _, authority = source_time(
+        value, axis, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+    )
+    return TemporalExecution(report=ReportTimeAuthority(), axes=(authority,))
+
+
+# The S0 DSL journeys share declarations, but each journey owns its source rows.
+DslScenario = Literal[
+    "j1",
+    "j2",
+    "j3",
+    "j3_weighting",
+    "j4",
+    "j4_ties",
+    "empty_domain",
+    "empty_group",
+    "zero_denominator",
+    "null_classification",
+    "missing_key",
+    "nonfinite",
+    "overflow",
+    "tuple_union",
+]
+
+
+@dataclass(frozen=True)
+class DslNames:
+    domain: str = "sales"
+    customer: str = "customer"
+    order: str = "order"
+    order_line: str = "order_line"
+    customer_id: str = "customer_id"
+    order_id: str = "order_id"
+    line_id: str = "line_id"
+    region: str = "region"
+    channel: str = "channel"
+    status: str = "status"
+    ordered_at: str = "ordered_at"
+    amount: str = "amount"
+    line_amount: str = "line_amount"
+    buyer: str = "order_buyer"
+    line_order: str = "line_order"
+    revenue: str = "revenue"
+    order_count: str = "order_count"
+    line_revenue: str = "line_revenue"
+    aov: str = "aov_from_lines"
+
+
+DSL_NAMES = DslNames()
+
+
+@dataclass(frozen=True)
+class DslRows:
+    customers: tuple[tuple[str | None, str | None], ...]
+    orders: tuple[tuple[str, str | None, str | None, str, str, int | float], ...]
+    lines: tuple[tuple[str, str | None, int | float], ...]
+
+
+@dataclass(frozen=True)
+class DslCase:
+    scenario: DslScenario
+    names: DslNames
+    root: Path
+    database_path: Path
+    catalog: SemanticCatalog
+    session: Session
+
+
+def export_dsl_parquet_models(case: DslCase, project: Path) -> None:
+    """Export fixture facts and bind authored Entities to local Parquet sources."""
+    import pyarrow.parquet as pq
+
+    source_files = project / "source_files"
+    source_files.mkdir(exist_ok=True)
+    backend = ibis.duckdb.connect(case.database_path)
+    try:
+        for name in (case.names.customer, case.names.order, case.names.order_line):
+            path = source_files / f"{name}.parquet"
+            pq.write_table(backend.table(name).to_pyarrow(), path)
+            for model in (project / "models").rglob("*.py"):
+                model.write_text(
+                    model.read_text().replace(f"md.table({name!r})", f"md.parquet({str(path)!r})")
+                )
+    finally:
+        backend.disconnect()
+
+
+class DslCaseFactory(Protocol):
+    def __call__(
+        self,
+        scenario: DslScenario,
+        *,
+        names: DslNames = DSL_NAMES,
+        revenue_unit: str = "CNY",
+    ) -> DslCase: ...
+
+
+def analysis_dsl_project_files(
+    names: DslNames, database_path: Path, *, revenue_unit: str = "CNY"
+) -> dict[str, str]:
+    """Return real authoring files for the inactive DSL journeys."""
+    n = names
+    models = f"""\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+warehouse = ms.ref.datasource('warehouse')
+customer = ms.entity(name={n.customer!r}, datasource=warehouse,
+                     source=md.table({n.customer!r}), primary_key=[{n.customer_id!r}])
+orders = ms.entity(name={n.order!r}, datasource=warehouse,
+                   source=md.table({n.order!r}), primary_key=[{n.order_id!r}])
+lines = ms.entity(name={n.order_line!r}, datasource=warehouse,
+                  source=md.table({n.order_line!r}), primary_key=[{n.line_id!r}])
+
+customer_id = ms.dimension_column(name={n.customer_id!r}, entity=customer,
+                                  column={n.customer_id!r})
+order_customer_id = ms.dimension_column(name={n.customer_id!r}, entity=orders,
+                                        column={n.customer_id!r})
+order_id = ms.dimension_column(name={n.order_id!r}, entity=orders,
+                               column={n.order_id!r})
+line_order_id = ms.dimension_column(name={n.order_id!r}, entity=lines,
+                                    column={n.order_id!r})
+region = ms.dimension_column(name={n.region!r}, entity=customer,
+                             column={n.region!r})
+channel = ms.dimension_column(name={n.channel!r}, entity=orders,
+                              column={n.channel!r})
+status = ms.dimension_column(name={n.status!r}, entity=orders,
+                             column={n.status!r})
+ordered_at = ms.time_dimension_column(name={n.ordered_at!r}, entity=orders,
+                                      column={n.ordered_at!r}, granularity='second',
+                                      parse=ms.timestamp(timezone='UTC'))
+amount = ms.measure_column(name={n.amount!r}, entity=orders,
+                           column={n.amount!r}, additivity=ms.additive_all(),
+                           unit={revenue_unit!r})
+line_amount = ms.measure_column(name={n.line_amount!r}, entity=lines,
+                                column={n.line_amount!r}, additivity=ms.additive_all(),
+                                unit='CNY')
+buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer,
+                        keys=[ms.join_on(order_customer_id, customer_id)])
+line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,
+                             keys=[ms.join_on(line_order_id, order_id)])
+revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum', time=ordered_at)
+@ms.metric(name='opaque_revenue', entities=[orders], time=ordered_at,
+           unit={revenue_unit!r}, additivity=ms.additive_all(),
+           nulls=ms.nulls.ignore(), empty=ms.empty.null())
+def opaque_revenue(order_rows):
+    return order_rows.{n.amount}.sum()
+order_count = ms.count(name={n.order_count!r}, entity=orders, time=ordered_at)
+line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum',
+                            time=ordered_at, time_via=(line_order,),
+                            nulls=ms.nulls.ignore(), empty=ms.empty.zero())
+aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count,
+               zero_denominator=ms.zero_denominator.undefined())
+"""
+    return {
+        "datasources/warehouse.py": (
+            "import marivo.datasource as md\n"
+            f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+        ),
+        f"{n.domain}/_domain.py": (
+            "import marivo.semantic as ms\n"
+            f"ms.domain(name={n.domain!r}, owner='Fixture', default=True)\n"
+        ),
+        f"{n.domain}/models.py": models,
+    }
+
+
+_AUGUST = "2026-08-15T12:00:00+00:00"
+
+
+def analysis_dsl_rows(scenario: DslScenario) -> DslRows:
+    """Return source facts, without any expected analysis result."""
+    if scenario == "j1":
+        return DslRows(
+            (("A", "east"), ("B", "east"), ("C", "south"), ("D", "west")),
+            (
+                ("j1_july", "A", "web", "paid", "2026-07-31T23:59:59+00:00", 77),
+                ("j1_a", "A", "web", "paid", "2026-08-01T00:00:00+00:00", 450),
+                ("j1_b", "B", "mobile", "paid", _AUGUST, 150),
+                ("j1_c", "C", "web", "paid", "2026-08-31T23:59:59+00:00", 400),
+                ("j1_september", "A", "mobile", "paid", "2026-09-01T00:00:00+00:00", 99),
+            ),
+            (),
+        )
+    if scenario == "j2":
+        return DslRows(
+            (("A", "east"), ("B", "east"), ("C", "south"), ("D", "west")),
+            (
+                ("j2_ja", "A", "web", "paid", "2026-07-10T12:00:00+00:00", 100),
+                ("j2_jb", "B", "web", "paid", "2026-07-10T12:00:00+00:00", 100),
+                ("j2_jc", "C", "web", "paid", "2026-07-10T12:00:00+00:00", 50),
+                ("j2_jd", "D", "web", "paid", "2026-07-10T12:00:00+00:00", 0),
+                ("j2_aa", "A", "web", "paid", "2026-08-01T00:00:00+00:00", 60),
+                ("j2_ab", "B", "web", "paid", _AUGUST, 120),
+                ("j2_ac", "C", "web", "paid", _AUGUST, 0),
+                ("j2_ad", "D", "web", "paid", _AUGUST, 0),
+                ("j2_sa", "A", "web", "paid", "2026-09-01T00:00:00+00:00", 30),
+                ("j2_sb", "B", "web", "paid", "2026-09-10T12:00:00+00:00", 200),
+                ("j2_sc", "C", "web", "paid", "2026-09-10T12:00:00+00:00", 0),
+            ),
+            (),
+        )
+    if scenario == "j3":
+        return DslRows(
+            (("A", "east"), ("B", "east")),
+            (
+                ("j3_aw", "A", "web", "paid", _AUGUST, 0),
+                ("j3_am", "A", "mobile", "paid", _AUGUST, 0),
+                ("j3_bw1", "B", "web", "paid", _AUGUST, 0),
+                ("j3_bw2", "B", "web", "paid", _AUGUST, 0),
+            ),
+            (
+                ("j3_l1", "j3_aw", 40),
+                ("j3_l2", "j3_aw", 60),
+                ("j3_l3", "j3_bw1", 20),
+                ("j3_l4", "j3_bw2", 40),
+            ),
+        )
+    if scenario == "j3_weighting":
+        orders = (
+            *((f"j3_a_{index}", "A", "web", "paid", _AUGUST, 0) for index in range(100)),
+            ("j3_b", "B", "web", "paid", _AUGUST, 0),
+        )
+        lines = (
+            *((f"j3_line_{index}", f"j3_a_{index}", 1) for index in range(100)),
+            ("j3_line_b", "j3_b", 100),
+        )
+        return DslRows((("A", "east"), ("B", "west")), orders, lines)
+    if scenario in ("j4", "j4_ties"):
+        counts = (4, 1, 3, 2) if scenario == "j4" else (1, 1, 3, 2)
+        totals = (1.0, 2.0, 4.0, 8.0) if scenario == "j4" else (1.0, 1.0, 2.0, 3.0)
+        rank_orders = tuple(
+            (
+                f"{scenario}_{customer}_{index}",
+                customer,
+                "web",
+                "paid",
+                _AUGUST,
+                total if index == 0 else 0.0,
+            )
+            for customer, count, total in zip("ABCD", counts, totals, strict=True)
+            for index in range(count)
+        )
+        return DslRows(tuple((customer, "east") for customer in "ABCD"), rank_orders, ())
+    if scenario == "empty_domain":
+        return DslRows((), (), ())
+    if scenario in ("empty_group", "tuple_union"):
+        customers = (
+            (("A", "east"), ("B", "west")) if scenario == "empty_group" else (("A", "east"),)
+        )
+        orders = (
+            (("group_a", "A", "web", "paid", _AUGUST, 10),)
+            if scenario == "empty_group"
+            else (
+                ("tuple_web", "A", "web", "paid", _AUGUST, 0),
+                ("tuple_mobile", "A", "mobile", "cancelled", _AUGUST, 0),
+            )
+        )
+        lines = () if scenario == "empty_group" else (("tuple_line", "tuple_web", 40),)
+        return DslRows(customers, orders, lines)
+    if scenario == "zero_denominator":
+        return DslRows((("A", "east"),), (), ())
+    if scenario == "null_classification":
+        return DslRows(
+            (("A", None), ("B", "east")),
+            (("null_channel", "A", None, "paid", _AUGUST, 100),),
+            (),
+        )
+    if scenario == "missing_key":
+        return DslRows(
+            ((None, "east"), ("A", "east")),
+            (("missing_customer", None, "web", "paid", _AUGUST, 10),),
+            (("missing_order", None, 10),),
+        )
+    if scenario == "nonfinite":
+        return DslRows(
+            (("A", "east"),),
+            (
+                ("nan", "A", "web", "paid", _AUGUST, float("nan")),
+                ("infinity", "A", "web", "paid", _AUGUST, float("inf")),
+            ),
+            (),
+        )
+    if scenario == "overflow":
+        return DslRows(
+            (("A", "east"),),
+            (
+                ("maximum", "A", "web", "paid", _AUGUST, 2**63 - 1),
+                ("one_more", "A", "web", "paid", _AUGUST, 1),
+            ),
+            (),
+        )
+    raise ValueError(f"Unknown DSL fixture scenario: {scenario}")
+
+
+def seed_analysis_dsl_database(
+    path: Path, names: DslNames, rows: DslRows, *, float_amount: bool
+) -> None:
+    """Write one isolated DuckDB source file and close its only seed connection."""
+
+    def quoted(value: str) -> str:
+        return '"' + value.replace('"', '""') + '"'
+
+    n = names
+    numeric_type = "DOUBLE" if float_amount else "BIGINT"
+    conn = duckdb.connect(str(path))
+    try:
+        conn.execute("SET threads = 1")
+        conn.execute(
+            f"CREATE TABLE {quoted(n.customer)} ("
+            f"{quoted(n.customer_id)} VARCHAR, {quoted(n.region)} VARCHAR)"
+        )
+        conn.execute(
+            f"CREATE TABLE {quoted(n.order)} ("
+            f"{quoted(n.order_id)} VARCHAR, {quoted(n.customer_id)} VARCHAR, "
+            f"{quoted(n.channel)} VARCHAR, {quoted(n.status)} VARCHAR, "
+            f"{quoted(n.ordered_at)} TIMESTAMPTZ, {quoted(n.amount)} {numeric_type})"
+        )
+        conn.execute(
+            f"CREATE TABLE {quoted(n.order_line)} ("
+            f"{quoted(n.line_id)} VARCHAR, {quoted(n.order_id)} VARCHAR, "
+            f"{quoted(n.line_amount)} {numeric_type})"
+        )
+        if rows.customers:
+            conn.executemany(f"INSERT INTO {quoted(n.customer)} VALUES (?, ?)", rows.customers)
+        if rows.orders:
+            conn.executemany(
+                f"INSERT INTO {quoted(n.order)} VALUES (?, ?, ?, ?, ?, ?)", rows.orders
+            )
+        if rows.lines:
+            conn.executemany(f"INSERT INTO {quoted(n.order_line)} VALUES (?, ?, ?)", rows.lines)
+    finally:
+        conn.close()
+
+
+def rendered_help(target: PublicHelpTarget = None, *, owner: str | None = None) -> str:
     """Return private unified-help text for behavioral assertions.
 
     ``owner`` qualifies native string targets and selects a native root page.
@@ -51,9 +398,9 @@ def rendered_help(target: object | None = None, *, owner: str | None = None) -> 
         return render_root_help()
     if owner is not None and isinstance(target, str):
         target = f"{owner}.{target}"
-    from marivo._help.render import PublicHelpTarget, render_help_text
+    from marivo._help.render import render_help_text
 
-    return render_help_text(cast("PublicHelpTarget", target))[0]
+    return render_help_text(target)[0]
 
 
 def fiscal_analysis_project_files() -> dict[str, str]:
@@ -77,8 +424,8 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "import marivo.semantic as ms\n"
             "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
             "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
-            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity='additive', unit='USD')\n"
-            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity='non_additive')\n"
+            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
+            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
             "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
             "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
             "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
@@ -146,653 +493,6 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
             correspondences=calendar.correspondences,
             dependency_digest=dependency_digest,
         ),
-    )
-
-
-def make_test_metric_contract(
-    df: Any,
-    *,
-    metric_id: str,
-    axes: dict[str, Any],
-    where: dict[str, Any] | None = None,
-    session: Any | None = None,
-) -> dict[str, Any]:
-    """Build current typed identity/key/comparability state for synthetic frames."""
-
-    from marivo.analysis._semantic_persistence import AxisBindingV1, SlicePredicateV1
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import (
-        CanonicalSliceEntryV1,
-        CatalogMetricIdentity,
-        ComparableValueSemanticsV1,
-        MetricKeyFieldV1,
-        MetricKeySchemaV1,
-        SemanticDependencyDigestV1,
-        SemanticDependencyEntryV1,
-    )
-    from marivo.semantic.metric_graph_canonical import fingerprint
-
-    axis_columns = tuple(
-        str(axis["column"])
-        for axis in axes.values()
-        if isinstance(axis, dict)
-        and isinstance(axis.get("column"), str)
-        and axis["column"] in df.columns
-    )
-    key_fields = tuple(
-        MetricKeyFieldV1(
-            name=column,
-            dtype=str(df[column].dtype),
-            nullable=True,
-        )
-        for column in axis_columns
-    )
-    key_schema = MetricKeySchemaV1(
-        schema="metric-key-schema/v1",
-        fields=key_fields,
-        fingerprint=fingerprint(key_fields),
-    )
-    expression_fingerprint = fingerprint(("test-metric", metric_id))
-    domain = metric_id.split(".", 1)[0]
-    global_slice = tuple(
-        CanonicalSliceEntryV1(
-            dimension_ref=RefPayloadV1.from_ref(
-                ref_factory.dimension(
-                    str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}"
-                )
-            ),
-            value=fingerprint(value),
-        )
-        for key, value in sorted((where or {}).items())
-    )
-    comparable_payload = {
-        "expression_fingerprint": expression_fingerprint,
-        "evaluator_contracts": ("test-evaluation/v1",),
-        "global_slice": global_slice,
-        "key_schema_fingerprint": key_schema.fingerprint,
-        "unit": None,
-        "fold": None,
-        "source_domain_fingerprint": "test-source-domain",
-        "definition_transform_fingerprint": None,
-    }
-    metric_identity = CatalogMetricIdentity(
-        kind="catalog",
-        metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
-    )
-    axis_bindings: list[AxisBindingV1] = []
-    for key, axis in axes.items():
-        if not isinstance(axis, dict):
-            continue
-        role: Literal["dimension", "time_dimension"] = (
-            "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
-        )
-        short_path = str(
-            axis.get("ref")
-            or axis.get("time_dimension")
-            or axis.get("field")
-            or axis.get("column")
-            or key
-        )
-        path = short_path if short_path.count(".") == 2 else f"{domain}.orders.{short_path}"
-        ref = (
-            ref_factory.time_dimension(path)
-            if role == "time_dimension"
-            else ref_factory.dimension(path)
-        )
-        column = str(axis.get("column") or axis.get("field") or key)
-        axis_bindings.append(
-            AxisBindingV1(
-                ref=RefPayloadV1.from_ref(ref),
-                column=column,
-                role=role,
-                grain=str(axis["grain"]) if axis.get("grain") is not None else None,
-            )
-        )
-    slice_predicates = tuple(
-        SlicePredicateV1(
-            dimension_ref=RefPayloadV1.from_ref(
-                ref_factory.dimension(
-                    str(key) if str(key).count(".") == 2 else f"{domain}.orders.{key}"
-                )
-            ),
-            value=value,
-        )
-        for key, value in sorted((where or {}).items())
-    )
-    dependency_entries = (
-        SemanticDependencyEntryV1(
-            ref=metric_identity.metric_ref,
-            body_digest=expression_fingerprint,
-        ),
-    )
-    dependency_digest_value = SemanticDependencyDigestV1(
-        schema="marivo.semantic_dependency_digest/v1",
-        entries=dependency_entries,
-        digest=f"sha256:{fingerprint(dependency_entries)}",
-    )
-    catalog_definition_fingerprint = fingerprint(("test-catalog", domain))
-    if session is not None:
-        from marivo.semantic.metric_graph_lowering import dependency_digest
-
-        try:
-            dependency_digest_value = dependency_digest(
-                session.catalog._reg,
-                sidecar=session.catalog._state.sidecar,
-                semantic_refs=(
-                    ref_factory.metric(metric_id),
-                    *(
-                        (
-                            ref_factory.time_dimension(binding.ref.path)
-                            if binding.role == "time_dimension"
-                            else ref_factory.dimension(binding.ref.path)
-                        )
-                        for binding in axis_bindings
-                    ),
-                ),
-            )
-            catalog_definition_fingerprint = session.catalog.definition_fingerprint
-        except Exception:
-            # Synthetic tests may intentionally name semantics absent from the
-            # fixture catalog. Their placeholder contract remains available for
-            # non-authority-focused paths.
-            pass
-    return {
-        "catalog_definition_fingerprint": catalog_definition_fingerprint,
-        "metric_identity": metric_identity,
-        "metric_identities": (metric_identity,),
-        "semantic_dependency_digest": dependency_digest_value,
-        "key_schema": key_schema,
-        "axis_bindings": tuple(axis_bindings),
-        "slice_predicates": slice_predicates,
-        "comparable_value_semantics": ComparableValueSemanticsV1(
-            schema="comparable-value-semantics/v1",
-            expression_fingerprint=expression_fingerprint,
-            evaluator_contracts=("test-evaluation/v1",),
-            global_slice=global_slice,
-            key_schema_fingerprint=key_schema.fingerprint,
-            unit=None,
-            fold=None,
-            source_domain_fingerprint="test-source-domain",
-            definition_transform_fingerprint=None,
-            fingerprint=fingerprint(comparable_payload),
-        ),
-    }
-
-
-def make_test_metric_meta_contract(
-    metric_id: str,
-    *,
-    axes: dict[str, Any] | None = None,
-    where: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build v4 semantic provenance for direct MetricFrameMeta test construction."""
-
-    import pandas as pd
-
-    return make_test_metric_contract(
-        pd.DataFrame(),
-        metric_id=metric_id,
-        axes=axes or {},
-        where=where,
-    )
-
-
-def make_test_multi_metric_contract(
-    *metric_ids: str,
-    axes: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Build v4 semantic provenance for a synthetic multi-metric frame."""
-
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import (
-        CatalogMetricIdentity,
-        SemanticDependencyDigestV1,
-        SemanticDependencyEntryV1,
-    )
-    from marivo.semantic.metric_graph_canonical import fingerprint
-
-    if len(metric_ids) < 2:
-        raise ValueError("multi-metric test contract requires at least two metrics")
-    base = make_test_metric_meta_contract(metric_ids[0], axes=axes)
-    identities = tuple(
-        CatalogMetricIdentity(
-            kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(metric_id)),
-        )
-        for metric_id in metric_ids
-    )
-    entries = tuple(
-        SemanticDependencyEntryV1(
-            ref=identity.metric_ref,
-            body_digest=fingerprint(("test-metric", metric_id)),
-        )
-        for metric_id, identity in zip(metric_ids, identities, strict=True)
-    )
-    return {
-        **base,
-        "metric_identity": None,
-        "metric_identities": identities,
-        "semantic_dependency_digest": SemanticDependencyDigestV1(
-            schema="marivo.semantic_dependency_digest/v1",
-            entries=entries,
-            digest=f"sha256:{fingerprint(entries)}",
-        ),
-    }
-
-
-def make_test_delta_contract(
-    metric_id: str,
-    *,
-    baseline_metric_id: str | None = None,
-    current_artifact_id: str = "frame_current",
-    baseline_artifact_id: str = "frame_baseline",
-    status_time_dimension: str | None = None,
-    session: Any | None = None,
-) -> dict[str, Any]:
-    """Build current structured comparison identity for synthetic delta frames."""
-
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import (
-        CatalogMetricIdentity,
-        DeltaComparisonIdentity,
-        ExactComparisonSemanticsV1,
-        SemanticDependencyDigestV1,
-        SemanticDependencyEntryV1,
-    )
-    from marivo.semantic.metric_graph_canonical import fingerprint
-
-    def identity(path: str) -> CatalogMetricIdentity:
-        return CatalogMetricIdentity(
-            kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(path)),
-        )
-
-    current = identity(metric_id)
-    baseline = identity(baseline_metric_id or metric_id)
-    dependency_digests = tuple(
-        SemanticDependencyDigestV1(
-            schema="marivo.semantic_dependency_digest/v1",
-            entries=(
-                entry := SemanticDependencyEntryV1(
-                    ref=metric_identity.metric_ref,
-                    body_digest=fingerprint(("test-metric", metric_identity.metric_ref.path)),
-                ),
-            ),
-            digest=f"sha256:{fingerprint((entry,))}",
-        )
-        for metric_identity in dict.fromkeys((current, baseline))
-    )
-    catalog_definition_fingerprint = "sha256:test-catalog"
-    if session is not None:
-        from marivo.semantic.metric_graph_lowering import dependency_digest
-
-        try:
-            dependency_digests = tuple(
-                dependency_digest(
-                    session.catalog._reg,
-                    sidecar=session.catalog._state.sidecar,
-                    semantic_refs=(ref_factory.metric(metric_identity.metric_ref.path),),
-                )
-                for metric_identity in dict.fromkeys((current, baseline))
-            )
-            catalog_definition_fingerprint = session.catalog.definition_fingerprint
-        except Exception:
-            pass
-    return {
-        "catalog_definition_fingerprint": catalog_definition_fingerprint,
-        "source_dependency_digests": dependency_digests,
-        "status_time_dimension_ref": (
-            RefPayloadV1.from_ref(ref_factory.time_dimension(status_time_dimension))
-            if status_time_dimension is not None
-            else None
-        ),
-        "comparison_identity": DeltaComparisonIdentity(
-            schema="delta-comparison/v2",
-            current=current,
-            baseline=baseline,
-            current_artifact_id=current_artifact_id,
-            baseline_artifact_id=baseline_artifact_id,
-            semantics=ExactComparisonSemanticsV1(
-                schema="exact-comparison-semantics/v1",
-                comparable_semantics_fingerprint="sha256:test-comparable",
-            ),
-            alignment_policy_fingerprint="sha256:test-alignment",
-        ),
-    }
-
-
-def make_test_component_contract(
-    *,
-    metric_id: str,
-    components: dict[str, str],
-    axes: dict[str, Any],
-) -> dict[str, Any]:
-    """Build structured metric/component/axis bindings for synthetic component frames."""
-
-    from marivo.analysis._semantic_persistence import AxisBindingV1, ComponentBindingV1
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import CatalogMetricIdentity
-
-    domain = metric_id.split(".", 1)[0]
-
-    def identity(path: str) -> CatalogMetricIdentity:
-        qualified = path if path.count(".") == 1 else f"{domain}.{path}"
-        return CatalogMetricIdentity(
-            kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(qualified)),
-        )
-
-    short_names = [path.rsplit(".", 1)[-1] for path in components.values()]
-    duplicate_short_names = len(short_names) != len(set(short_names))
-    component_bindings = tuple(
-        ComponentBindingV1(
-            role=role,
-            column=role if duplicate_short_names else path.rsplit(".", 1)[-1],
-            metric_identity=identity(path),
-        )
-        for role, path in components.items()
-    )
-    axis_bindings: list[AxisBindingV1] = []
-    for key, axis in axes.items():
-        role: Literal["dimension", "time_dimension"] = (
-            "time_dimension" if axis.get("role") == "time" or key == "time" else "dimension"
-        )
-        short_path = str(
-            axis.get("ref")
-            or axis.get("time_dimension")
-            or axis.get("field")
-            or axis.get("column")
-            or key
-        )
-        path = short_path if short_path.count(".") == 2 else f"{domain}.orders.{short_path}"
-        ref = (
-            ref_factory.time_dimension(path)
-            if role == "time_dimension"
-            else ref_factory.dimension(path)
-        )
-        axis_bindings.append(
-            AxisBindingV1(
-                ref=RefPayloadV1.from_ref(ref),
-                column=str(axis.get("column") or axis.get("field") or key),
-                role=role,
-                grain=str(axis["grain"]) if axis.get("grain") is not None else None,
-            )
-        )
-    return {
-        "metric_identity": identity(metric_id),
-        "component_bindings": component_bindings,
-        "axis_bindings": tuple(axis_bindings),
-    }
-
-
-def make_test_subject(
-    *,
-    metric_id: str | None = None,
-    analysis_axis: Any,
-    slice_by: dict[str, Any] | None = None,
-    grain: str | None = None,
-    session_id: str = "sess_test",
-    artifact_id: str = "art_test",
-) -> Any:
-    """Build a structured evidence subject for synthetic evidence tests."""
-
-    from marivo.analysis._semantic_persistence import SlicePredicateV1
-    from marivo.analysis.evidence.types import Subject
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import CatalogMetricSubjectV1
-
-    qualified_metric = None
-    if metric_id is not None:
-        qualified_metric = metric_id if metric_id.count(".") == 1 else f"sales.{metric_id}"
-    typed_subject = (
-        CatalogMetricSubjectV1(
-            kind="catalog_metric",
-            session_id=session_id,
-            metric_ref=RefPayloadV1.from_ref(ref_factory.metric(qualified_metric)),
-            artifact_id=artifact_id,
-            scope_fingerprint="sha256:test-scope",
-        )
-        if qualified_metric is not None
-        else None
-    )
-    predicates = tuple(
-        SlicePredicateV1(
-            dimension_ref=RefPayloadV1.from_ref(
-                ref_factory.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
-            ),
-            value=value,
-        )
-        for key, value in sorted((slice_by or {}).items())
-    )
-    return Subject(
-        typed_metric_subject=typed_subject,
-        slice_predicates=predicates,
-        grain=grain,
-        analysis_axis=analysis_axis,
-    )
-
-
-def make_test_analysis_scope(
-    *metric_ids: str,
-    assumptions: tuple[str, ...] = (),
-    segment_keys: dict[str, Any] | None = None,
-) -> Any:
-    """Build a structured analysis scope for synthetic evidence tests."""
-
-    from marivo.analysis._semantic_persistence import SlicePredicateV1
-    from marivo.analysis.evidence.types import AnalysisScope
-    from marivo.refs import RefPayloadV1
-    from marivo.semantic.metric_graph import CatalogMetricIdentity
-
-    identities = tuple(
-        CatalogMetricIdentity(
-            kind="catalog",
-            metric_ref=RefPayloadV1.from_ref(
-                ref_factory.metric(metric_id if metric_id.count(".") == 1 else f"sales.{metric_id}")
-            ),
-        )
-        for metric_id in metric_ids
-    )
-    predicates = tuple(
-        SlicePredicateV1(
-            dimension_ref=RefPayloadV1.from_ref(
-                ref_factory.dimension(key if key.count(".") == 2 else f"sales.orders.{key}")
-            ),
-            value=value,
-        )
-        for key, value in sorted((segment_keys or {}).items())
-    )
-    return AnalysisScope(
-        metric_identities=identities,
-        segment_predicates=predicates,
-        assumptions=assumptions,
-    )
-
-
-def make_metric_frame(
-    df: Any,
-    *,
-    metric_id: str,
-    axes: dict[str, Any],
-    measure: dict[str, Any],
-    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"],
-    semantic_model: str,
-    window: object | None = None,
-    where: dict[str, Any] | None = None,
-    additivity: Literal["additive", "semi_additive", "non_additive"] | None = "additive",
-    aggregation: str | None = None,
-    status_time_dimension: str | None = None,
-    report_tz: str | None = None,
-    session: Any,
-) -> Any:
-    """Create a persisted MetricFrame for tests without exposing a public constructor."""
-    from marivo.analysis._semantic_persistence import MeasureBindingV1
-    from marivo.analysis.frames.metric import MetricFrame, MetricFrameMeta
-    from marivo.analysis.lineage import Lineage, LineageStep
-    from marivo.analysis.session._runtime import persist_frame
-    from marivo.analysis.session.core import ensure_session_can_execute
-    from marivo.analysis.windows import dump_window, normalize_absolute_window_input
-    from marivo.refs import RefPayloadV1
-
-    ensure_session_can_execute(session)
-    resolved_window = normalize_absolute_window_input(window)
-
-    # Normalize the value column to the canonical "value" name.  Callers may
-    # pass a DataFrame whose value column matches the metric name (legacy
-    # convention); rename it so the frame matches production observe() output.
-    df = df.copy()
-    measure_name = measure.get("name") or measure.get("column")
-    if measure_name and str(measure_name) in df.columns and "value" not in df.columns:
-        df = df.rename(columns={str(measure_name): "value"})
-    # Ensure measure always has a "name" key for downstream discovery.
-    if "name" not in measure and measure_name:
-        measure = {**measure, "name": str(measure_name)}
-
-    frame_ref = f"frame_{secrets.token_hex(4)}"
-    metric_contract = make_test_metric_contract(
-        df,
-        metric_id=metric_id,
-        axes=axes,
-        where=where,
-        session=session,
-    )
-    metric_contract["catalog_definition_fingerprint"] = session.catalog.definition_fingerprint
-    meta = MetricFrameMeta(
-        kind="metric_frame",
-        ref=frame_ref,
-        session_id=session.id,
-        project_root=str(session.project_root),
-        produced_by_job=None,
-        created_at=datetime.now(UTC),
-        row_count=len(df),
-        byte_size=0,
-        lineage=Lineage(
-            steps=[
-                LineageStep(
-                    intent="test_make_metric_frame",
-                    job_ref=None,
-                    inputs=[],
-                    params_digest="test",
-                )
-            ],
-            external_inputs=[frame_ref],
-        ),
-        metric_id=metric_id,
-        **metric_contract,
-        axes=axes,
-        measure=measure,
-        measure_bindings=(
-            MeasureBindingV1(
-                identity=metric_contract["metric_identity"],
-                value_column="value",
-                display_name=measure.get("name") or metric_id,
-                unit=measure.get("unit"),
-                additivity=additivity,
-                aggregation=aggregation,
-                reaggregatable=True,
-            ),
-        ),
-        window=dump_window(resolved_window),
-        where=where or {},
-        report_tz=report_tz,
-        semantic_kind=semantic_kind,
-        semantic_model=semantic_model,
-        additivity=additivity,
-        aggregation=aggregation,
-        status_time_dimension=status_time_dimension,
-        status_time_dimension_ref=(
-            RefPayloadV1.from_ref(
-                ref_factory.time_dimension(
-                    status_time_dimension
-                    if status_time_dimension.count(".") == 2
-                    else f"{metric_id.split('.', 1)[0]}.orders.{status_time_dimension}"
-                )
-            )
-            if status_time_dimension is not None
-            else None
-        ),
-    )
-    frame = MetricFrame(_df=df, meta=meta)
-    frame.meta = cast("MetricFrameMeta", persist_frame(session, frame))
-    return frame
-
-
-def nonadditive_attribution_project_files() -> dict[str, str]:
-    """Return one minimal project with distinct and quantile metric roots."""
-    return {
-        "datasources/warehouse.py": (
-            "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-        ),
-        "sales/_domain.py": (
-            "import marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-        ),
-        "sales/datasets.py": (
-            "import marivo.datasource as md\n"
-            "import marivo.semantic as ms\n"
-            "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-            "source=md.table('orders'))\n"
-            "created_at = ms.time_dimension_column(name='created_at', entity=orders, "
-            "column='created_at', granularity='day', is_default=True)\n"
-            "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
-            "channel = ms.dimension_column(name='channel', entity=orders, column='channel')\n"
-            "user_id = ms.measure_column(name='user_id', entity=orders, column='user_id', "
-            "additivity='non_additive')\n"
-            "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
-            "additivity='additive')\n"
-            "unique_users = ms.aggregate(name='unique_users', measure=user_id, "
-            "agg='count_distinct')\n"
-            "median_amount = ms.aggregate(name='median_amount', measure=amount, agg='median')\n"
-            "p50_amount = ms.aggregate(name='p50_amount', measure=amount, "
-            "agg=('percentile', 0.5))\n"
-            "p95_amount = ms.aggregate(name='p95_amount', measure=amount, "
-            "agg=('percentile', 0.95))\n"
-        ),
-    }
-
-
-def build_session_over_catalog(catalog: Any, tmp_path: Path) -> Any:
-    """Build an analysis :class:`Session` backed by an existing semantic catalog.
-
-    Constructs the persistence layout, inserts a known session row, and returns
-    a Session whose ``project_root`` is ``tmp_path`` and whose
-    ``semantic_catalog`` is the supplied catalog. Shared by the semantic-to-
-    analysis handoff round-trip tests so the producer and validator build the
-    same session shape. The caller is responsible for the invariant that
-    ``catalog.workspace_dir`` resolves to ``tmp_path``.
-    """
-    from marivo.analysis.session._layout import PersistenceLayout
-    from marivo.analysis.session._runtime import _build_connection_runtime
-    from marivo.analysis.session._store import SessionStore
-    from marivo.analysis.session.core import Session
-
-    now = datetime(2026, 5, 24, 10, 0, 0, tzinfo=UTC)
-    layout = PersistenceLayout(project_root=tmp_path, session_id="sess_h01")
-    store = SessionStore(project_root=tmp_path)
-    with store._connect() as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO sessions (id, name, question, cwd, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                "sess_h01",
-                "handoff",
-                "q",
-                str(tmp_path),
-                "2026-05-24T10:00:00+00:00",
-                "2026-05-24T10:00:00+00:00",
-            ),
-        )
-    return Session(
-        id="sess_h01",
-        name="handoff",
-        question="q",
-        cwd=tmp_path,
-        project_root=tmp_path,
-        created_at=now,
-        updated_at=now,
-        connection_runtime=_build_connection_runtime(tmp_path, None, None, use_datasources=False),
-        layout=layout,
-        semantic_catalog=catalog,
-        store=store,
     )
 
 
@@ -907,7 +607,9 @@ def connect_sales_orders() -> ibis.duckdb.DuckDBBackend:
     return con
 
 
-def sales_backends(con: ibis.duckdb.DuckDBBackend) -> dict[str, Any]:
+def sales_backends(
+    con: ibis.duckdb.DuckDBBackend,
+) -> dict[str, Callable[[], ibis.duckdb.DuckDBBackend]]:
     """Standard backends dict wrapping a DuckDB connection as 'warehouse'."""
     return {"warehouse": lambda: con}
 
@@ -963,7 +665,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
     )
@@ -993,81 +695,27 @@ def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = T
 # ---------------------------------------------------------------------------
 
 
-def seeded_time_series_metric_frame(
-    *,
-    session: Any,
-    grain: str = "day",
-    n_buckets: int = 30,
-    segments: list[str] | None = None,
-    value_pattern: str = "linear",
-    seed: int = 42,
-) -> Any:
-    import numpy as np
-    import pandas as pd
-
-    rng = np.random.default_rng(seed)
-    freq_by_grain = {"day": "D", "week": "W-MON"}
-    if grain not in freq_by_grain:
-        raise ValueError(f"unsupported fixture grain {grain!r}")
-    times = pd.date_range("2026-01-01", periods=n_buckets, freq=freq_by_grain[grain])
-
-    def value_at(i: int) -> float:
-        if value_pattern == "constant":
-            return 10.0
-        if value_pattern == "linear":
-            return float(10 + i)
-        if value_pattern == "seasonal_7":
-            return float(100 + (i % 7) * 3)
-        if value_pattern == "noisy":
-            return float(10 + i + rng.normal(0, 0.1))
-        raise ValueError(f"unsupported fixture value_pattern {value_pattern!r}")
-
-    rows: list[dict[str, object]] = []
-    semantic_kind: Literal["scalar", "time_series", "segmented", "panel"]
-    if segments is None:
-        for idx, bucket in enumerate(times):
-            rows.append({"time": bucket, "value": value_at(idx)})
-        semantic_kind = "time_series"
-        axes = {"time": {"role": "time", "field": "time", "grain": grain}}
-    else:
-        for segment in segments:
-            offset = float(len(rows))
-            for idx, bucket in enumerate(times):
-                rows.append({"segment": segment, "time": bucket, "value": value_at(idx) + offset})
-        semantic_kind = "panel"
-        axes = {
-            "time": {"role": "time", "field": "time", "grain": grain},
-            "segment": {"role": "dimension", "field": "segment"},
-        }
-
-    return make_metric_frame(
-        pd.DataFrame(rows),
-        metric_id="sales.revenue",
-        axes=axes,
-        measure={"field": "value", "aggregation": "sum"},
-        semantic_kind=semantic_kind,
-        semantic_model="sales",
-        window={
-            "start": str(times[0].date()),
-            "end": str(times[-1].date() + timedelta(days=1)),
-            "grain": grain,
-            "time_dimension": "time",
-        },
-        session=session,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Authoring session helper (metric-split foundation tests)
 # ---------------------------------------------------------------------------
 
 
+class _AuthoringSession(Protocol):
+    def measure(
+        self, *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
+    ) -> Ref[MeasureKind]: ...
+
+    def pending_metric(self, semantic_id: str) -> MetricIR: ...
+
+    def pending_dimension(self, semantic_id: str) -> DimensionIR: ...
+
+
 @contextmanager
-def authoring_session(*, domain: str) -> Iterator[Any]:
+def authoring_session(*, domain: str) -> Iterator[_AuthoringSession]:
     """Context manager that enters a LoaderContext with a default domain.
 
     Exposes helpers for declaring measure dimensions and inspecting pending
-    metric IR objects. Used by tests/test_metric_split_foundation.py.
+    metric IR objects. Used by tests/semantic/test_metric_split_foundation.py.
     """
     from marivo.semantic import authoring
     from marivo.semantic.ir import MetricIR
@@ -1079,19 +727,16 @@ def authoring_session(*, domain: str) -> Iterator[Any]:
 
         class _Session:
             @staticmethod
-            def measure(*, entity: Ref[EntityKind], name: str, additivity: Any = None) -> Any:
+            def measure(
+                *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
+            ) -> Ref[MeasureKind]:
                 """Declare a measure and return its exact measure ref."""
-                decorator = authoring.measure(
+                return authoring.measure_column(
                     entity=entity,
                     name=name,
-                    additivity=additivity or "additive",
+                    column=name,
+                    additivity=additivity if additivity is not None else authoring.additive_all(),
                 )
-
-                # Apply the decorator to a dummy function that returns an ibis-like expression.
-                def _dummy_body(table: Any) -> Any:
-                    return getattr(table, name)
-
-                return decorator(_dummy_body)
 
             @staticmethod
             def pending_metric(semantic_id: str) -> MetricIR:
@@ -1105,7 +750,7 @@ def authoring_session(*, domain: str) -> Iterator[Any]:
                 raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
 
             @staticmethod
-            def pending_dimension(semantic_id: str) -> Any:
+            def pending_dimension(semantic_id: str) -> DimensionIR:
                 """Retrieve a pending DimensionIR by semantic_id."""
                 from marivo.semantic.ir import DimensionIR
 
@@ -1208,19 +853,19 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='revenue', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
         "def revenue(orders):\n"
         "    return orders.amount.sum()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity='additive', name='order_count', )\n"
+        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='order_count', )\n"
         "def order_count(orders):\n"
         "    return orders.order_id.count()\n"
         "\n"
-        "@ms.metric(entities=[users], additivity='additive', name='user_count', )\n"
+        "@ms.metric(entities=[users], additivity=ms.additive_all(), name='user_count', )\n"
         "def user_count(users):\n"
         "    return users.user_id.count()\n"
         "\n"
-        "amount_col = ms.measure_column(name='amount_col', entity=orders, column='amount', additivity='additive', unit='USD')\n"
+        "amount_col = ms.measure_column(name='amount_col', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')\n"
         "revenue_agg = ms.aggregate(name='revenue_agg', measure=amount_col, agg='sum')\n"
         "cumulative_revenue = ms.cumulative(name='cumulative_revenue', base=revenue_agg, over=order_date)\n"
     )
@@ -1332,7 +977,7 @@ event_to_order = ms.relationship(
 )
 
 @ms.metric(
-    entities=[orders], additivity="additive", name="order_count",
+    entities=[orders], additivity=ms.additive_all(), name="order_count",
     ai_context=ms.ai_context(business_definition="Distinct orders."),
 )
 def order_count(orders):
@@ -1447,67 +1092,35 @@ def pattern_step_for_tests(key: str) -> Any:
     )
 
 
-def two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
-    """Return current and baseline funnels over identical definitions."""
-    import marivo.analysis as mv
+def graph_count_continuation(record: GraphArtifact) -> MethodNode:
+    """Build a current-row count from an exact private v7 Artifact."""
+    from marivo.analysis.core.graph import Edge, FixedLeaf, method_node
+    from marivo.analysis.core.model import DomainSignature
+    from marivo.analysis.core.rules import RowState
+    from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
+    from marivo.analysis.refs import ArtifactRef
 
-    pattern = mv.sequence(
-        pattern_step_for_tests("cart"),
-        pattern_step_for_tests("payment"),
+    leaf = FixedLeaf(
+        ArtifactRef(ref=record.artifact_ref),
+        record.descriptor.definition_fingerprint,
+        record.descriptor.signature,
+        ScalarType("int64"),
+        FixedShape(NoTime()),
     )
-    frames = []
-    for start, end in (("2026-07-08", "2026-07-15"), ("2026-07-01", "2026-07-08")):
-        journeys = session.events.match(
-            pattern=pattern,
-            cohort_window=mv.time_scope(
-                start=f"{start}T00:00:00Z",
-                end=f"{end}T00:00:00Z",
-            ),
-            completion_through="2026-07-22T00:00:00Z",
-            matching=mv.first_per_subject(),
-        )
-        frames.append(session.events.funnel(journeys))
-    return frames[0], frames[1]
-
-
-def grouped_two_scope_funnel_frames(session: Any) -> tuple[Any, Any]:
-    """Return current and baseline funnels grouped by acquisition channel."""
-    current, baseline = two_scope_funnel_frames(session)
-    channel = session.catalog.dimensions.get("acquisition_channel")
-    return (
-        session.events.funnel(
-            session.artifact(current.meta.source_journey_ref),
-            axes=[channel],
-        ),
-        session.events.funnel(
-            session.artifact(baseline.meta.source_journey_ref),
-            axes=[channel],
-        ),
+    domain = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all-products")
+    return method_node(
+        (Edge("quantity", leaf),),
+        RowState("count", domain, "current-count", "count_all"),
+        value_type=ScalarType("int64"),
     )
 
 
-def analysis_persistence_snapshot(session: Any) -> tuple[object, ...]:
-    """Capture artifact, job, frame-file, and evidence identities for rollback tests."""
-    evidence = session._evidence_store()
-    evidence_ids = tuple(
-        row[0]
-        for row in evidence.read()
-        .execute(
-            "SELECT artifact_id FROM artifacts WHERE session_id = ? ORDER BY artifact_id",
-            (session.id,),
-        )
-        .fetchall()
-    )
-    return (
-        tuple(sorted(row["artifact_id"] for row in session._store.list_artifacts(session.id))),
-        tuple(
-            sorted(
-                row["run_id"]
-                for row in session._store.list_runs(session.id)
-                if row["lifecycle"] == "succeeded"
-            )
-        ),
-        tuple(sorted(path.name for path in session._layout.frames_dir.iterdir())),
-        tuple(sorted(path.name for path in session._layout.jobs_dir.glob("*.json"))),
-        evidence_ids,
-    )
+def run_ids(session: Session) -> set[str]:
+    identities: set[str] = set()
+    cursor: str | None = None
+    while True:
+        page = session.runs(limit=100, cursor=cursor)
+        identities.update(item.run_id for item in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            return identities

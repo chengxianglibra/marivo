@@ -8,7 +8,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
+from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import Ref, RefPayloadV1, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.render import Card, RenderableResult
@@ -17,6 +19,7 @@ from marivo.semantic.runtime_metric import RuntimeMetricExpr, replay_payload
 
 if TYPE_CHECKING:
     from marivo.semantic._metric_resolution import MetricTemporalContract
+    from marivo.semantic.ir import AggKind
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.validator import Registry
 
@@ -26,13 +29,14 @@ ReadinessIssueKind = Literal[
     "load_error",
     "unknown_ref",
     "cross_datasource_unfederated",
-    "sql_parity_unverified",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
     "undeclared_naive_time_axis",
     "metric_graph_invalid",
+    "aggregate_backend_unsupported",
     "snapshot_fold_unobservable",
     "state_model_seed_missing",
+    "business_order_values_unverified",
     "period_calendar_artifact_missing",
     "period_calendar_artifact_stale",
     "period_calendar_artifact_invalid",
@@ -83,6 +87,15 @@ class ReadinessInputSummary:
         }
 
 
+def _issue_summary(issue: ReadinessIssue) -> str:
+    summary = f"{issue.kind}: {issue.message}"
+    if issue.refs:
+        summary += f"; affected refs: {', '.join(issue.refs)}"
+    if issue.repair is not None:
+        summary += " -> " + _repair_summary(issue.repair, optional=issue.severity == "advisory")
+    return summary
+
+
 @dataclass(frozen=True, repr=False)
 class ReadinessReport(RenderableResult):
     scope: ClassVar[Literal["semantic_static"]] = "semantic_static"
@@ -107,36 +120,28 @@ class ReadinessReport(RenderableResult):
                 ".show()",
                 ".to_dict()",
                 ".analysis_ready_inputs",
+                ".input_summary",
+                ".blockers",
+                ".warnings",
             ),
         )
         card = card.field(label="scope", value=self.scope)
         if self.blockers:
-            blocker_items = [
-                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                for i in self.blockers
-            ]
             card = card.listing(
                 label=f"blockers ({len(self.blockers)})",
-                items=tuple(blocker_items),
+                items=(_issue_summary(issue) for issue in self.blockers),
             )
         actual_warnings = tuple(issue for issue in self.warnings if issue.severity == "warning")
         advisories = tuple(issue for issue in self.warnings if issue.severity == "advisory")
         if actual_warnings:
-            warning_items = [
-                f"{i.kind}: {i.message} -> fix: {i.repair.action if i.repair else ''}"
-                for i in actual_warnings
-            ]
             card = card.listing(
                 label=f"warnings ({len(actual_warnings)})",
-                items=tuple(warning_items),
+                items=(_issue_summary(issue) for issue in actual_warnings),
             )
         if advisories:
             card = card.listing(
                 label=f"advisories ({len(advisories)})",
-                items=tuple(
-                    f"{i.kind}: {i.message} -> optional fix: {i.repair.action if i.repair else ''}"
-                    for i in advisories
-                ),
+                items=(_issue_summary(issue) for issue in advisories),
             )
         ready_refs = tuple(item for item in self.analysis_ready_inputs if type(item) is Ref)
         if ready_refs:
@@ -150,6 +155,11 @@ class ReadinessReport(RenderableResult):
                 label="analysis_ready_runtime",
                 value=", ".join(item.label for item in runtime_inputs),
             )
+        card = card.listing("checked refs", self.input_summary.refs)
+        if self.input_summary.datasources:
+            card = card.listing("checked datasources", self.input_summary.datasources)
+        if self.input_summary.tables:
+            card = card.listing("checked tables", self.input_summary.tables)
         return card.field(label="checked_at", value=self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
@@ -180,6 +190,7 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.BUSINESS_ORDER: ref_factory.business_order,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -253,12 +264,6 @@ def _issue(
     )
 
 
-def _parity_passed(project: SemanticProject, ref: str) -> bool:
-    """Check whether a metric with SQL provenance has passed parity verification."""
-    parity_result = project._parity_results.get(ref)
-    return parity_result is not None and parity_result.ok
-
-
 def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dict[str, object]]:
     reg = project._registry
     if reg is None:
@@ -296,6 +301,10 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(state_model.semantic_id, SemanticKind.STATE_MODEL)
         kinds[key] = SemanticKind.STATE_MODEL
         objects[key] = state_model
+    for order in reg.business_orders.values():
+        key = _exact_key(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        kinds[key] = SemanticKind.BUSINESS_ORDER
+        objects[key] = order
     for calendar in reg.period_calendars.values():
         key = _exact_key(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         kinds[key] = SemanticKind.PERIOD_CALENDAR
@@ -347,17 +356,12 @@ def _default_checked_refs(kinds: Mapping[str, SemanticKind]) -> tuple[str, ...]:
     )
 
 
-def _dependencies_for_ref(
+def _container_scope_children(
     ref: str,
     objects: Mapping[str, object],
     kinds: Mapping[str, SemanticKind],
-    *,
-    event_predicate_dependencies: Mapping[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     kind = kinds.get(ref)
-    obj = objects.get(ref)
-    if obj is None:
-        return ()
     path = _display_path(ref)
     if kind == SemanticKind.DOMAIN:
         return tuple(
@@ -372,106 +376,6 @@ def _dependencies_for_ref(
             if kinds.get(obj_id) == SemanticKind.ENTITY
             and getattr(other, "datasource", None) == path
         )
-    if kind in {SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION}:
-        entity = getattr(obj, "entity", None)
-        return (_exact_key(entity, SemanticKind.ENTITY),) if isinstance(entity, str) else ()
-    if kind == SemanticKind.MEASURE:
-        entity = getattr(obj, "entity", None)
-        return (_exact_key(entity, SemanticKind.ENTITY),) if isinstance(entity, str) else ()
-    if kind == SemanticKind.PERIOD_CALENDAR:
-        date_field = getattr(obj, "date", None)
-        levels = tuple(field for _level, field in getattr(obj, "levels", ()))
-        correspondence_fields = tuple(
-            field for _name, _level, field in getattr(obj, "correspondences", ())
-        )
-        return tuple(
-            _exact_key(
-                field,
-                SemanticKind.TIME_DIMENSION if field == date_field else SemanticKind.DIMENSION,
-            )
-            for field in (date_field, *levels, *correspondence_fields)
-            if isinstance(field, str)
-        )
-    if kind == SemanticKind.TEMPORAL_SET:
-        fields = (
-            getattr(obj, "occurrence_id", None),
-            getattr(obj, "start", None),
-            getattr(obj, "end", None),
-            getattr(obj, "category", None),
-        )
-        return tuple(
-            _exact_key(
-                field,
-                SemanticKind.TIME_DIMENSION
-                if field in {getattr(obj, "start", None), getattr(obj, "end", None)}
-                else SemanticKind.DIMENSION,
-            )
-            for field in fields
-            if isinstance(field, str)
-        )
-    if kind == SemanticKind.WORK_SCHEDULE:
-        date_field = getattr(obj, "date", None)
-        status_field = getattr(obj, "is_working", None)
-        return tuple(
-            _exact_key(
-                field,
-                SemanticKind.TIME_DIMENSION if field == date_field else SemanticKind.DIMENSION,
-            )
-            for field in (date_field, status_field)
-            if isinstance(field, str)
-        )
-    if kind == SemanticKind.METRIC:
-        deps: list[str] = []
-        deps.extend(
-            _exact_key(entity, SemanticKind.ENTITY) for entity in getattr(obj, "entities", ())
-        )
-        composition = getattr(obj, "composition", None)
-        if composition is not None:
-            from marivo.semantic.ir import composition_components
-
-            components = composition_components(composition)
-            deps.extend(
-                _exact_key(str(value), SemanticKind.METRIC) for value in components.values()
-            )
-        return tuple(deps)
-    if kind == SemanticKind.RELATIONSHIP:
-        keys = getattr(obj, "keys", ())
-        key_refs = tuple(ref for key in keys for ref in key.to_tuple())
-        entity_deps = (getattr(obj, "from_entity", None), getattr(obj, "to_entity", None))
-        return tuple(
-            _exact_key(dep, SemanticKind.ENTITY) for dep in entity_deps if isinstance(dep, str)
-        ) + tuple(
-            _exact_key(dep, SemanticKind.DIMENSION)
-            for dep in (*key_refs, *getattr(obj, "from_keys", ()), *getattr(obj, "to_keys", ()))
-            if isinstance(dep, str)
-        )
-    if kind == SemanticKind.EVENT:
-        from marivo.semantic.ir import EventIR
-
-        event = cast("EventIR", obj)
-        deps = [
-            _exact_key(event.source_entity, SemanticKind.ENTITY),
-            _exact_key(event.occurred_at, SemanticKind.TIME_DIMENSION),
-        ]
-        deps.extend(_exact_key(path, SemanticKind.DIMENSION) for path in event.identity)
-        for participant in event.participants:
-            deps.extend(
-                _exact_key(path, SemanticKind.RELATIONSHIP) for path in (participant.path or ())
-            )
-        if event_predicate_dependencies is not None:
-            deps.extend(event_predicate_dependencies.get(ref, ()))
-        return tuple(deps)
-    if kind == SemanticKind.STATE_MODEL:
-        from marivo.semantic.ir import StateModelIR
-
-        model = cast("StateModelIR", obj)
-        event_refs = {item.trigger.event_ref for item in model.inceptions} | {
-            item.trigger.event_ref for item in model.transitions
-        }
-        return (
-            _exact_key(model.subject, SemanticKind.ENTITY),
-            *tuple(_exact_key(event_ref, SemanticKind.EVENT) for event_ref in sorted(event_refs)),
-        )
     return ()
 
 
@@ -480,7 +384,7 @@ def _expand_checked_refs(
     kinds: Mapping[str, SemanticKind],
     objects: Mapping[str, object],
     *,
-    event_predicate_dependencies: Mapping[str, tuple[str, ...]] | None = None,
+    dependencies: Mapping[str, tuple[str, ...]],
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     seeds = _dedupe(refs if refs is not None else _default_checked_refs(kinds))
     checked: list[str] = []
@@ -494,12 +398,7 @@ def _expand_checked_refs(
         if ref not in kinds:
             unknown.append(ref)
             continue
-        for dep in _dependencies_for_ref(
-            ref,
-            objects,
-            kinds,
-            event_predicate_dependencies=event_predicate_dependencies,
-        ):
+        for dep in (*dependencies.get(ref, ()), *_container_scope_children(ref, objects, kinds)):
             if dep not in checked and dep not in queue:
                 queue.append(dep)
     return tuple(checked), tuple(unknown)
@@ -526,6 +425,43 @@ def _dataset_refs(refs: Iterable[str], kinds: Mapping[str, SemanticKind]) -> tup
 
 def _refs_with_issue(issues: Iterable[ReadinessIssue]) -> set[str]:
     return {ref for issue in issues for ref in issue.refs}
+
+
+def _aggregate_backend_issue(
+    *,
+    path: str,
+    agg: AggKind,
+    target: RefPayloadV1,
+    registry: Registry,
+    help_target: LiveHelpTarget,
+) -> ReadinessIssue | None:
+    """Check a declared Measure/Entity aggregate without binding its source."""
+    from marivo.semantic._aggregate_accuracy import aggregate_repair
+
+    entity_id = registry.measures[target.path].entity if target.kind == "measure" else target.path
+    entity = registry.entities[entity_id]
+    datasource = registry.datasources[entity.datasource]
+    action = aggregate_repair(agg, datasource.backend_type)
+    if action is None:
+        return None
+    expected = f"source-native agg={agg!r} with its declared exactness"
+    received = f"backend={datasource.backend_type}"
+    return _issue(
+        "aggregate_backend_unsupported",
+        "blocker",
+        (path,),
+        f"{path} requires {expected}, but datasource {entity.datasource!r} has {received} "
+        "with no implementation satisfying that definition.",
+        AuthoringRepair(kind="reauthor", help_target=help_target, action=action),
+        details={
+            "agg": list(agg) if isinstance(agg, tuple) else agg,
+            "target_ref": target.to_dict(),
+            "datasource": entity.datasource,
+            "backend": datasource.backend_type,
+            "expected": expected,
+            "received": received,
+        },
+    )
 
 
 def _undeclared_naive_time_axis_issues(
@@ -710,10 +646,12 @@ def build_readiness_report(
 ) -> ReadinessReport:
     """Build a semantic-static readiness report from current loaded state.
 
-    Performs pure in-memory checks: load errors, unknown refs,
-    cross-datasource unfederated metrics, raw SQL requirements,
-    temporal artifact integrity, and load warnings. It never reads ordinary
+    Uses the compiled definition graph for dependency closure, then performs
+    static checks: load errors, unknown refs, declared aggregate backend support,
+    cross-datasource unfederated metrics, certified temporal artifact
+    integrity, and load warnings. It never reads ordinary
     discovery or preview history and never executes a datasource query.
+    Load warnings outside an explicit requested closure are excluded.
 
     Args:
         project: A loaded SemanticProject instance.
@@ -759,20 +697,18 @@ def build_readiness_report(
     if compiled_state is None:
         raise RuntimeError("ready semantic project has no compiled state")
     catalog_definition_fingerprint = compiled_state.definition_fingerprint
-    event_predicate_dependencies = {
-        ref.key: tuple(binding.to_ref().key for binding in body.bindings)
-        for ref, body in compiled_state.sidecar.bodies.items()
-        if ref.kind is SemanticKind.EVENT
-    }
-
     kinds, objects = _object_maps(project)
+    dependencies = {
+        ref.key: tuple(dependency.key for dependency in values)
+        for ref, values in compiled_state.dependencies.items()
+    }
     scoped_keys = _scope_keys(refs, kinds)
     direct_refs = _dedupe(scoped_keys if scoped_keys is not None else _default_checked_refs(kinds))
     checked_refs, unknown_refs = _expand_checked_refs(
         scoped_keys,
         kinds,
         objects,
-        event_predicate_dependencies=event_predicate_dependencies,
+        dependencies=dependencies,
     )
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
@@ -832,6 +768,28 @@ def build_readiness_report(
                     )
                 )
 
+        for ref in checked_refs:
+            if kinds.get(ref) != SemanticKind.METRIC:
+                continue
+            path = _display_path(ref)
+            metric = reg.metrics[path]
+            if metric.aggregation is None or metric.aggregation_target is None:
+                continue
+            target_kind = (
+                SemanticKind.MEASURE
+                if metric.aggregation_target_kind == "measure"
+                else SemanticKind.ENTITY
+            )
+            issue = _aggregate_backend_issue(
+                path=path,
+                agg=metric.aggregation,
+                target=RefPayloadV1.from_ref(_exact_ref(metric.aggregation_target, target_kind)),
+                registry=reg,
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="aggregate"),
+            )
+            if issue is not None:
+                blockers.append(issue)
+
     for ref in unknown_refs:
         path = _display_path(ref)
         blockers.append(
@@ -856,6 +814,18 @@ def build_readiness_report(
     blockers.extend(naive_time_axis_blockers)
     warnings.extend(naive_time_axis_warnings)
     blockers.extend(_snapshot_fold_unobservable_issues(checked_refs, kinds, objects, reg))
+    for ref in checked_refs:
+        if kinds.get(ref) is SemanticKind.BUSINESS_ORDER:
+            path = _display_path(ref)
+            warnings.append(
+                _issue(
+                    "business_order_values_unverified",
+                    "advisory",
+                    (path,),
+                    f"{path} has a valid order declaration; source sequence values and Event history have not been verified.",
+                    details={"verification_stage": "R7"},
+                )
+            )
 
     # Period calendars are executable semantic dependencies. Unlike ordinary
     # preview output, a missing/stale certified artifact is a hard blocker
@@ -1062,37 +1032,11 @@ def build_readiness_report(
                 )
             )
 
-    # SQL parity unverified warnings.
-    for ref in checked_refs:
-        if kinds.get(ref) != SemanticKind.METRIC:
-            continue
-        path = _display_path(ref)
-        obj = objects.get(ref)
-        if obj is None:
-            continue
-        prov = getattr(obj, "provenance", None)
-        if prov is None:
-            continue
-        provenance_sql = prov.sql
-        if provenance_sql is None:
-            continue
-        if not _parity_passed(project, path):
-            warnings.append(
-                _issue(
-                    "sql_parity_unverified",
-                    "warning",
-                    (path,),
-                    f"{path} has provenance SQL but parity has not been confirmed.",
-                    repair(
-                        kind="retry",
-                        canonical_id="parity_check",
-                        action=f"Run ms.parity_check({path!r}) when parity matters, or report the warning as non-blocking when the certification policy allows it.",
-                    ),
-                )
-            )
-
     # Forward load warnings as readiness warnings.
+    checked_paths = {_display_path(ref) for ref in checked_refs}
     for sw in project.warnings():
+        if scoped_keys is not None and sw.refs and checked_paths.isdisjoint(sw.refs):
+            continue
         if sw.kind in {"string_ref", "potentially_fragile_reference"}:
             warnings.append(
                 _issue(
@@ -1131,12 +1075,14 @@ def build_readiness_report(
                 (ref,),
                 kinds,
                 objects,
-                event_predicate_dependencies=event_predicate_dependencies,
+                dependencies=dependencies,
             )[0]
         )
     )
     analysis_ready_inputs = tuple(
-        _exact_ref(_display_path(ref), kinds[ref]) for ref in analysis_ready_ids if ref in kinds
+        _exact_ref(_display_path(ref), kinds[ref])
+        for ref in analysis_ready_ids
+        if ref in kinds and kinds[ref] is not SemanticKind.BUSINESS_ORDER
     )
 
     datasources_checked: tuple[str, ...] = scoped_datasources if reg is not None else ()

@@ -10,6 +10,7 @@ import binascii
 import inspect
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -41,6 +42,7 @@ from marivo._temporal import (
 from marivo.datasource import credentials as cr
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.engines import require_profile_for_backend_type
+from marivo.datasource.errors import DatasourceError, _backend_failure_summary
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
@@ -65,6 +67,7 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.refs import (
+    BusinessOrderKind,
     DatasourceKind,
     DimensionKind,
     DomainKind,
@@ -75,6 +78,7 @@ from marivo.refs import (
     MetricKind,
     PeriodCalendarKind,
     Ref,
+    RefPayloadV1,
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
@@ -100,10 +104,17 @@ from marivo.semantic._capabilities.catalog_members import (
     CATALOG_MEMBER_CONTRACTS,
 )
 from marivo.semantic._definition_projection import metric_node, temporal_rules
+from marivo.semantic._dsl_authoring import (
+    AdditivityPolicy,
+    EmptyContributionPolicyV1,
+    NullInputPolicyV1,
+    ZeroDenominatorPolicyV1,
+)
 from marivo.semantic._metric_resolution import (
     fold_input_to_ir,
     resolve_aggregate_temporal_contract,
 )
+from marivo.semantic.business_order import _business_order_fingerprint
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.definition import (
     ExpressionDescription,
@@ -124,6 +135,7 @@ from marivo.semantic.dtos import DatasetSource, PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticDefinitionReadError,
+    SemanticError,
     SemanticLoadFailed,
     SemanticRuntimeError,
     _raise,
@@ -131,6 +143,8 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
+    AggKind,
+    BusinessOrderIR,
     DateParse,
     DatetimeParse,
     DimensionIR,
@@ -143,7 +157,6 @@ from marivo.semantic.ir import (
     LinearComposition,
     MeasureIR,
     MetricIR,
-    ParityStatus,
     PeriodCalendarIR,
     RatioComposition,
     RelationshipIR,
@@ -151,10 +164,10 @@ from marivo.semantic.ir import (
     SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
-    SqlProvenance,
     StateModelIR,
     StrptimeParse,
     TemporalSetIR,
+    TimeFoldIR,
     TimestampParse,
     ValidityVersioningIR,
     WhereValue,
@@ -162,7 +175,6 @@ from marivo.semantic.ir import (
     additivity_bucket,
     composition_components,
 )
-from marivo.semantic.parity import propagated_parity_status
 from marivo.semantic.preview_scope import (
     NormalizedPreviewScope,
     PreviewScope,
@@ -195,6 +207,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AiContextView",
+    "BusinessOrderDetails",
+    "BusinessOrderEntry",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
     "CatalogCollection",
@@ -410,6 +424,10 @@ def _make_ref(path: str, kind: Literal[SemanticKind.STATE_MODEL]) -> Ref[StateMo
 
 
 @overload
+def _make_ref(path: str, kind: Literal[SemanticKind.BUSINESS_ORDER]) -> Ref[BusinessOrderKind]: ...
+
+
+@overload
 def _make_ref(
     path: str, kind: Literal[SemanticKind.PERIOD_CALENDAR]
 ) -> Ref[PeriodCalendarKind]: ...
@@ -439,6 +457,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
         SemanticKind.EVENT: ref_factory.event,
         SemanticKind.STATE_MODEL: ref_factory.state_model,
+        SemanticKind.BUSINESS_ORDER: ref_factory.business_order,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -555,11 +574,8 @@ def _entity_source_sections(source: DatasetSource) -> tuple[Section, ...]:
         FieldSection(label="full_source", value=".source.to_dict()"),
         TableSection(
             label="column_bindings",
-            columns=("output alias", "physical source", "declared type"),
-            rows=tuple(
-                (output_name, binding.source, binding.data_type)
-                for output_name, binding in source.columns
-            ),
+            columns=("output alias", "physical source"),
+            rows=tuple((output_name, source_name) for output_name, source_name in source.columns),
             rows_provider=None,
             row_count=len(source.columns),
             show_omission_counts=True,
@@ -571,12 +587,6 @@ def _versioning_text(versioning: EntityVersioning | None) -> str:
     if versioning is None:
         return "(none)"
     return repr(versioning)
-
-
-def _provenance_text(provenance: SqlProvenance | None) -> str:
-    if provenance is None:
-        return "(none)"
-    return f"{provenance.kind} dialect={provenance.dialect} sql={provenance.sql!r}"
 
 
 def _common_detail_sections(
@@ -623,16 +633,19 @@ class _DetailsBase(RenderableResult):
         return f"{self.__class__.__name__} ref={self.ref.key}"
 
     def _detail_sections(self) -> list[Section]:
-        raise NotImplementedError
+        return _common_detail_sections(
+            context=self.context,
+            python_symbol=self.python_symbol,
+            source_location=self.source_location,
+            parents=self.parents,
+            children=self.children,
+            dependents=self.dependents,
+        )
 
     def _card(self) -> Card:
         card = Card(identity=self._repr_identity(), available=(".show()",))
         for section in self._detail_sections():
             card = card.section(section)
-        card = card.listing(
-            label="suggested next calls",
-            items=(f"catalog.readiness(refs=[ms.ref.{self.ref.kind.value}({self.ref.path!r})])",),
-        )
         return card
 
 
@@ -676,14 +689,7 @@ class DatasourceDetails(_DetailsBase):
         object.__setattr__(self, "env_refs", MappingProxyType(dict(self.env_refs)))
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="backend_type", value=self.backend_type),
@@ -704,14 +710,7 @@ class DomainDetails(_DetailsBase):
     default: bool
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="owner", value=self.owner),
@@ -733,14 +732,7 @@ class EntityDetails(_DetailsBase):
     expression_display: _ExpressionDisplay | None = None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="datasource", value=self.datasource.key),
@@ -785,14 +777,7 @@ class DimensionDetails(_DefinitionDetailsBase):
     entity: Ref[SemanticKindTag]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.append(FieldSection(label="entity", value=self.entity.key))
         return sections
 
@@ -804,16 +789,12 @@ class MeasureDetails(_DefinitionDetailsBase):
     entity: Ref[SemanticKindTag]
     additivity: Literal["additive", "semi_additive", "non_additive"]
     unit: str | None
+    dsl_additivity: AdditivityPolicy | None = None
+    status_time_dimension: str | None = None
+    status_time_fold: TimeFoldIR | None = None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="entity", value=self.entity.key),
@@ -822,6 +803,18 @@ class MeasureDetails(_DefinitionDetailsBase):
         )
         if self.unit:
             sections.append(FieldSection(label="unit", value=self.unit))
+        if self.dsl_additivity is not None:
+            sections.append(
+                FieldSection(label="declared_additivity", value=repr(self.dsl_additivity))
+            )
+        if self.status_time_dimension is not None:
+            sections.append(
+                FieldSection(label="status_time_dimension", value=self.status_time_dimension)
+            )
+        if self.status_time_fold is not None:
+            sections.append(
+                FieldSection(label="status_time_fold", value=self.status_time_fold.label())
+            )
         return sections
 
 
@@ -839,14 +832,7 @@ class TimeDimensionDetails(_DefinitionDetailsBase):
     sample_interval: SampleIntervalIR | None
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         parse_kind_display = self.parse_kind or "(inferred)"
         sections.extend(
             (
@@ -879,8 +865,6 @@ def _metric_common_sections(
     status_time_dimension: str | None,
     fanout_policy: Literal["block", "aggregate_then_join"],
     unit: str | None,
-    provenance: SqlProvenance | None,
-    parity_status: ParityStatus,
 ) -> list[Section]:
     """Render sections shared by all metric detail variants."""
     sections: list[Section] = [
@@ -907,8 +891,6 @@ def _metric_common_sections(
     sections.append(FieldSection(label="fanout_policy", value=fanout_policy))
     if unit:
         sections.append(FieldSection(label="unit", value=unit))
-    sections.append(FieldSection(label="provenance", value=_provenance_text(provenance)))
-    sections.append(FieldSection(label="parity_status", value=str(parity_status)))
     return sections
 
 
@@ -930,8 +912,6 @@ class SimpleMetricDetails(_DefinitionDetailsBase):
     status_time_dimension: str | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
-    provenance: SqlProvenance | None
-    parity_status: ParityStatus
     aggregation_target: Ref[SemanticKindTag] | None = None
     aggregation_target_kind: Literal["measure", "entity"] | None = None
     filter: tuple[tuple[str, WhereValue], ...] | None = None
@@ -941,20 +921,20 @@ class SimpleMetricDetails(_DefinitionDetailsBase):
     measure_lineage: tuple[tuple[str, Ref[SemanticKindTag]], ...] = ()
     weighted_mean_value: Ref[SemanticKindTag] | None = None
     weighted_mean_weight: Ref[SemanticKindTag] | None = None
+    dsl_additivity: AdditivityPolicy | None = None
+    event_time_dimension: str | None = None
+    event_time_path: tuple[str, ...] = ()
+    status_time_fold: TimeFoldIR | None = None
+    null_policy: NullInputPolicyV1 | None = None
+    empty_policy: EmptyContributionPolicyV1 | None = None
+    zero_denominator_policy: ZeroDenominatorPolicyV1 | None = None
 
     @property
     def metric_type(self) -> Literal["simple"]:
         return "simple"
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
@@ -969,10 +949,34 @@ class SimpleMetricDetails(_DefinitionDetailsBase):
                 status_time_dimension=self.status_time_dimension,
                 fanout_policy=self.fanout_policy,
                 unit=self.unit,
-                provenance=self.provenance,
-                parity_status=self.parity_status,
             )
         )
+        if self.dsl_additivity is not None:
+            sections.append(
+                FieldSection(label="declared_additivity", value=repr(self.dsl_additivity))
+            )
+        if self.event_time_dimension is not None:
+            sections.append(
+                FieldSection(label="event_time_dimension", value=self.event_time_dimension)
+            )
+        if self.event_time_path:
+            sections.append(
+                FieldSection(label="event_time_path", value=" -> ".join(self.event_time_path))
+            )
+        if self.status_time_fold is not None:
+            sections.append(
+                FieldSection(label="status_time_fold", value=self.status_time_fold.label())
+            )
+        if self.null_policy is not None:
+            sections.append(FieldSection(label="null_policy", value=repr(self.null_policy)))
+        if self.empty_policy is not None:
+            sections.append(FieldSection(label="empty_policy", value=repr(self.empty_policy)))
+        if self.zero_denominator_policy is not None:
+            sections.append(
+                FieldSection(
+                    label="zero_denominator_policy", value=repr(self.zero_denominator_policy)
+                )
+            )
         if self.aggregation is not None:
             sections.append(FieldSection(label="aggregation", value=self.aggregation))
         if self.measure is not None:
@@ -1025,8 +1029,6 @@ class DerivedMetricDetails(_DefinitionDetailsBase):
     status_time_dimension: str | None
     fanout_policy: Literal["block", "aggregate_then_join"]
     unit: str | None
-    provenance: SqlProvenance | None
-    parity_status: ParityStatus
     effective_entities: tuple[Ref[SemanticKindTag], ...] = ()
     candidate_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
     candidate_time_dimensions: tuple[Ref[SemanticKindTag], ...] = ()
@@ -1037,14 +1039,7 @@ class DerivedMetricDetails(_DefinitionDetailsBase):
         return "derived"
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             _metric_common_sections(
                 entities=self.entities,
@@ -1059,8 +1054,6 @@ class DerivedMetricDetails(_DefinitionDetailsBase):
                 status_time_dimension=self.status_time_dimension,
                 fanout_policy=self.fanout_policy,
                 unit=self.unit,
-                provenance=self.provenance,
-                parity_status=self.parity_status,
             )
         )
         sections.append(FieldSection(label="composition", value=self.composition))
@@ -1114,26 +1107,25 @@ class RelationshipDetails(_DetailsBase):
     to_entity: Ref[SemanticKindTag]
     from_keys: tuple[str, ...]
     to_keys: tuple[str, ...]
-
-    def __post_init__(self) -> None:
-        # Compatibility: these are no longer stored directly on RelationshipIR,
-        # but RelationshipDetails still exposes them for catalog consumers.
-        # Set by _build_relationship_object from JoinKey pairs.
-        pass
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    from_version_resolution_required: bool
+    to_version_resolution_required: bool
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="from", value=self.from_entity.key),
                 FieldSection(label="to", value=self.to_entity.key),
+                FieldSection(label="role", value=self.name),
+                FieldSection(label="structural_cardinality", value=self.cardinality),
+                FieldSection(
+                    label="version_resolution_required",
+                    value=(
+                        f"from={str(self.from_version_resolution_required).lower()}, "
+                        f"to={str(self.to_version_resolution_required).lower()}"
+                    ),
+                ),
                 FieldSection(
                     label="join_keys",
                     value=", ".join(
@@ -1158,14 +1150,7 @@ class EventDetails(_DetailsBase):
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="source_entity", value=self.source_entity.key),
@@ -1208,20 +1193,18 @@ class StateModelDetails(_DetailsBase):
         ],
         ...,
     ]
+    business_order: Ref[BusinessOrderKind] | None
     definition_fingerprint: str
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="subject", value=self.subject.key),
+                FieldSection(
+                    label="business_order",
+                    value=self.business_order.key if self.business_order is not None else "(none)",
+                ),
                 FieldSection(
                     label="states",
                     value="; ".join(
@@ -1254,6 +1237,41 @@ class StateModelDetails(_DetailsBase):
                 FieldSection(
                     label="definition_fingerprint",
                     value=self.definition_fingerprint,
+                ),
+            )
+        )
+        return sections
+
+
+@dataclass(frozen=True, repr=False)
+class BusinessOrderDetails(_DetailsBase):
+    """Complete declared order facts for one exact Subject."""
+
+    subject: Ref[EntityKind]
+    sequences: tuple[
+        tuple[Ref[EventKind], Ref[DimensionKind], Literal["integer"] | tuple[str, ...], str], ...
+    ]
+    conflicts: tuple[tuple[str, str], ...]
+    definition_fingerprint: str
+
+    def _detail_sections(self) -> list[Section]:
+        sections = super()._detail_sections()
+        sections.extend(
+            (
+                FieldSection(label="subject", value=self.subject.key),
+                FieldSection(label="definition_fingerprint", value=self.definition_fingerprint),
+                FieldSection(
+                    label="sequences",
+                    value="; ".join(
+                        f"{event.key}#{role}: {value.key} order={order!r}"
+                        for event, value, order, role in self.sequences
+                    )
+                    or "(none)",
+                ),
+                FieldSection(
+                    label="precedence",
+                    value="; ".join(f"{before} -> {after}" for before, after in self.conflicts)
+                    or "(none)",
                 ),
             )
         )
@@ -1305,14 +1323,7 @@ class PeriodCalendarDetails(_DetailsBase):
         return self.date
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="calendar_ref", value=self.ref.key),
@@ -1372,14 +1383,7 @@ class TemporalSetDetails(_DetailsBase):
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),
@@ -1412,14 +1416,7 @@ class WorkScheduleDetails(_DetailsBase):
     snapshot_status: Literal["missing", "current", "stale", "invalid"]
 
     def _detail_sections(self) -> list[Section]:
-        sections = _common_detail_sections(
-            context=self.context,
-            python_symbol=self.python_symbol,
-            source_location=self.source_location,
-            parents=self.parents,
-            children=self.children,
-            dependents=self.dependents,
-        )
+        sections = super()._detail_sections()
         sections.extend(
             (
                 FieldSection(label="boundary_timezone", value=self.boundary_timezone),
@@ -1467,6 +1464,7 @@ _CatalogObjectDetails = (
     | RelationshipDetails
     | EventDetails
     | StateModelDetails
+    | BusinessOrderDetails
     | PeriodCalendarDetails
     | TemporalSetDetails
     | WorkScheduleDetails
@@ -1577,6 +1575,7 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "relationships",
         "events",
         "state_models",
+        "business_orders",
         "period_calendars",
         "temporal_sets",
         "work_schedules",
@@ -1634,6 +1633,12 @@ class DomainEntry(CatalogEntry[DomainKind]):
         )
 
     @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._catalog._collection(
+            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
+        )
+
+    @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
         return self._catalog._collection(
             PeriodCalendarEntry,
@@ -1684,6 +1689,7 @@ class EntityEntry(CatalogEntry[EntityKind]):
         "relationships",
         "events",
         "state_models",
+        "business_orders",
     )
 
     def details(self) -> EntityDetails:
@@ -1731,6 +1737,12 @@ class EntityEntry(CatalogEntry[EntityKind]):
             StateModelEntry,
             SemanticKind.STATE_MODEL,
             scope_ref=self.ref,
+        )
+
+    @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._catalog._collection(
+            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
         )
 
 
@@ -1926,6 +1938,12 @@ class StateModelEntry(CatalogEntry[StateModelKind]):
             super()
             ._card()
             .field(label="subject", value=details.subject.key)
+            .field(
+                label="business_order",
+                value=details.business_order.key
+                if details.business_order is not None
+                else "(none)",
+            )
             .field(label="state_count", value=str(len(details.states)))
             .field(
                 label="transition_count",
@@ -1941,6 +1959,25 @@ class StateModelEntry(CatalogEntry[StateModelKind]):
                 value=f"{omitted}; full: .details().show()",
             )
         return card
+
+
+class BusinessOrderEntry(CatalogEntry[BusinessOrderKind]):
+    """Loaded named business ordering authority."""
+
+    ref: Ref[BusinessOrderKind]
+
+    def details(self) -> BusinessOrderDetails:
+        return cast("BusinessOrderDetails", self._details)
+
+    def _card(self) -> Card:
+        details = self.details()
+        return (
+            super()
+            ._card()
+            .field(label="subject", value=details.subject.key)
+            .field(label="sequence_count", value=str(len(details.sequences)))
+            .field(label="precedence_count", value=str(len(details.conflicts)))
+        )
 
 
 class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
@@ -2888,6 +2925,12 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
 
     @overload
     def get(
+        self: CatalogCollection[BusinessOrderKind],
+        key: str | Ref[BusinessOrderKind],
+    ) -> BusinessOrderEntry: ...
+
+    @overload
+    def get(
         self: CatalogCollection[PeriodCalendarKind],
         key: str | Ref[PeriodCalendarKind],
     ) -> PeriodCalendarEntry: ...
@@ -3374,6 +3417,11 @@ def _build_domain_object(
         for model in reg.state_models.values()
         if model.domain == model_ir.name
     )
+    business_order_refs = tuple(
+        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        for order in reg.business_orders.values()
+        if order.domain == model_ir.name
+    )
     period_calendar_refs = tuple(
         _make_ref(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         for calendar in reg.period_calendars.values()
@@ -3394,6 +3442,7 @@ def _build_domain_object(
         + metrics_refs
         + event_refs
         + state_model_refs
+        + business_order_refs
         + period_calendar_refs
         + temporal_set_refs
         + work_schedule_refs
@@ -3451,7 +3500,20 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for model in reg.state_models.values()
         if model.subject == ds_ir.semantic_id
     )
-    children = fields_refs + measure_refs + metric_refs + rels_refs + event_refs + state_model_refs
+    business_order_refs = tuple(
+        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
+        for order in reg.business_orders.values()
+        if order.subject == ds_ir.semantic_id
+    )
+    children = (
+        fields_refs
+        + measure_refs
+        + metric_refs
+        + rels_refs
+        + event_refs
+        + state_model_refs
+        + business_order_refs
+    )
     metric_dependents = tuple(
         _make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
@@ -3478,7 +3540,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         source_location=ds_ir.location,
         parents=(ds_ref,),
         children=children,
-        dependents=metric_dependents + state_model_dependents,
+        dependents=metric_dependents + state_model_dependents + business_order_refs,
         python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
@@ -3680,6 +3742,9 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatal
         entity=entity_ref,
         additivity=additivity_bucket(m_ir.additivity),
         unit=m_ir.unit,
+        dsl_additivity=m_ir.dsl_additivity,
+        status_time_dimension=m_ir.status_time_dimension,
+        status_time_fold=m_ir.status_time_fold,
     )
     return _object_from_details(MeasureEntry, details, catalog)
 
@@ -3932,7 +3997,6 @@ def _build_metric_object(
         if m2.composition is not None
         and m_ir.semantic_id in composition_components(m2.composition).values()
     )
-    parity_status = propagated_parity_status(project, m_ir.semantic_id)
     add = m_ir.additivity
     temporal_contract = definition.temporal.effective
     if isinstance(node, (_Ratio, _Linear, _Cumulative)):
@@ -3961,8 +4025,6 @@ def _build_metric_object(
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
-            provenance=m_ir.provenance,
-            parity_status=parity_status,
             effective_entities=effective_entities,
             candidate_dimensions=candidate_dimensions,
             candidate_time_dimensions=candidate_time_dimensions,
@@ -3999,8 +4061,6 @@ def _build_metric_object(
             ),
             fanout_policy=m_ir.fanout_policy,
             unit=m_ir.unit,
-            provenance=m_ir.provenance,
-            parity_status=parity_status,
             aggregation_target=aggregation_target,
             aggregation_target_kind=m_ir.aggregation_target_kind
             or ("measure" if m_ir.measure else None),
@@ -4011,8 +4071,23 @@ def _build_metric_object(
             candidate_dimensions=candidate_dimensions,
             candidate_time_dimensions=candidate_time_dimensions,
             measure_lineage=measure_lineage,
-            weighted_mean_value=node.value if isinstance(node, _WeightedMean) else None,
-            weighted_mean_weight=node.weight if isinstance(node, _WeightedMean) else None,
+            weighted_mean_value=(
+                _make_ref(m_ir.weighted_mean.value, SemanticKind.MEASURE)
+                if m_ir.weighted_mean is not None
+                else None
+            ),
+            weighted_mean_weight=(
+                _make_ref(m_ir.weighted_mean.weight, SemanticKind.MEASURE)
+                if m_ir.weighted_mean is not None
+                else None
+            ),
+            dsl_additivity=m_ir.dsl_additivity,
+            event_time_dimension=m_ir.event_time_dimension,
+            event_time_path=m_ir.event_time_path,
+            status_time_fold=m_ir.status_time_fold,
+            null_policy=m_ir.null_policy,
+            empty_policy=m_ir.empty_policy,
+            zero_denominator_policy=m_ir.zero_denominator_policy,
         )
     return _object_from_details(MetricEntry, details, catalog)
 
@@ -4020,6 +4095,9 @@ def _build_metric_object(
 def _build_relationship_object(
     r_ir: RelationshipIR, reg: Registry, catalog: SemanticCatalog
 ) -> RelationshipEntry:
+    from marivo.semantic.validator import normalize_target_relationship
+
+    normalized = normalize_target_relationship(reg, r_ir.semantic_id)
     ref = _make_ref(r_ir.semantic_id, SemanticKind.RELATIONSHIP)
     from_ref = _make_ref(r_ir.from_entity, SemanticKind.ENTITY)
     to_ref = _make_ref(r_ir.to_entity, SemanticKind.ENTITY)
@@ -4038,6 +4116,9 @@ def _build_relationship_object(
         to_entity=to_ref,
         from_keys=tuple(k.from_key for k in r_ir.keys),
         to_keys=tuple(k.to_key for k in r_ir.keys),
+        cardinality=normalized.cardinality,
+        from_version_resolution_required=normalized.from_version_resolution_required,
+        to_version_resolution_required=normalized.to_version_resolution_required,
     )
     return _object_from_details(RelationshipEntry, details, catalog)
 
@@ -4232,7 +4313,15 @@ def _build_state_model_object(
         domain=model_ir.domain,
         context=model_ir.ai_context,
         source_location=model_ir.location,
-        parents=(subject, *events),
+        parents=(
+            subject,
+            *events,
+            *(
+                (ref_factory.business_order(model_ir.business_order),)
+                if model_ir.business_order is not None
+                else ()
+            ),
+        ),
         children=(),
         dependents=(),
         python_symbol=model_ir.python_symbol,
@@ -4262,6 +4351,11 @@ def _build_state_model_object(
             )
             for item in model_ir.transitions
         ),
+        business_order=(
+            ref_factory.business_order(model_ir.business_order)
+            if model_ir.business_order is not None
+            else None
+        ),
         definition_fingerprint=_state_model_fingerprint(
             ref,
             registry=reg,
@@ -4269,6 +4363,64 @@ def _build_state_model_object(
         ),
     )
     return _object_from_details(StateModelEntry, details, catalog)
+
+
+def _build_business_order_object(
+    order_ir: BusinessOrderIR, reg: Registry, catalog: SemanticCatalog
+) -> BusinessOrderEntry:
+    ref = ref_factory.business_order(order_ir.semantic_id)
+    subject = ref_factory.entity(order_ir.subject)
+    event_paths = {
+        *(item.event_ref for item in order_ir.sequences),
+        *(item.before_event for item in order_ir.conflicts),
+        *(item.after_event for item in order_ir.conflicts),
+    }
+    parents: tuple[Ref[SemanticKindTag], ...] = tuple(
+        dict.fromkeys(
+            (
+                subject,
+                *(ref_factory.event(path) for path in sorted(event_paths)),
+                *(ref_factory.dimension(item.value_ref) for item in order_ir.sequences),
+            )
+        )
+    )
+    details = BusinessOrderDetails(
+        ref=ref,
+        kind=SemanticKind.BUSINESS_ORDER,
+        name=order_ir.name,
+        domain=order_ir.domain,
+        context=order_ir.ai_context,
+        source_location=order_ir.location,
+        parents=parents,
+        children=(),
+        dependents=tuple(
+            ref_factory.state_model(model.semantic_id)
+            for model in reg.state_models.values()
+            if model.business_order == order_ir.semantic_id
+        ),
+        python_symbol=order_ir.python_symbol,
+        subject=subject,
+        sequences=tuple(
+            (
+                ref_factory.event(item.event_ref),
+                ref_factory.dimension(item.value_ref),
+                item.order,
+                item.participant_role,
+            )
+            for item in order_ir.sequences
+        ),
+        conflicts=tuple(
+            (
+                f"event:{item.before_event}#participant:{item.before_role}",
+                f"event:{item.after_event}#participant:{item.after_role}",
+            )
+            for item in order_ir.conflicts
+        ),
+        definition_fingerprint=_business_order_fingerprint(
+            ref, registry=reg, sidecar=catalog._state.sidecar
+        ),
+    )
+    return _object_from_details(BusinessOrderEntry, details, catalog)
 
 
 def _build_period_calendar_object(
@@ -4473,11 +4625,9 @@ def _certification_capture(
             details={"query_executed": False},
         )
     columns = tuple(dict.fromkeys(cast("str", field.source_column) for field in fields))
-    table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
     connections = resolver.connections
-    backend = connections.session_backend(bindings.datasource_id)
     profile = require_profile_for_backend_type(bindings.backend)
-    timeout_guard = profile.authoring_timeout
+    timeout_guard = profile.certification_timeout or profile.authoring_timeout
     if timeout_guard is None:
         _raise(
             ErrorKind.MATERIALIZE_FAILED,
@@ -4486,8 +4636,47 @@ def _certification_capture(
             refs=(ref.key,),
             details={"query_executed": False, "backend": bindings.backend},
         )
-    with cr.backend_errors(backend), timeout_guard(backend, bindings.timeout_seconds):
-        frame = table.execute()
+    with connections.terminal_scope(bindings.timeout_seconds):
+        backend = connections.session_backend(bindings.datasource_id)
+        with cr.backend_errors(backend), timeout_guard(backend, bindings.timeout_seconds):
+            table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
+            source_owner = connections.source_session(
+                bindings.datasource_id, registry.datasources[bindings.datasource_id]
+            )
+            try:
+                frame = connections.collect_source(
+                    bindings.datasource_id,
+                    table,
+                    purpose="semantic.certified_preview",
+                    max_rows=scope.max_rows + 1,
+                )
+            except (DatasourceError, SemanticError):
+                raise
+            except Exception as error:
+                failure = _backend_failure_summary(error)
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "Certified artifact source capture failed before snapshot publication.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref.key,),
+                    expected="an exhaustive source capture within the scoped deadline",
+                    received=failure.identity,
+                    details={
+                        "backend": bindings.backend,
+                        "backend_code": failure.backend_code,
+                        "backend_exception": failure.exception_type,
+                        "query_executed": any(
+                            item.purpose == "semantic.certified_preview"
+                            for item in source_owner.submissions
+                        ),
+                        "timeout_seconds": bindings.timeout_seconds,
+                    },
+                    repair_value=repair(
+                        kind="rescope",
+                        canonical_id="preview",
+                        action="Restore the selected source and retry certification with an exhaustive bounded scope and a sufficient timeout.",
+                    ),
+                )
     observed = len(frame)
     if observed > scope.max_rows:
         _raise(
@@ -4905,6 +5094,10 @@ class _CatalogIndex:
             _build_state_model_object(item, reg, self.catalog) for item in reg.state_models.values()
         )
         result.extend(
+            _build_business_order_object(item, reg, self.catalog)
+            for item in reg.business_orders.values()
+        )
+        result.extend(
             _build_period_calendar_object(item, reg, self.catalog)
             for item in reg.period_calendars.values()
         )
@@ -4985,6 +5178,8 @@ class _CatalogIndex:
                     for _name, endpoint, _cardinality, _path in details.participants
                 )
             if isinstance(details, StateModelDetails):
+                return scope.ref == details.subject
+            if isinstance(details, BusinessOrderDetails):
                 return scope.ref == details.subject
             if isinstance(details, TemporalSetDetails):
                 return any(parent == scope.ref for parent in details.parents)
@@ -5415,6 +5610,10 @@ class SemanticCatalog(RenderableResult):
         return self._collection(StateModelEntry, SemanticKind.STATE_MODEL)
 
     @property
+    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
+        return self._collection(BusinessOrderEntry, SemanticKind.BUSINESS_ORDER)
+
+    @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
         return self._collection(PeriodCalendarEntry, SemanticKind.PERIOD_CALENDAR)
 
@@ -5460,13 +5659,22 @@ class SemanticCatalog(RenderableResult):
         return self.items(kind)
 
     def require(self, ref: Ref[KindT], /) -> CatalogEntry[KindT]:
-        """Require exact membership of one typed ref in this compiled catalog.
+        """Resolve one exact typed ref in this compiled catalog.
 
         Args:
-            ref: One exact typed semantic Ref. Strings are not accepted.
+            ref: Current semantic identity, including its kind and full path.
 
         Returns:
-            The current catalog entry; missing membership raises a structured lookup error.
+            The catalog-owned entry for that exact identity.
+
+        Example:
+            >>> revenue = catalog.require(ms.ref.metric("sales.revenue"))
+            >>> revenue.details().show()
+
+        Constraints:
+            Strings, wrong-kind refs, and absent refs are rejected with a
+            structured repair. This lookup does not query a datasource or
+            certify the entry for analysis.
         """
         exact_ref = _require_semantic_ref(ref, parameter="require(ref)")
         found = self._require_index().require(exact_ref)
@@ -5501,7 +5709,10 @@ class SemanticCatalog(RenderableResult):
 
         Reads only current loaded semantic state and dedicated certified
         artifact state without acquiring, refreshing, or querying ordinary
-        datasource evidence.
+        datasource evidence. Declared aggregate/backend incompatibilities are
+        checked with an independent synthetic Ibis expression, without opening
+        a source or requiring optional backend client drivers. Passing this
+        check does not certify physical types or operation-specific execution.
 
         ``analysis_ready_inputs`` preserves directly selected refs and runtime
         expressions whose full dependency closures have no blocker.
@@ -5555,9 +5766,11 @@ class SemanticCatalog(RenderableResult):
                     refs=tuple(ref.key for ref in duplicate_refs),
                 )
 
+        from marivo.introspection.live.model import LiveHelpTarget
         from marivo.semantic.metric_graph_canonical import fingerprint
         from marivo.semantic.readiness import (
             ReadinessIssue,
+            _aggregate_backend_issue,
             _temporal_contract_unobservable_issue,
         )
         from marivo.semantic.runtime_metric_lowering import lower_metric_inputs
@@ -5692,11 +5905,32 @@ class SemanticCatalog(RenderableResult):
                 valid_forest_inputs.append(expression)
                 valid_forest_indices.append(index)
                 root_key = runtime_key(expression, index=index)
+                checked_aggregates: set[tuple[str, AggKind]] = set()
                 checked_temporal_contracts: set[tuple[str, str, str]] = set()
                 for aggregate in runtime_aggregates(expression):
                     measure = registry.measures.get(aggregate.measure.path)
                     if measure is None:
                         continue
+                    aggregate_key = (aggregate.measure.path, aggregate.agg)
+                    if aggregate_key not in checked_aggregates:
+                        checked_aggregates.add(aggregate_key)
+                        issue = _aggregate_backend_issue(
+                            path=root_key,
+                            agg=aggregate.agg,
+                            target=RefPayloadV1.from_ref(aggregate.measure),
+                            registry=registry,
+                            help_target=LiveHelpTarget(
+                                surface="analysis", canonical_id="runtime_metric.aggregate"
+                            ),
+                        )
+                        if issue is not None:
+                            graph_blocked.add(index)
+                            graph_issues.append(
+                                replace(
+                                    issue,
+                                    catalog_definition_fingerprint=self.definition_fingerprint,
+                                )
+                            )
                     temporal_contract = resolve_aggregate_temporal_contract(
                         measure.additivity,
                         fold_override=fold_input_to_ir(aggregate.fold),
@@ -5882,7 +6116,10 @@ class SemanticCatalog(RenderableResult):
         Args:
             ref: A current catalog entry or exact member ref.
             scope: One explicit authoring scope, or exact entity-to-scope
-                bindings when the ref spans multiple entities.
+                bindings covering all dependency Entities when the ref spans
+                multiple entities. Use ``md.unpruned`` for no pruning,
+                ``md.time_range`` for a physical time range, or ``md.partition``
+                for physical partition values; each requires row/time guards.
             source_bindings: Optional exact entity-to-parameter bindings for
                 parameterized JSON sources.
             limit: Positive bounded preview row limit.
@@ -6130,9 +6367,19 @@ class SemanticCatalog(RenderableResult):
                 refs=(ref_str,),
                 details={"query_executed": False, "backend": bindings.backend},
             )
-        backend = connections.session_backend(bindings.datasource_id)
 
         def execute_preview() -> PreviewResult:
+            from functools import partial
+
+            preview_with_source = partial(
+                preview_ibis_table,
+                read_table=lambda expression, bound: connections.collect_source(
+                    bindings.datasource_id,
+                    expression,
+                    purpose="semantic.preview",
+                    max_rows=bound,
+                ),
+            )
             resolver = self._semantic_resolver(
                 connections=connections,
                 sample_size=(METRIC_PREVIEW_SAMPLE_SIZE if kind == SemanticKind.METRIC else None),
@@ -6141,7 +6388,7 @@ class SemanticCatalog(RenderableResult):
             )
             if kind == SemanticKind.ENTITY:
                 table = resolver.table(_make_ref(ref_str, SemanticKind.ENTITY))
-                return preview_ibis_table(
+                return preview_with_source(
                     table,
                     kind="semantic_dataset",
                     ref=ref_str,
@@ -6158,7 +6405,7 @@ class SemanticCatalog(RenderableResult):
                 measure_value = resolver.measure(_make_ref(ref_str, SemanticKind.MEASURE))
                 measure_column_name = ref_str.rsplit(".", 1)[-1]
                 preview_table = parent_table.select(measure_value.name(measure_column_name))
-                return preview_ibis_table(
+                return preview_with_source(
                     preview_table,
                     kind="semantic_measure",
                     ref=ref_str,
@@ -6205,7 +6452,7 @@ class SemanticCatalog(RenderableResult):
                     *[parent_table[column] for column in selected_context],
                     field_value.name(field_column_name),
                 )
-                result = preview_ibis_table(
+                result = preview_with_source(
                     preview_table,
                     kind="semantic_field",
                     ref=ref_str,
@@ -6235,7 +6482,7 @@ class SemanticCatalog(RenderableResult):
                     method="pre_aggregate_limit",
                     limit=METRIC_PREVIEW_SAMPLE_SIZE,
                 )
-                result = preview_ibis_table(
+                result = preview_with_source(
                     _metric_preview_table(
                         resolver,
                         reg,
@@ -6273,7 +6520,7 @@ class SemanticCatalog(RenderableResult):
                     participants=tuple(participant.name for participant in event_ir.participants),
                 )
                 return _validate_event_preview(
-                    preview_ibis_table(
+                    preview_with_source(
                         table,
                         kind="semantic_event",
                         ref=ref_str,
@@ -6304,7 +6551,7 @@ class SemanticCatalog(RenderableResult):
                 for event_ref in event_refs:
                     event_ir = reg.events[event_ref]
                     event_preview = _validate_event_preview(
-                        preview_ibis_table(
+                        preview_with_source(
                             resolver.event(
                                 ref_factory.event(event_ref),
                                 participants=tuple(
@@ -6394,7 +6641,7 @@ class SemanticCatalog(RenderableResult):
                     ],
                     how="inner",
                 ).select(*(left_names + right_names))
-                return preview_ibis_table(
+                return preview_with_source(
                     joined,
                     kind="semantic_dataset",
                     ref=ref_str,
@@ -6411,8 +6658,15 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
-            result = execute_preview()
+        connection_scope = (
+            connections.terminal_scope(bindings.timeout_seconds)
+            if bindings.backend in {"trino", "postgres", "mysql"}
+            else nullcontext()
+        )
+        with connection_scope:
+            backend = connections.session_backend(bindings.datasource_id)
+            with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
+                result = execute_preview()
         return _attach_preview_scope(
             result,
             bindings=bindings,
@@ -6533,29 +6787,45 @@ class SemanticCatalog(RenderableResult):
         by_order: dict[int, PreviewResult] = {}
         for group_key, group_items in groups.items():
             try:
-                if group_key[0] == "row":
-                    raw_results = self._preview_row_group(
-                        tuple(group_items),
-                        connections=connections,
-                        limit=preview_limit,
-                        include_types=include_types,
+                if group_key[0] in {"row", "metric"}:
+                    bindings = group_items[0].bindings
+                    profile = require_profile_for_backend_type(bindings.backend)
+                    timeout = profile.authoring_timeout
+                    if timeout is None:
+                        _raise(
+                            ErrorKind.MATERIALIZE_FAILED,
+                            "catalog.preview() requires an adapter-enforced authoring timeout.",
+                            cls=SemanticRuntimeError,
+                            refs=tuple(item.ref.path for item in group_items),
+                            details={"query_executed": False, "backend": bindings.backend},
+                        )
+                    connection_scope = (
+                        connections.terminal_scope(bindings.timeout_seconds)
+                        if bindings.backend in {"trino", "postgres", "mysql"}
+                        else nullcontext()
                     )
-                    results = tuple(
-                        _attach_preview_scope(result, bindings=item.bindings)
-                        for item, result in zip(group_items, raw_results, strict=True)
-                    )
-                elif group_key[0] == "metric":
-                    raw_results = self._preview_metric_group(
-                        tuple(group_items),
-                        connections=connections,
-                        limit=preview_limit,
-                        include_types=include_types,
-                    )
+                    with connection_scope:
+                        backend = connections.session_backend(bindings.datasource_id)
+                        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
+                            if group_key[0] == "row":
+                                raw_results = self._preview_row_group(
+                                    tuple(group_items),
+                                    connections=connections,
+                                    limit=preview_limit,
+                                    include_types=include_types,
+                                )
+                            else:
+                                raw_results = self._preview_metric_group(
+                                    tuple(group_items),
+                                    connections=connections,
+                                    limit=preview_limit,
+                                    include_types=include_types,
+                                )
                     results = tuple(
                         _attach_preview_scope(
                             result,
                             bindings=item.bindings,
-                            approximate_input=True,
+                            approximate_input=group_key[0] == "metric",
                         )
                         for item, result in zip(group_items, raw_results, strict=True)
                     )
@@ -6645,19 +6915,12 @@ class SemanticCatalog(RenderableResult):
             *[parent_table[column] for column in selected_raw_columns],
             *semantic_values,
         )
-        profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                "catalog.preview() requires an adapter-enforced authoring timeout.",
-                cls=SemanticRuntimeError,
-                refs=tuple(item.ref.path for item in items),
-                details={"query_executed": False, "backend": bindings.backend},
-            )
-        backend = connections.session_backend(bindings.datasource_id)
-        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
-            dataframe = preview_table.limit(row_limit + 1).execute()
+        dataframe = connections.collect_source(
+            bindings.datasource_id,
+            preview_table,
+            purpose="semantic.preview_batch",
+            max_rows=row_limit + 1,
+        )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         from marivo.datasource.timezone import system_timezone_name
 
@@ -6765,19 +7028,12 @@ class SemanticCatalog(RenderableResult):
             for metric_table in metric_tables[1:]:
                 preview_table = preview_table.cross_join(metric_table)
 
-        profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                "catalog.preview() requires an adapter-enforced authoring timeout.",
-                cls=SemanticRuntimeError,
-                refs=tuple(item.ref.path for item in items),
-                details={"query_executed": False, "backend": bindings.backend},
-            )
-        backend = connections.session_backend(bindings.datasource_id)
-        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
-            dataframe = preview_table.limit(limit + 1).execute()
+        dataframe = connections.collect_source(
+            bindings.datasource_id,
+            preview_table,
+            purpose="semantic.preview_metric_batch",
+            max_rows=limit + 1,
+        )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
         results: list[PreviewResult] = []
         for item, alias in zip(items, aliases, strict=True):
@@ -6853,9 +7109,13 @@ def load(
 
     Constraints:
         Raises a typed load error on failure. Does not return a partial catalog.
-        Does not print to stdout.
+        Does not query a datasource or print to stdout. Source validation is
+        separate from this project-level static validation event.
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
+        Restart Python after package upgrades or model edits/deletions;
+        ordinary imported dependencies are not guaranteed to hot-reload.
+        Execution failures expose their original exception type and traceback.
     """
     from marivo.semantic.reader import SemanticProject
 

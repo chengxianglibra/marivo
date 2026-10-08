@@ -1,527 +1,365 @@
 # Python Analysis Design
 
-Status: design. This document is the overview of `marivo.analysis`, the analysis
-layer of the Marivo Python library. It describes the design philosophy — what the
-layer is for, the line it draws between computation and judgment, and how its
-pieces fit — and points to the focused specs that define each area in detail. It
-is a design document; not every stated capability is fully implemented.
+Status: current architecture, 2026-10-08. This document owns the implemented
+Analysis DSL's public model and the path from algebraic definition to execution.
+Method equations and numerical contracts belong to
+[Operators and Frames](operators-and-frames.md); persistence and recovery belong
+to [Session State and Runtime](session-state-and-runtime.md).
 
-`marivo.analysis` is consumed primarily by general coding agents (Claude Code,
-Codex) through a write-run-read loop. The alias throughout is `mv`
-(`import marivo.analysis as mv`). It builds on the semantic layer
-([`../semantic/overview.md`](../semantic/overview.md)):
-analysis consumes stable semantic refs and materialized metrics and never guesses
-business meaning from column or table names. At qualifying catalog-bound runtime
-inputs it may receive the exact current catalog entry or its exact ref; both
-normalize immediately to the same ref before planning or persistence.
+## Layer ownership
 
-## Design goals
+The public Python surfaces are `marivo.datasource`, `marivo.semantic` and
+`marivo.analysis`. Import them as `md`, `ms` and `mv`, and import `marivo` for
+the shared Help coordinator.
 
-The analysis API is not a menu of BI features and does not expose SQL, tables, or
-ad-hoc workflows as its primary contract. It is a small set of composable
-operators over canonical artifacts, built for real analysis of complex internet
-business data. The target API:
-
-- Lets an agent express common metric analysis with a few stable core operators.
-- Fixes exactly one canonical artifact family per public core operator; parameters
-  change the algorithm, grain, scope, ranking, or policy — never the output family.
-- Composes downstream through artifact refs, selector refs, typed policies, and
-  typed inputs, never free-text interpretation.
-- Collects exploratory analysis into typed `CandidateSet[...]` rather than a
-  separate core operator per anomaly/driver/window/outlier objective.
-- Defaults to a step-wise analysis session: an agent reads an intermediate result,
-  then continues, while lineage stays continuous.
-
-The decisive test: if a capability would return different artifact families under
-different parameters, it is not one public core operator — it is split, promoted to
-a typed composite, or demoted to a projection/terminal exit. Closed typed shapes
-within a family (e.g. `MetricFrame[time_series]`, `CandidateSet[driver_axis]`) are
-allowed for ergonomics.
-
-## Computation versus judgment
-
-The layer's central boundary: Marivo makes each computation reliable, reproducible,
-auditable, and recoverable; the agent does the analytical planning and judgment.
-
-| Marivo exposes deterministically | Only the agent decides |
+| Owner | Responsibility |
 | --- | --- |
-| Type-legal operators/capabilities an artifact can feed | Which operator to run next |
-| Required inputs and pass/fail preconditions | Which candidate is "meaningful" |
-| Fixed-algorithm scores, candidates, contributions | The objective, threshold, axis, cohort |
-| Mechanically pre-fillable params (current ref, resolved window) | The judgment-bearing params |
-| Fact summaries, quality status, blocking issues, lineage | Conclusions, headlines, narrative, stop criteria |
+| Datasource | Connections, physical sources/schema, Ibis compilation, batch transport, cancellation and source-health evidence |
+| Semantic | Entity identity/versioning, field and relationship meaning, Metric equations, source-time roles, units, intrinsic aggregation and business order |
+| Analysis DSL | Explicit membership, observation scope, coordinates, comparisons, predicates, references and requested result views |
+| Analysis algebra | Bound domains/quantities, Cell policies, sufficient parts, premises, transported facts and pending obligations |
+| Method registry | One semantic method owner and exact qualified physical implementations |
+| Compiler | Actual graph dependencies, source/fixed classification, implementation selection, stage/check schedule and typed lowering |
+| Runtime | Invocation checks, execution, retained state, Evidence/Findings and atomic publication |
+| Agent | Business question, interpretation, choice of next question and conclusions |
 
-Marivo therefore does not: plan an analysis DAG from a natural-language question;
-auto-pick the "best next step"; rank/recommend/headline legal next steps; decide
-whether analysis should continue; dress a candidate/correlation/low-quality
-attribution as a business conclusion; or write an agent's working conclusion into
-an artifact's factual truth.
+Analysis consumes reusable declared meaning. It cannot infer a Metric equation,
+business order or historical version rule from column names, physical row order,
+sample values or natural-language labels.
 
-A direct consequence lives in the result surface: **analysis operators do not write
-stdout; every result is silent and returns a typed object.** A `repr` or `show()`
-carries only deterministic descriptors (ref, kind, materialization state, row
-count, fixed-rule totals) — never a headline that implies a business conclusion.
-The full result contract is specified in
-[`operators-and-frames.md`](operators-and-frames.md).
+## Construct, execute, inspect
 
-## The write-run-read loop
-
-An agent uses Marivo in a loop that may span many turns, compacted context, and
-separate script files:
-
-```text
-write analysis script -> run -> read result -> revise -> run again
-```
-
-Frames and results are therefore not just "a return value plus metadata" — they are
-persistent, recomputable, cold-start-recoverable, progressively-readable nodes of an
-analysis DAG. Four constraints follow, and they shape the runtime
-([`session-state-and-runtime.md`](session-state-and-runtime.md)):
-
-| Constraint | Loop reality | Requirement |
-| --- | --- | --- |
-| Recompute-safe | each turn may re-run an accumulating script | operators are pure; artifacts carry fingerprint/cache metadata; re-running never drifts |
-| Cold-start rebuild | turn N+1 may lose in-memory objects | `session.artifact(ref)` and persisted metadata restore kind, schema, lineage, quality, blocking |
-| Read economics | every frame read costs context tokens | layered reads (`repr -> show() -> contract() -> to_pandas()`) avoid forcing a full read |
-| Resumable failure | step *k* fails after *k-1* materialized | operators fail loud; the session/job layer keeps completed upstream refs and structured errors |
-
-## Layered operator model
-
-The API is five layers. The agent-facing surface is the small core; the rest is
-either family-preserving reshaping or controlled escape.
-
-1. **Source-to-artifact** — materialize governed semantics into the start of a
-   typed chain: `observe -> MetricFrame`, `events.match -> EventFrame[journey]`,
-   and `lifecycle.replay -> LifecycleFrame[history]`.
-   `session.observe(...)` remains the sole canonical `MetricFrame` producer.
-2. **Family-preserving transform** — reshape/scope/rank an artifact without changing
-   its family: `session.transform.<op>` over a `MetricFrame` or `DeltaFrame`. The
-   output family follows the input; cross-family derivation must use a named
-   operator.
-3. **Core cross-family analysis** — the operators that change analysis semantics,
-   each with a fixed output family: `compare -> DeltaFrame`,
-   `attribute -> AttributionFrame`, `discover.<objective> -> CandidateSet`,
-   `correlate -> AssociationResult`, `hypothesis_test -> HypothesisTestResult`,
-   `forecast -> ForecastFrame`. Supported Frames attach construction-quality
-   metadata through `frame.quality_summary` and typed issues.
-4. **Composite** — stable multi-step entry points admitted only when they carry a
-   cross-step constraint an agent would miss; each fixes one output family. No
-   composite is on the current default surface (`attribute` is a core operator).
-5. **Projection / terminal exit** — bounded reads (`show()`, `render()`,
-   `contract()`) and terminal exits out of the canonical chain
-   (`frame.to_pandas()`, `md.raw_sql(...)`). Complete row reads and presentation
-   may use an exported copy; supported analytical computation remains typed.
-   Terminality applies to the exported branch, not the original Artifact.
-   There is no inbound path from ad-hoc Ibis/pandas/SQL back into typed analysis.
-
-Choose an execution path for each analytical step, not once after observation.
-`observe` establishes inputs; comparison, contribution attribution, and supported
-transforms that affect a conclusion continue the typed Evidence chain. Unknown
-capabilities require Help discovery, inadmissible inputs require repair, and only
-unsupported methods justify external computation from an established Artifact.
-Source-specific questions or provisional work without typed inputs may use
-`md.raw_sql`; that route cannot replace governed definitions or repair missing
-business semantics. The workflow skill owns this judgment, while the precise
-exit guarantees belong to the terminal boundaries in the operator spec.
-
-Layers 1–4 and the artifact algebra are specified in
-[`operators-and-frames.md`](operators-and-frames.md).
-
-## Guidance layering
-
-Three layers own analysis guidance, each with one job — an agent consults the right
-one instead of a single monolithic manual:
-
-The target progressive-disclosure topology for those layers is specified in
-[`../../superpowers/specs/2026-08-27-progressive-analysis-live-help-design.md`](../../superpowers/specs/2026-08-27-progressive-analysis-live-help-design.md).
-
-- **Live surfaces — capabilities and runtime guidance.**
-  `python -m marivo help` verifies the selected environment and hands off to
-  Python. `marivo.help()` is a short concept page that routes only to
-  `marivo.help("authoring")` and `marivo.help("analysis")`; authoring routes to
-  the datasource, semantic, and optional ontology trees. The analysis root is a
-  compact progressive index: it exposes the environment fingerprint,
-  responsibility boundary, six registered hubs (`analysis.entry`,
-  `analysis.methods`, `analysis.inputs`, `analysis.artifacts`,
-  `analysis.evidence`, and `analysis.runtime`), and the exact terminal leaf
-  `analysis.boundary.to_pandas`. It does not render an observation recipe or
-  the registry's complete type algebra. Its entry label makes governed semantic
-  input resolution discoverable, while `analysis.entry` owns the narrower route
-  to `analysis.catalog`; catalog collections remain off the root. Each hub lists
-  only its registered members. The catalog hub and each catalog leaf repeat the
-  Session-bound receiver acquisition (`session = mv.session.get_or_create(...)`,
-  then `catalog = session.catalog`) so no page can imply a module-level
-  `mv.catalog`. Focused `marivo.help("analysis.<target>")` owns
-  the live signature, exact inputs and outputs, constraints and effects, and
-  exactly one minimal example for each callable. Parameter semantics and failure
-  conditions come from the owning callable's docstring; model fields also expose
-  their closed types, defaults, and validation bounds. Public result type pages
-  include inherited dataclass fields, consumption methods, and registered
-  acquisition paths. Paging types explain `items`, `limit`, `has_more`, and
-  `next_cursor`; a cursor continues the same producer and filters. Recovery
-  leaves distinguish bound Session context, Run ids, and Artifact refs.
-  `AbsoluteWindow` describes its own constructor, while ordinary analysis uses
-  `mv.time_scope(start=..., end=...)` and passes grain to `observe` separately.
-  These additions do not change the root topology or increase the four-dimensional
-  budgets: exact callable pages allow 104 lines, 9,000 codepoints, 10 outgoing
-  routes, and one example; public type pages allow 72 lines, 7,000 codepoints,
-  10 outgoing routes, and no examples. Budgets include the final imports and
-  environment header. Remove redundant guidance before adding necessary facts;
-  never truncate required contracts to fit. Frames and results own dynamic guidance:
-  `show()` describes an artifact's current state and only state-dependent
-  continuation hints; `contract()` describes the complete mechanically valid
-  next actions from where it is now. Readable operation labels use registry-owned
-  public entry points such as `session.compare(...)`; stable capability ids stay
-  in the structured contract. Structured errors own repair guidance with typed
-  `AnalysisRepair` instructions. Judgment stays with the agent.
-- **The `marivo-analysis` skill — hard boundaries, handoffs, evidence continuity,
-  and closeout obligations.** It is a one-file boundary kernel. It does not
-  duplicate the help contract, frame/result guidance, or error repair guidance.
-  It does not prescribe an ordered operator sequence or a report template.
-- **The agent — planning and judgment.** Given the contract, the boundaries, and
-  the dynamic guidance, the agent owns which operator to reach for, which judgment
-  slots to fill, whether to stop, and how to synthesize conclusions.
-
-## Usage model
-
-The default authoring model is a step-wise session. An agent creates or resumes a
-session, observes metrics, and composes typed operators, reading intermediate
-results to decide the next step:
+A Session owns one investigation and project-local Run/Artifact history.
+`mv.session.get_or_create(...)`, `current()` and `resume(...)` retain their
+native identity and timezone contracts. The member-domain entry is
+`session.members(entity_ref)`; Session-level `population` and `observe` and
+their former Dataset families are removed without forwarding aliases.
 
 ```python
 import marivo.analysis as mv
+import marivo.semantic as ms
 
-session = mv.session.get_or_create("q4-revenue", question="Why did Q4 drop?")
-catalog = session.catalog
-dau = catalog.metrics.get("analytics.dau")
-
-current = session.observe(
-    metrics=dau,
-    time_scope={"start": "2026-06-18", "end": "2026-06-25"},
-    grain="day",
+session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+members = session.members(ms.ref.entity("sales.orders"))
+revenue = ms.ref.metric("sales.revenue")
+current = members.observe(
+    revenue, during=mv.time_scope(start="2026-07-01", end="2026-08-01")
 )
-baseline = session.observe(
-    metrics=dau,
-    time_scope={"start": "2026-06-11", "end": "2026-06-18"},
-    grain="day",
+baseline = members.observe(
+    revenue, during=mv.time_scope(start="2026-06-01", end="2026-07-01")
 )
-delta = session.compare(current, baseline, alignment=mv.window_bucket())
-delta.show()  # bounded card; nothing printed unless asked
-delta.contract().show()  # which operators this delta can feed
+change = current.compare(baseline).execute()
+change.show()
 ```
 
-Which operator to reach for follows the artifact in hand: observe a metric first;
-`compare` two observed frames for a change; `attribute` a delta over explicit axes;
-`discover.<objective>` when the axis/window/slice worth examining is unknown;
-`hypothesis_test` to check an explicit hypothesis; `forecast` to project observed
-history; inspect `frame.quality_summary` and `frame.contract().issues` to gate a
-published result. Concrete intent paths, composition
-patterns, and report shape are the agent's responsibility; the `marivo-analysis`
-skill owns boundaries and handoffs only. The mechanical next actions from any
-given artifact come from its `contract()`.
+The example requires a loaded, authored `sales.orders` Entity and
+`sales.revenue` Metric with admitted source/time contracts. It describes an
+absolute change; business or causal interpretation remains the caller's work.
 
-When a Session has a ready optional ontology binding, a compatible arity-one
-MetricFrame or same-Metric DeltaFrame contract also exposes
-`discover.semantic_hypotheses`. That continuation returns unscored candidates
-derived from one explicit ontology edge plus semantic-catalog resolution. The
-agent must inspect the persisted context, select a stable `item_id`, and explicitly
-observe the resulting `OntologyMetricCandidate`; Marivo never auto-executes or
-promotes it to a causal fact.
+Constructors and transformations return concrete Logical values silently.
+Logical values expose bounded identity and `contract()`; `execute()` admits
+work and returns the matching Materialized type. Materialized values expose
+bounded `show()`, isolated `to_pandas()` copies and committed evidence reads.
+Methods on either state return Logical continuations. No implicit iteration,
+truth conversion, indexing or arithmetic substitutes for a registered method.
 
-### Catalog-backed semantic inputs
+Construction and planning do not query business rows or allocate a Run.
+Schema-only preflight may connect before Run admission to resolve unknown
+Entity key or value types. This is separate from business execution, and the
+schema is checked again at execution. Repr and contract inspection do not
+perform source or retained-row reads.
 
-For a top-level runtime parameter that already consumes a catalog-backed
-`Ref[K]` and has one authoritative current catalog, the annotation-level
-contract is:
+## Domains, quantities and Cells
 
-```python
-SemanticInput[K] = Ref[K] | CatalogEntry[K]
-```
+An analysis Signature binds a domain, optional quantity, retained parts,
+evidence and obligations to exact Session/owner/input/scope identities.
 
-`SemanticInput` is not a public constructor, export, or help topic. The runtime
-accepts only exact refs and registered concrete entry classes owned by the
-current compiled catalog. It validates ownership, exact kind, and current
-membership, then extracts the canonical ref immediately. Bare strings,
-wrong-kind refs/entries, cross-catalog or stale entries, arbitrary subclasses,
-and duck-typed `.ref` objects fail before backend work. A mechanically unique
-stale same-path reacquisition may produce a retry at the semantic catalog
-boundary. An analysis boundary exposes it as inspection unless it can render
-the complete public analysis call; partial reacquisition snippets must not be
-labelled as retries. Other failures require inspection or semantic authoring
-without selecting a replacement.
+A domain has complete typed instance keys. Entity identity K is all ordered
+primary-key components; snapshot and validity coordinates identify historical
+representations and do not replace K. Group, singleton, time, Journey, interval
+and Anchor domains retain their own complete keys and realization bindings.
 
-The frozen analysis consumer matrix is:
+A quantity owns its unit, computation/contribution identity and state policy.
+Observed Metric, derived quantity, current-row statistic and rolled quantity
+are distinct kinds. Equal displayed values or units do not make quantities
+interchangeable. Labels are presentation, not identity.
 
-| Public boundary | Catalog-backed parameters |
+A Cell is Defined, Null, Undefined or Unknown, with an owned reason where
+required. A missing coordinate is a separate correspondence fact, not a fifth
+Cell or a physical NULL. Each method declares which states it can consume.
+Empty original state, absent state and incomplete coverage are distinct.
+
+Full Subject maps, coordinate tuples, original components and coverage are
+retained parts. A scalar cannot recreate any of them. `members()` takes the
+set image of an actual Subject mapping; it does not turn instance multiplicity
+into Subject counts or infer identities from displayed numbers.
+
+## Algebra and method registration
+
+`analysis/core/model.py` owns signatures, domains, quantities, parts and
+evidence. `core/rules.py` and specialized domain rule modules own derivation.
+`analysis/methods` is the single registration and physical admission owner.
+
+The six reusable meta-rule families are:
+
+| Rule family | Meaning |
 | --- | --- |
-| `Session.observe` | catalog metric root(s), `dimensions`, `slice_by` keys, `time_dimension` |
-| `Session.attribute` | `axes` |
-| `SessionEvents.funnel` | subject `axes` |
-| `SessionLifecycle.replay` | `model` |
-| `SessionLifecycle.distribution` | subject `axes` |
-| `SessionDiscoverNamespace.driver_axes` | `search_space` |
-| `SessionDiscoverNamespace.interesting_slices` | `search_space` |
-| `SessionDiscoverNamespace.cross_sectional_outliers` | `peer_scope` |
-| `frame.transform.slice` | `slice_by` keys |
-| `frame.transform.rollup` | `drop_axes` |
+| BindProject | Bind governed source/field meaning to an explicit subject domain |
+| MapCorrespond | Construct an exact, union, one-to-one or temporal correspondence |
+| CellDerive | Derive values from bound endpoint Cells under an explicit policy |
+| RowState | Construct a new statistic from current represented rows |
+| OriginalReduce | Merge retained original components and finish the governed quantity |
+| PartsTransport | Project/select views while preserving or restricting their actual state |
 
-The semantic catalog applies the same entry/ref boundary to `verify`, `preview`,
-`preview_many`, and catalog-leaf readiness inputs; its strict
-`catalog.require(ref)` lookup remains ref-only. After normalization, planners,
-executors, job parameters, artifact metadata, evidence, replay, and recovery
-contain refs or existing runtime-expression payloads only. An entry call and
-its ref twin have equivalent value identity, lineage, persistence, evidence,
-and replay behavior.
+Concrete methods remain distinct versioned identities. Shared rules coexist
+with dedicated History, Journey, funnel, Anchor, retention, deviation, runs,
+association, forecast, display and allocation rules. Domain algorithms are not
+automatically reducible to the six generic rules.
 
-This widening does not apply to semantic authoring or datasource APIs, runtime
-metric constructor leaves, nested Event values such as `PatternStep`,
-participant roles or completeness declarations, persisted selector/replay
-DTOs, or bare semantic strings.
+`MethodNode` construction invokes `MethodRegistry.derive()`, which resolves
+the sole method semantic owner. `core.rules.derive()` delegates to that same
+registry. The resulting `RuleDerivation` carries:
 
-### Typed Event composition
+- output Signature and bound preconditions;
+- RequiredParts and their PartTransform;
+- post facts and transported evidence;
+- evaluation identity and pending consume/publish obligations.
 
-`SessionEvents.match(...)` materializes the canonical dense
-`EventFrame[journey]`. Phase 2 adds only closed reducers and the governed
-SubjectSet bridge:
+Derivation is conditional: a post fact, check ID or successful construction
+does not prove a physical implementation exists or that a runtime check passed.
+The planner and execution consumers use these contracts; they are not a
+documentation-only algebra layer.
 
-```text
-EventFrame[journey, first_per_subject] -> events.funnel -> EventFrame[funnel]
-EventFrame[journey] -> events.time_to_event -> EventFrame[time_to_event]
-EventFrame[journey, first_per_subject] -> select_subjects -> SubjectSet
-SubjectSet[ready] -> observe(cohort=...) | events.match(cohort=...)
-```
+Physical selection uses the exact method/version, ordered input value types
+(including Decimal precision/scale and Duration unit), ordered domain kinds,
+source or fixed shape, time authority and route. It also requires declared
+checks, output/retained parts and precision contracts. Selection does not
+execute the method or discharge its pending obligations.
 
-Reducers consume the persisted journey assignment rather than rematching Event
-inputs. Funnel without axes and time-to-event perform no datasource query.
-Funnel axes are exact current Dimension entries/refs and may only enrich the
-journey subject through one unique directed to-one path at cohort entry.
-Grouped additive counts must reconcile exactly to the ungrouped funnel.
+For ordinary observations, the common temporal normalizer binds timestamp input
+shapes to UTC while retaining actual source precision. Civil DATE interpretation
+is preserved. Required observation parameters retain the original parser and
+resolved source/report authority; window and grid/calendar authority retain their
+own bindings. These facts enter fingerprints and execution identity independently
+of the normalized physical shape. A report timezone is not a source read timezone
+or a reason to relax exact implementation selection.
 
-Phase 4 adds one exact comparison and attribution continuation:
+Implementation IDs and evidence are provenance, not capability predicates.
+Typed consumer rules own numerical specialization, input-arity expansion,
+check placement and consumer-specific shape restrictions. No method-ID prefix,
+legacy resolver or successful old route grants new admission.
 
-```text
-EventFrame[funnel] x EventFrame[funnel] -> compare -> DeltaFrame[funnel]
-DeltaFrame[funnel, ungrouped] -> attribute(target=funnel_loss_rate) ->
-    AttributionFrame[funnel_loss_rate]
-```
+## Definition graph and compiler
 
-Funnel comparison accepts no caller alignment. It full-outer-aligns the
-persisted PatternStep identity plus the declared axis tuple, zero-fills only
-additive counts for one-sided tuples, and keeps absent-side or zero-denominator
-rates null. Pattern, matching, follow-up, subject, catalog fingerprint, and
-axis contracts must match exactly; coverage-censored aligned populations fail
-with `event_coverage_unknown`, while structural drift fails with
-`funnel_comparison_mismatch`.
+`core/graph.py` owns the definition DAG:
 
-`DeltaFrame[funnel]` rows contain declared axes followed by `step_key`, paired
-current/baseline cohort, resolved cohort, entry, resolved entry, reached, lost,
-and coverage-censored counts, then paired loss rates and their delta.
+| Node | Captured authority |
+| --- | --- |
+| SourceLeaf | Exact Semantic/source definition, dependency fingerprint, declared Signature and physical value type |
+| FixedLeaf | Exact same-Session Artifact, retained Signature, value type and fixed time shape |
+| MethodNode | Versioned rule parameters, ordered role-bearing inputs, derivation and explicit additional source/retained references |
 
-`mv.funnel_loss_rate(step=...)` retains one exact non-initial PatternStep.
-Attribution is allowed only from an ungrouped funnel delta and re-aggregates
-the two persisted journey assignments over governed cohort-entry subject axes;
-it never rematches Events. For each group `g`, with lost counts `l`, resolved
-entry counts `e`, and side totals `E`:
+Historical Artifact lineage is a reference, not a live data-dependency edge.
+An explicit FixedLeaf stops source classification. Additional field, predicate,
+comparison, grouping and domain-method dependencies are real graph edges;
+classification cannot ignore them merely because the receiver is fixed.
 
-```text
-loss(g)            = (l_current(g) - l_baseline(g)) / E_current
-denominator_mix(g) = l_baseline(g) * (1/E_current - 1/E_baseline)
-```
+Definition fingerprints identify normalized meaning and explicit bindings.
+Node identities control sharing in one invocation: one shared node has one
+realization; separately constructed lookalikes are not common-subexpression
+merged. One logical realization is not a promise of one physical scan.
 
-The two component families sum exactly to the target loss-rate delta within
-`1e-9`. Rows expose `contribution_kind`, signed `contribution`, and shares of
-the total, positive pool, and negative pool. Single-axis and joint layouts keep
-concrete Dimension columns; hierarchy uses `attribution_level`,
-`attribution_axis`, `attribution_driver`, and `attribution_path`. Hierarchy
-pool shares are normalized independently within each visible
-level because prefix aggregation can cancel signs; metadata retains the
-deepest joint-partition pools used by the exact reconciliation. This is
-arithmetic attribution with `causal_claim="none"`.
-Unsupported targets, grouped inputs, invalid modes, or zero denominators fail
-with `funnel_attribution_unsupported`.
+`compiler/graph_plan.py` captures dependency order, classifies the root and
+selects qualified stages. `compiler/graph_lowering.py` lowers the admitted
+schedule to typed Ibis relations, local stages and deadline-bound checks.
+Compiler handoff reuses captured static graph/registry facts. Private in-process
+compiler objects are trusted; this path does not maintain deep anti-mutation
+snapshots or audit local objects as hostile data.
 
-`DeltaFrame[funnel]` is a closed artifact family. Its meta exposes only funnel
-fields and never projects Metric Delta facets; generic consumers dispatch on
-the `DeltaFrameMeta | FunnelDeltaFrameMeta` closed union. Metric-only
-continuations (`components()`, `transform.*`) fail closed with
-`semantic_kind_mismatch` rather than reading absent metric fields as optional
-`None` facets.
+Logical lowered layouts retain complete typed keys, Cell slots and declared
+part schemas. Before a source read is issued, `compiler/cell_lowering.py` lowers
+those slots to their closed physical carriers. Known Cells carry only their value
+and frozen state; Validity Cells carry only their value and one frozen missing
+state; Encoded Cells carry their value and a non-null int16 state column.
+Carrier selection follows declared policies and construction, never sampled
+rows. `core/cell_encoding.py` owns the canonical per-slot reason dictionaries;
+`materialization/cell_arrow.py` owns their Arrow operations and public decoding.
+Fixed execution and retained storage use the same bindings. Scalar algorithms
+may decode individual Cells; public rendering/export restores the existing
+string tag/reason columns and their ordering. Each emitted expression has exact
+SourceLeaf provenance;
+provenance is not reconstructed by comparing Ibis expressions. The compiler
+does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
 
-Generic metric attribution uses the same public `session.attribute(...)`
-entrypoint. `DeltaFrame.contract().attribute_admission` is the sole mechanical
-method/mode admission state. New generic artifacts persist typed axes, mode,
-`causal_claim="none"`, and discriminated method evidence; semantics are never
-inferred from free-form params. Graph-owned non-additive bases replay an
-independent unsegmented endpoint. Their multi-axis layout is either `joint` or
-`hierarchy`. Typed resolution evidence distinguishes rollup-safe additive
-prefixes from independent non-additive prefixes, where every ordered
-semantic-ref prefix is a separately recomputed and reconciled game. Native
-`top_k` selection happens before attribution and represents the remainder as a
-masked Other player rather than a result residual.
+## Execution routes and qualification
 
-`mv.dropped_before(step=...)` is the only Phase 2 SubjectSelection. It accepts
-one exact non-initial PatternStep from a first-per-subject journey, selects only
-resolved loss, and excludes coverage-censored truth. A SubjectSet persists only
-ordered identity tuples as artifact rows; identity values never enter metadata,
-jobs, evidence, cards, or errors. A ready same-session SubjectSet may scope
-`observe` and `events.match`; a coverage-censored SubjectSet remains readable
-but fails admission with `event_coverage_unknown`.
+| Classified graph / route | Execution contract |
+| --- | --- |
+| Source-only / ibis | Governed Ibis expressions compile and execute on the datasource |
+| Source-only / ibis_python | Governed Ibis preparation captures the required input, then a registered local algorithm consumes it |
+| Fixed-only / artifact_python | Controlled retained Arrow/Parquet data enters local pandas/NumPy/SciPy consumers |
+| Mixed live source and fixed Artifact | Reject before Run admission or either business input is read |
 
-### Replay-based Lifecycle composition
+A fixed member domain followed by a new live Metric/property/Event dependency
+is mixed. A Logical continuation over only FixedLeaves remains fixed-only.
+Materialized method calls do not replay origin or reconnect its source.
 
-A `StateModel` is the normative semantic contract; replay window, seed,
-completeness, cohort, and violation observations belong to analysis. Phase 3
-adds one replay materializer and four reducers:
+Backend, table form, exact type, domain, time shape, method and cancellation
+authority all participate in admission. DuckDB tables, local Parquet, local
+CSV/JSON adapters, SQLite, PostgreSQL, MySQL, Trino and ClickHouse do not inherit
+one another's method qualifications. A backend name or successfully compiled
+expression is not blanket support.
 
-```text
-StateModel + explicit inception seed -> lifecycle.replay -> LifecycleFrame[history]
-LifecycleFrame[history] -> lifecycle.distribution -> LifecycleFrame[distribution]
-LifecycleFrame[history] -> lifecycle.transitions -> LifecycleFrame[transitions]
-LifecycleFrame[history] -> lifecycle.dwell -> LifecycleFrame[dwell]
-LifecycleFrame[history] -> lifecycle.violations -> LifecycleFrame[violations]
-LifecycleFrame[history] + in_state -> select_subjects -> SubjectSet
-```
+Native relational operations stay in governed Ibis expressions. Matching,
+History replay, exact retained-state reduction and statistical kernels use
+their registered consumers. Source preparation may materialize full vectors;
+batch transport is not proof of a streaming statistical algorithm. Route choice
+is complete before execution; a failure never triggers another implementation.
 
-`session.lifecycle.replay(...)` accepts one exact current StateModel entry/ref,
-a timezone-aware half-open `TimeScope`, and the required exact
-`mv.from_inception()` seed. Optional completeness declarations may cover only
-Events consumed by that StateModel; an optional ready SubjectSet must have the
-same subject Entity and identity signature. Each distinct trigger Event is
-queried at most once. Event predicate, participant, ordering, watermark, and
-declaration semantics reuse the Event core.
+## Premises, assumptions and checks
 
-Before choosing a replay window, callers may inspect
-`session.events.occurrence_bounds(event_or_model)`, where `event_or_model` is
-one exact Event or StateModel entry/ref. A StateModel supplies its own distinct
-inception and transition Events; Marivo evaluates those exact Event predicates
-and returns one bounded `EventOccurrenceBounds` with UTC-normalized
-earliest/latest occurrences. A StateModel with no Event triggers returns an
-empty `event_refs` tuple with both bounds absent. The operation never collapses
-data at Datasource scope. Its result is observed data range only: it does not
-establish a completeness watermark, replace the operation's coverage
-resolution, or turn fixture generation metadata into runtime evidence.
+Evidence has four distinct sources: semantic declarations, constructor-derived
+facts, exact call assumptions and actual completed checks.
 
-Replay evaluates modeled occurrences before the requested window end, then
-emits only clipped intervals that overlap the window. Legal triggers change
-state. A modeled trigger that is illegal in the current state leaves the state
-unchanged and enters the persisted violation trace. Events outside the
-StateModel are neither queried nor violations. Same-time cross-Event order is
-rejected only when it changes the resulting state or violation outcome.
+Entity identity/version grain and declared source parsing are trusted premises.
+Selection preserves key uniqueness; grouping constructs unique output keys.
+Field ownership and to-one cardinality establish single-valuedness, but
+cardinality alone does not prove every target has a match. Equal Entity refs,
+DomainSignatures or row counts do not prove equal realized input key sets.
 
-`LifecycleFrame[history]` contains ordered, non-overlapping intervals with
-`completed | right_censored | coverage_censored` status. Reducers consume the
-committed history and private violation trace without rematching Events or
-replaying transitions:
+`ExactKeys(verification="check")` checks unknown pairing equality.
+`verification="assume"` records an exact call assumption. Field reads similarly
+use `match_verification="check"` or `"assume"` for unknown owner/path/version
+matching. Assumptions omit only their corresponding checks; they do not create
+an intersection, missing-value policy or completed source proof. Materialized
+contracts disclose retained assumptions as not checked.
 
-- `distribution` is dense over requested instants and declared states; governed
-  subject axes resolve at each instant and grouped counts must reconcile.
-- `transitions` emits every distinct modeled state pair, including zero counts.
-- `dwell` emits every declared state and computes duration statistics only from
-  completed clipped intervals, while retaining explicit censor counts.
-- `violations` exposes a typed copy of the committed replay trace; it does not
-  relabel observations as policy breaches, quality failures, or causal facts.
+Unknown field/captured-path pairing and actual method consumption requirements
+remain typed obligations. Checks retain the originating ordered input nodes,
+scope and consume/publish deadline. A check may bind a subset of a method's
+direct inputs; lowering resolves each exact domain, quantity and node identity
+in the recorded order, including repeated operands. Local cohort consumption
+checks the full opportunity domain and records its own completed coverage
+proof only after successful consumption. An originating completed check is
+required before an inherited consumer runs. Completing a later local stage
+does not establish an earlier input check.
 
-`mv.in_state(...)` accepts an exact `ModelStateHandle`, not a bare state string.
-`session.select_subjects(...)` selects subjects whose state is established at
-the requested instant. Unknown or coverage-censored truth is excluded and
-retained as censoring metadata. Only a ready resulting SubjectSet can scope
-later `observe`, `events.match`, or `lifecycle.replay` calls.
+Business completeness, version availability, target-grid authority and retained
+coverage have separate owners. `source_health` is an explicit data-audit
+operation, not an implicit prerequisite of ordinary analysis. Independent source
+queries have no transaction-snapshot guarantee; a check proves its own read.
 
-### Typed metric composition
+## Observation and composition
 
-`Session.observe(...)` is the only public initial `MetricFrame` materializer.
-Its catalog roots are exact current `MetricEntry` values or exact
-`Ref[metric]` values; it also accepts closed values built with
-`mv.runtime_metric.aggregate`, `.weighted_mean`, `.slice`, `.ratio`, and `.linear`.
-Generic refs, stale/cross-catalog entries, bare ids, frame arithmetic, and
-generic formula nodes do not cross this boundary. A non-empty list or tuple
-forms one ordered mixed forest with one outer scope.
+`observe` accepts a Metric Ref or the closed RuntimeMetricExpr union. Runtime
+factories live under `mv.runtime_metric` and share Semantic's component-graph
+owner. SQL, callbacks, arbitrary formulas, coefficients and unit overrides are
+not alternative expression bodies.
 
-The same ordered catalog/runtime roots may be passed to
-`catalog.readiness(refs=[...])` before observation. Readiness lowers the forest,
-checks its governed leaves without querying, and returns passing roots through
-`analysis_ready_inputs`. Bare strings fail with structured expected/received
-fields, a qualified `semantic.readiness` repair target, and current-catalog
-candidates plus a copyable `CatalogEntry` repair when the path matches exactly.
+Observation supplies either a range or an exact endpoint when required by the
+Metric's temporal role. Membership selection, observation scope and output time
+coordinates remain separate. Routes bind each distinct computation root;
+occurrences sharing a root keep independent filters/state. Identity or a unique
+definition-bound route permits omitted `via`, including grouped observation.
+A foreign root requires its explicit directed route.
 
-Catalog and runtime roots lower to the same canonical expression graph. Runtime
-expressions may recursively contain other runtime expressions or catalog metric
-refs. Branch-local slices are pushed to reachable leaves for value identity;
-the outer `slice_by=` remains a distinct global scope. Every root is limited to
-depth 10 and the submitted pre-CSE forest to 256 occurrences. Runtime
-`aggregate` inherits a semi-additive
-measure's effective status axis and fold just like `ms.aggregate`; an explicit
-`fold=` overrides that default and is rejected for non-semi-additive measures.
-One forest must use one compatible temporal axis and resolve within one semantic
-model and datasource compatibility domain. Missing
-aligned keys are retained with null values rather than filled with zero.
-After physical aggregation, composition evaluators normalize numeric child
-values to `float64` before ratio or linear arithmetic while preserving typed
-key columns. A non-numeric metric value fails with a structured evaluation
-error rather than leaking a backend or pandas type error.
+Each component occurrence reduces independently on its complete target key
+before combination. Component domains combine as complete tuples, never as a
+Cartesian product of projected columns, root intersection or row-order alignment.
+Only proven empty contributions receive their method's empty state.
 
-Runtime expressions are session-scoped analysis values, not catalog authority.
-Every `mv.runtime_metric.*` constructor requires a non-empty label, including
-constructors used as nested nodes. The label becomes the stable public
-value-column handle when that expression is materialized as an observed root,
-but remains presentation metadata rather than catalog authority or value
-identity. Persisted graph, dependency, source, key, quality, component, replay,
-and comparable-semantics state—not catalog/runtime origin—controls downstream
-admission. `compare` may therefore
-compare a catalog frame and a runtime frame when their lowered value semantics
-match, while retaining ordered current/baseline identities in the delta.
-Runtime weighted means accept two governed same-entity measures, require an
-additive weight, and lower to the same paired numerator/weight leaf as catalog
-`ms.weighted_mean`; they do not require a precomputed weighted-sum measure.
-Runtime linear expressions accept ordered metric refs or runtime expressions,
-require at least two total terms, and expose only fixed `+1` add and `-1`
-subtract coefficients. Known term units must be commensurable; literals,
-arbitrary coefficients, unit overrides, callbacks, and formula strings remain
-outside the runtime algebra. A linear result is additive only when every term
-is additive; semi-additive and mixed inputs conservatively produce a
-non-additive result because the runtime descriptor does not prove a shared
-status-time fold contract.
-Every observed root and mixed forest persists a recursive component graph;
-`frame.components()` loads it for inspection. Every linear node in that graph,
-including a linear expression nested below another operator, retains ordered
-child ids and exact signed coefficients. `component_ref` remains the narrower
-signal that the root also supports numerical decomposition.
+First member observation directly computes the complete Metric at the requested
+`by` grain. The default `by=()` produces Singleton, or one overall value per
+retained time bucket with `during=grid` or `at=grid.end`. Membership decides which
+contributions
+participate; `by` selects only spatial keys. It accepts an ordered tuple of the
+receiver's member Entity (all primary-key components), categorical member or
+contribution-path Dimensions, and same-Session logical classifications, including
+explicit version reads. Duplicate or unbound axes and mismatched classifications
+reject. `groups` binds an exact same-Session logical target domain and retains
+empty groups. Public `coordinates` and grouped-domain observation are removed.
+Only retained full Subject identity permits a subsequent `members()`.
+Multiple member classifications align on the complete member/time key before
+their group axes are attached. Explicit target completion preserves comparison
+continuations and initializes empty temporal-fold samples with the retained fold
+kind in both source and fixed execution.
 
-## Non-goals
+Time grain is expressed by `observe(..., during=time_grid(..., grain=grain("day")))`.
+Endpoint attribute reads use `members.read(field, at=grid.start/end/before_end)`;
+cumulative observations use `members.observe(metric, at=grid.end)`. These inputs
+bind the complete member/time product internally before classification and target
+keys. Every bucket remains, including empty buckets; `by` never removes time or
+introduces an independent time axis. Time-dependent classifications must use the
+observation's exact grid and complete member/time keys. The public `each`,
+`grid.window`, and standalone time-domain result types are removed without aliases.
+Existing result grouping and original `rollup` express time coarsening. Relative
+Anchor observation keeps its per-Anchor window contract.
 
-The analysis layer does not: dress arbitrary Ibis/SQL as a core operator; pass
-generic pandas/sklearn wrappers off as canonical artifact producers; do causal
-inference or what-if simulation; provide typed regression or a generic
-statistical planner; auto-generate business conclusions; emit free text as its
-primary output; map one BI chart template to one core operator; or admit
-`RawSqlResult`/pandas values back into typed analysis.
+`group_by` on existing results binds classification; `rollup` merges sufficient original state;
+`summarize` creates a new current-row statistic. Means retain sum/count, ratios
+retain all original components, and linear expressions retain signed ordered
+occurrences. Averaging finished means/ratios is not original rollup. Direct
+distinct/quantile values retain no set/sketch or distribution rollup authority.
 
-## Document map
+Comparisons require compatible quantities, temporal design and complete typed
+correspondence. Predicates carry every referenced input, evaluate all children
+and use method-specific Cell policies. References remain frozen. Ranking and
+tables are display operations; attribution is an algebraic allocation with
+complete endpoint/partition proof and independent reconciliation.
 
-This overview is the entry point. The focused specs:
+Domain methods preserve canonical matching/replay state. Journey reducers do
+not rematch; History views do not replay; Anchor windows retain every original
+contribution use; retention distinguishes positive, negative and unknown
+follow-up. Statistical selection preserves original fit/classification/search/
+training scope. Their equations and conditional continuations are owned by
+[Operators and Frames](operators-and-frames.md).
 
-- [`operators-and-frames.md`](operators-and-frames.md) — the operator algebra:
-  frame/result families, typed shapes and policies, the agent-facing core surface,
-  per-operator detail, the result/read contract, the shape-aware DAG, and the
-  terminal boundaries.
-- [`session-state-and-runtime.md`](session-state-and-runtime.md) — the `Session`
-  object, the project-local `.marivo/analysis/` layout, content-addressed identity,
-  cold-start rehydration, cross-session ownership, and failure recovery.
-- [`evidence-access-surface.md`](evidence-access-surface.md) — typed findings,
-  bounded artifact digests, inference boundaries, session audit pages, the v4
-  `judgment.db` ledger, and the agent-owned judgment boundary.
-- [`evidence-compatibility-and-revalidation-design.md`](../../superpowers/specs/evidence-compatibility-and-revalidation-design.md)
-  — implemented Slice 1 selection-wide Finding compatibility, Slice 2 Artifact
-  identity/semantic/evidence revalidation, Slice 3 registry-owned operator
-  admission, and Slice 4 adversarial persistence/recovery guarantees, including
-  retry-time index withdrawal, validation-before-recovery publication, and
-  stable Artifact pagination identity. All reuse the same private authority
-  context and comparator; no public authority context or persistence schema was
-  added.
-- [`timezone-and-calendar-design.md`](timezone-and-calendar-design.md) — the two
-  timezone axes (read tz and report tz), time-column classification, window/bucket
-  computation, and calendar alignment.
-- [`../temporal-semantics.md`](../temporal-semantics.md) — the current
-  cross-layer period-calendar authority, temporal sets, work schedules,
-  calendar-bound grains, named-period scopes, and explicit comparison alignment
-  policies.
+## Local execution optimization
+
+Source observation lowering projects complete Entity instance keys without
+`DISTINCT` when the exact member Signature carries their uniqueness evidence.
+Projection to Group keys still constructs a distinct target set. A direct
+observation of an unchanged, unversioned complete member domain can aggregate
+contributions under their own identity keys without joining them back to the
+same SourceLeaf. This rewrite requires the exact shared leaf, complete identity
+keys and declared uniqueness; selected members, foreign routes and time products
+retain their contribution mapping. The complete target domain, empty-contribution
+Cells, retained parts, source provenance and pending checks remain unchanged.
+Observation windows and Metric slice predicates restrict contributions only;
+these rewrites do not restrict the member domain or guarantee one source scan.
+
+Local laws L1/L7/L8/L9 state conditional equivalences. Registration does not
+grant arbitrary semantic rewrites, source pushdown or additional public K.
+The explicit fixed sum StateEquation helpers keep their own narrow premises.
+
+The executor applies two invocation-local schedule optimizations:
+
+- A2 groups adjacent qualified fixed int64 ordinary selections using L1's
+  existing contract, reusing primary/part key indexes and survivor positions.
+- A3 groups adjacent qualified fixed original reductions using L8 contracts,
+  merging original components directly under terminal keys before one finish.
+
+Both preserve the logical DAG, definition identity, selected implementations,
+plan identity and terminal parts. Shared intermediates, explicit boundaries,
+pending checks and unsupported mappings/parts end groups. Once computation
+starts, failures propagate without retry. Detailed grouping contracts are in
+[Runtime](session-state-and-runtime.md#fixed-execution-groups).
+
+## Disclosure and acceptance
+
+`marivo.help("analysis")` owns static API discovery and exact callable contracts.
+Results own state-dependent `contract()` actions and bounded `show()` data.
+Structured errors own concrete repair, and packaged skills own workflow judgment.
+
+A continuation is admitted from the actual quantity, domain, state and bindings;
+a result family name or saved list of actions cannot authorize it. Public result
+types have bounded single-line reprs, immutable fields and deterministic reads.
+`RawSqlResult` and MaterializedTable are terminal boundaries without typed
+analysis continuation. Analysis Evidence and Findings describe deterministic
+retained facts, not causal or business judgments.
+
+Current specs, public signatures and qualification evidence are separate.
+Focused tests and native backend witnesses do not establish complete backend,
+installed-wheel, real-Agent or release acceptance. Historical phase evidence is
+available through [archived records](../../history/analysis/README.md) and Git
+history; it does not expand the current route.

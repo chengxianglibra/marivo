@@ -1,0 +1,355 @@
+---
+title: 时间、成员与群体
+description: 区分成员选择、观察窗口与输出坐标。
+---
+
+使用约定的 `mv`、`ms` 导入别名和已有 Session。各节说明所需配套模型。
+成员时间、贡献时间与报告坐标有各自的依据；标签相同不意味着已经对齐。
+
+## 构造完整网格
+
+此模型声明了 customer Entity、revenue Metric 和 order-to-buyer 关系。每个 cell 使用同一 grid 的确切窗口。
+
+{/* example: monthly-member-grid */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-08-01", end="2026-11-01"),
+    grain=mv.grain("month"),
+)
+monthly = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
+)
+fixed = monthly.execute()
+totals = fixed.group_by(grid).rollup().execute()
+```
+
+`during=grid` 绑定完整时间轴并按各桶的窗口计算，包括空 cell。固定 TimeScope 只选择一个观测窗口。属性读取和累计观测直接通过 `at` 接收网格端点，无需单独构造时间域。粗化仍要求完整原始 cell 落在目标桶内，跨月的周拒绝粗化；网格默认时区由消费它的 Session 绑定。
+
+省略 `by` 时，每个月直接得到一个总体指标。逐成员逐月观测使用 `by=(member_entity,)`；`by` 只选择空间粒度，时间粒度由 `grid` 决定。
+
+{/* example: default-time-grain */}
+
+```python
+monthly_total = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+    )
+)
+monthly_total.execute().show()
+```
+
+## 选择版本与读取属性
+
+customer Entity 声明了版本规则和下面的 region/score 字段。成员锚点与属性锚点明确且独立。
+
+{/* example: versioned-attributes */}
+
+```python
+from datetime import datetime, timezone
+
+anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
+customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
+region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
+# A declared @ms.measure row expression uses the same read entry point:
+score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
+assert isinstance(region, mv.LogicalCategoryRelation)
+selected = region.where(region.value.eq("west")).members()
+selected.execute().show()
+```
+{/* example: grid-endpoint-consumers */}
+
+```python
+from datetime import datetime, timezone
+
+accounts = session.members(
+    ms.ref.entity("sales.account"),
+    at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+)
+balances = accounts.read(
+    ms.ref.measure("sales.account.balance"),
+    at=grid.before_end,
+)
+running = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        ms.ref.metric("sales.running_revenue"),
+        at=grid.end,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
+)
+```
+
+端点示例还需要 `sales.account.balance`和已声明累计指标 `sales.running_revenue`。
+Snapshot 选择是精确选择，不隐式采用最新值或每个 Entity 的最后已知值。
+Validity 区间遵守自身端点语义。`grid.before_end`表示紧邻端点的左极限，
+`grid.end`表示确切端点。
+未版本化属性通过网格端点读取时，在每个成员与时间 cell 中保留其稳定值。
+
+## 声明来源时间解析
+
+`orders`是已声明 Entity，物理表包含这些备选声明中的 log-date 与 timestamp 列。
+
+{/* example: time-parsing */}
+
+```python
+# Canonical day partition: exactly eight digits, e.g. "20260131"
+log_date = ms.time_dimension_column(
+    name="log_date",
+    entity=orders,
+    column="dt",
+    granularity="day",
+    parse=ms.strptime("%Y%m%d"),
+    is_default=True,
+)
+
+# Native timestamp adopting the captured reader default, usable for sub-day buckets
+event_ts = ms.time_dimension_column(
+    name="event_ts",
+    entity=orders,
+    column="event_ts",
+    granularity="minute",
+    parse=ms.timestamp(),
+)
+```
+
+Civil date 保留日历解释，带时区 timestamp 保留绝对瞬时。无时区 timestamp
+依次采用显式 parser 时区、reader 默认时区，以及仅在 reader 无时区能力时使用的系统默认时区。
+DuckDB reader 配置为 UTC；SQLite 捕获系统默认时区。如果来源保存上海墙上时间，
+在 `ms.timestamp(...)` 中指定 `timezone="Asia/Shanghai"`。
+报告时区控制窗口和分桶，不改变来源解释。默认值在来源绑定时冻结，宿主时区变化
+不会改变已绑定图或恢复结果。Engine 探测失败或时区事实无效仍然拒绝。
+字符串解析必须匹配实际格式。不因方便而用物理分区替代事件时间轴。
+
+## 状态与累计指标
+
+状态示例需要按 snapshot 版本化的 inventory Entity。累计示例需要已治理基础 Metric、事件轴，以及使用时已经认证的 calendar。
+
+{/* example: snapshot-status-fold */}
+
+```python
+snapshot_date = ms.time_dimension_column(
+    name="snapshot_date",
+    entity=inventory_daily,
+    column="snapshot_date",
+    granularity="minute",
+    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
+)
+
+on_hand_units = ms.measure_column(
+    name="on_hand_units",
+    entity=inventory_daily,
+    column="on_hand_units",
+    additivity=ms.additive_all(except_=(snapshot_date,)),
+    status_time_dimension=snapshot_date,
+    status_time_fold="last",
+)
+```
+{/* example: cumulative-metric */}
+
+```python
+user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
+active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
+cumulative_active_users = ms.cumulative(
+    name="cumulative_active_users",
+    base=active_users,
+    over=event_time,
+)
+```
+{/* example: cumulative-grain-anchor */}
+
+```python
+mtd_revenue = ms.cumulative(
+    name="mtd_revenue",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(grain=mv.grain("month")),
+)
+```
+{/* example: cumulative-calendar-anchor */}
+
+```python
+fiscal_mtd = ms.cumulative(
+    name="fiscal_mtd",
+    base=revenue,
+    over=event_time,
+    anchor=ms.grain_to_date(
+        grain=ms.calendar_grain(
+            calendar=ms.ref.period_calendar("sales.fiscal"),
+            level="fiscal_month",
+        )
+    ),
+)
+
+fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
+grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
+dataset = (
+    session.members(ms.ref.entity("sales.events"))
+    .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
+    .group_by(grid)
+    .rollup()
+)
+```
+{/* example: cumulative-trailing-anchor */}
+
+```python
+rolling7_active = ms.cumulative(
+    name="rolling7_active",
+    base=active_users,
+    over=event_time,
+    anchor=ms.trailing(count=7, unit="day"),
+)
+```
+
+Status fold 先在每个样本处做空间聚合，再折叠时间。原始 rollup 需要兼容的保留样本。
+累计端点从其声明的 anchor 开始读取，包含显示网格之前的历史。
+重叠累计窗口不能跨时间求和。
+
+## 先选择 Defined 值
+
+customer 模型声明了 region、revenue 和 buyer 关系。每个谓词输入必须覆盖接收者完整域。
+
+{/* example: defined-selection */}
+
+```python
+members = session.members(ms.ref.entity("sales.customer"))
+region = members.read(ms.ref.dimension("sales.customer.region"))
+revenue = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+defined = revenue.where(revenue.value.is_defined())
+defined.contract().show()
+selected = defined.where(mv.all_of(defined.value.gt(0), region.value.eq("east")))
+```
+{/* example: cohort-opportunities */}
+
+```python
+grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
+    grain=mv.grain("month"),
+)
+activity = members.observe(
+    ms.ref.metric("sales.order_count"),
+    during=grid,
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
+cohort.contract().show()
+```
+
+`is_defined()`是完整的标签检查。用 `all_of()`将它与数值比较合并，不能保护该比较：
+子消费检查先运行。先选择 Defined 值，再做数值比较。群体规则区分 Subject 与其多次机会；
+保留完整网格和明确的 empty-opportunity 策略，不丢弃无贡献 cell。
+
+## 声明业务覆盖
+
+`members`、`grid`、`sum_metric`已定义完整且无局部桶的日网格及单个原始 sum Metric。声明必须有真实业务依据。
+
+{/* example: business-completeness */}
+
+```python
+from datetime import datetime, timezone
+
+complete = mv.time_scope(
+    start=datetime(2026, 8, 1, tzinfo=timezone.utc),
+    end=datetime(2026, 8, 3, tzinfo=timezone.utc),
+)
+daily = members.observe(
+    sum_metric,
+    during=grid,
+    complete_during=(complete,),
+    by=(ms.ref.entity("sales.customer"),),
+)
+```
+
+声明完整范围之外的 cell 是 Unknown，并保留部分状态。此形态要求
+`during=grid`、无额外贡献坐标且无 `at`；不能对该覆盖观察做原始 rollup。
+没有数据不证明覆盖完整。Count 零、状态不存在与覆盖不完整保持区分。
+
+## 检查当前行与完整分组
+
+使用 customer 销售模型。本例显式提供目标组，包括没有选中行的组。
+
+{/* example: complete-target-groups */}
+
+```python
+all_members = session.members(ms.ref.entity("sales.customer"))
+all_regions = all_members.read(ms.ref.dimension("sales.customer.region"))
+members = all_regions.where(all_regions.value.eq("east")).members()
+region = members.read(ms.ref.dimension("sales.customer.region"))
+values = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(ms.ref.entity("sales.customer"),),
+)
+targets = all_regions.group_by()
+original = members.observe(
+    ms.ref.metric("sales.revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    via=ms.ref.relationship("sales.order_buyer"),
+    by=(region,),
+    groups=targets,
+).execute()
+row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
+total_row_mean = row_mean.rollup().execute()
+selected_regions = all_regions.where(all_regions.value.eq("east"))
+category_counts = selected_regions.group_by(groups=targets).summarize(mv.count()).execute()
+fixed_targets = selected_regions.group_by(groups=targets).execute()
+```
+{/* example: mean-original-rollup */}
+
+```python
+mean_amount = ms.ref.metric("sales.mean_amount")
+channel = ms.ref.dimension("sales.orders.channel")
+means = (
+    session.members(ms.ref.entity("sales.customer"))
+    .observe(
+        mean_amount,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(channel,),
+    )
+    .execute()
+)
+overall = means.rollup().execute()
+overall.show()
+```
+{/* example: hourly-daily-source */}
+
+```python
+import marivo.analysis as mv
+import marivo.semantic as ms
+
+window = mv.time_scope(start="2026-07-01", end="2026-07-03")
+orders = session.members(ms.ref.entity("sales.orders"))
+hours = mv.time_grid(during=window, grain=mv.grain("hour"))
+orders_by_hour = (
+    orders.observe(ms.ref.metric("sales.revenue"), during=hours).execute()
+)
+# A new daily observation uses the same business window.
+days = mv.time_grid(during=window, grain=mv.grain("day"))
+orders.observe(ms.ref.metric("sales.revenue"), during=days).execute().show()
+```
+
+均值示例另需 `sales.orders`、`sales.mean_amount`与 channel；小时示例需要该 orders
+Entity 的 UTC timestamp 轴。原始均值 rollup 合并和与计数，行均值创建不同数量。
+筛选参见[统计方法](/zh-cn/docs/latest/guides/statistics/)，业务日历边界参见
+[日历与工作计划](/zh-cn/docs/latest/guides/calendars-and-schedules/)。

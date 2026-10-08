@@ -6,7 +6,8 @@ description: Configure a Marivo project and share a semantic layer across reposi
 ## Keep the project contract in version control
 
 `marivo.toml` is optional. Without it, the project name is the project-root directory
-name, `semantic.layer_paths` is empty, and local telemetry is enabled. Missing tables or
+name, `semantic.layer_paths` is empty, local telemetry is enabled, and
+`execute()` results use project-local Parquet. Missing tables or
 fields use those defaults; an existing invalid TOML document or explicitly invalid field
 fails closed. There is no project `version` setting.
 
@@ -32,6 +33,34 @@ layer from loading. `marivo doctor`, semantic previews, verification, and
 analysis sessions all resolve semantic objects and layer datasources through
 these configured roots.
 
+`md.load()`, `md.inspect()`, and datasource connections use the same model roots.
+Pass an exact project root as `workspace_dir` to `md.load()`, `ms.load()`, or
+`md.inspect()`; when omitted, selection uses `MARIVO_PROJECT_ROOT`, the nearest
+ancestor `marivo.toml`, then cwd. A datasource catalog retains this workspace
+for every method. Registration and removal affect only local datasource files.
+New reads see file edits; an existing semantic catalog keeps its loaded
+definitions until you call `ms.load()` again.
+
+{/* example: project-configuration-1 */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+catalog = md.load(workspace_dir=".")
+catalog.describe("warehouse").show()
+inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"), workspace_dir=".")
+inspection.show()
+```
+
 When configuration or declarations must travel with the project, commit `marivo.toml`
 and `models/`. Add `.marivo/` to `.gitignore`; it contains local sessions, evidence,
 telemetry, and cached metadata rather than shared declarations.
+
+## Analysis result storage
+
+Analysis results always use project-local Parquet. No result storage setting
+exists. Failed writes do not retry through another executor.
+
+See [Analysis Workflow](/docs/latest/concepts/analysis-workflow/) for the
+construction, explicit execution and recovery boundaries.

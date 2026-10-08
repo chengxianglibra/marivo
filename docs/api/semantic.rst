@@ -22,6 +22,22 @@ case-insensitive filesystems.
 .. autofunction:: time_dimension
 .. autofunction:: domain
 
+An explicit ``name`` declares an Entity directly; omitting it returns a
+decorator whose function receives one Source Table and returns one derived
+Ibis Table. The output schema owns identity, versioning and downstream fields.
+Actual physical input types and capability qualification remain Source facts.
+Snapshot and validity coordinates stay outside ``primary_key``.
+
+Loaded definition reading
+-------------------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   SemanticDefinition
+   SemanticDefinitionReadError
+
 Event helpers
 -------------
 
@@ -32,6 +48,18 @@ return a restricted boolean expression; unfiltered bodies explicitly return
 .. autofunction:: participant
 .. autofunction:: participant_role
 .. autofunction:: all_rows
+
+Business order and lifecycle
+----------------------------
+
+``ms.business_order`` declares one same-Subject order authority. Loading
+validates exact Event roles, source-owned sequence fields, and acyclic
+precedence. Source values and Event history remain for R7 verification.
+
+.. autofunction:: event_sequence
+.. autofunction:: precedes
+.. autofunction:: business_order
+.. autofunction:: state_model
 
 Aggregation & measure helpers
 -----------------------------
@@ -46,13 +74,19 @@ Aggregation & measure helpers
    linear
    ratio
    weighted_mean
-   semi_additive
+   additive
+   additive_all
+   non_additive
    snapshot
    validity
    join_on
    cumulative
    grain_to_date
    trailing
+
+Value policies are declared with ``ms.nulls.reject()`` or ``ms.nulls.ignore()``,
+``ms.empty.zero()`` or ``ms.empty.null()``, and
+``ms.zero_denominator.undefined()`` or ``ms.zero_denominator.error()``.
 
 Column helpers
 --------------
@@ -89,7 +123,6 @@ Provenance
    :toctree: api/
    :nosignatures:
 
-   from_sql
 
 Readiness & runtime checks
 --------------------------
@@ -99,7 +132,6 @@ Readiness & runtime checks
    :nosignatures:
 
    richness
-   parity_check
 
 ``catalog.source_health(refs, checks=..., scope=...)`` independently checks
 current connectivity, physical schema/capability identity, and only explicitly
@@ -138,6 +170,18 @@ version, and environment fingerprint. Use the sole public coordinator,
 validation contracts rendered from the semantic registry. The ``ms`` namespace
 executes semantic operations and intentionally has no ``ms.help()`` alias.
 
+The packaged semantic skill owns task exits, reuse and business authority,
+evidence selection, and delivery. Help owns static usage and proof boundaries.
+``entry.show()`` displays key current facts, while ``entry.details()`` expands
+the definition. ``marivo.help(entry)`` adds identity, usage navigation, and
+kind-level analysis handoff without checking readiness or execution admission.
+Explaining an existing definition does not require readiness or preview.
+
+Registered error instances retain concrete facts in Help even without a repair.
+Aggregate load failures preserve child order and disclose omitted errors with
+a full read through ``exc.errors``. Check cards display actual scope, affected
+refs, and available repair routes; their display never repeats checks.
+
 A legal ``ms.where(...)`` declaration that cannot be compared with the resolved
 runtime dtype raises ``filter_value_runtime_incompatible`` before query
 submission. Its authored literal is preserved until the user or business owner
@@ -156,13 +200,13 @@ Details types
    MetricDetails
    RelationshipDetails
    EventDetails
+   BusinessOrderDetails
+   StateModelDetails
    TimeDimensionDetails
    DomainDetails
    DatasourceDetails
    DerivedMetricDetails
    SimpleMetricDetails
-   SemanticDefinition
-   SemanticDefinitionReadError
    PeriodCalendarDetails
    CalendarLevelDetails
    TemporalSetDetails
@@ -200,20 +244,14 @@ routing and boundaries only; it does not duplicate these API recipes.
    CatalogCollection
    CatalogEntry
    SemanticKind
+   EventSequence
+   EventPrecedence
+   BusinessOrderEntry
    PeriodCalendarEntry
    CalendarPeriodPage
    TemporalSetEntry
    TemporalOccurrencePage
    WorkScheduleEntry
-
-Sources & provenance
---------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SqlProvenance
 
 Readiness & assessment
 ----------------------
@@ -226,7 +264,6 @@ Readiness & assessment
    ReadinessIssue
    ReadinessInputSummary
    RichnessReport
-   ParityResult
    PreviewBatchResult
    SourceHealthReport
    SourceHealthCheckResult
@@ -261,3 +298,14 @@ Submodules
      - Typed semantic errors and warnings raised across the semantic layer.
    * - ``marivo.semantic.typing``
      - Shared type aliases for the semantic surface.
+
+Preview data display
+--------------------
+
+``PreviewResult.show(n=None, max_output_bytes=8192)`` fits complete returned
+rows within a UTF-8 budget including the printed newline. ``render()`` accepts
+the same controls and returns text without a newline. ``n=0`` shows metadata
+and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
+``n``. Neither option reruns the preview or expands its source limit. Query
+truncation, scope coverage, sampling and warnings remain visible independently
+of display omissions. ``PreviewBatchResult`` remains a batch summary.

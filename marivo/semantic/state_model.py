@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NoReturn, TypeAlias
 
 from marivo.refs import (
+    BusinessOrderKind,
     DomainKind,
     EntityKind,
     EventKind,
@@ -265,6 +266,7 @@ def state_model(
     transitions: tuple[Inception | StateTransition, ...],
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
+    business_order: Ref[BusinessOrderKind] | None = None,
 ) -> Ref[StateModelKind]:
     """Declare a closed normative lifecycle for one subject Entity.
 
@@ -275,6 +277,7 @@ def state_model(
         transitions: Closed tuple of inception and ordinary transitions.
         domain: Optional explicit domain override.
         ai_context: Optional business definition and guardrails.
+        business_order: Optional exact default business order for these triggers.
 
     Returns:
         Exact ``Ref[state_model]``.
@@ -297,6 +300,15 @@ def state_model(
     ctx = _require_ctx()
     model_name = _require_name(name, parameter="state_model name", canonical_id="state_model")
     subject_ref = _require_entity_ref(subject, parameter="subject")
+    if business_order is not None and (
+        type(business_order) is not Ref or business_order.kind is not SemanticKind.BUSINESS_ORDER
+    ):
+        _invalid(
+            "state_model business_order must be an exact Ref[business_order]",
+            expected="Ref[business_order] | None",
+            received=business_order,
+            canonical_id="state_model",
+        )
     resolved_domain = _resolve_domain(domain, ctx)
     semantic_id = f"{resolved_domain}.{model_name}"
     ref = ref_factory.state_model(semantic_id)
@@ -376,6 +388,7 @@ def state_model(
         ),
         inceptions=tuple(inceptions),
         transitions=tuple(ordinary),
+        business_order=None if business_order is None else business_order.path,
         ai_context=_build_ai_context(ai_context),
         python_symbol=model_name,
         location=_caller_location(),

@@ -17,6 +17,7 @@ from marivo._authoring.model import (
     MutationEffect,
     RepairKind,
 )
+from marivo._data_render import _display_help
 from marivo.datasource._capabilities.model import (
     DatasourceCapabilityRegistry,
     DatasourceRootGroup,
@@ -34,11 +35,9 @@ INPUT_FAMILIES = frozenset(
         "DatasourceName",
         "DatasourceReferenceInput",
         "DatasourceCatalog",
-        "DatasourceConnection",
         "TableSource",
-        "TableColumnBindings",
+        "ProjectionColumns",
         "PhysicalColumnName",
-        "IbisDataType",
         "PartitionScope",
         "UnprunedScope",
         "AuthoringScope",
@@ -51,8 +50,6 @@ INPUT_FAMILIES = frozenset(
         "SourceParameterName",
         "SourceParameter",
         "SourceParameters",
-        "TypedSchema",
-        "JsonFieldPaths",
         "PartitionValues",
         "PartitionOrder",
         "TemporalColumn",
@@ -80,14 +77,13 @@ OUTPUT_FAMILIES = frozenset(
         "DatasourceList",
         "DatasourceDescription",
         "DatasourceCatalog",
-        "DatasourceConnection",
         "DatasourceTestResult",
         "TableSource",
-        "TableColumnBinding",
         "SourceParameter",
         "PartitionScope",
         "UnprunedScope",
         "SourceInspection",
+        "PhysicalColumnName",
         "PartitionInspection",
         "DiscoverySnapshot",
         "RawSqlResult",
@@ -118,6 +114,8 @@ def _effects(
     mutations: tuple[MutationEffect, ...] = (),
     flags: tuple[EffectFlag, ...] = (),
 ) -> AuthoringEffects:
+    if connection == "opens_connection" and "project_state" not in mutations:
+        mutations = (*mutations, "project_state")
     return AuthoringEffects(
         data_access=data_access,
         connection=connection,
@@ -128,7 +126,6 @@ def _effects(
 
 _NONE = _effects()
 _LOCAL = _effects("local_metadata_read")
-_CONNECT = _effects("local_metadata_read", "opens_connection", flags=("may_cache_resolved_secret",))
 _TEST = _effects(
     "local_metadata_read",
     "opens_connection",
@@ -199,7 +196,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "sqlite",
             "marivo.datasource.authoring.sqlite",
-            "Build a SQLite table/view datasource; median, percentile, and string strptime are unsupported.",
+            "Build a SQLite table/view datasource; native NUMERIC cannot supply exact Decimal. Median, percentile, and string strptime are unsupported.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
@@ -208,7 +205,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "trino",
             "marivo.datasource.authoring.trino",
-            "Build a Trino datasource specification.",
+            "Build a Trino datasource specification. Marivo's source-native route does not "
+            "support exact median/percentile; explicitly declare approx_median or "
+            "('approx_percentile', q) when approximation is acceptable. Scoped semantic "
+            "readiness blocks incompatible aggregates; execution never substitutes them.",
             output="DatasourceSpec",
             inputs=_inputs(("mapping_key", "DatasourceName")),
             constraints=constraints["declare"],
@@ -251,9 +251,13 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="DatasourceSummary",
             inputs=_inputs(("subject", "DatasourceSpec")),
             effects=_effects("local_metadata_read", mutations=("project_state",)),
-            constraints=("datasource_secret_env_ref", "datasource_unique_name"),
+            constraints=(
+                "datasource_secret_env_ref",
+                "datasource_unique_name",
+                "datasource_register_outside_loader",
+            ),
             example='md.register(md.duckdb(name="warehouse", path=":memory:"))',
-            preconditions=("a validated DatasourceSpec",),
+            preconditions=("a validated DatasourceSpec", "execution outside model loading"),
         ),
         _capability(
             "remove",
@@ -271,6 +275,11 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "Load the read-only datasource catalog, including built-in default.",
             output="DatasourceCatalog",
             effects=_LOCAL,
+            constraints=("datasource_project_roots",),
+            preconditions=(
+                "Restart Python after package upgrades or model edits/deletions; ordinary imports are not guaranteed to hot-reload.",
+                "Execution failures expose exception_type and the complete original traceback.",
+            ),
             example="md.load()",
         ),
         _capability(
@@ -338,20 +347,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="secret.reveal",
         ),
         _capability(
-            "connect",
-            "marivo.datasource.manage.connect",
-            "Open a managed live datasource connection, bounded by a 30s wall-clock deadline (SQLite opens inline on the caller's thread).",
-            output="DatasourceConnection",
-            inputs=_inputs(("subject", "DatasourceName")),
-            effects=_CONNECT,
-            constraints=constraints["configured"],
-            example='with md.connect("warehouse") as con:\n    con.raw_sql("SELECT 1")',
-            see_also=(_target("credential_scope"),),
-        ),
-        _capability(
             "test",
             "marivo.datasource.manage.test",
-            "Round-trip a datasource within a 30s wall-clock deadline and best-effort cache validated env secrets.",
+            "Round-trip an Ibis-compiled literal within a 30s wall-clock deadline and best-effort cache validated env secrets.",
             output="DatasourceTestResult",
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
@@ -360,43 +358,26 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             see_also=(_target("credential_scope"),),
         ),
         _capability(
-            "source_column",
-            "marivo.datasource.source.source_column",
-            "Declare one typed identifier-only physical table column; the type asserts schema without casting.",
-            output="TableColumnBinding",
-            inputs=_inputs(
-                ("subject", "PhysicalColumnName"),
-                ("dependency", "IbisDataType"),
-            ),
-            constraints=(
-                "table_column_bindings_closed",
-                "table_column_type_assertion",
-                "projected_source_runtime_evidence",
-            ),
-            example='md.source_column("event.timestamp", data_type="timestamp(3)")',
-            see_also=(_target("table"), _target("inspect"), _target("raw_sql")),
-        ),
-        _capability(
             "table",
             "marivo.datasource.source.table",
-            "Build either a catalog-backed table or a complete typed column-binding table source.",
+            (
+                "Build a catalog-backed table source. columns maps output names to physical "
+                "column names (Mapping[str, str]); it does not declare types. Types come from "
+                "source metadata when needed at execution; md.inspect exposes current physical "
+                "names and types. Values must be physical names, not objects describing "
+                "a column or its type."
+            ),
             output="TableSource",
             inputs=(
                 *_inputs(("subject", "TableName")),
-                _optional_input("dependency", "TableColumnBindings"),
+                _optional_input("dependency", "ProjectionColumns"),
             ),
-            constraints=(
-                "table_column_bindings_closed",
-                "table_column_type_assertion",
-                "projected_source_runtime_evidence",
-            ),
+            constraints=("projected_source_runtime_evidence",),
             example=(
                 'catalog_source = md.table("orders")\n'
-                'projected_source = md.table("events", columns={\n'
-                '    "event_time": md.source_column("event.timestamp", data_type="timestamp"),\n'
-                "})"
+                'projected_source = md.table("events", columns={"event_time": "event.timestamp"})'
             ),
-            see_also=(_target("source_column"), _target("inspect"), _target("raw_sql")),
+            see_also=(_target("inspect"), _target("raw_sql")),
         ),
         _capability(
             "parquet",
@@ -409,10 +390,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "csv",
             "marivo.datasource.source.csv",
-            "Build a typed CSV source descriptor.",
+            "Build a CSV source descriptor with inferred types and an optional projection.",
             output="TableSource",
-            inputs=_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
-            example='md.csv("data/orders.csv", schema={"order_id": "string"})',
+            inputs=_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
+            example='md.csv("data/orders.csv", columns={"order_id": "Order ID"})',
         ),
         _capability(
             "source_param",
@@ -425,19 +406,17 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a typed JSON source with stable output aliases, correlated nested-field extraction, and scalar-or-list request bindings.",
+            "Build a JSON source with inferred types, optional projected JSON paths, and scalar-or-list request bindings.",
             output="TableSource",
             inputs=(
-                *_inputs(("subject", "SourcePath"), ("dependency", "TypedSchema")),
-                _optional_input("dependency", "JsonFieldPaths"),
+                *_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
                 _optional_input("dependency", "SourceParameter"),
             ),
             constraints=("json_request_shape",),
             example=(
                 'md.json("https://api.example/orders", '
-                'schema={"order_id": "string", "app_name": "string"}, '
+                'columns={"order_id": "id", "app_name": "apps[].name"}, '
                 'records_path="$.data", '
-                'field_paths={"app_name": "apps[].name"}, '
                 'query_params={"app": md.source_param("apps")})'
             ),
         ),
@@ -485,7 +464,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             output="SourceInspection",
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
-            constraints=constraints["configured"],
+            constraints=(*constraints["configured"], "datasource_project_roots"),
             example=(
                 'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
                 "inspection.show()"
@@ -502,7 +481,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials: "
             "Trino relies on database-side permissions, not Marivo write prevention. "
             "The execution timeout and separate 30s connection handshake budget remain. "
-            "Results cannot enter typed analysis.",
+            "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
             output="RawSqlResult",
             inputs=_inputs(
                 ("subject", "Ref[datasource]"),
@@ -555,18 +534,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             public_entrypoint="catalog.describe",
         ),
         _capability(
-            "DatasourceCatalog.connect",
-            "marivo.datasource.catalog.DatasourceCatalog.connect",
-            "Connect to one configured datasource from a loaded catalog.",
-            kind="method",
-            output="DatasourceConnection",
-            inputs=_inputs(("receiver", "DatasourceCatalog"), ("subject", "DatasourceName")),
-            effects=_CONNECT,
-            constraints=constraints["configured"],
-            example='with md.load().connect("warehouse") as con:\n    con.raw_sql("SELECT 1")',
-            public_entrypoint="catalog.connect",
-        ),
-        _capability(
             "DatasourceCatalog.test",
             "marivo.datasource.catalog.DatasourceCatalog.test",
             "Round-trip a configured datasource from a loaded catalog.",
@@ -577,16 +544,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             constraints=constraints["configured"],
             example=('result = md.load().test("warehouse")\nresult.show()'),
             public_entrypoint="catalog.test",
-        ),
-        _capability(
-            "DatasourceConnection.disconnect",
-            "marivo.datasource.manage.DatasourceConnection.disconnect",
-            "Close a managed datasource connection.",
-            kind="method",
-            output="None",
-            inputs=_inputs(("receiver", "DatasourceConnection")),
-            example='connection = md.connect("warehouse")\nconnection.disconnect()',
-            public_entrypoint="connection.disconnect",
         ),
         _capability(
             "SourceInspection.partitions",
@@ -607,6 +564,27 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'inspection.partitions(limit=100, order="desc").show()  # descending edge'
             ),
             public_entrypoint="inspection.partitions",
+        ),
+        _capability(
+            "SourceInspection.source_column",
+            "marivo.datasource.inspection.SourceInspection.source_column",
+            "Return one physical field name from inspected metadata without reading rows.",
+            kind="method",
+            output="PhysicalColumnName",
+            inputs=_inputs(
+                ("receiver", "SourceInspection"),
+                ("subject", "PhysicalColumnName"),
+            ),
+            effects=_NONE,
+            example=(
+                'inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("orders"))\n'
+                'physical_name = inspection.source_column("order_id")\n'
+                'source = md.table("orders", columns={"order_id": physical_name})'
+            ),
+            preconditions=("a table SourceInspection with the requested physical column",),
+            repair_kinds=("reauthor",),
+            public_entrypoint="inspection.source_column",
+            see_also=(_target("inspect"), _target("table")),
         ),
         _capability(
             "SourceInspection.sample",
@@ -687,12 +665,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "load",
                 "list",
                 "describe",
-                "connect",
                 "test",
                 "credential_scope",
             ),
             "physical_sources": (
-                "source_column",
                 "table",
                 "parquet",
                 "csv",
@@ -702,6 +678,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "inspect_scope": (
                 "inspect",
                 "SourceInspection.partitions",
+                "SourceInspection.source_column",
                 "partition",
                 "time_range",
                 "unpruned",
@@ -748,11 +725,9 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         JsonSourceIR,
         ParquetSourceIR,
         SourceParamIR,
-        TableColumnBindingIR,
         TableSourceIR,
     )
     from marivo.datasource.manage import (
-        DatasourceConnection,
         DatasourceDescription,
         DatasourceFailure,
         DatasourceList,
@@ -774,12 +749,14 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         properties: tuple[str, ...] = (),
         methods: tuple[str, ...] = (),
         consumers: tuple[str, ...] = (),
+        guidance: tuple[str, ...] = (),
     ) -> None:
         contracts[cls] = DatasourceTypeContract(
             name=name,
             producers=tuple(_target(value) for value in producers),
             public_properties=properties,
             public_methods=methods,
+            guidance=guidance,
             consumers=tuple(_target(value) for value in consumers),
         )
 
@@ -833,14 +810,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceCatalog,
         "DatasourceCatalog",
         ("load",),
-        methods=("list", "get", "describe", "connect", "test", *show_render),
-    )
-    add(
-        DatasourceConnection,
-        "DatasourceConnection",
-        ("connect", "DatasourceCatalog.connect"),
-        properties=("backend",),
-        methods=("disconnect",),
+        methods=("list", "get", "describe", "test", *show_render),
     )
     add(
         DatasourceSummary,
@@ -899,6 +869,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "warnings",
         ),
         methods=show_render,
+        guidance=_display_help(),
     )
     source_types: tuple[type, ...] = (TableSourceIR, ParquetSourceIR, CsvSourceIR, JsonSourceIR)
     for source_type in source_types:
@@ -913,13 +884,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             ),
             consumers=("inspect",),
         )
-    add(
-        TableColumnBindingIR,
-        "TableColumnBindingIR",
-        ("source_column",),
-        properties=("source", "data_type"),
-        consumers=("table",),
-    )
     add(
         SourceParamIR,
         "SourceParamIR",
@@ -995,8 +959,12 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "projectable_columns",
             "warnings",
         ),
-        methods=("partitions", "sample", *show_render),
-        consumers=("SourceInspection.partitions", "SourceInspection.sample"),
+        methods=("partitions", "source_column", "sample", *show_render),
+        consumers=(
+            "SourceInspection.partitions",
+            "SourceInspection.source_column",
+            "SourceInspection.sample",
+        ),
     )
     add(
         DiscoverySnapshot,

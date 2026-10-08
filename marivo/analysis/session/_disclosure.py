@@ -1,0 +1,460 @@
+"""Native Session and retained Runtime read inputs, bound only to owners."""
+
+from __future__ import annotations
+
+from inspect import signature
+
+from marivo.analysis import session as session_namespace
+from marivo.analysis._capabilities.dataset_model import (
+    CONSTRUCTION_FAILURES,
+    Descriptor,
+    DisclosureProvider,
+    ExampleInput,
+    ExportInput,
+    bind,
+    operation,
+    value_type,
+)
+from marivo.analysis._capabilities.dataset_model import (
+    ParameterInput as P,
+)
+from marivo.analysis.evidence import _dataset_types as e
+from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.session import _lazy_read_model as r
+from marivo.analysis.session.core import Session
+
+READ_TYPES: tuple[type[object], ...] = (
+    e.ArtifactDigest,
+    ArtifactRef,
+    r.ArtifactSummary,
+    r.FailedRun,
+    e.Finding,
+    e.FindingPage,
+    r.IncompleteRun,
+    r.RunPage,
+    r.SessionGraph,
+    r.SucceededRun,
+)
+
+
+def provider() -> DisclosureProvider:
+    descriptors: list[Descriptor] = []
+    exports: list[ExportInput] = []
+    descriptors.append(
+        operation(
+            "Session.source_bindings",
+            "session.source_bindings",
+            Session.source_bindings,
+            summary="Capture declared non-secret source parameters during construction.",
+            parameters=(
+                P("bindings", "Map exact Entity refs to their declared source parameters."),
+            ),
+            output="AbstractContextManager[None]",
+            constraints=("Captured bindings replace the ambient scope and restore it on exit.",),
+            effects="Pure semantic capture; execution does not reread ambient parameters.",
+            failures=CONSTRUCTION_FAILURES,
+            discovery_group="inputs",
+            related=("session.members",),
+            example=ExampleInput(
+                "with session.source_bindings({}):\n    result = session.members(entity)",
+                ("session", "entity"),
+                "result",
+                "LogicalAnalysisDomain",
+            ),
+        )
+    )
+
+    acquisitions = {
+        "ArtifactDigest": (
+            "Read materialized.evidence_digest.",
+            ("actions.show",),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        "ArtifactRef": (
+            "Read materialized.state.artifact_ref or a returned ArtifactSummary.artifact_ref.",
+            ("datasets.materialized_state", "ArtifactSummary"),
+            ("session.artifact", "session.graph"),
+        ),
+        "ArtifactSummary": (
+            "Read the selected Artifact entries in session.graph(...).artifacts.",
+            ("session.graph",),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        "FailedRun": (
+            "Select a failed Run from session.runs() or session.get_run(id).",
+            ("session.runs", "session.get_run"),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        "IncompleteRun": (
+            "Select an incomplete Run from session.runs() or session.get_run(id).",
+            ("session.runs", "session.get_run"),
+            ("session.abandon_run",),
+        ),
+        "SucceededRun": (
+            "Select a succeeded Run from session.runs() or session.get_run(id).",
+            ("session.runs", "session.get_run"),
+            ("session.artifact",),
+        ),
+        "RunPage": (
+            "Call session.runs(); use next_cursor for the identical selection.",
+            ("session.runs",),
+            ("session.runs", "session.get_run", "SucceededRun", "FailedRun", "IncompleteRun"),
+        ),
+        "SessionGraph": (
+            "Call session.graph() with an explicit scope and node bound.",
+            ("session.graph",),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        "Finding": (
+            "Select an exact item from materialized.findings() or materialized.finding(id).",
+            ("artifact.findings", "artifact.finding"),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        "FindingPage": (
+            "Call materialized.findings(); retain next_cursor for this Artifact.",
+            ("artifact.findings",),
+            ("artifact.findings", "artifact.finding"),
+        ),
+    }
+    for value in READ_TYPES:
+        descriptors.append(
+            value_type(
+                value.__name__,
+                value,
+                summary=f"Immutable {value.__name__} contract.",
+                acquisition=acquisitions[value.__name__][0],
+                producers=acquisitions[value.__name__][1],
+                consumers=acquisitions[value.__name__][2],
+                constraints=(
+                    "Retained metadata is not current source truth or a freshness verdict.",
+                ),
+            )
+        )
+        exports.append(ExportInput(value.__name__, value, value.__name__))
+    descriptors.append(
+        value_type(
+            "Session",
+            Session,
+            summary="One Session binds logical construction and committed Runtime reads.",
+            acquisition="Create or recover through mv.session.get_or_create or mv.session.resume.",
+            producers=("session.get_or_create", "session.resume", "session.current"),
+            constraints=(
+                "Source construction loads authored semantics on demand; retained reads do not require current sources.",
+                "session.domains is the persisted tuple[str, ...] or None for all domains; an explicit conflicting scope fails before activation.",
+            ),
+        )
+    )
+    exports.extend(
+        (
+            ExportInput("Session", Session, "Session"),
+            ExportInput("session", session_namespace, "session.namespace"),
+        )
+    )
+
+    operations: tuple[tuple[object, str, str, str, str], ...] = (
+        (
+            session_namespace,
+            "get_or_create",
+            "Session",
+            "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-example')",
+            "Guarded create or recovery; sets current Session and updates an explicitly supplied question.",
+        ),
+        (
+            session_namespace,
+            "current",
+            "Session | None",
+            "import marivo.analysis as mv\nresult = mv.session.current()",
+            "Read existing current Session; do not create or reconcile.",
+        ),
+        (
+            session_namespace,
+            "resume",
+            "Session",
+            "import marivo.analysis as mv\nresult = mv.session.resume(saved_session_id, by='id')",
+            "Guarded recovery and activation of an existing Session; never creates a missing identity.",
+        ),
+        (
+            session_namespace,
+            "recent",
+            "SessionSummaryPage",
+            "import marivo.analysis as mv\nresult = mv.session.recent(limit=5)",
+            "Read one bounded existing Session-history page; no activation.",
+        ),
+        (
+            session_namespace,
+            "inspect",
+            "SessionInspection",
+            "import marivo.analysis as mv\nresult = mv.session.inspect(saved_session_name)",
+            "Read one existing Session snapshot; no recovery or activation.",
+        ),
+        (
+            session_namespace,
+            "abandon_run",
+            "None",
+            "import marivo.analysis as mv\nresult = mv.session.abandon_run(session_id=session.id, run_id=pending_run)",
+            "Reconcile one Run under its writer guard; local publication must be safe while remote read status may remain unknown.",
+        ),
+        (
+            Session,
+            "members",
+            "LogicalAnalysisDomain",
+            "result = session.members(entity_ref)",
+            "Bind a typed Entity member graph using schema-only R1 preflight; no business rows or Run.",
+        ),
+        (
+            Session,
+            "artifact",
+            "Verified materialized relation variant",
+            "result = session.artifact(artifact_ref)",
+            "Recover the exact Store 8 relation type from the retained snapshot and required parts; never load current sources or Semantic.",
+        ),
+        (
+            Session,
+            "runs",
+            "RunPage",
+            "result = session.runs(limit=5)",
+            "Read a bounded newest-first page without reconciling work.",
+        ),
+        (
+            Session,
+            "get_run",
+            "IncompleteRun | FailedRun | SucceededRun",
+            "result = session.get_run(run_id)",
+            "Read one exact same-Session Run.",
+        ),
+        (
+            Session,
+            "graph",
+            "SessionGraph",
+            "result = session.graph(artifact_ref=artifact_ref)",
+            "Read bounded committed edges and exact consumed foreign boundaries.",
+        ),
+        (
+            Session,
+            "show",
+            "None",
+            "result = session.show()",
+            "Print a bounded retained Session recap.",
+        ),
+    )
+    operations = (
+        *operations,
+        (
+            Session,
+            "anchors",
+            "LogicalAnchorDomain",
+            "result = session.anchors(buyer, population=members, during=window)",
+            "Bind exact Event or Journey starts; retain full Anchor identity and original authority.",
+        ),
+        (
+            Session,
+            "render",
+            "str",
+            "result = session.render()",
+            "Render the bounded retained Session recap.",
+        ),
+    )
+    acquisition = {
+        "source": "Use an exact Event participant or canonical JourneyResult.",
+        "population": "Use the matching complete Subject domain in the same Session and source/fixed mode.",
+        "during": "Select starts with a finite half-open TimeScope.",
+        "business_order": "Event-only named order; Journey starts inherit captured order.",
+        "at": "Use an exact datetime or TimeScope.before_end for versioned membership; omit for unversioned Entities.",
+        "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
+        "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
+        "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
+        "domains": "Select an exact domain name or nonempty sequence on first creation; existing Sessions retain their persisted scope and reject conflicting explicit selections.",
+        "question": "Optional guiding question; omission preserves the existing question.",
+        "identity": "Use an exact existing Session name or id from recent()/inspect(); missing identities provide real candidates and never create a Session.",
+        "by": "Choose name or id explicitly when resolving an ambiguous identity.",
+        "limit": "Choose a page size within the owning read's bounded interval.",
+        "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
+        "run_limit": "Choose the bounded embedded Run-page size.",
+        "run_cursor": "Use the preceding inspection's runs.next_cursor.",
+        "session_id": "Use the exact existing Session id.",
+        "run_id": "Use an exact incomplete or failed Run id from session.runs(); committed success cannot be abandoned.",
+        "reference": "Use an exact committed ArtifactRef or artifact reference string.",
+        "entity": "Use an exact governed Entity Ref from the current Semantic catalog.",
+        "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
+        "status": "Choose incomplete, failed, succeeded or None.",
+        "direction": "Choose ancestors or descendants.",
+        "max_nodes": "Choose a positive graph node bound within the Runtime limit.",
+    }
+    for receiver, name, output, code, effect in operations:
+        value = getattr(receiver, name)
+        descriptors.append(
+            operation(
+                ("Session." if name in ("show", "render") else "session.") + name,
+                ("mv.session." if receiver is session_namespace else "session.") + name,
+                value,
+                bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
+                summary=effect,
+                discovery_group="entry"
+                if name == "members"
+                else "methods.events"
+                if name == "anchors"
+                else "session.namespace"
+                if receiver is session_namespace
+                else "runtime.sessions"
+                if name in ("show", "render")
+                else "runtime.runs"
+                if name in ("runs", "get_run")
+                else "runtime",
+                related=("session.resume",) if name in ("runs", "get_run", "artifact") else (),
+                parameters=tuple(
+                    P(n, acquisition[n]) for n in signature(value).parameters if n != "self"
+                ),
+                output=output,
+                constraints=(effect,),
+                effects=effect,
+                telemetry=name in ("get_or_create", "resume", "abandon_run"),
+                failures=(
+                    "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
+                ),
+                example=ExampleInput(
+                    code,
+                    ()
+                    if name in ("get_or_create", "current", "recent")
+                    else ("saved_session_id",)
+                    if name == "resume"
+                    else ("saved_session_name",)
+                    if name == "inspect"
+                    else ("session", "pending_run")
+                    if name == "abandon_run"
+                    else ("session", "artifact_ref")
+                    if name in ("artifact", "graph")
+                    else ("session", "run_id")
+                    if name == "get_run"
+                    else ("session", "entity_ref")
+                    if name == "members"
+                    else ("session", "buyer", "members", "window")
+                    if name == "anchors"
+                    else ("session",),
+                    "result",
+                    output,
+                    True,
+                ),
+            )
+        )
+    # These are retained nested return values, not additional public exports.
+    nested_reads = (
+        (
+            r.SessionSummaryPage,
+            "Call mv.session.recent(); select an exact item from items.",
+            ("session.recent",),
+            ("runtime.SessionSummary", "session.resume", "session.inspect"),
+        ),
+        (
+            r.SessionInspection,
+            "Call mv.session.inspect(identity) without activating a Session.",
+            ("session.inspect",),
+            ("runtime.SessionSummary", "RunPage"),
+        ),
+        (
+            r.SessionSummary,
+            "Read a selected recent().items entry or inspect(identity).summary; retain its id/name.",
+            ("runtime.SessionSummaryPage", "runtime.SessionInspection"),
+            ("session.resume",),
+        ),
+        (
+            r.SessionGraphEdge,
+            "Read an edge from session.graph(...).edges.",
+            ("session.graph",),
+            ("runtime.values.show",),
+        ),
+        (
+            e.ArtifactEvidenceSummary,
+            "Read the committed Evidence summary attached to an ArtifactSummary.",
+            ("ArtifactSummary",),
+            ("artifact.findings",),
+        ),
+    )
+    for value, acquisition_text, producers, consumers in nested_reads:
+        descriptors.append(
+            value_type(
+                "runtime." + value.__name__,
+                value,
+                summary=f"Nested immutable {value.__name__} read contract.",
+                acquisition=acquisition_text,
+                producers=producers,
+                consumers=consumers,
+            )
+        )
+    for method_name, output in (("render", "str"), ("show", "None")):
+        bindings = tuple(
+            bind(getattr(value, method_name), value)
+            for value in (
+                *READ_TYPES,
+                r.SessionSummaryPage,
+                r.SessionInspection,
+                r.SessionSummary,
+                r.SessionGraphEdge,
+                e.ArtifactEvidenceSummary,
+            )
+            if hasattr(value, method_name)
+        )
+        descriptors.append(
+            operation(
+                "runtime.values." + method_name,
+                "value." + method_name,
+                bindings[0].implementation,
+                bindings=bindings,
+                summary="Render one immutable retained Runtime value within its byte budget.",
+                discovery_group="runtime.values",
+                parameters=(
+                    P(
+                        "max_output_bytes",
+                        "Use the default 8192-byte budget or an explicit tighter bound.",
+                    ),
+                ),
+                output=output,
+                constraints=(
+                    "Rendering retained metadata does not activate, recover or execute a Session.",
+                ),
+                effects="Pure value rendering.",
+                failures=("ValueError: use a valid output byte bound.",),
+                example=ExampleInput(
+                    f"result = artifact_digest.{method_name}()",
+                    ("artifact_digest",),
+                    "result",
+                    output,
+                    True,
+                ),
+            )
+        )
+    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
+    from marivo.analysis._capabilities.dataset_model import NavigationInput
+
+    descriptors.extend(CATALOG_INPUTS)
+    temporal = tuple(
+        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family != "SemanticCatalog"
+    )
+    ordinary = tuple(
+        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family == "SemanticCatalog"
+    )
+    descriptors.append(
+        NavigationInput("catalog.temporal", "Resolve certified temporal values.", temporal)
+    )
+    descriptors.append(
+        NavigationInput(
+            "catalog",
+            "Resolve exact governed inputs and check readiness for the required closure.",
+            (
+                "catalog.require",
+                "catalog.readiness",
+                *(t for t in ordinary if t not in ("catalog.require", "catalog.readiness")),
+                "catalog.temporal",
+            ),
+            guidance=(
+                "Acquire catalog = session.catalog. With exact refs, use require/readiness; browse a typed collection only when identity is unknown.",
+                "Collection.show() reveals bounded choices; collection.get(full_path) selects an entry. Inspect entry.show(), then marivo.help(entry) for its public contract.",
+            ),
+            discovery_group="inputs",
+        )
+    )
+    from marivo.analysis.session._public_disclosure import inputs as public_inputs
+
+    public_descriptors, public_exports = public_inputs()
+    descriptors.extend(public_descriptors)
+    exports.extend(public_exports)
+    return DisclosureProvider("runtime", tuple(descriptors), tuple(exports))

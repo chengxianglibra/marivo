@@ -1,7 +1,8 @@
 """Python strptime validation for time fields.
 
-The ``date_format`` parameter of ``@ms.time_dimension`` accepts only Python
-strptime strings, validated by :func:`normalize_strptime` at authoring time.
+The ``format`` parameter of ``ms.strptime`` declares canonical source encoding
+and accepts Python strptime strings, validated by :func:`normalize_strptime`
+at authoring time. This validation checks the format, not source values.
 The validated format flows into ibis expressions and is emitted as backend SQL.
 
 For MySQL-family backends (Trino ``date_parse``, MySQL ``STR_TO_DATE``),

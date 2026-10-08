@@ -15,6 +15,7 @@ import ibis.expr.types as ir
 import pandas as pd
 
 from marivo._authoring.model import AuthoringRepair
+from marivo._authoring.render import _repair_summary
 from marivo._compat import UTC
 from marivo.datasource import credentials as cr
 from marivo.datasource.engines import require_profile_for_backend_type
@@ -229,6 +230,24 @@ class SourceCheckNamespace:
         *,
         side: RelationshipSide,
     ) -> RelationshipMatchesSourceCheck:
+        """Build a bounded check for unmatched relationship keys.
+
+        Args:
+            relationship: Exact Relationship ref to inspect.
+            side: Check the directed ``from`` side or ``both`` sides.
+
+        Returns:
+            A check consumed by ``catalog.source_health(..., checks=..., scope=...)``.
+
+        Example:
+            ms.source_check.relationship_matches(
+                ms.ref.relationship("sales.orders_to_customers"), side="from"
+            )
+
+        Constraints:
+            The result describes only the explicitly selected source scopes. It
+            neither declares global match completeness nor changes readiness.
+        """
         return RelationshipMatchesSourceCheck(relationship=relationship, side=side)
 
     def relationship_cardinality(
@@ -305,16 +324,35 @@ class SourceHealthCheckResult(RenderableResult):
     def _card(self) -> Card:
         card = Card(
             identity=self._repr_identity(),
-            available=(".observed", ".affected_refs", ".repair", ".show()", ".to_dict()"),
+            available=(
+                ".observed",
+                ".affected_refs",
+                ".scopes",
+                ".repair",
+                ".show()",
+                ".to_dict()",
+            ),
         ).status(
             f"user_data_queried={self.user_data_queried} "
             f"datasource={self.datasource.key} source={self.source.kind}"
         )
         if self.affected_refs:
             card = card.listing("affected refs", (ref.key for ref in self.affected_refs))
+        if self.scopes:
+            card = card.listing(
+                "scopes",
+                (
+                    f"{entity_ref.key}: {json.dumps(_scope_dict(scope), sort_keys=True, default=str)}"
+                    for entity_ref, scope in self.scopes
+                ),
+            )
+        if self.observed:
+            card = card.field(
+                "observed", json.dumps(dict(self.observed), sort_keys=True, default=str)
+            )
         if self.repair is not None:
-            card = card.field("repair", self.repair.action)
-        return card
+            card = card.field("repair", _repair_summary(self.repair))
+        return card.field("checked_at", self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -352,10 +390,22 @@ class SourceHealthReport(RenderableResult):
         return f"SourceHealthReport status={self.status} checks={len(self.checks)}"
 
     def _card(self) -> Card:
-        return Card(
+        card = Card(
             identity=self._repr_identity(),
             available=(".checks", ".affected_refs", ".show()", ".to_dict()"),
-        ).table(
+        )
+        failures = tuple(check for check in self.checks if check.status != "current")
+        if failures:
+            card = card.listing(
+                "non-successful checks",
+                (
+                    f"{check.kind}: {check.status}; affected refs: "
+                    f"{', '.join(ref.key for ref in check.affected_refs) or 'none'}"
+                    + (f" -> {_repair_summary(check.repair)}" if check.repair is not None else "")
+                    for check in failures
+                ),
+            )
+        card = card.table(
             columns=("check", "status", "data query", "affected refs"),
             rows=(
                 (
@@ -370,6 +420,7 @@ class SourceHealthReport(RenderableResult):
             label="source health",
             show_omission_counts=True,
         )
+        return card.field("checked_at", self.checked_at)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -768,7 +819,15 @@ def _field_frame(
         _materialized_field(resolver, field, table).name(f"value_{index}")
         for index, field in enumerate(fields)
     ]
-    return cast("pd.DataFrame", table.select(*values).execute())
+    return cast(
+        "pd.DataFrame",
+        resolver.connections.collect_source(
+            registry.entities[entity_id].datasource,
+            table.select(*values),
+            purpose="semantic.source_health_field",
+            max_rows=scope.max_rows,
+        ),
+    )
 
 
 def _freshness_observation(
@@ -945,8 +1004,18 @@ def _relationship_frames(
             resolver.dimension_on(cast("Ref[FieldKind]", to_ref), right).name(f"key_{index}")
         )
     return (
-        left.select(*left_values).execute(),
-        right.select(*right_values).execute(),
+        resolver.connections.collect_source(
+            registry.entities[left_id].datasource,
+            left.select(*left_values),
+            purpose="semantic.source_health_relationship",
+            max_rows=scopes[left_id].max_rows,
+        ),
+        resolver.connections.collect_source(
+            registry.entities[right_id].datasource,
+            right.select(*right_values),
+            purpose="semantic.source_health_relationship",
+            max_rows=scopes[right_id].max_rows,
+        ),
         left_id,
         right_id,
     )
@@ -1193,7 +1262,11 @@ def run_source_health(
                 try:
                     backend = connections.session_backend(entity.datasource)
                     with cr.backend_errors(backend):
-                        backend.raw_sql("SELECT 1")
+                        from marivo.datasource.adapters import provider_for
+
+                        provider_for(registry.datasources[entity.datasource].backend_type).probe(
+                            backend
+                        )
                 except (DatasourceCredentialError, DatasourceCredentialScopeError):
                     raise
                 except Exception as exc:
@@ -1202,7 +1275,7 @@ def run_source_health(
                         _unavailable_observed(exc),
                     )
                 else:
-                    connectivity[entity.datasource] = ("current", {"roundtrip": "SELECT 1"})
+                    connectivity[entity.datasource] = ("current", {"roundtrip": "ibis_literal"})
             connection_status, connection_observed = connectivity[entity.datasource]
             entity_ref = cast("Ref[SemanticKindTag]", ref_factory.entity(entity_id))
             affected = _reverse_affected(catalog, (entity_ref,))
