@@ -96,9 +96,9 @@ def test_public_full_grid_unknown(
         mv.time_scope(start=START, end=START + timedelta(days=1)),
         mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
     )
-    logical = members.each(grid).observe(
+    logical = members.observe(
         ms.ref.metric("sales.total_0"),
-        during=grid.window,
+        during=grid,
         complete_during=windows,
         by=(ms.ref.entity("sales.order"),),
     )
@@ -213,7 +213,7 @@ assert session._runtime.store.resources(session._runtime.session_ref) == ()
         Path(directory, "full-grid-unknown-" + form + ".json").write_text(
             json.dumps(
                 {
-                    "producer": "members.each(grid).observe(sum_metric, complete_during=windows)",
+                    "producer": "members.observe(sum_metric, during=grid, complete_during=windows)",
                     "form": form,
                     "unknown_count": 3,
                     "defined_count": 6,
@@ -253,10 +253,9 @@ def test_public_duration_business_coverage(
     )
     observed = (
         session.members(ms.ref.entity("sales.order"))
-        .each(grid)
         .observe(
             ms.ref.metric("sales.total_0"),
-            during=grid.window,
+            during=grid,
             complete_during=(
                 mv.time_scope(start=START, end=START + timedelta(days=1)),
                 mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
@@ -294,18 +293,14 @@ def test_business_coverage_source_selection_keeps_original_support(
     grid = mv.time_grid(
         during=mv.time_scope(start=START, end=START + timedelta(days=3)), grain=mv.grain("day")
     )
-    observed = (
-        session.members(ms.ref.entity("sales.order"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.total_0"),
-            during=grid.window,
-            complete_during=(
-                mv.time_scope(start=START, end=START + timedelta(days=1)),
-                mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
-            ),
-            by=(ms.ref.entity("sales.order"),),
-        )
+    observed = session.members(ms.ref.entity("sales.order")).observe(
+        ms.ref.metric("sales.total_0"),
+        during=grid,
+        complete_during=(
+            mv.time_scope(start=START, end=START + timedelta(days=1)),
+            mv.time_scope(start=START + timedelta(days=2), end=START + timedelta(days=3)),
+        ),
+        by=(ms.ref.entity("sales.order"),),
     )
     assert isinstance(observed, LogicalNumericRelation)
     selected = observed.where(observed.value.is_defined())

@@ -262,7 +262,8 @@ Only proven empty contributions receive their method's empty state.
 
 First member observation directly computes the complete Metric at the requested
 `by` grain. The default `by=()` produces Singleton, or one overall value per
-retained time bucket after `each(grid)`. Membership decides which contributions
+retained time bucket with `during=grid` or `at=grid.end`. Membership decides which
+contributions
 participate; `by` selects only spatial keys. It accepts an ordered tuple of the
 receiver's member Entity (all primary-key components), categorical member or
 contribution-path Dimensions, and same-Session logical classifications, including
@@ -275,10 +276,16 @@ their group axes are attached. Explicit target completion preserves comparison
 continuations and initializes empty temporal-fold samples with the retained fold
 kind in both source and fixed execution.
 
-Time grain is expressed by `each(time_grid(..., grain=grain("day")))` with
-`during=grid.window`. Every bucket remains, including empty buckets; `by` never
-removes time. Existing result grouping and original `rollup` express time
-coarsening. Relative Anchor observation keeps its per-Anchor window contract.
+Time grain is expressed by `observe(..., during=time_grid(..., grain=grain("day")))`.
+Endpoint attribute reads use `members.read(field, at=grid.start/end/before_end)`;
+cumulative observations use `members.observe(metric, at=grid.end)`. These inputs
+bind the complete member/time product internally before classification and target
+keys. Every bucket remains, including empty buckets; `by` never removes time or
+introduces an independent time axis. Time-dependent classifications must use the
+observation's exact grid and complete member/time keys. The public `each`,
+`grid.window`, and standalone time-domain result types are removed without aliases.
+Existing result grouping and original `rollup` express time coarsening. Relative
+Anchor observation keeps its per-Anchor window contract.
 
 `group_by` on existing results binds classification; `rollup` merges sufficient original state;
 `summarize` creates a new current-row statistic. Means retain sum/count, ratios

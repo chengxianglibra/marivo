@@ -226,8 +226,7 @@ grid = mv.time_grid(
 )
 dataset = (
     session.members(ms.ref.entity("sales.orders"))
-    .each(grid)
-    .observe(revenue_entry.ref, during=grid.window)
+    .observe(revenue_entry.ref, during=grid)
 )
 ```
 {/* example: catalog-regional-observation */}
@@ -251,10 +250,9 @@ grid = mv.time_grid(
 )
 current = (
     session.members(ms.ref.entity("sales.orders"))
-    .each(grid)
     .observe(
         revenue_entry.ref,
-        during=grid.window,
+        during=grid,
         by=(region_entry.ref,),
     )
 )
@@ -280,8 +278,7 @@ grid = mv.time_grid(
 )
 current = (
     session.members(ms.ref.entity("sales.orders"))
-    .each(grid)
-    .observe(entry.ref, during=grid.window)
+    .observe(entry.ref, during=grid)
 )
 ```
 

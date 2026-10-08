@@ -90,7 +90,7 @@ recovered_observation.summarize(method=mv.count()).execute().show()
 显示均值的平均值并不等于原始加权均值。
 同一 Entity 根上的分组观察，不因分组而额外需要关系。
 
-普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`groups` 指定逻辑目标域并保留空组。`each(grid)` 始终保留全部时间桶，`by` 只选择空间粒度。归因需要分区时，先观测分区再做原始归并。原有 `coordinates` 参数和分组域的 `observe` 入口已移除。
+普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`groups` 指定逻辑目标域并保留空组。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。原有 `coordinates` 参数和分组域的 `observe` 入口已移除。
 
 ## 按同一实体分组
 

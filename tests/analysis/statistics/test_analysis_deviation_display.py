@@ -208,15 +208,11 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
     )
-    raw = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid.window,
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
-        )
+    raw = case.session.members(ms.ref.entity("sales.customer")).observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales." + case.names.buyer),
+        by=(ms.ref.entity("sales.customer"),),
     )
     original = raw.execute()
     input_frame = original.to_pandas()

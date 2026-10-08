@@ -175,8 +175,8 @@ def test_full_time_opportunities_and_static_target(
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
             grain=mv.grain("day"),
         )
-        values = members.each(grid).observe(
-            ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+        values = members.observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
         )
         assert isinstance(values, mv.LogicalNumericRelation)
         fixed_targets = members.execute()

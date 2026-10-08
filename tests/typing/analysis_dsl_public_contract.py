@@ -43,13 +43,10 @@ if TYPE_CHECKING:
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
     )
     assert_type(grid, mv.TimeGrid)
-    assert_type(grid.window, mv.GridWindow)
     assert_type(grid.end, mv.GridEndpoint)
-    product = members.each(grid)
-    assert_type(product, mv.LogicalTimeAnalysisDomain)
-    assert_type(product.execute(), mv.MaterializedTimeAnalysisDomain)
+    assert_type(grid.before_end, mv.GridEndpoint)
     assert_type(
-        product.read(
+        members.read(
             ms.ref.measure("sales.customer.balance"),
             at=grid.before_end,
             match_verification="assume",
@@ -57,10 +54,22 @@ if TYPE_CHECKING:
         mv.LogicalNumericRelation,
     )
     assert_type(
-        product.observe(
+        members.observe(
             ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.customer"),)
         ),
         mv.LogicalNumericRelation | mv.LogicalRatioRelation,
+    )
+    assert_type(
+        members.observe(ms.ref.metric("sales.revenue"), during=grid),
+        mv.LogicalNumericRelation | mv.LogicalRatioRelation,
+    )
+    assert_type(
+        members.read(ms.ref.dimension("sales.customer.tier"), at=grid.before_end),
+        mv.LogicalCategoryRelation | mv.LogicalBooleanRelation,
+    )
+    assert_type(
+        members.read(ms.ref.time_dimension("sales.customer.updated_at"), at=grid.before_end),
+        mv.LogicalTemporalRelation,
     )
     category = members.read(ms.ref.dimension("sales.customer.region"))
     assert_type(category, mv.LogicalCategoryRelation | mv.LogicalBooleanRelation)

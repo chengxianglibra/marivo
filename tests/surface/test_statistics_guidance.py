@@ -155,9 +155,8 @@ def test_bilingual_nine_method_example_executes_with_current_continuations(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
     daily = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        members.observe(
+            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         .group_by(grid)
         .rollup()

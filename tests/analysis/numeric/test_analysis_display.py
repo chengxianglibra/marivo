@@ -965,14 +965,14 @@ def test_group_and_entity_time_display_domains(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    product = members.each(grid)
+    product = members
     values = product.observe(
         ms.ref.metric("sales.order_count"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(ms.ref.entity("sales.customer"),),
     )
-    categories = product.read(ms.ref.dimension("sales.customer.region"))
+    categories = product.read(ms.ref.dimension("sales.customer.region"), at=grid.before_end)
     facts = analysis_dsl_rows("j2")
     for current, category in ((values, categories), (values.execute(), categories.execute())):
         ranking = current.rank(

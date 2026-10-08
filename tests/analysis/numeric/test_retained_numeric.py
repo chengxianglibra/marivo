@@ -199,8 +199,8 @@ def retained_pair(
             ),
             grain=mv.grain("day"),
         )
-        history = members.each(grid).observe(
-            ms.ref.metric("sales.total_x"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+        history = members.observe(
+            ms.ref.metric("sales.total_x"), during=grid, by=(ms.ref.entity("sales.facts"),)
         )
         converter = (
             int
@@ -225,10 +225,9 @@ def retained_pair(
             fixed_history = history.group_by(grid).rollup().execute()
         assert isinstance(fixed_history, mv.MaterializedGroupedNumericRelation)
         fixed_history_b = (
-            members.each(grid)
-            .observe(
+            members.observe(
                 ms.ref.metric("sales.total_y"),
-                during=grid.window,
+                during=grid,
                 by=(ms.ref.entity("sales.facts"),),
             )
             .group_by(grid)

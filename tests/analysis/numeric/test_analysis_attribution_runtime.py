@@ -531,9 +531,9 @@ def test_period_buckets_and_retained_coarsened_partition(
         grid = mv.time_grid(
             during=scope, grain=mv.grain("day" if coarsen else "month"), timezone="UTC"
         )
-        values = members.each(grid).observe(
+        values = members.observe(
             ms.ref.metric("sales.order_count"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
             by=(ms.ref.entity("sales.customer"), *axes),
         )

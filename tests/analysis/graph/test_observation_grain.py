@@ -149,31 +149,26 @@ def test_grid_observation_keeps_time_without_member_axis(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    observed = members.each(grid).observe(
+    observed = members.observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
     )
     assert len(observed._node.root.signature.domain.instance_key) == 1
     frame = observed.execute().to_pandas()
     assert len(frame) == 2
     assert frame["value"].iloc[0] == 1000
-    grouped = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid.window,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.dimension("sales.customer.region"),),
-        )
-        .execute()
-    )
+    grouped = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.dimension("sales.customer.region"),),
+    ).execute()
     assert len(grouped.to_pandas()) == 6
     contribution_groups = (
-        members.each(grid)
-        .observe(
+        members.observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
             by=(ms.ref.dimension("sales.order.channel"),),
         )
@@ -191,15 +186,11 @@ def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFa
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    fixed = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid.window,
-            via=ms.ref.relationship("sales.order_buyer"),
-        )
-        .execute()
-    )
+    fixed = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=grid,
+        via=ms.ref.relationship("sales.order_buyer"),
+    ).execute()
     assert len(fixed.to_pandas()) == 2
     assert fixed.to_pandas()["cell_tag"].tolist() == ["null", "null"]
     total = members.observe(
@@ -219,10 +210,9 @@ def test_overall_bucket_coverage_marks_unknown_after_aggregation(
     )
     fixed = (
         case.session.members(ms.ref.entity("sales.customer"))
-        .each(grid)
         .observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
             complete_during=(
                 mv.time_scope(
@@ -444,13 +434,13 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    product = case.session.members(entity).each(grid)
+    product = case.session.members(entity)
     regions, identities = product.read(region), product.read(identity)
     assert isinstance(regions, mv.LogicalCategoryRelation)
     assert isinstance(identities, mv.LogicalCategoryRelation)
     observed = product.observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(regions, identities) if logical_axes else (region, identity),
     )
@@ -468,7 +458,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     with pytest.raises(AnalysisError):
         product.observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
             by=(regions, incomplete),
         ).execute()
@@ -476,7 +466,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
         saved_regions, saved_identities = regions.execute(), identities.execute()
         saved = product.observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
             by=(entity,),
         ).execute()

@@ -31,10 +31,9 @@ def test_ratio_statistics_require_original_coverage(
         during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
     )
     history = (
-        members.each(grid)
-        .observe(
+        members.observe(
             ms.ref.metric("sales.order_count"),
-            during=grid.window,
+            during=grid,
             via=ms.ref.relationship("sales." + case.names.buyer),
             by=(ms.ref.entity("sales.customer"),),
         )
@@ -47,10 +46,9 @@ def test_ratio_statistics_require_original_coverage(
     with pytest.raises(AnalysisError, match="original captured coverage fact"):
         if method in ("pearson", "spearman", "kendall"):
             revenue = (
-                members.each(grid)
-                .observe(
+                members.observe(
                     ms.ref.metric("sales.revenue"),
-                    during=grid.window,
+                    during=grid,
                     via=ms.ref.relationship("sales." + case.names.buyer),
                     by=(ms.ref.entity("sales.customer"),),
                 )
@@ -166,9 +164,9 @@ def test_statistical_rank_projection_and_tables(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
         )
-        history = members.each(grid).observe(
+        history = members.observe(
             ms.ref.metric("sales.order_count"),
-            during=grid.window,
+            during=grid,
             via=via,
             by=(ms.ref.entity("sales.customer"),),
         )

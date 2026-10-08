@@ -645,9 +645,7 @@ def _produce(
             mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("month"))
             for start, end in (("2026-09-01", "2026-11-01"), ("2026-07-01", "2026-09-01"))
         ]
-        endpoints = [
-            targets.each(grid).observe(count, during=grid.window, via=via) for grid in grids
-        ]
+        endpoints = [targets.observe(count, during=grid, via=via) for grid in grids]
         saved["period"] = (
             endpoints[0]
             .compare(endpoints[1], design=mv.PeriodChange(alignment=mv.window_bucket()))
@@ -656,12 +654,12 @@ def _produce(
         temporal_grid = mv.time_grid(
             during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
         )
-        temporal_targets = targets.each(temporal_grid)
+        temporal_targets = targets
         saved["running"] = temporal_targets.observe(
             ms.ref.metric("operations.running_energy"), at=temporal_grid.end, via=via
         ).execute()
         saved["folded"] = temporal_targets.observe(
-            ms.ref.metric("operations.folded_energy"), during=temporal_grid.window, via=via
+            ms.ref.metric("operations.folded_energy"), during=temporal_grid, via=via
         ).execute()
         saved["current"], saved["baseline"] = current.execute(), baseline.execute()
     elif scenario == "a07":
@@ -721,16 +719,14 @@ def _produce(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
         )
-        values = targets.each(grid).observe(count, during=grid.window, via=via)
+        values = targets.observe(count, during=grid, via=via)
         saved["targets"], saved["values"] = targets.execute(), values.execute()
         controlled_grid = mv.time_grid(
             during=mv.time_scope(start="2026-06-01", end="2026-10-01"), grain=mv.grain("month")
         )
-        saved["controlled_values"] = (
-            targets.each(controlled_grid)
-            .observe(count, during=controlled_grid.window, via=via)
-            .execute()
-        )
+        saved["controlled_values"] = targets.observe(
+            count, during=controlled_grid, via=via
+        ).execute()
         saved["cohort"] = targets.cohort(values.value.gt(0), rule=mv.at_least(3)).execute()
         assert sorted(saved["cohort"].to_pandas().member) == oracle["cohort"]
         saved["any"] = targets.cohort(values.value.gt(0), rule=mv.any_instance()).execute()

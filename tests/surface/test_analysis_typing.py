@@ -31,6 +31,9 @@ members.show()
 fixed = members.execute()
 fixed.execute()
 window = mv.time_scope(start="2026-08-01", end="2026-09-01")
+grid = mv.time_grid(during=window, grain=mv.grain("month"))
+members.each(grid)
+grid.window
 session.lifecycle.replay(ms.ref.state_model("sales.model"), window=window, seed=mv.from_inception())
 session.lifecycle.replay(ms.ref.entity("sales.customer"), population=members, window=window, seed=mv.from_inception())
 session.lifecycle.replay(ms.ref.state_model("sales.model"), population=fixed, window=window, seed=mv.from_inception())
@@ -90,6 +93,8 @@ table.execute().execute()
     assert 'has no attribute "compare"' in output
     assert 'Argument 1 to "where"' in output
     assert 'has no attribute "show"' in output
+    assert 'LogicalAnalysisDomain" has no attribute "each"' in output
+    assert 'TimeGrid" has no attribute "window"' in output
     assert 'has no attribute "execute"' in output
     assert 'LogicalFixedAnalysisDomain" has no attribute "observe"' in output
     assert 'Argument 1 to "compare"' in output

@@ -111,9 +111,8 @@ def test_native_nine_methods_independent_fixed_and_cold(
         )
         grid = mv.time_grid(during=window, grain=mv.grain("day"))
         timed = (
-            members.each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+            members.observe(
+                ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
             )
             .group_by(grid)
             .rollup()

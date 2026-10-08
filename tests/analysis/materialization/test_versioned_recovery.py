@@ -172,12 +172,16 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 source_trace.record(attribute)
             if kind == "snapshot":
                 grid = mv.time_grid(
-                    during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
-                    grain=mv.grain("day"),
+                    during=mv.time_scope(
+                        start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
+                    ),
+                    grain=mv.grain("hour"),
                 )
-                product = current.each(grid).execute()
+                product = current.read(
+                    ms.ref.measure("sales.subjects_snapshot.amount"), at=grid.before_end
+                ).execute()
                 assert len(product.to_pandas()) == 6
-                originals["snapshot:product"] = snapshot(product)
+                originals["snapshot:grid_read"] = snapshot(product)
                 source_trace.record(product)
         state: dict[str, Json] = {"session": session.id, "originals": originals}
         (tmp_path / "r94-versions.json").write_bytes(encode(state))
@@ -191,7 +195,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                 "validity_september_members": 3,
                 "snapshot_before_september_members": 0,
                 "validity_before_september_members": 3,
-                "product_cells": 6,
+                "grid_read_cells": 6,
                 "construction_business_reads_forbidden": True,
             },
             None,

@@ -19,16 +19,12 @@ def test_ratio_without_retained_coverage_rejects_with_typed_error(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    history = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.order_count"),
-            during=grid.window,
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
-        )
-        .execute()
-    )
+    history = members.observe(
+        ms.ref.metric("sales.order_count"),
+        during=grid,
+        via=ms.ref.relationship("sales." + case.names.buyer),
+        by=(ms.ref.entity("sales.customer"),),
+    ).execute()
     ratio = history.ratio(history).execute()
     with pytest.raises(AnalysisError, match="original captured coverage fact"):
         ratio.runs(where=ratio.value.gt(0)).execute()
@@ -41,9 +37,9 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    daily = members.each(grid).observe(
+    daily = members.observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
         by=(ms.ref.entity("sales.customer"),),
     )
@@ -179,9 +175,9 @@ def test_new_grid_after_subject_selection(
     selected = values.where(values.value.is_defined()).members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
     grid = mv.time_grid(during=scope, grain=mv.grain("day"))
-    fresh = selected.each(grid).observe(
+    fresh = selected.observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=via,
         by=(ms.ref.entity("sales.customer"),),
     )

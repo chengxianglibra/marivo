@@ -220,10 +220,9 @@ def produce(project: Path) -> dict[str, object]:
     )
     history = (
         session.members(ms.ref.entity("sales.orders"))
-        .each(grid)
         .observe(
             ms.ref.metric("sales.revenue"),
-            during=grid.window,
+            during=grid,
         )
         .group_by(grid)
         .rollup()

@@ -687,7 +687,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
     )
     members = members_session.members(
         ms.ref.entity(f"{prefix}.valid"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-    ).each(grid)
+    )
     field = ms.ref.measure(f"{prefix}.valid.amount")
     for endpoint, expected in (
         (grid.start, [10, 30, 20, 20]),
@@ -709,7 +709,7 @@ def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Ses
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
     )
-    product = session.members(ms.ref.entity(f"{prefix}.plain")).each(grid)
+    product = session.members(ms.ref.entity(f"{prefix}.plain"))
     field = ms.ref.measure(f"{prefix}.snapshot.amount")
     route = ms.ref.relationship(f"{prefix}.to_snapshot")
     for point in (grid.start, grid.before_end):
@@ -719,6 +719,137 @@ def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Ses
         ]
     with pytest.raises(AnalysisError):
         product.read(field, at=grid.end, via=route).execute()
+
+
+@pytest.mark.runtime
+def test_direct_grid_endpoint_keeps_four_attribute_families(members_session: Session) -> None:
+    prefix = _domain(members_session)
+    members = members_session.members(
+        ms.ref.entity(f"{prefix}.valid"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
+    )
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
+    )
+    category = members.read(ms.ref.dimension(f"{prefix}.valid.category"), at=grid.before_end)
+    boolean = members.read(ms.ref.dimension(f"{prefix}.valid.enabled"), at=grid.before_end)
+    temporal = members.read(ms.ref.time_dimension(f"{prefix}.valid.moment"), at=grid.before_end)
+    assert isinstance(category, mv.LogicalCategoryRelation)
+    assert isinstance(boolean, mv.LogicalBooleanRelation)
+    assert isinstance(temporal, mv.LogicalTemporalRelation)
+    for relation, expected in (
+        (category, ["west", "east", "east", "east"]),
+        (boolean, [True, False, False, False]),
+        (
+            temporal,
+            [
+                datetime(2026, 8, 1, 1, 2, 3, tzinfo=timezone.utc),
+                datetime(2026, 9, 1, 1, 2, 3, tzinfo=timezone.utc),
+                datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
+                datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
+            ],
+        ),
+    ):
+        result = relation.execute()
+        frame = result.to_pandas()
+        assert frame.value.tolist() == expected
+        assert frame.groupby(["member", "coord_0"]).size().tolist() == [2, 2]
+        recovered = members_session.artifact(result.state.artifact_ref)
+        assert isinstance(recovered, type(result))
+        assert recovered.to_pandas().equals(frame)
+    stable_members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    stable = stable_members.read(ms.ref.dimension(f"{prefix}.plain.category"), at=grid.before_end)
+    assert isinstance(stable, mv.LogicalCategoryRelation)
+    stable_frame = stable.execute().to_pandas()
+    assert stable_frame.value.tolist() == ["west", "west", "east", "east"]
+    assert stable_frame.groupby(["member", "coord_0"]).size().tolist() == [2, 2]
+    with pytest.raises(AnalysisError):
+        stable_members.read(
+            ms.ref.dimension(f"{prefix}.plain.category"),
+            at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        )
+
+
+@pytest.mark.runtime
+def test_grid_classification_requires_explicit_exact_observation_grid(
+    members_session: Session,
+) -> None:
+    prefix = _domain(members_session)
+    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    scope = mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00")
+    grid = mv.time_grid(during=scope, grain=mv.grain("hour"))
+    other = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-08-01T03:00:00+00:00"),
+        grain=mv.grain("hour"),
+    )
+    category = members.read(
+        ms.ref.dimension(f"{prefix}.snapshot.category"),
+        at=grid.before_end,
+        via=ms.ref.relationship(f"{prefix}.to_snapshot"),
+    )
+    assert isinstance(category, mv.LogicalCategoryRelation)
+    metric = ms.ref.metric(f"{prefix}.observed_total")
+    for during in (None, scope, other):
+        before = len(members_session.runs().items)
+        with pytest.raises(AnalysisError, match=r"classification.*grid|classification grid"):
+            members.observe(metric, during=during, by=(category,))
+        assert len(members_session.runs().items) == before
+    foreign_session = mv.session.get_or_create("foreign-grid-category", report_timezone="UTC")
+    foreign_category = foreign_session.members(ms.ref.entity(f"{prefix}.plain")).read(
+        ms.ref.dimension(f"{prefix}.snapshot.category"),
+        at=grid.before_end,
+        via=ms.ref.relationship(f"{prefix}.to_snapshot"),
+    )
+    with pytest.raises(AnalysisError):
+        members.observe(metric, during=grid, by=(foreign_category,))
+    assert foreign_session.runs().items == ()
+    observed = members.observe(metric, during=grid, by=(category,))
+    frame = observed.execute().to_pandas()
+    assert len(frame) == 4
+    assert frame.value.dropna().tolist() == [10]
+    assert set(frame.group) == {"west", "east"}
+    incomplete = category.where(category.value.eq("west"))
+    with pytest.raises(AnalysisError, match="mapping_total"):
+        members.observe(metric, during=grid, by=(incomplete,)).execute()
+
+
+@pytest.mark.runtime
+def test_direct_grid_binding_is_pure_and_rejects_conflicting_authority(
+    members_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prefix = _domain(members_session)
+    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
+    )
+    before = len(members_session.runs().items)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("construction read business rows")
+
+    with monkeypatch.context() as pure:
+        pure.setattr(SourceSession, "batches", forbidden)
+        members.read(
+            ms.ref.measure(f"{prefix}.snapshot.amount"),
+            at=grid.before_end,
+            via=ms.ref.relationship(f"{prefix}.to_snapshot"),
+        )
+        observed = members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid)
+        observed.contract().show()
+        with pytest.raises(AnalysisError, match="both during and at"):
+            members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid, at=grid.end)
+        for during in (None, mv.time_scope(start="2026-08-01", end="2026-08-02")):
+            with pytest.raises(AnalysisError) as incomplete:
+                members.observe(
+                    ms.ref.metric(f"{prefix}.observed_total"), during=during, complete_during=()
+                )
+            assert incomplete.value.expected == (
+                "a single original sum on during=grid without dimension grouping or at"
+            )
+    assert len(members_session.runs().items) == before
+    other_session = mv.session.get_or_create("grid-conflict", report_timezone="Asia/Shanghai")
+    other_members = other_session.members(ms.ref.entity(f"{prefix}.plain"))
+    with pytest.raises(AnalysisError, match="conflicting authority"):
+        other_members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid)
 
 
 @pytest.mark.runtime

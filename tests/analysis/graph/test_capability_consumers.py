@@ -608,12 +608,8 @@ def test_cumulative_keeps_anchor_and_overlap(
             during=mv.time_scope(start="2026-08-15", end="2026-10-01"),
             grain=mv.grain("month"),
         )
-        logical = (
-            session.members(ms.ref.entity("sales.facts"))
-            .each(grid)
-            .observe(
-                ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.facts"),)
-            )
+        logical = session.members(ms.ref.entity("sales.facts")).observe(
+            ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.facts"),)
         )
         fixed = logical.execute()
         source_trace.record(fixed)
@@ -712,10 +708,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         assert bound.cells[-1].end.strftime("%Y-%m-%d %H:%M:%S") == instants[3]
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
-            )
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -884,14 +877,13 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         session = mv.session.get_or_create("r93-certified-calendar", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         with pytest.raises(AnalysisError, match="conflicts"):
-            members.each(mv.time_grid(during=scope, grain=grain, timezone="UTC"))
-        fixed = (
-            members.each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+            members.observe(
+                ms.ref.metric("sales.total"),
+                during=mv.time_grid(during=scope, grain=grain, timezone="UTC"),
             )
-            .execute()
-        )
+        fixed = members.observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+        ).execute()
         assert len(fixed.to_pandas()) == 10
         source_trace.record(fixed)
         grouped = fixed.group_by(grid).rollup().execute()
@@ -968,10 +960,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         )
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
-            )
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -1074,13 +1063,9 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         members = session.members(ms.ref.entity("sales.facts"))
         reader_zone = members._node._live().graph.entity_schema.engine_timezone
-        fixed = (
-            members.each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
-            )
-            .execute()
-        )
+        fixed = members.observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+        ).execute()
         frame = fixed.to_pandas()
         assert len(frame) == 10 and set(frame.cell_tag) == {"defined"}
         source_trace.record(fixed)
@@ -1143,8 +1128,8 @@ def test_sqlite_native_time_requires_explicit_reader_authority(
         with pytest.raises(
             DatasetConstructionError, match="declared or driver-reported read timezone"
         ):
-            members.each(grid).observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+            members.observe(
+                ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
             )
         assert session.runs().items == ()
         assert session._runtime.last_run_ref is None
@@ -1207,10 +1192,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
-            )
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -1284,12 +1266,8 @@ def test_native_wall_gap_or_fold_rejects_before_publication(
             end=datetime.fromisoformat(end).replace(tzinfo=zone),
         )
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
-        logical = (
-            session.members(ms.ref.entity("sales.facts"))
-            .each(grid)
-            .observe(
-                ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
-            )
+        logical = session.members(ms.ref.entity("sales.facts")).observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
         )
         with pytest.raises(MaterializationError) as failure:
             logical.execute()

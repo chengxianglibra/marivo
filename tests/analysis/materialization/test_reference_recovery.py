@@ -52,8 +52,8 @@ def test_native_reference_independent_fixed_and_cold(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"), grain=mv.grain("day")
         )
-        opportunities = members.each(grid).observe(
-            ms.ref.metric("sales.total"), during=grid.window, by=(ms.ref.entity("sales.facts"),)
+        opportunities = members.observe(
+            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
         )
         assert isinstance(opportunities, mv.LogicalNumericRelation)
         selected = bucket.where(bucket.value.eq("a")).members()

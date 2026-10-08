@@ -123,9 +123,9 @@ def test_public_source_fixed_forecast(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    history = members.each(grid).observe(
+    history = members.observe(
         ms.ref.metric("sales.order_count"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
         by=(ms.ref.entity("sales.customer"),),
     )
@@ -240,17 +240,15 @@ def test_lag_counts_ties_and_approved_future(
         else mv.grain("day"),
     )
     a = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.total_0"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        members.observe(
+            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         .group_by(grid)
         .rollup()
     )
     b = (
-        members.each(grid)
-        .observe(
-            ms.ref.metric("sales.total_5"), during=grid.window, by=(ms.ref.entity("sales.order"),)
+        members.observe(
+            ms.ref.metric("sales.total_5"), during=grid, by=(ms.ref.entity("sales.order"),)
         )
         .group_by(grid)
         .rollup()
@@ -277,10 +275,9 @@ def test_lag_counts_ties_and_approved_future(
         else mv.grain("day"),
     )
     history = (
-        members.each(history_grid)
-        .observe(
+        members.observe(
             ms.ref.metric("sales.total_5"),
-            during=history_grid.window,
+            during=history_grid,
             by=(ms.ref.entity("sales.order"),),
         )
         .group_by(history_grid)
@@ -353,9 +350,9 @@ def test_forecast_prediction_is_a_complete_numeric_receiver(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    history = members.each(grid).observe(
+    history = members.observe(
         ms.ref.metric("sales.order_count"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
         by=(ms.ref.entity("sales.customer"),),
     )

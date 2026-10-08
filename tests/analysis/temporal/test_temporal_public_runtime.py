@@ -76,10 +76,7 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     )
     logical = (
         session.members(ms.ref.entity("sales.events"))
-        .each(grid)
-        .observe(
-            ms.ref.metric("sales.revenue"), during=grid.window, by=(ms.ref.entity("sales.events"),)
-        )
+        .observe(ms.ref.metric("sales.revenue"), during=grid, by=(ms.ref.entity("sales.events"),))
         .group_by(grid)
         .rollup()
     )

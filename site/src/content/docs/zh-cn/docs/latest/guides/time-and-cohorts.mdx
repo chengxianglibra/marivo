@@ -22,10 +22,9 @@ grid = mv.time_grid(
 )
 monthly = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(ms.ref.entity("sales.customer"),),
     )
@@ -34,10 +33,7 @@ fixed = monthly.execute()
 totals = fixed.group_by(grid).rollup().execute()
 ```
 
-`each(grid)`保留完整成员与时间乘积，包括空 cell。`grid.window`选择各自贡献区间。
-固定 TimeScope 会在每个 cell 上重复同一区间，不能跨时间求和。
-粗化要求完整原始 cell 能放入目标桶，跨月周会拒绝。
-默认网格时区绑定到消费该网格的 Session。
+`during=grid` 绑定完整时间轴并按各桶的窗口计算，包括空 cell。固定 TimeScope 只选择一个观测窗口。属性读取和累计观测直接通过 `at` 接收网格端点，无需单独构造时间域。粗化仍要求完整原始 cell 落在目标桶内，跨月的周拒绝粗化；网格默认时区由消费它的 Session 绑定。
 
 省略 `by` 时，每个月直接得到一个总体指标。逐成员逐月观测使用 `by=(member_entity,)`；`by` 只选择空间粒度，时间粒度由 `grid` 决定。
 
@@ -46,10 +42,9 @@ totals = fixed.group_by(grid).rollup().execute()
 ```python
 monthly_total = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.revenue"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
     )
 )
@@ -83,13 +78,12 @@ accounts = session.members(
     ms.ref.entity("sales.account"),
     at=datetime(2026, 8, 1, tzinfo=timezone.utc),
 )
-balances = accounts.each(grid).read(
+balances = accounts.read(
     ms.ref.measure("sales.account.balance"),
     at=grid.before_end,
 )
 running = (
     session.members(ms.ref.entity("sales.customer"))
-    .each(grid)
     .observe(
         ms.ref.metric("sales.running_revenue"),
         at=grid.end,
@@ -103,6 +97,7 @@ running = (
 Snapshot 选择是精确选择，不隐式采用最新值或每个 Entity 的最后已知值。
 Validity 区间遵守自身端点语义。`grid.before_end`表示紧邻端点的左极限，
 `grid.end`表示确切端点。
+未版本化属性通过网格端点读取时，在每个成员与时间 cell 中保留其稳定值。
 
 ## 声明来源时间解析
 
@@ -198,7 +193,6 @@ fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal
 grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
 dataset = (
     session.members(ms.ref.entity("sales.events"))
-    .each(grid)
     .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
     .group_by(grid)
     .rollup()
@@ -245,9 +239,9 @@ grid = mv.time_grid(
     during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
     grain=mv.grain("month"),
 )
-activity = members.each(grid).observe(
+activity = members.observe(
     ms.ref.metric("sales.order_count"),
-    during=grid.window,
+    during=grid,
     via=ms.ref.relationship("sales.order_buyer"),
     by=(ms.ref.entity("sales.customer"),),
 )
@@ -272,16 +266,16 @@ complete = mv.time_scope(
     start=datetime(2026, 8, 1, tzinfo=timezone.utc),
     end=datetime(2026, 8, 3, tzinfo=timezone.utc),
 )
-daily = members.each(grid).observe(
+daily = members.observe(
     sum_metric,
-    during=grid.window,
+    during=grid,
     complete_during=(complete,),
     by=(ms.ref.entity("sales.customer"),),
 )
 ```
 
 声明完整范围之外的 cell 是 Unknown，并保留部分状态。此形态要求
-`during=grid.window`、无额外贡献坐标且无 `at`；不能对该覆盖观察做原始 rollup。
+`during=grid`、无额外贡献坐标且无 `at`；不能对该覆盖观察做原始 rollup。
 没有数据不证明覆盖完整。Count 零、状态不存在与覆盖不完整保持区分。
 
 ## 检查当前行与完整分组
@@ -343,11 +337,11 @@ window = mv.time_scope(start="2026-07-01", end="2026-07-03")
 orders = session.members(ms.ref.entity("sales.orders"))
 hours = mv.time_grid(during=window, grain=mv.grain("hour"))
 orders_by_hour = (
-    orders.each(hours).observe(ms.ref.metric("sales.revenue"), during=hours.window).execute()
+    orders.observe(ms.ref.metric("sales.revenue"), during=hours).execute()
 )
 # A new daily observation uses the same business window.
 days = mv.time_grid(during=window, grain=mv.grain("day"))
-orders.each(days).observe(ms.ref.metric("sales.revenue"), during=days.window).execute().show()
+orders.observe(ms.ref.metric("sales.revenue"), during=days).execute().show()
 ```
 
 均值示例另需 `sales.orders`、`sales.mean_amount`与 channel；小时示例需要该 orders

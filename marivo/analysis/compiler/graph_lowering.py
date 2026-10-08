@@ -3140,9 +3140,8 @@ def _observe(
             spatial = targets.select(
                 *(f"key_{i}" for i, c in enumerate(output_coordinates) if c.role != "anchor")
             ).distinct()
-            targets = reduce(
-                lambda left, right: left.union(right, distinct=False),
-                (
+            targets = _union_all(
+                tuple(
                     spatial.select(
                         **{
                             f"key_{i}": ibis.literal(cell.identity)
@@ -3157,9 +3156,8 @@ def _observe(
     elif output_coordinates:
         if grid is not None and all(c.role == "anchor" for c in output_coordinates):
             seed = mapping.aggregate(__members=mapping.count())
-            targets = reduce(
-                lambda left, right: left.union(right, distinct=False),
-                (seed.select(key_0=ibis.literal(cell.identity)) for cell in grid.cells),
+            targets = _union_all(
+                tuple(seed.select(key_0=ibis.literal(cell.identity)) for cell in grid.cells),
             )
         else:
             targets = mapping.select(**target_fields)
@@ -4533,6 +4531,18 @@ def _reduction_subjects(table: ir.Table, signature: Signature) -> ir.Table:
     return table.mutate(**fields) if fields else table
 
 
+def _union_all(branches: tuple[ir.Table, ...]) -> ir.Table:
+    """Balance finite grid unions so SQL generation does not nest once per cell."""
+    while len(branches) > 1:
+        branches = tuple(
+            branches[i].union(branches[i + 1], distinct=False)
+            if i + 1 < len(branches)
+            else branches[i]
+            for i in range(0, len(branches), 2)
+        )
+    return branches[0]
+
+
 def _time_product(
     stage: SourceMethodStage, source: LoweredRelation
 ) -> tuple[ir.Table, RelationLayout]:
@@ -4545,9 +4555,7 @@ def _time_product(
     # Literal finite coordinates stay in the admitted Ibis expression; no source
     # rows are collected by construction or a second executor.
     branches = tuple(table.mutate(**{key: ibis.literal(cell.identity)}) for cell in grid.cells)
-    expanded = (
-        branches[0].union(*branches[1:], distinct=False) if len(branches) > 1 else branches[0]
-    )
+    expanded = _union_all(branches)
     layout = canonical_layout(stage.node.signature, has_value=False)
     return expanded.select(*layout.columns), layout
 

@@ -94,8 +94,12 @@ An explicit boundary/deadline conversion keeps its method-owned ambiguity checks
 Analysis retains the three authorities independently: persisted Session report timezone,
 resolved source/parser timezone, and certified calendar boundary timezone.
 Membership version anchor, attribute read anchor, Metric contribution scope and
-output grid are four distinct bindings. None supplies an omitted value for the
-others except the explicit member group_by property shorthand owned by Analysis.
+output grid are four distinct bindings. A TimeGrid passed to observe(during=grid)
+explicitly binds its output axis and per-cell contribution windows. A
+GridEndpoint passed to read/observe(at=...)
+explicitly binds its output axis and endpoint interpretation. Neither changes
+member version selection or supplies an omitted attribute version. The explicit
+member group_by property shorthand retains its Analysis-owned contract.
 
 `mv.time_grid(*, during: TimeScope, grain: Grain, timezone: str | None = None)
 -> TimeGrid` constructs a finite coordinate domain. With no explicit timezone,
@@ -109,19 +113,23 @@ An explicit calendar timezone must agree with the snapshot or reject.
 by version selection such as `members(..., at=scope.before_end)`. It is not a
 `date`/`datetime` and is not accepted by `time_scope(end=...)`; use `scope.end`
 when constructing another half-open window. Likewise, `grid.before_end` is an
-`at=` selector on the matching product, while `grid.window` selects its interval.
+`at=` selector that binds every grid cell and reads the state immediately before
+its end; `grid.end` reads the exact boundary instant instead.
 
-TimeGrid exposes `window -> GridWindow`, `start/end -> GridEndpoint`, and
-`before_end -> GridEndpoint` with a closed before-end interpretation. Grid
-handles are bound to the exact grid identity and usable only on its product
-receiver. Fixed `during=TimeScope` remains one fixed window, even on each(grid);
-`during=grid.window` alone selects the row window. Ordinary datetime endpoints
+TimeGrid exposes `start/end -> GridEndpoint` and `before_end -> GridEndpoint`
+with a closed before-end interpretation. Observe accepts `during=TimeGrid` and
+selects each cell's own half-open window. Read and cumulative observe accept
+`at=GridEndpoint` and bind its grid directly. During and at are alternatives;
+classification cannot implicitly introduce a grid. Unversioned attributes retain
+their stable value in every endpoint cell, while ordinary scalar instants remain
+restricted to versioned attributes. Fixed `during=TimeScope` remains one
+observation window without an independent output grid. Ordinary datetime endpoints
 must be timezone-aware instants; naive source timestamps use the separate
 resolved source authority. Existing date/string TimeScope construction retains
 its governed normalization and civil-date semantics.
-For DATE sources, fixed windows retain their own boundary timezone even on a
-product whose grid uses another timezone; cumulative windows retain their reset
-authority. Only row windows use the grid's boundary timezone.
+For DATE sources, fixed windows retain their own boundary timezone; cumulative
+windows retain their reset authority. Grid row windows use the grid's boundary
+timezone. The source, report and boundary authorities remain distinct.
 
 Each grid row retains stable identity, original and clipped half-open boundaries,
 partial-cell status, physical time precision, timezone authorities and any
@@ -152,10 +160,13 @@ not automatically the peak of the spatial total.
 
 ## Temporal execution and retained folds
 
-The public product is `members.each(grid)`. Use `during=grid.window` for
-partitioned contributions, `read(field, at=grid.start/end/before_end)` for an
-independent attribute version, and `observe(cumulative, at=grid.end)` for an
-endpoint accumulation. A fixed TimeScope never supplies an omitted endpoint.
+The public entries are `members.observe(metric, during=grid)` for partitioned
+contributions, `members.read(field, at=grid.start/end/before_end)` for an
+independent attribute version, and `members.observe(cumulative, at=grid.end)`
+for endpoint accumulation. The member/time product is an internal graph node,
+not a separately constructible public result. Domain recovery uses the existing
+AnalysisDomain family; no standalone temporal-domain types or compatibility
+aliases remain. A fixed TimeScope never supplies an omitted endpoint.
 The cumulative anchor is retained per component occurrence, including the two
 components of a ratio of cumulative aggregates. Different overlapping cumulative
 windows cannot be rolled up by removing time.

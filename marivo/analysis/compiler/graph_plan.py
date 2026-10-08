@@ -251,17 +251,39 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
         == 1
     )
     timed_shapes = shapes - {FixedShape(NoTime())}
-    # A saved category can carry grid coordinates without reading timestamps.
-    # Display and classification pair complete keys without reading timestamps.
+    timed_grid = next(
+        (
+            leaf.signature.domain.time_grid
+            for leaf in classification.artifacts
+            if leaf.shape in timed_shapes
+        ),
+        None,
+    )
+    # Saved classifications pair full grid keys or retained Subject keys without
+    # reading timestamps; display still requires complete grid keys.
     fixed_keyed = (
         classification.kind == "artifact"
         and len(shapes) == 2
         and FixedShape(NoTime()) in shapes
         and len(timed_shapes) == 1
+        and timed_grid is not None
         and all(
-            leaf.signature.domain.time_grid is not None
-            and leaf.signature.domain.time_grid
-            == classification.artifacts[0].signature.domain.time_grid
+            (
+                leaf.signature.domain.time_grid == timed_grid
+                or (
+                    leaf.shape == FixedShape(NoTime())
+                    and leaf.signature.domain.time_grid is None
+                    and all(
+                        isinstance(node.parameters, AttachCategory)
+                        and node.parameters.subject_mapping
+                        and node.inputs[1].node is leaf
+                        and node.inputs[0].node.signature.domain.time_grid == timed_grid
+                        for node in nodes
+                        if isinstance(node, MethodNode)
+                        and any(edge.node is leaf for edge in node.inputs)
+                    )
+                )
+            )
             and (
                 leaf.shape != FixedShape(NoTime())
                 or (

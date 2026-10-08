@@ -234,7 +234,10 @@ class MemberGraph:
             if (contracts or inherit_member_version) and item.ref.path == start
             else selection(
                 item,
-                at if item.version is not None or item.ref.path == owner else None,
+                at
+                if item.version is not None
+                or (item.ref.path == owner and not isinstance(at, GridPoint))
+                else None,
                 report_timezone,
             )
             for item in normalized

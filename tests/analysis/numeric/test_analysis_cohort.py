@@ -1,5 +1,7 @@
 """Full opportunity cohort decisions with independent counts."""
 
+from typing import Literal
+
 import pytest
 
 import marivo.analysis as mv
@@ -24,12 +26,21 @@ from tests.support.paths import PROJECT_ROOT
         ("all", 1, 2, 0, 0, True),
     ],
 )
-def test_quantifier_decisions(rule, k, t, u, f, expected) -> None:
+def test_quantifier_decisions(
+    rule: Literal["any", "at_least", "all"],
+    k: int,
+    t: int,
+    u: int,
+    f: int,
+    expected: bool | None,
+) -> None:
     assert decide(rule, k, "false", t, u, f) is expected
 
 
 @pytest.mark.parametrize("empty,expected", [("true", True), ("false", False), ("undefined", None)])
-def test_explicit_empty_policy(empty, expected) -> None:
+def test_explicit_empty_policy(
+    empty: Literal["true", "false", "undefined"], expected: bool | None
+) -> None:
     assert decide("all", 1, empty, 0, 0, 0) is expected
     assert decide("any", 1, empty, 0, 0, 0) is False
     assert decide("at_least", 3, empty, 0, 0, 0) is False
@@ -68,12 +79,13 @@ def test_full_entity_time_cohort(
         grain=mv.grain("month"),
         timezone="America/New_York" if event_kind == "aware_local" else "UTC",
     )
-    values = targets.each(grid).observe(
+    values = targets.observe(
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
+    assert isinstance(values, mv.LogicalNumericRelation)
     facts = analysis_dsl_rows("j2")
     months: dict[str, set[str]] = {}
     for _, member, _, _, occurred, _ in facts.orders:
@@ -97,6 +109,99 @@ def test_full_entity_time_cohort(
             values.where(values.value.gt(0)).value.gt(0), rule=mv.any_instance()
         ).execute()
     assert incomplete.value.expected == "complete_coverage"
+    assert incomplete.value.stage == "graph_check"
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("parquet", [False, True], ids=["table", "parquet"])
+def test_previous_week_mean_selects_users_for_current_week_spending(
+    analysis_dsl_case_factory: DslCaseFactory,
+    parquet: bool,
+) -> None:
+    import duckdb
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as database:
+        database.execute(
+            "CREATE TABLE usage_sessions (id BIGINT, customer_id VARCHAR, happened TIMESTAMP, hours BIGINT)"
+        )
+        database.execute(
+            "INSERT INTO usage_sessions VALUES "
+            "(1, 'A', '2026-08-03', 8), (2, 'A', '2026-08-04', 14), "
+            "(3, 'B', '2026-08-03', 9), (4, 'B', '2026-08-04', 11), "
+            "(5, 'C', '2026-08-03', 12), (6, 'C', '2026-08-04', 12), "
+            "(7, 'D', '2026-08-03', 1), (8, 'B', '2026-08-10', 1000)"
+        )
+        database.execute(
+            "CREATE TABLE purchases (id BIGINT, customer_id VARCHAR, happened TIMESTAMP, amount BIGINT)"
+        )
+        database.execute(
+            "INSERT INTO purchases VALUES "
+            "(1, 'A', '2026-08-10', 100), (2, 'B', '2026-08-10', 200), "
+            "(3, 'C', '2026-08-10', 300), (4, 'D', '2026-08-10', 400), "
+            "(5, 'A', '2026-08-03', 900)"
+        )
+    model = case.root / "models" / "semantic" / "sales" / "models.py"
+    model.write_text(
+        model.read_text()
+        + "\nusage_sessions = ms.entity(name='usage_sessions', datasource=warehouse, source=md.table('usage_sessions'), primary_key=['id'])\n"
+        "usage_user = ms.dimension_column(name='customer_id', entity=usage_sessions, column='customer_id')\n"
+        "usage_time = ms.time_dimension_column(name='happened', entity=usage_sessions, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))\n"
+        "usage_hours = ms.measure_column(name='hours', entity=usage_sessions, column='hours', additivity=ms.additive_all(), unit='hour')\n"
+        "avg_usage_hours = ms.aggregate(name='avg_usage_hours', measure=usage_hours, agg='mean', time=usage_time)\n"
+        "usage_to_user = ms.relationship(name='usage_to_user', from_entity=usage_sessions, to_entity=customer, keys=[ms.join_on(usage_user, customer_id)])\n"
+        "purchases = ms.entity(name='purchases', datasource=warehouse, source=md.table('purchases'), primary_key=['id'])\n"
+        "purchase_user = ms.dimension_column(name='customer_id', entity=purchases, column='customer_id')\n"
+        "purchase_time = ms.time_dimension_column(name='happened', entity=purchases, column='happened', granularity='day', parse=ms.timestamp(timezone='UTC'))\n"
+        "purchase_amount = ms.measure_column(name='amount', entity=purchases, column='amount', additivity=ms.additive_all(), unit='CNY')\n"
+        "spending_amount = ms.aggregate(name='spending_amount', measure=purchase_amount, agg='sum', time=purchase_time)\n"
+        "purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchases, to_entity=customer, keys=[ms.join_on(purchase_user, customer_id)])\n"
+    )
+    if parquet:
+        export_dsl_parquet_models(case, case.root)
+        with duckdb.connect(str(case.database_path)) as database:
+            for name in ("usage_sessions", "purchases"):
+                target = case.root / "source_files" / f"{name}.parquet"
+                database.sql(f"SELECT * FROM {name}").write_parquet(str(target))
+                model.write_text(
+                    model.read_text().replace(f"md.table({name!r})", f"md.parquet({str(target)!r})")
+                )
+    ms.load(workspace_dir=case.root)
+    user = ms.ref.entity("sales.customer")
+    users = case.session.members(user)
+    usage = users.observe(
+        ms.ref.metric("sales.avg_usage_hours"),
+        during=mv.time_scope(start="2026-08-03", end="2026-08-10"),
+        via=ms.ref.relationship("sales.usage_to_user"),
+        by=(user,),
+    )
+    assert isinstance(usage, mv.LogicalNumericRelation)
+    eligible = usage.where(usage.value.gt(10)).members()
+    assert isinstance(eligible, mv.LogicalAnalysisDomain)
+    current_week = mv.time_scope(start="2026-08-10", end="2026-08-17")
+    spending = eligible.observe(
+        ms.ref.metric("sales.spending_amount"),
+        during=current_week,
+        via=ms.ref.relationship("sales.purchase_to_user"),
+        by=(user,),
+    )
+    assert case.session.runs().items == ()
+    frame = spending.execute().to_pandas()
+    assert frame.set_index("member")["value"].to_dict() == {"A": 100, "C": 300}
+    weekly = mv.time_grid(during=current_week, grain=mv.grain("day"))
+    daily = (
+        eligible.observe(
+            ms.ref.metric("sales.spending_amount"),
+            during=weekly,
+            via=ms.ref.relationship("sales.purchase_to_user"),
+            by=(user,),
+        )
+        .execute()
+        .to_pandas()
+    )
+    assert len(daily) == 14
+    assert set(daily.member) == {"A", "C"}
+    assert daily.value.sum() == 400
 
 
 @pytest.mark.runtime
@@ -111,9 +216,9 @@ def test_cold_full_opportunity_continuation(analysis_dsl_case_factory: DslCaseFa
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    values = targets.each(grid).observe(
+    values = targets.observe(
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
     )
@@ -170,14 +275,20 @@ def test_existing_unknown_consumption_and_decision_evidence(
 
     import ibis
     import pyarrow as pa
+    from ibis.expr import types as ir
 
     from marivo.analysis.compiler.graph_lowering import (
+        IntegrityCheck,
+        LoweredCheck,
         LoweredLocal,
         LoweredRelation,
+        SemanticCheck,
+        TemporalCheck,
         _transport,
         canonical_layout,
     )
     from marivo.analysis.compiler.graph_plan import LocalMethodStage, SourceMethodStage
+    from marivo.analysis.core.graph import MethodNode
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
     from marivo.analysis.materialization.graph_local_execution import _cohort_stage
     from marivo.analysis.methods.builtin import implementations
@@ -188,18 +299,26 @@ def test_existing_unknown_consumption_and_decision_evidence(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-06-01", end="2026-10-01"), grain=mv.grain("month")
     )
-    values = targets.each(grid).observe(
+    values = targets.observe(
         ms.ref.metric("sales.order_count"),
-        during=grid.window,
+        during=grid,
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
         by=(ms.ref.entity("sales.customer"),),
     )
     saved_targets, saved_values = targets.execute(), values.execute()
+    assert isinstance(values, mv.LogicalNumericRelation)
+    assert isinstance(saved_values, mv.MaterializedNumericRelation)
+    assert saved_targets._dataset is not None
+    assert saved_values._dataset is not None
     target = saved_targets._dataset.verified()
     supplied = saved_values._dataset.verified()
     controlled_schema = logical_table(supplied.primary).schema
     local_node = saved_targets.cohort(saved_values.value.gt(0), rule=mv.at_least(3))._node.root
     source_node = targets.cohort(values.value.gt(0), rule=mv.at_least(3))._node.root
+    assert isinstance(local_node, MethodNode)
+    assert isinstance(source_node, MethodNode)
+    bound_grid = values._node.root.signature.domain.time_grid
+    assert bound_grid is not None
     local_impl = next(
         item
         for item in implementations(MethodKey("domain.cohort"))
@@ -232,9 +351,9 @@ def test_existing_unknown_consumption_and_decision_evidence(
         ):
             rows = cell_rows(supplied.primary)
             for row in rows:
-                index = [
-                    item.identity for item in values._node.root.signature.domain.time_grid.cells
-                ].index(row["key_1"])
+                identity = row["key_1"]
+                assert isinstance(identity, str)
+                index = [item.identity for item in bound_grid.cells].index(identity)
                 row.update(
                     value=payloads[index],
                     cell_tag=tags[index],
@@ -249,12 +368,15 @@ def test_existing_unknown_consumption_and_decision_evidence(
                 canonical_layout(values._node.root.signature, has_value=True),
                 (),
             )
-            checks = []
-            retained = []
+            checks: list[LoweredCheck] = []
+            retained: list[tuple[str, ir.Table]] = []
             expression, _ = _transport(
                 source_stage, source_target, checks, (source_input,), retained
             )
-            violations = [len(backend.to_pyarrow(check.violations)) for check in checks]
+            violations = []
+            for check in checks:
+                assert isinstance(check, (IntegrityCheck, SemanticCheck, TemporalCheck))
+                violations.append(len(backend.to_pyarrow(check.violations)))
             if expected is None:
                 assert any(violations)
                 with pytest.raises(Exception, match=r"undecidable|Cell tag undefined"):
@@ -321,6 +443,8 @@ def test_existing_unknown_consumption_and_decision_evidence(
                 fixed_node = saved_targets.cohort(
                     fixed_predicate, rule=mv.any_instance()
                 )._node.root
+                assert isinstance(source_node, MethodNode)
+                assert isinstance(fixed_node, MethodNode)
                 checks = []
                 expression, _ = _transport(
                     replace(source_stage, node=source_node),
@@ -329,7 +453,10 @@ def test_existing_unknown_consumption_and_decision_evidence(
                     (first, second),
                     [],
                 )
-                violations = [len(backend.to_pyarrow(check.violations)) for check in checks]
+                violations = []
+                for check in checks:
+                    assert isinstance(check, (IntegrityCheck, SemanticCheck, TemporalCheck))
+                    violations.append(len(backend.to_pyarrow(check.violations)))
                 if tag == "undefined":
                     assert any(violations)
                     with pytest.raises(Exception, match="Cell tag undefined"):
@@ -363,6 +490,7 @@ def test_no_time_quantifiers_and_complete_target_decisions(
     case = analysis_dsl_case_factory("j2")
     targets = case.session.members(ms.ref.entity("sales.customer"))
     category = targets.read(ms.ref.dimension("sales.customer.region"))
+    assert isinstance(category, mv.LogicalCategoryRelation)
     expected = {member for member, region in analysis_dsl_rows("j2").customers if region == "east"}
     for target, values in ((targets, category), (targets.execute(), category.execute())):
         for rule in (
@@ -372,6 +500,7 @@ def test_no_time_quantifiers_and_complete_target_decisions(
         ):
             result = target.cohort(mv.not_(mv.not_(values.value.eq("east"))), rule=rule).execute()
             assert set(result.to_pandas().member) == expected
+            assert result._dataset is not None
             decisions = next(
                 part.table
                 for part in result._dataset.verified().parts
@@ -396,7 +525,9 @@ def test_cohort_required_decision_damage_revokes_recovery(
     case = analysis_dsl_case_factory("j2")
     targets = case.session.members(ms.ref.entity("sales.customer"))
     category = targets.read(ms.ref.dimension("sales.customer.region"))
+    assert isinstance(category, mv.LogicalCategoryRelation)
     saved = targets.cohort(category.value.eq("east"), rule=mv.any_instance()).execute()
+    assert saved._dataset is not None
     descriptor = saved._dataset.artifact.descriptor
     part = next(part for part in descriptor.parts if part.role == "cohort_decision")
     path = case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
