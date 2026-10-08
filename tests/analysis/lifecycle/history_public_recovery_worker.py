@@ -17,7 +17,11 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization import graph_local_execution, history_execution
+from marivo.analysis.materialization import (
+    graph_local_execution,
+    graph_publication,
+    history_execution,
+)
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -361,6 +365,7 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
             "execute_verified_fixed",
             wraps=graph_local_execution.execute_verified_fixed,
         ) as kernels,
+        patch.object(graph_publication, "execute_verified_fixed", kernels),
     ):
         session = mv.session.resume(identity, by="id")
         before = run_ids(session)
@@ -409,7 +414,10 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
         for name, logical in operations.items():
             prior_runs, prior_kernels = run_ids(session), kernels.call_count
             if phase == "cold":
-                with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
+                with (
+                    patch.object(graph_local_execution, "execute_verified_fixed", forbidden),
+                    patch.object(graph_publication, "execute_verified_fixed", forbidden),
+                ):
                     result = logical.execute()
             else:
                 result = logical.execute()
@@ -430,7 +438,10 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
                 assert_complete_view(result, name.split(":")[1])
             saved = snapshot(result)
             prior = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
+            with (
+                patch.object(graph_local_execution, "execute_verified_fixed", forbidden),
+                patch.object(graph_publication, "execute_verified_fixed", forbidden),
+            ):
                 assert snapshot(logical.execute()) == saved
             assert run_ids(session) == prior
             outputs[name] = saved
