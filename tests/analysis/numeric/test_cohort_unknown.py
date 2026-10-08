@@ -29,7 +29,7 @@ def test_public_history_unknown_cohort_policy(
         mv.LogicalAnalysisDomain,
         TimeScope,
         tuple[mv.SourceOriginCompletenessDeclarationV1, ...],
-        list[tuple[int, str, int, int]],
+        list[tuple[int, str, int | float, int]],
     ] = build_lifecycle_public(
         tmp_path, backend_name="sqlite", rows=[(0, "started", 0, 1), (0, "finished", 5, 2)]
     )

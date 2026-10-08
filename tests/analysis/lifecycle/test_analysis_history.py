@@ -269,6 +269,72 @@ def test_history_predicate_pairing_checks_actual_local_keys(
 
 
 @pytest.mark.runtime
+def test_history_missing_originating_proof_rejects_before_view_consumption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ibis.expr import operations as ops
+
+    from marivo.analysis.compiler.graph_lowering import (
+        IntegrityCheck,
+        LoweredPlan,
+        SemanticCheck,
+        TemporalCheck,
+    )
+    from marivo.analysis.core.graph import MethodNode
+    from marivo.analysis.core.history_types import Distribution
+    from marivo.analysis.core.rules import HistoryView
+    from marivo.analysis.materialization import graph_source_execution, history_views
+    from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
+    from marivo.datasource.adapters import SourceSession
+
+    session, members, window, claims, _ = build_lifecycle_public(tmp_path, form="parquet")
+    history = replay(session, members, window, claims)
+    distribution = history.distribution(
+        at=(START, END), axes=(ref.dimension("commerce.subjects.sid"),)
+    )
+    origin = distribution._node.root.inputs[1].node.identity
+    original_check, original_view = graph_source_execution._check, history_views.execute
+    dropped = consumed = False
+
+    def lose_proof(
+        source: SourceSession,
+        lowered: LoweredPlan,
+        requirement: IntegrityCheck | SemanticCheck | TemporalCheck,
+        replacements: dict[ops.Node, ops.Node],
+    ) -> CompletedCheck | None:
+        nonlocal dropped
+        proof = original_check(source, lowered, requirement, replacements)
+        if (
+            not dropped
+            and isinstance(requirement, SemanticCheck)
+            and requirement.requirement.node_id == origin
+        ):
+            assert proof is not None
+            dropped = True
+            return None
+        return proof
+
+    def consume(
+        node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str
+    ) -> ExchangeResult:
+        nonlocal consumed
+        if isinstance(node.parameters, HistoryView) and isinstance(
+            node.parameters.request, Distribution
+        ):
+            consumed = True
+        return original_view(node, inputs, binding)
+
+    monkeypatch.setattr(graph_source_execution, "_check", lose_proof)
+    monkeypatch.setattr(history_views, "execute", consume)
+    with pytest.raises(AnalysisError, match="local consumer lacks its completed originating check"):
+        distribution.execute()
+    assert dropped and not consumed
+    with session._runtime.store._read() as connection:
+        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
+    assert session._runtime.store.resources(session.id) == ()
+
+
+@pytest.mark.runtime
 @pytest.mark.parametrize(
     "fault",
     [

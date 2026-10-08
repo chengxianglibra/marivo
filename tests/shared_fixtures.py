@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -15,10 +16,15 @@ import duckdb
 import ibis
 
 if TYPE_CHECKING:
+    from marivo._help.render import PublicHelpTarget
     from marivo.analysis.core.graph import MethodNode
     from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.session.core import Session
+    from marivo.refs import EntityKind, MeasureKind, Ref
+    from marivo.semantic._dsl_authoring import AdditivityPolicy
     from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.ir import DimensionIR, MetricIR
+    from marivo.semantic.loader import LoadResult
 
 # ---------------------------------------------------------------------------
 # Named DuckDB templates (versioned, cached in /tmp)
@@ -359,7 +365,7 @@ def seed_analysis_dsl_database(
         conn.close()
 
 
-def rendered_help(target: object | None = None, *, owner: str | None = None) -> str:
+def rendered_help(target: PublicHelpTarget = None, *, owner: str | None = None) -> str:
     """Return private unified-help text for behavioral assertions.
 
     ``owner`` qualifies native string targets and selects a native root page.
@@ -586,7 +592,9 @@ def connect_sales_orders() -> ibis.duckdb.DuckDBBackend:
     return con
 
 
-def sales_backends(con: ibis.duckdb.DuckDBBackend) -> dict:
+def sales_backends(
+    con: ibis.duckdb.DuckDBBackend,
+) -> dict[str, Callable[[], ibis.duckdb.DuckDBBackend]]:
     """Standard backends dict wrapping a DuckDB connection as 'warehouse'."""
     return {"warehouse": lambda: con}
 
@@ -677,8 +685,18 @@ def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = T
 # ---------------------------------------------------------------------------
 
 
+class _AuthoringSession(Protocol):
+    def measure(
+        self, *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
+    ) -> Ref[MeasureKind]: ...
+
+    def pending_metric(self, semantic_id: str) -> MetricIR: ...
+
+    def pending_dimension(self, semantic_id: str) -> DimensionIR: ...
+
+
 @contextmanager
-def authoring_session(*, domain: str):
+def authoring_session(*, domain: str) -> Iterator[_AuthoringSession]:
     """Context manager that enters a LoaderContext with a default domain.
 
     Exposes helpers for declaring measure dimensions and inspecting pending
@@ -694,17 +712,16 @@ def authoring_session(*, domain: str):
 
         class _Session:
             @staticmethod
-            def measure(*, entity: str, name: str, additivity: Any = None) -> Any:
+            def measure(
+                *, entity: Ref[EntityKind], name: str, additivity: AdditivityPolicy | None = None
+            ) -> Ref[MeasureKind]:
                 """Declare a measure and return its exact measure ref."""
-                decorator = authoring.measure(
-                    entity=entity, name=name, additivity=additivity or "additive"
+                return authoring.measure_column(
+                    entity=entity,
+                    name=name,
+                    column=name,
+                    additivity=additivity if additivity is not None else authoring.additive_all(),
                 )
-
-                # Apply the decorator to a dummy function that returns an ibis-like expression.
-                def _dummy_body(table: Any) -> Any:
-                    return getattr(table, name)
-
-                return decorator(_dummy_body)
 
             @staticmethod
             def pending_metric(semantic_id: str) -> MetricIR:
@@ -718,7 +735,7 @@ def authoring_session(*, domain: str):
                 raise KeyError(f"no pending MetricIR with semantic_id={semantic_id!r}")
 
             @staticmethod
-            def pending_dimension(semantic_id: str) -> Any:
+            def pending_dimension(semantic_id: str) -> DimensionIR:
                 """Retrieve a pending DimensionIR by semantic_id."""
                 from marivo.semantic.ir import DimensionIR
 
@@ -746,7 +763,7 @@ def load_inline_semantic(
     *,
     domain: str = "test",
     expect_errors: bool = False,
-):
+) -> Iterator[LoadResult]:
     """Write an inline semantic source to a temp project and load it.
 
     Creates a minimal project with a single domain file containing *source*,
@@ -1069,7 +1086,7 @@ def graph_count_continuation(record: GraphArtifact) -> MethodNode:
     from marivo.analysis.refs import ArtifactRef
 
     leaf = FixedLeaf(
-        ArtifactRef(record.artifact_ref),
+        ArtifactRef(ref=record.artifact_ref),
         record.descriptor.definition_fingerprint,
         record.descriptor.signature,
         ScalarType("int64"),

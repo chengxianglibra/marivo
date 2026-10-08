@@ -21,10 +21,13 @@ this section supersedes their integrity requirements.
 History-dependent checks retain their originating ordered inputs and shared
 consumers. Checks over source expressions run during source preparation;
 checks over local History views consume the actual controlled inputs before
-their declared consume/publish deadline. A missing originating proof rejects
-the operation. Predicate transport checks complete input keys before selection,
-including interval and violation identities. Source candidates for a later
-observation are prepared before History selection consumes local rows.
+their declared consume/publish deadline. Inherited checks require a completed
+originating proof before the local consumer executes; a missing proof rejects
+without consuming the view or publishing an Artifact. Completing a local stage
+does not establish inherited checks. Predicate transport checks complete input
+keys before selection, including interval and violation identities. Source
+candidates for a later observation are prepared before History selection consumes
+local rows.
 Local numeric finishes that retain a source projection rebind that projection
 to their finished values. Downstream statistics check those actual values at
 the consume deadline; a local stage alone does not erase its source binding.
