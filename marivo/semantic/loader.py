@@ -23,6 +23,7 @@ from importlib import util as importlib_util
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from marivo._authoring.loading import _source_loading
 from marivo.config import AUTHORED_DIR
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -121,29 +122,28 @@ loader_context = LoaderContextManager
 
 
 def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
-    if isinstance(error, DatasourceDuplicateError):
-        refs = (error.received,) if error.received else ()
-        return SemanticLoadError(
-            kind=ErrorKind.DUPLICATE_NAME,
-            message=error.message,
-            refs=refs,
-            hint="Keep each datasource name unique under models/datasources/.",
-        )
-    if isinstance(error, DatasourceLoadError):
-        refs = (error.location,) if error.location else ()
-        return SemanticLoadError(
-            kind=ErrorKind.INVALID_PROJECT,
-            message=error.message,
-            refs=refs,
-            hint="Check models/datasources/*.py datasource declarations.",
-        )
     if isinstance(error, DatasourceError):
-        refs = (error.received,) if error.received else ()
+        if isinstance(error, DatasourceDuplicateError):
+            kind = ErrorKind.DUPLICATE_NAME
+            refs = (error.received,) if error.received else ()
+            hint = "Keep each datasource name unique under models/datasources/."
+        elif isinstance(error, DatasourceLoadError):
+            kind = ErrorKind.INVALID_PROJECT
+            refs = (error.location,) if error.location else ()
+            hint = "Check models/datasources/*.py datasource declarations."
+        else:
+            kind = ErrorKind.ORGANIZATION_ERROR
+            refs = (error.received,) if error.received else ()
+            hint = "Check models/datasources/*.py datasource declarations."
         return SemanticLoadError(
-            kind=ErrorKind.ORGANIZATION_ERROR,
+            kind=kind,
             message=error.message,
             refs=refs,
-            hint="Check models/datasources/*.py datasource declarations.",
+            hint=error.repair.action if error.repair is not None else hint,
+            expected=error.expected,
+            received=error.received,
+            location_label=error.location,
+            repair=error.repair,
         )
     return SemanticLoadError(
         kind=ErrorKind.ORGANIZATION_ERROR,
@@ -371,10 +371,13 @@ def _execute_file(
         module = importlib_util.module_from_spec(spec)
         module.__package__ = package_name
         sys.modules[module_name] = module
-        spec.loader.exec_module(module)
+        with _source_loading(filepath):
+            spec.loader.exec_module(module)
     except Exception as exc:
         if isinstance(exc, SemanticError):
             errors.append(exc)
+        elif isinstance(exc, DatasourceError):
+            errors.append(_wrap_datasource_error(exc))
         else:
             entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
             errors.append(

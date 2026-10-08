@@ -86,6 +86,15 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
     assert "datasource.inspect" in exc_info.value.candidates
 
 
+def test_register_help_discloses_the_declaration_repair(capsys: pytest.CaptureFixture[str]) -> None:
+    marivo.help("datasource.register")
+    output = capsys.readouterr().out
+    assert "datasource_register_outside_loader" in output
+    assert "execution outside model loading" in output
+    assert "datasource constructor directly" in output
+    assert "md.duckdb(name=" in output
+
+
 @pytest.fixture
 def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
     source = md.table("orders")

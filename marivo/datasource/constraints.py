@@ -28,6 +28,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_LOADER_CONTEXT = "datasource_loader_context"
     DATASOURCE_UNIQUE_NAME = "datasource_unique_name"
     DATASOURCE_FILE_LOADABLE = "datasource_file_loadable"
+    DATASOURCE_REGISTER_OUTSIDE_LOADER = "datasource_register_outside_loader"
     DATASOURCE_CONFIGURED = "datasource_configured"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
@@ -134,6 +135,16 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Datasource files must load as valid datasource declarations.",
         "Project datasource metadata is executable Python collected by the loader; syntax or runtime failures prevent deterministic datasource discovery.",
         "Open the failing models/datasources/ file, fix the reported error, then rerun md.load_datasources(...).",
+    ),
+    ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER: _constraint(
+        ConstraintId.DATASOURCE_REGISTER_OUTSIDE_LOADER,
+        "DatasourceLoad",
+        "assembly",
+        ("register",),
+        "md.register() requires execution outside model loading; declaration files call the datasource constructor directly.",
+        "Registering persists a file and reloads datasource declarations; model loading must not rewrite its source or recursively reload it.",
+        "Remove the md.register(...) wrapper from declaration files and call the datasource constructor directly. Use md.register() only in setup scripts outside model loading.",
+        example='md.duckdb(name="warehouse", path=":memory:")',
     ),
     ConstraintId.DATASOURCE_CONFIGURED: _constraint(
         ConstraintId.DATASOURCE_CONFIGURED,

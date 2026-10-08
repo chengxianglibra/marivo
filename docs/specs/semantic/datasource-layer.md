@@ -441,13 +441,23 @@ Discovery uses the same contract through
 
 ## Registration and state storage
 
+Declaration files call datasource constructors directly; the datasource loader
+automatically collects them. `md.register()` is a persistence operation for setup
+scripts executed outside datasource and semantic model loading:
+
 ```python
+# setup_datasources.py (run outside model loading)
 spec = md.duckdb(name="warehouse", path="/data/warehouse.duckdb")
 md.register(spec)  # writes models/datasources/warehouse.py
 md.test(spec.ref).show()  # validated live round trip
 ```
 - `md.register(spec, project_root=...)` persists a spec as a Python file under
   `models/datasources/`; authoring that file by hand is equally valid.
+- Calling `md.register()` during model loading, including synchronous imports
+  from a semantic file or registration into another project, raises
+  `DatasourceLoadError` before configuration reads, writes, or nested loading.
+  Remove the `md.register(...)` wrapper and keep the datasource constructor.
+  Semantic loading preserves this repair and reports `invalid_project`.
 - `md.remove(name)`, `md.list()`, and `md.describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
 - Storage is **layered / multi-root**: datasource files are discovered across

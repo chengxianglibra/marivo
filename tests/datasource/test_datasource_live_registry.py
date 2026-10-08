@@ -9,6 +9,7 @@ from marivo._authoring.model import AuthoringEffects
 from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
+from marivo.datasource.constraints import constraints_for_symbol
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.snapshot import DiscoverySnapshot
 
@@ -127,6 +128,19 @@ def test_registry_covers_every_datasource_callable_once() -> None:
     assert set(REGISTRY.callable_ids()) == PUBLIC_CALLABLE_TARGETS
     assert len(REGISTRY.callable_ids()) == len(set(REGISTRY.callable_ids()))
     assert set(EXPECTED_EFFECTS) == set(REGISTRY.callable_ids())
+
+
+def test_register_discloses_its_model_loading_boundary() -> None:
+    descriptor = REGISTRY.by_canonical_id("register")
+    assert descriptor.preconditions == (
+        "a validated DatasourceSpec",
+        "execution outside model loading",
+    )
+    assert "datasource_register_outside_loader" in descriptor.constraints
+    constraints = {constraint.id: constraint for constraint in constraints_for_symbol("register")}
+    constraint = constraints["datasource_register_outside_loader"]
+    assert constraint.error_kind == "DatasourceLoad"
+    assert "constructor directly" in constraint.hint
 
 
 def test_every_discoverable_capability_belongs_to_one_root_group() -> None:

@@ -380,6 +380,9 @@ def register(
         >>> md.register(spec)
 
     Constraints:
+        Call only from setup scripts outside datasource and semantic model
+        loading. Declaration files call datasource constructors directly;
+        constructors auto-declare while the datasource loader runs.
         Use one of the public typed specs. Sensitive fields use named
         ``*_env`` references, not plaintext literals or generic keyword bags.
         Every explicit ``*_env`` name is persisted; no credential names are

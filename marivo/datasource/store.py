@@ -6,6 +6,7 @@ from dataclasses import fields as dataclass_fields
 from pathlib import Path
 from typing import Any, cast
 
+from marivo._authoring.loading import _current_source_loading_file
 from marivo.config import (
     AUTHORED_DIR,
     DATASOURCES_DIR,
@@ -217,6 +218,24 @@ def load_one_layered(name: str, project_root: Path | None = None) -> DatasourceI
 
 
 def save_one(spec: DatasourceSpec, project_root: Path | None = None) -> DatasourceIR:
+    loading_file = _current_source_loading_file()
+    if loading_file is not None:
+        constructor = require_profile_for_backend_type(spec.backend_type).authoring_func
+        raise DatasourceLoadError(
+            message=f"md.register() cannot persist datasource {spec.name!r} while loading model files.",
+            expected="datasource constructors in declaration files; md.register() outside model loading",
+            received=f"md.register() for datasource {spec.name!r} during model loading",
+            location=str(loading_file),
+            repair=repair(
+                kind="reauthor",
+                canonical_id="register",
+                action=(
+                    f"Remove the md.register(...) wrapper and call md.{constructor}(...) directly "
+                    "in the datasource declaration file. Semantic files reference the datasource "
+                    "through its ref. Run md.register() only in setup scripts outside model loading."
+                ),
+            ),
+        )
     root = project_root or resolve_project_root()
     require_project_config(root)
     _write_datasource_file(
