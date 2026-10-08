@@ -638,6 +638,32 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     for item in locals_:
         check()
         params = item.stage.node.parameters
+        for requirement in prepared.admitted.checks:
+            if (
+                requirement.node_id != item.stage.node.identity
+                or requirement.obligation.fact in item.stage.node.derivation.pre
+                or any(
+                    proof.requirement == requirement or requirement in proof.consumers
+                    for proof in completed
+                )
+            ):
+                continue
+            prior = next(
+                (
+                    proof
+                    for proof in completed
+                    if proof.requirement.obligation == requirement.obligation
+                ),
+                None,
+            )
+            if prior is None:
+                fail(
+                    "input_binding",
+                    "local consumer lacks its completed originating check: "
+                    + requirement.obligation.check_id,
+                    stage="consume",
+                )
+            completed.append(CompletedCheck(requirement, prior.result_digest))
         if isinstance(params, AnchorBind):
             from marivo.analysis.core.model import AnchorDomainPart, require_part
             from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
@@ -944,6 +970,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 CompletedCheck(requirement, state_digest)
                 for requirement in prepared.admitted.checks
                 if requirement.node_id == item.stage.node.identity
+                and requirement.obligation.fact in item.stage.node.derivation.pre
             )
             predecessor = relations[item.stage.inputs[1]]
             terminal = replace(

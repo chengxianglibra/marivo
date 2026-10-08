@@ -407,11 +407,19 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
                 operations[name] = observed.rollup()
         outputs: dict[str, Json] = {}
         for name, logical in operations.items():
+            prior_runs, prior_kernels = run_ids(session), kernels.call_count
             if phase == "cold":
                 with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
                     result = logical.execute()
             else:
                 result = logical.execute()
+            counts = (kernels.call_count - prior_kernels, len(run_ids(session) - prior_runs))
+            if phase == "cold":
+                assert counts == (0, 0), (name, counts)
+            elif risk == "captured_observations":
+                assert counts == (1, 1), (name, counts)
+            else:
+                assert counts in ((0, 0), (1, 1)), (name, counts)
             if name.endswith(":truth"):
                 assert_truth(result, name.split(":")[0])
             elif name.endswith(":violations"):
@@ -428,7 +436,9 @@ def recover(root: Path, risk: str, phase: str) -> dict[str, Json]:
             outputs[name] = saved
         if phase == "fixed":
             new_runs = len(run_ids(session) - before)
-            assert new_runs <= len(operations), (new_runs, len(operations), kernels.call_count)
+            assert kernels.call_count == new_runs
+            if risk == "captured_observations":
+                assert new_runs == len(operations) == 6
             state["outputs"] = outputs
             (root / "state.json").write_bytes(encode(state))
         else:

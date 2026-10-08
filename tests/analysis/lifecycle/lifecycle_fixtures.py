@@ -1,11 +1,19 @@
 """Governed Lifecycle projects for public and independent-process acceptance."""
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 import ibis
 import pyarrow as pa
 import pyarrow.parquet as pq
+
+if TYPE_CHECKING:
+    from marivo._temporal import TimeScope
+    from marivo.analysis import LogicalAnalysisDomain, SourceOriginCompletenessDeclarationV1
+    from marivo.analysis.session.core import Session
 
 KEY_PROFILES: tuple[dict[str, str], ...] = (
     {"id": "K11", "subject": "string", "occurrence": "string"},
@@ -95,7 +103,7 @@ END = START + timedelta(seconds=100)
 TRIGGERS = ("started", "paid", "pulse", "finished")
 
 
-def keys(profile, prefix, count):
+def keys(profile: str, prefix: str, count: int) -> dict[str, list[str | int]]:
     if profile == "s":
         return {prefix: [f"{prefix}{i}" for i in range(count)]}
     if profile == "i":
@@ -107,20 +115,26 @@ def keys(profile, prefix, count):
 
 
 def build_lifecycle_public(
-    root,
+    root: Path,
     *,
-    subject="i",
-    occurrence="i",
-    form="table",
-    unit="us",
-    zone="UTC",
-    ordered=True,
-    rows=None,
-    empty=False,
-    cycle=False,
-    observations=False,
+    subject: str = "i",
+    occurrence: str = "i",
+    form: str = "table",
+    unit: str = "us",
+    zone: str = "UTC",
+    ordered: bool = True,
+    rows: list[tuple[int, str, int | float, int]] | None = None,
+    empty: bool = False,
+    cycle: bool = False,
+    observations: bool = False,
     backend_name: Literal["duckdb", "sqlite"] = "duckdb",
-):
+) -> tuple[
+    Session,
+    LogicalAnalysisDomain,
+    TimeScope,
+    tuple[SourceOriginCompletenessDeclarationV1, ...],
+    list[tuple[int, str, int | float, int]],
+]:
     import marivo.analysis as mv
     import marivo.semantic as ms
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -130,7 +144,7 @@ def build_lifecycle_public(
     root.mkdir(parents=True, exist_ok=True)
     members = keys(subject, "sid", 3)
     # subject index, event kind, relative seconds, business sequence
-    values = (
+    values: list[tuple[int, str, int | float, int]] = (
         rows
         if rows is not None
         else [
@@ -147,7 +161,7 @@ def build_lifecycle_public(
         ]
     )
     identities = keys(occurrence, "oid", len(values))
-    facts = dict(identities)
+    facts: dict[str, list[str | int] | pa.Array] = dict(identities)
     facts.update({name: [column[value[0]] for value in values] for name, column in members.items()})
     factor = {"s": 1, "ms": 1000, "us": 1000000, "ns": 1000000000}[unit]
     epoch = int(START.timestamp()) * factor
@@ -203,7 +217,7 @@ def build_lifecycle_public(
         "import marivo.semantic as ms\nms.domain(name='commerce', owner='Analytics', default=True)\n"
     )
 
-    def source(name):
+    def source(name: str) -> str:
         return (
             f"md.table({name!r})"
             if form == "table"
