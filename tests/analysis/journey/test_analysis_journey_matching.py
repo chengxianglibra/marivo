@@ -304,7 +304,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
     database = seed_event_database(tmp_path / "source")
     import duckdb
 
-    def subject(value):
+    def subject(value: int) -> int | str:
         return str(value) if key_type == "string" else value
 
     with duckdb.connect(str(database)) as connection:
@@ -408,7 +408,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
         via=ref.relationship("sales.order_customer"),
-        by=(runtime,),
+        by=(ref.entity("sales.customers"),),
     )
     metric_members = revenue.where(revenue.value.is_defined()).members()
     assert metric_members.execute().to_pandas()["member"].tolist() == [
@@ -438,7 +438,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
         via=ref.relationship("sales.order_customer"),
-        by=(runtime,),
+        by=(ref.entity("sales.customers"),),
     )
 
     from tests.support.documentation import _example
@@ -459,7 +459,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         ref.metric("sales.revenue"),
         during=time_scope(start=COHORT_START.isoformat(), end=COHORT_END.isoformat()),
         via=ref.relationship("sales.order_customer"),
-        by=(runtime,),
+        by=(ref.entity("sales.customers"),),
     )
     import marivo.analysis.materialization.journey_execution as local_journey
     import marivo.datasource.adapters as adapters
@@ -528,7 +528,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             ref.metric("sales.revenue"),
             during=time_scope(start=COHORT_START.isoformat(), end=THROUGH.isoformat()),
             via=ref.relationship("sales.order_customer"),
-            by=(runtime,),
+            by=(ref.entity("sales.customers"),),
         )
         trace.clear()
         with monkeypatch.context() as traced:
@@ -562,7 +562,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             ref.metric("sales.revenue"),
             during=time_scope(start=COHORT_START.isoformat(), end=COHORT_END.isoformat()),
             via=ref.relationship("sales.order_customer"),
-            by=(runtime,),
+            by=(ref.entity("sales.customers"),),
         ).execute()
         empty_components = next(
             part.table
@@ -580,7 +580,135 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         rule=mv.any_instance(),
         through=covered.subjects(pattern.steps[0].participant),
     )
-    assert cohort.execute().to_pandas()["member"].tolist() == [subject(2)]
+
+    def assert_cohort_state(
+        logical: mv.LogicalAnalysisDomain,
+        materialized: mv.MaterializedAnalysisDomain,
+        counts: dict[int | str, tuple[int, int, int, bool, int]],
+    ) -> None:
+        assert materialized._dataset is not None
+        retained = materialized._dataset.verified()
+        decisions = next(part.table for part in retained.parts if part.role == "cohort_decision")
+        columns = (
+            "cohort_decision__true_count",
+            "cohort_decision__unknown_count",
+            "cohort_decision__false_count",
+            "cohort_decision__accepted",
+            "cohort_decision__opportunity_count",
+        )
+        assert {
+            row["key_0"]: tuple(row[column] for column in columns) for row in decisions.to_pylist()
+        } == counts
+        from marivo.analysis.core.graph import MethodNode
+
+        root = logical._node.root
+        assert isinstance(root, MethodNode)
+        obligation = next(
+            item
+            for item in root.derivation.obligations
+            if item.check_id == "source.complete_coverage@v1" and item.fact in root.derivation.pre
+        )
+        proofs = [
+            proof
+            for proof in materialized._dataset.artifact.descriptor.completed_checks
+            if proof.origin_node == root.identity and proof.check_id == obligation.check_id
+        ]
+        assert len(proofs) == 1
+        proof = proofs[0]
+        assert proof.fact == obligation.fact
+        assert len(proof.ordered_input_occurrences) == len(obligation.fact.inputs)
+        assert proof.producing_run_ref == materialized._dataset.artifact.producing_run_ref
+        assert proof.status == "completed" and proof.deadline == "consume"
+
+    cohort_result = cohort.execute()
+    assert cohort_result.to_pandas()["member"].tolist() == [subject(2)]
+    assert_cohort_state(
+        cohort,
+        cohort_result,
+        {
+            subject(1): (0, 0, 1, False, 1),
+            subject(2): (1, 0, 0, True, 1),
+            subject(3): (0, 0, 0, False, 0),
+            subject(4): (0, 0, 0, False, 0),
+        },
+    )
+    if form == "table":
+        import pyarrow as pa
+
+        from marivo.analysis.compiler.graph_lowering import LoweredLocal
+        from marivo.analysis.compiler.graph_plan import CheckRequirement
+        from marivo.analysis.errors import AnalysisError
+        from marivo.analysis.materialization import graph_local_execution, graph_preparation
+        from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
+
+        finish = graph_local_execution._cohort_stage
+        make_completed_check = graph_preparation.CompletedCheck
+        recorded: list[CheckRequirement] = []
+
+        def record(
+            requirement: CheckRequirement,
+            result_digest: str,
+            consumers: tuple[CheckRequirement, ...] = (),
+        ) -> CompletedCheck:
+            if (
+                requirement.node_id == cohort._node.root.identity
+                and requirement.obligation.check_id == "source.complete_coverage@v1"
+            ):
+                recorded.append(requirement)
+            return make_completed_check(requirement, result_digest, consumers)
+
+        for fault, message in (
+            ("missing_opportunity", "missing complete opportunity keys or coverage"),
+            ("foreign_subject", "Journey subjects escape the target population"),
+        ):
+
+            def damaged(
+                method: LoweredLocal,
+                target: ExchangeResult,
+                inputs: tuple[ExchangeResult, ...],
+                binding: str,
+                fault: str = fault,
+            ) -> ExchangeResult:
+                opportunity = inputs[0]
+                if fault == "missing_opportunity":
+                    opportunity = replace(opportunity, primary=opportunity.primary.slice(1))
+                else:
+                    parts = []
+                    for part in opportunity.parts:
+                        if part.role == "subject":
+                            table = part.table
+                            field = table.schema.field("subject__key_0")
+                            column = table["subject__key_0"].to_pylist()
+                            column[0] = -1
+                            table = table.set_column(
+                                table.schema.get_field_index(field.name),
+                                field,
+                                pa.array(column, type=field.type),
+                            )
+                            part = replace(part, table=table)
+                        parts.append(part)
+                    opportunity = replace(opportunity, parts=tuple(parts))
+                return finish(method, target, (opportunity, *inputs[1:]), binding)
+
+            before_paths = set(store.project_root.rglob("*.parquet"))
+            with store._read() as connection:
+                before_artifacts = connection.execute(
+                    "SELECT count(*) FROM dataset_artifacts"
+                ).fetchone()[0]
+            recorded.clear()
+            with monkeypatch.context() as injected:
+                injected.setattr(graph_local_execution, "_cohort_stage", damaged)
+                injected.setattr(graph_preparation, "CompletedCheck", record)
+                with pytest.raises(AnalysisError, match=message):
+                    cohort.execute()
+            assert recorded == []
+            assert set(store.project_root.rglob("*.parquet")) == before_paths
+            with store._read() as connection:
+                assert (
+                    connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0]
+                    == before_artifacts
+                )
+            assert store.resources(session.session_ref) == ()
     logical = journeys._node
     elapsed_source = journeys.time_to_event(from_step=pattern.steps[0], to_step=pattern.steps[1])
     assert elapsed_source.status.execute().to_pandas()["value"].tolist() == [
@@ -643,7 +771,18 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         rule=mv.any_instance(),
         through=repeated.subjects(pattern.steps[0].participant),
     )
-    assert qualified_subjects.execute().to_pandas()["member"].tolist() == [subject(1)]
+    qualified_result = qualified_subjects.execute()
+    assert qualified_result.to_pandas()["member"].tolist() == [subject(1)]
+    assert_cohort_state(
+        qualified_subjects,
+        qualified_result,
+        {
+            subject(1): (2, 0, 0, True, 2),
+            subject(2): (0, 0, 1, False, 1),
+            subject(3): (0, 0, 0, False, 0),
+            subject(4): (0, 0, 0, False, 0),
+        },
+    )
     logical_subject_mean = completed_values.group_by(ref.entity("sales.customers")).summarize(
         mv.mean()
     )

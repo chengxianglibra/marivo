@@ -228,9 +228,13 @@ contracts disclose retained assumptions as not checked.
 
 Unknown field/captured-path pairing and actual method consumption requirements
 remain typed obligations. Checks retain the originating ordered input nodes,
-scope and consume/publish deadline. An originating completed check is required
-before an inherited consumer runs. Completing a later local stage does not
-establish an earlier input check.
+scope and consume/publish deadline. A check may bind a subset of a method's
+direct inputs; lowering resolves each exact domain, quantity and node identity
+in the recorded order, including repeated operands. Local cohort consumption
+checks the full opportunity domain and records its own completed coverage
+proof only after successful consumption. An originating completed check is
+required before an inherited consumer runs. Completing a later local stage
+does not establish an earlier input check.
 
 Business completeness, version availability, target-grid authority and retained
 coverage have separate owners. `source_health` is an explicit data-audit
