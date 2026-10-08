@@ -9,6 +9,13 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from marivo.analysis.materialization.cell_arrow import (
+    annotate,
+    binding,
+    column,
+    storage_schema,
+    validate,
+)
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
@@ -40,7 +47,12 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
         staging.mkdir(parents=True, exist_ok=False)
         data = staging / "data.parquet"
         # Preserve nested Arrow field names covered by the exact schema receipt.
-        pq.write_table(table, data, write_page_checksum=False, use_compliant_nested_type=False)
+        pq.write_table(
+            table.replace_schema_metadata(storage_schema(table.schema).metadata),
+            data,
+            write_page_checksum=False,
+            use_compliant_nested_type=False,
+        )
         with data.open("rb") as stream:
             os.fsync(stream.fileno())
         entry = FileEntry("data.parquet", data.stat().st_size)
@@ -96,12 +108,27 @@ def read_result(
     checked = checked_metadata(descriptor, _validated)
     primary = read_table(root, descriptor.primary_receipt.local)
     parts = tuple(ExchangePart(p.role, read_table(root, p.local)) for p in descriptor.parts)
+    schema = schema_from(descriptor.realized_schema)
+    if not primary.schema.equals(storage_schema(schema), check_metadata=True):
+        raise invalid("primary physical schema differs from its frozen descriptor")
+    primary = primary.replace_schema_metadata(schema.metadata)
+    validate(primary)
+    rebound: list[ExchangePart] = []
+    for declared, part in zip(descriptor.parts, parts, strict=True):
+        if binding(part.table.schema).cells:
+            raise invalid("part payload carries a competing Cell binding")
+        table = annotate(part.table, declared.cell_table.cells, declared.cell_table.logical_columns)
+        if binding(table.schema, exact=True) != declared.cell_table:
+            raise invalid("part Cell binding differs from its frozen receipt")
+        validate(table)
+        rebound.append(ExchangePart(part.role, table))
+    parts = tuple(rebound)
     method = descriptor.method_bindings[-1].method
     keys = descriptor.row_contract.key_fields
     state = descriptor.method_state
     statuses = None
     if state.kind != "none":
-        column = "status" if state.kind == "spearman" else "cell_tag"
+        status_column = "status" if state.kind == "spearman" else "cell_tag"
         statuses = pa.Table.from_arrays(
             [
                 *(primary.column(key) for key in keys),
@@ -121,7 +148,7 @@ def read_result(
                     "funnel_comparison",
                     "funnel_allocation",
                 )
-                else primary.column(column),
+                else column(primary, status_column),
             ],
             names=[*keys, "status"],
         )

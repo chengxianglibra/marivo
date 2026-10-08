@@ -29,6 +29,9 @@ from marivo.analysis.core.rules import (
     PartsTransport,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rename as cell_rename
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -296,10 +299,15 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
     if state is None:
         return
     prefix = declaration.side + "_endpoint__"
-    table = numeric_primary(
-        table.rename_columns(["value" if n == prefix + "value" else n for n in table.column_names])
-    ).rename_columns([prefix + "value" if n == "value" else n for n in table.column_names])
-    for row in table.to_pylist():
+    table = cell_rename(
+        numeric_primary(
+            cell_rename(
+                table, ["value" if n == prefix + "value" else n for n in table.column_names]
+            )
+        ),
+        [prefix + "value" if n == "value" else n for n in table.column_names],
+    )
+    for row in cell_rows(table):
         original = {"original_state__" + c: row[prefix + "state__" + c] for c in state.components}
         cell = {c: row[prefix + c] for c in ("value", "cell_tag", "cell_reason")}
         if (complete and row[prefix + "complete"] is not True) or not state_matches(
@@ -340,12 +348,12 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         if p.role in ("current_endpoint", "baseline_endpoint"):
             parts.append(next(x for x in inputs[1].parts if x.role == p.role))
         elif p.role == "basis":
-            table = numeric_primary(inputs[0].primary).select(
-                (*inputs[0].contract.key_fields, "value")
+            table = cell_project(
+                numeric_primary(inputs[0].primary), (*inputs[0].contract.key_fields, "value")
             )
             parts.append(
                 ExchangePart(
-                    "basis", table.rename_columns([*inputs[0].contract.key_fields, "basis__value"])
+                    "basis", cell_rename(table, [*inputs[0].contract.key_fields, "basis__value"])
                 )
             )
     return result(node.signature, node.value_type, tuple(parts), binding, node.method)
@@ -378,25 +386,33 @@ def result(
         sides.append(
             {
                 tuple(r[k] for k in scope_keys): r
-                for r in numeric_primary(
-                    by_role[role].rename_columns(
+                for r in cell_rows(
+                    cell_rename(
+                        numeric_primary(
+                            cell_rename(
+                                by_role[role],
+                                [
+                                    "value" if c == role + "__value" else c
+                                    for c in by_role[role].column_names
+                                ],
+                            )
+                        ),
                         [
-                            "value" if c == role + "__value" else c
+                            role + "__value" if c == "value" else c
                             for c in by_role[role].column_names
-                        ]
+                        ],
                     )
                 )
-                .rename_columns(
-                    [role + "__value" if c == "value" else c for c in by_role[role].column_names]
-                )
-                .to_pylist()
             }
         )
-    basis_rows = numeric_primary(
-        by_role["basis"].rename_columns(
-            ["value" if c == "basis__value" else c for c in by_role["basis"].column_names]
+    basis_rows = cell_rows(
+        numeric_primary(
+            cell_rename(
+                by_role["basis"],
+                ["value" if c == "basis__value" else c for c in by_role["basis"].column_names],
+            )
         )
-    ).to_pylist()
+    )
     if any(set(side) != {tuple(r[k] for k in scope_keys) for r in basis_rows} for side in sides):
         raise invalid("basis and ordered endpoint key sets differ")
     output_rows: list[dict[str, object]] = []
@@ -586,7 +602,7 @@ def result(
             ]
         ),
     )
-    selected = primary.select(output_keys).append_column(
+    selected = cell_project(primary, output_keys).append_column(
         "selection_scope__selected", pa.array([True] * len(primary), type=pa.bool_())
     )
     parts = (
@@ -595,7 +611,7 @@ def result(
         ExchangePart("reconciliation", reconciliation),
         ExchangePart("selection_scope", selected),
     )
-    state = primary.select(output_keys).append_column("status", primary["cell_tag"])
+    state = cell_project(primary, output_keys).append_column("status", primary["cell_tag"])
     key = method_key or MethodKey(
         "attribution.component_mix" if mix else "attribution.additive_difference"
     )
@@ -611,11 +627,7 @@ def result(
         state.schema,
     )
     # Producer arithmetic owns reconciliation; transport checks the physical result.
-    return (
-        from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
-        if verify
-        else ExchangeResult(contract, primary, parts, (), state)
-    )
+    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
 
 
 def validate(
@@ -651,8 +663,8 @@ def validate(
     for role in ("allocation", "reconciliation"):
         wanted = next(p.table for p in full.parts if p.role == role)
         keys = part_keys(declarations[role])
-        actual_rows = {tuple(r[k] for k in keys): r for r in by_role[role].to_pylist()}
-        wanted_rows = {tuple(r[k] for k in keys): r for r in wanted.to_pylist()}
+        actual_rows = {tuple(r[k] for k in keys): r for r in cell_rows(by_role[role])}
+        wanted_rows = {tuple(r[k] for k in keys): r for r in cell_rows(wanted)}
         if actual_rows != wanted_rows or not by_role[role].schema.equals(
             wanted.schema, check_metadata=False
         ):
@@ -660,39 +672,45 @@ def validate(
     keys = contract.key_fields
     originals = {
         tuple(r[k] for k in keys): r
-        for r in numeric_primary(
-            by_role["allocation"].rename_columns(
-                [
-                    "value" if c == "allocation__contribution" else c
-                    for c in by_role["allocation"].column_names
-                ]
+        for r in cell_rows(
+            numeric_primary(
+                cell_rename(
+                    by_role["allocation"],
+                    [
+                        "value" if c == "allocation__contribution" else c
+                        for c in by_role["allocation"].column_names
+                    ],
+                )
             )
-        ).to_pylist()
+        )
     }
     selected = {
         tuple(r[k] for k in keys)
-        for r in by_role["selection_scope"].to_pylist()
+        for r in cell_rows(by_role["selection_scope"])
         if r["selection_scope__selected"] is True
     }
     if (
         len(selected) != len(by_role["selection_scope"])
         or len(selected) != len(primary)
-        or selected != {tuple(r[k] for k in keys) for r in primary.to_pylist()}
+        or selected != {tuple(r[k] for k in keys) for r in cell_rows(primary)}
     ):
         raise invalid("selection map differs from exact primary keys")
     if declarations["selection_scope"].complete and selected != set(originals):
         raise invalid("complete partition promise differs from selected keys")
     view = declarations["selection_scope"].view
-    view_rows = numeric_primary(
-        by_role["allocation"].rename_columns(
-            [
-                "value" if c == "allocation__" + view else c
-                for c in by_role["allocation"].column_names
-            ]
+    view_rows = cell_rows(
+        numeric_primary(
+            cell_rename(
+                by_role["allocation"],
+                [
+                    "value" if c == "allocation__" + view else c
+                    for c in by_role["allocation"].column_names
+                ],
+            )
         )
-    ).to_pylist()
+    )
     view_values = {tuple(r[k] for k in keys): r["value"] for r in view_rows}
-    for row in numeric_primary(primary).to_pylist():
+    for row in cell_rows(numeric_primary(primary)):
         identity = tuple(row[k] for k in keys)
         if (
             identity not in originals
@@ -877,7 +895,7 @@ def retain_partition(
             values.append({**dict(zip(original.columns, axis, strict=True)), **totals})
         merged[identity] = values
     keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
-    table = primary.select(keys).append_column(
+    table = cell_project(primary, keys).append_column(
         "allocation_state__groups",
         pa.array(
             [merged.get(tuple(r[k] for k in keys), []) for r in primary.to_pylist()],

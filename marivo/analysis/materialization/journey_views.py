@@ -7,6 +7,9 @@ import pyarrow as pa
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import Cell, Defined, JourneyPart
 from marivo.analysis.core.rules import JourneyCompleted, JourneyDuration, JourneyRead
+from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
@@ -17,7 +20,7 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.journey_execution import ASSIGNMENT, validate
 from marivo.analysis.methods.domain_coverage import FACTS
-from marivo.analysis.methods.journey_duration import dropped_before, duration
+from marivo.analysis.methods.journey_duration import CELL_REASONS, dropped_before, duration
 from marivo.analysis.methods.journey_matching import CoverageWindow
 from marivo.analysis.methods.physical import arrow_scalar_type
 
@@ -48,7 +51,7 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
     )
     indexes: list[int] = []
     cells: list[Cell] = []
-    for index, row in enumerate(source.primary.to_pylist()):
+    for index, row in enumerate(cell_rows(source.primary)):
         check()
         assignment = assignments[tuple(row[key] for key in keys)]
         observation = duration(
@@ -76,8 +79,8 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
                     "followup_until": observation.followup_until,
                 }[params.field]
             )
-    primary = source.primary.select(keys).take(pa.array(indexes, type=pa.int64()))
-    selected_keys = {tuple(row[key] for key in keys) for row in primary.to_pylist()}
+    primary = cell_project(source.primary, keys).take(pa.array(indexes, type=pa.int64()))
+    selected_keys = {tuple(row[key] for key in keys) for row in cell_rows(primary)}
     parts = tuple(
         ExchangePart(
             p.role,
@@ -85,7 +88,7 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
                 pa.array(
                     [
                         tuple(row[key] for key in keys) in selected_keys
-                        for row in p.table.to_pylist()
+                        for row in cell_rows(p.table)
                     ],
                     type=pa.bool_(),
                 )
@@ -93,25 +96,41 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
         )
         for p in source.parts
     )
-    reasons: dict[str, set[str]] = {}
+    reasons: tuple[tuple[str, tuple[str, ...]], ...] = ()
     state = None
     state_kind = "journey_assignment"
     if isinstance(params, JourneyRead):
-        values: list[object] = []
-        tags: list[str] = []
-        explanations: list[str | None] = []
-        for cell in cells:
-            tags.append(type(cell).__name__.lower())
-            values.append(cell.value if isinstance(cell, Defined) else None)
-            reason = None if isinstance(cell, Defined) else cell.reason
-            explanations.append(reason)
-            if reason is not None:
-                reasons.setdefault(type(cell).__name__.lower(), set()).add(reason)
-        primary = primary.append_column(
-            "value", pa.array(values, type=arrow_scalar_type(node.value_type))
+        reasons = (
+            ()
+            if params.field == "status"
+            else (("unknown", ("coverage_censored",)),)
+            if params.field == "dropout"
+            else CELL_REASONS
         )
-        primary = primary.append_column("cell_tag", pa.array(tags, type=pa.string()))
-        primary = primary.append_column("cell_reason", pa.array(explanations, type=pa.string()))
+        schema = compact_schema(
+            pa.schema(
+                (
+                    *primary.schema,
+                    ("value", arrow_scalar_type(node.value_type)),
+                    ("cell_tag", pa.string()),
+                    ("cell_reason", pa.string()),
+                ),
+                metadata=primary.schema.metadata,
+            ),
+            reasons,
+        )
+        primary = from_rows(
+            (
+                dict(
+                    row,
+                    value=cell.value if isinstance(cell, Defined) else None,
+                    cell_tag=type(cell).__name__.lower(),
+                    cell_reason=None if isinstance(cell, Defined) else cell.reason,
+                )
+                for row, cell in zip(cell_rows(primary), cells, strict=True)
+            ),
+            schema,
+        )
         state_kind = "none"
     else:
         state = primary.append_column(
@@ -124,7 +143,7 @@ def execute(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeR
         primary.schema,
         keys,
         tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
-        cell_reasons=tuple((tag, tuple(sorted(values))) for tag, values in sorted(reasons.items())),
+        cell_reasons=reasons,
         state_kind=state_kind,
         state_schema=None if state is None else state.schema,
     )

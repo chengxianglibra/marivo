@@ -80,6 +80,7 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.domains.completeness import EventCoverageRequestV1
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.domain_preparation import validate_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
@@ -551,7 +552,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             else:
                 table = pa.Table.from_arrays(
                     [
-                        pa.array([pool.to_pylist()], type=pa.list_(pa.struct(pool.schema)))
+                        pa.array([cell_rows(pool)], type=pa.list_(pa.struct(pool.schema)))
                         for pool in pools
                     ],
                     names=[role for role, _ in stage.part_expressions],
@@ -758,7 +759,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             # returning. Bind those checks to this local invocation, not SQL.
             proof_digest = hashlib.sha256(
                 result.primary.schema.serialize().to_pybytes()
-                + repr(result.primary.to_pylist()).encode()
+                + repr(cell_rows(result.primary)).encode()
             ).hexdigest()
             for requirement in prepared.admitted.checks:
                 if requirement.node_id != item.stage.node.identity or any(
@@ -840,11 +841,11 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             input_digest = hashlib.sha256()
             for value in values:
                 input_digest.update(value.primary.schema.serialize().to_pybytes())
-                input_digest.update(repr(value.primary.to_pylist()).encode())
+                input_digest.update(repr(cell_rows(value.primary)).encode())
                 for part in value.parts:
                     input_digest.update(part.role.encode())
                     input_digest.update(part.table.schema.serialize().to_pybytes())
-                    input_digest.update(repr(part.table.to_pylist()).encode())
+                    input_digest.update(repr(cell_rows(part.table)).encode())
             receipt_hash = input_digest.hexdigest()
             owned = tuple(
                 c for c in prepared.admitted.checks if c.node_id == item.stage.node.identity
@@ -899,7 +900,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     proof_digest = hashlib.sha256(
                         result.primary.schema.serialize().to_pybytes()
                         + repr(
-                            [(part.role, part.table.to_pylist()) for part in result.parts]
+                            [(part.role, cell_rows(part.table)) for part in result.parts]
                         ).encode()
                     ).hexdigest()
                     completed.append(CompletedCheck(requirement, proof_digest))
@@ -971,7 +972,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             )
             table = _observation(item, candidates, selected, original)
             state_digest = hashlib.sha256(
-                table.schema.serialize().to_pybytes() + repr(table.to_pylist()).encode()
+                table.schema.serialize().to_pybytes() + repr(cell_rows(table)).encode()
             ).hexdigest()
             completed.extend(
                 CompletedCheck(requirement, state_digest)
@@ -1021,7 +1022,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 selected = results[item.stage.output]
                 proof_digest = hashlib.sha256(
                     selected.primary.schema.serialize().to_pybytes()
-                    + repr(selected.primary.to_pylist()).encode()
+                    + repr(cell_rows(selected.primary)).encode()
                 ).hexdigest()
             else:
                 prior = next(

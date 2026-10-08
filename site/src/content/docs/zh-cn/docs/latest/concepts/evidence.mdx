@@ -70,3 +70,5 @@ Store 7 及更早代拒绝读取，不迁移、不修改。保留旧字节，并
 它们本身都不建立业务依据、新鲜度或因果结论。
 
 跟随 `marivo.help("analysis.evidence")`，或运行[本地恢复教程](/zh-cn/docs/latest/guides/python-quick-start/)。
+
+已保存的 Artifact 内部使用紧凑 Cell 绑定；`show()` 与 `to_pandas()` 仍保留原有的值、标签和原因字段。旧格式 Artifact 不能恢复或继续执行。请保留历史记录与文件，重新执行来源分析，保存当前格式的 Artifact。Store 8 无需迁移。

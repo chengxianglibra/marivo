@@ -21,6 +21,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_exchange as exchange
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CheckedStream,
@@ -134,12 +135,12 @@ def test_bulk_complete_keys_preserve_int64_versions_across_batches_and_empty_inp
     primary = _primary(keys)
     source = _Stream(primary.schema, tuple(primary.to_batches(max_chunksize=513)))
     result = collect(source, _contract(primary))
-    assert result.primary.equals(primary)
+    assert logical_table(result.primary).equals(primary)
     assert source.close_calls == 1
     assert exchange._table_keys(primary, _contract(primary).key_fields) == set(keys)
     empty = primary.slice(0, 0)
     source = _Stream(empty.schema, ())
-    assert collect(source, _contract(empty)).primary.equals(empty)
+    assert logical_table(collect(source, _contract(empty)).primary).equals(empty)
     assert source.close_calls == 1
 
 
@@ -168,7 +169,9 @@ def test_bulk_keys_reject_cross_batch_duplicates_and_illegal_nulls(invalid: str)
 
 def test_completed_key_index_does_not_cross_nullable_policy_or_source_invocations() -> None:
     primary = _primary([(None, 2**53 + 7, 1), ("a", 2**53 + 7, 2)])
-    assert from_arrow(primary, _contract(primary, nullable=True)).primary.equals(primary)
+    assert logical_table(from_arrow(primary, _contract(primary, nullable=True)).primary).equals(
+        primary
+    )
     with pytest.raises(MaterializationError, match="null or duplicate complete key"):
         from_arrow(primary, _contract(primary))
     with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
@@ -190,7 +193,7 @@ def test_bulk_cells_preserve_all_four_branches_and_exact_defined_zero() -> None:
         ),
     )
     result = from_arrow(primary, _contract(primary))
-    assert result.primary.equals(primary)
+    assert logical_table(result.primary).equals(primary)
     assert result.primary.schema.field("value").type == pa.int64()
 
 
@@ -235,7 +238,7 @@ def test_collect_reuses_only_its_completed_primary_key_index(
     monkeypatch.setattr(exchange, "_table_keys", independent)
     source = _Stream(primary.schema, tuple(primary.to_batches(max_chunksize=1)))
     result = collect(source, contract, parts=parts, method_state=status)
-    assert result.primary.equals(primary)
+    assert logical_table(result.primary).equals(primary)
     assert calls == [tuple(parts[0].table.column_names), tuple(status.column_names)]
     assert source.close_calls == 1
 

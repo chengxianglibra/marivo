@@ -57,6 +57,7 @@ from marivo.analysis.core.rules import (
     entity_members,
 )
 from marivo.analysis.core.time_grid import bind_grid
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods.physical import ScalarType, SourceShape, TimeShape
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
@@ -486,7 +487,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     result = observed.execute()
     assert result._dataset is not None
     exchange = result._dataset.verified()
-    assert {row["key_0"]: row["value"] for row in exchange.primary.to_pylist()} == {
+    assert {row["key_0"]: row["value"] for row in cell_rows(exchange.primary)} == {
         "j1_a": 450,
         "j1_b": 150,
         "j1_c": 400,

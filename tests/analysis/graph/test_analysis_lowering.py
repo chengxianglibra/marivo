@@ -62,6 +62,8 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
 )
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.local import count
 from marivo.analysis.methods.physical import (
@@ -149,7 +151,16 @@ def _bind(case, leaf):
         tuple(CoordinateColumn(k, k.field) for k in leaf.signature.domain.instance_key),
         CellColumns("amount", "tag", "reason") if leaf.signature.quantity else None,
     )
-    return SourceBinding(leaf, bound, layout)
+    return SourceBinding(
+        leaf,
+        bound,
+        layout,
+        (
+            ("null", ("source_null",)),
+            ("undefined", ("zero_denominator",)),
+            ("unknown", ("unavailable",)),
+        ),
+    )
 
 
 def _plan(root, route="ibis"):
@@ -1056,14 +1067,13 @@ def test_private_source_exchange_executes_lowered_count(source_case):
     admitted = _plan(_count(leaf))
     lowered = lower(admitted, bindings=(binding,))
     result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
-    assert result.primary.to_pylist() == [{"value": 5, "cell_tag": "defined", "cell_reason": None}]
+    assert cell_rows(result.primary) == [{"value": 5, "cell_tag": "defined", "cell_reason": None}]
     assert tuple(part.role for part in result.parts) == ("row_state",)
     assert result.parts[0].table["row_state__count"].to_pylist() == [5]
     assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
 
 
 def test_transport_carries_exact_source_cell_reason_policy(source_case):
-    from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 
@@ -1074,15 +1084,13 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
         value_type=ScalarType("int64"),
     )
     admitted = _plan(view)
-    binding = _bind(source_case, leaf)
-    result = execute_source_graph(
-        PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
-    )
-    # Private transport trusts producer business guarantees; external exchange still checks them.
-    from marivo.analysis.materialization.graph_exchange import from_arrow
+    binding = replace(_bind(source_case, leaf), cell_reasons=())
+    from marivo.analysis.core.model import CoreRuleError
 
-    with pytest.raises(MaterializationError, match="invalid non-Defined Cell"):
-        from_arrow(result.primary, result.contract)
+    with pytest.raises(CoreRuleError, match="undeclared physical Cell code"):
+        execute_source_graph(
+            PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
+        )
     assert not source_case[0]._staged_relations
     declared = replace(
         binding,
@@ -1095,7 +1103,7 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     result = execute_source_graph(
         PreparedGraph(admitted), lower(admitted, bindings=(declared,)), source_case[0]
     )
-    assert result.primary["cell_tag"].to_pylist() == [
+    assert cell_column(result.primary, "cell_tag").to_pylist() == [
         "defined",
         "null",
         "undefined",
@@ -1137,7 +1145,7 @@ def test_registered_row_arithmetic_uses_one_semantic_policy(
         lowered = lower(admitted, bindings=(binding,))
         result = execute_source_graph(PreparedGraph(admitted), lowered, source)
         assert result.primary["value"].to_pylist() == [expected]
-        assert result.primary["cell_tag"].to_pylist() == ["defined"]
+        assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
         assert len(result.completed_checks) == 1
         assert result.completed_checks[0].requirement.obligation.check_id == (
             "source.finite_numeric@v1"
@@ -1282,7 +1290,7 @@ def test_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_re
     assert result.primary.num_rows == 5
     assert result.contract.key_fields == ("key_0", "key_1")
     assert result.primary.schema.field("key_1").type == pa.int64()
-    assert {(row["key_0"], row["key_1"]) for row in result.primary.to_pylist()} == {
+    assert {(row["key_0"], row["key_1"]) for row in cell_rows(result.primary)} == {
         (row["tenant"], row["id"]) for row in _rows().to_pylist()
     }
     assert source_case[0]._staged_relations == {}

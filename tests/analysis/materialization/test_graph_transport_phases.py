@@ -27,6 +27,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.materialization import execute_deadline
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import (
     CompiledRead,
@@ -512,7 +513,7 @@ def _graph_phase(
         assert previous.state == state and previous._dataset.artifact.descriptor == descriptor
         assert asdict(previous.contract()) == contract and previous.to_pandas().equals(frame)
         current = previous._dataset.verified()
-        assert current.primary.equals(retained.primary, check_metadata=True)
+        assert logical_table(current.primary).equals(logical_table(retained.primary))
         assert tuple(part.role for part in current.parts) == tuple(
             part.role for part in retained.parts
         )

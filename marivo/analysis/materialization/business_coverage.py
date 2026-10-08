@@ -16,6 +16,8 @@ from marivo.analysis.core.business_coverage import (
 )
 from marivo.analysis.core.model import CoveragePart, ObservedQuantity
 from marivo.analysis.core.rules import PartsTransport
+from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows, logical_schema
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.execute_deadline import check
 
 if TYPE_CHECKING:
@@ -68,13 +70,14 @@ def partial_primary(
         "coverage__partial_cell_reason": pa.string(),
     }
     if any(
-        name not in coverage.column_names or coverage.schema.field(name).type != typ
+        name not in logical_schema(coverage.schema).names
+        or logical_schema(coverage.schema).field(name).type != typ
         for name, typ in expected_types.items()
     ):
         raise _invalid("business coverage lacks typed retained partial Cells")
-    keyed = {tuple(r[k] for k in contract.key_fields): r for r in coverage.to_pylist()}
+    keyed = {tuple(r[k] for k in contract.key_fields): r for r in cell_rows(coverage)}
     original: list[dict[str, object]] = []
-    for row in primary.to_pylist():
+    for row in cell_rows(primary):
         check()
         key = tuple(row[k] for k in contract.key_fields)
         support = keyed[key]
@@ -96,7 +99,7 @@ def partial_primary(
         if any(row[field] != value for field, value in expected.items()):
             raise _invalid("business coverage and primary Cell disagree")
         original.append({**row, **partial})
-    return pa.Table.from_pylist(original, schema=primary.schema)
+    return from_rows(original, primary.schema)
 
 
 def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) -> ExchangeResult:
@@ -115,32 +118,23 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
         i for i, c in enumerate(source.contract.signature.domain.instance_key) if c.role == "anchor"
     )
     cells = {c.identity: c for c in grid.cells}
-    rows = source.primary.to_pylist()
+    rows = cell_rows(source.primary)
     known: list[bool] = []
     for row in rows:
         check()
         known.append(
             complete(cells[str(row[source.contract.key_fields[position]])], params.business_windows)
         )
-    primary = source.primary
-    for field in ("value", "cell_tag", "cell_reason"):
-        primary = primary.set_column(
-            primary.schema.get_field_index(field),
-            primary.schema.field(field),
-            pa.array(
-                [
-                    row[field]
-                    if covered
-                    else None
-                    if field == "value"
-                    else "unknown"
-                    if field == "cell_tag"
-                    else REASON
-                    for row, covered in zip(rows, known, strict=True)
-                ],
-                type=primary.schema.field(field).type,
-            ),
-        )
+    reasons = dict(source.contract.cell_reasons)
+    reasons["unknown"] = (*reasons.get("unknown", ()), REASON)
+    owned_reasons = tuple(reasons.items())
+    primary = from_rows(
+        [
+            row if covered else {**row, "value": None, "cell_tag": "unknown", "cell_reason": REASON}
+            for row, covered in zip(rows, known, strict=True)
+        ],
+        compact_schema(source.primary.schema, owned_reasons),
+    )
     previous = next(p.table for p in source.parts if p.role == "coverage")
     if any(value is not True for value in previous["coverage__complete"].to_pylist()):
         raise _invalid("business declaration received an incomplete source read")
@@ -148,7 +142,7 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
         tuple(r[k] for k in source.contract.key_fields): (r, covered)
         for r, covered in zip(rows, known, strict=True)
     }
-    support_rows = previous.to_pylist()
+    support_rows = cell_rows(previous)
     support = previous.append_column(
         "coverage__business_complete",
         pa.array(
@@ -164,14 +158,12 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
                     keyed[tuple(r[k] for k in source.contract.key_fields)][0][field]
                     for r in support_rows
                 ],
-                type=source.primary.schema.field(field).type,
+                type=logical_schema(source.primary.schema).field(field).type,
             ),
         )
     parts = tuple(
         ExchangePart("coverage", support) if p.role == "coverage" else p for p in source.parts
     )
-    reasons = dict(source.contract.cell_reasons)
-    reasons["unknown"] = (*reasons.get("unknown", ()), REASON)
     contract = replace(
         source.contract,
         signature=method.stage.node.signature,

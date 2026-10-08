@@ -22,6 +22,9 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import AnchorRetention, OccurrencePrepare, RetentionBySubject
 from marivo.analysis.domains.completeness import BoundedCoverageStartV1
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import required
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
@@ -277,14 +280,14 @@ def _assemble(
     primary = pa.Table.from_pylist(rows, schema=schema).replace_schema_metadata(metadata)
     subject = require_part(node.signature, "subject")
     assert isinstance(subject, SubjectPart)
-    mapping = primary.select(keys)
+    mapping = cell_project(primary, keys)
     for i in range(len(subject.subject_key)):
         mapping = mapping.append_column(f"subject__key_{i}", primary[keys[i]])
     retained = pa.table(
         {"retention__retained": pa.array([encode(ledger, LEDGER)], type=pa.string())}
     )
     parts = (ExchangePart("subject", mapping), ExchangePart("retention", retained))
-    state = primary.select(keys).append_column("status", primary["cell_tag"])
+    state = cell_project(primary, keys).append_column("status", primary["cell_tag"])
     contract = ExchangeContract(
         node.signature,
         node.method,
@@ -530,7 +533,7 @@ def validate(
 
         validate_assignments(tuple(journey_assignments), original.anchors.journey)
     statuses = truths(ledger, part)
-    rows = primary.to_pylist()
+    rows = cell_rows(primary)
     keys = contract.key_fields
     actual = {tuple(r[k] for k in keys) for r in rows}
     if not actual <= set(statuses) or (part.selection == "full" and actual != set(statuses)):
@@ -542,17 +545,23 @@ def validate(
     mapping = next(p.table for p in parts if p.role == "subject")
     mapped = {
         tuple(r[k] for k in keys): tuple(r[f"subject__key_{i}"] for i in range(width))
-        for r in mapping.to_pylist()
+        for r in cell_rows(mapping)
     }
-    for row in rows:
-        key = tuple(row[k] for k in keys)
-        truth = statuses[key]
+    for primary_row in rows:
+        key = tuple(primary_row[k] for k in keys)
+        truth = statuses[
+            tuple(
+                required(value, str) if isinstance(value, str) else required(value, int)
+                for value in key
+            )
+        ]
         target = key if isinstance(part, SubjectRetentionPart) else key[:width]
         if (
             mapped[key] != target
-            or row["value"] is not (None if truth == "unknown" else truth == "true")
-            or row["cell_tag"] != ("unknown" if truth == "unknown" else "defined")
-            or row["cell_reason"] != ("insufficient_followup" if truth == "unknown" else None)
+            or primary_row["value"] is not (None if truth == "unknown" else truth == "true")
+            or primary_row["cell_tag"] != ("unknown" if truth == "unknown" else "defined")
+            or primary_row["cell_reason"]
+            != ("insufficient_followup" if truth == "unknown" else None)
             or (part.selection in ("true", "false", "unknown") and part.selection != truth)
         ):
             fail(

@@ -168,8 +168,18 @@ Compiler handoff reuses captured static graph/registry facts. Private in-process
 compiler objects are trusted; this path does not maintain deep anti-mutation
 snapshots or audit local objects as hostile data.
 
-Lowered layouts retain complete typed keys, value/tag/reason columns and
-declared part schemas. Each emitted expression has exact SourceLeaf provenance;
+Logical lowered layouts retain complete typed keys, Cell slots and declared
+part schemas. Before a source read is issued, `compiler/cell_lowering.py` lowers
+those slots to their closed physical carriers. Known Cells carry only their value
+and frozen state; Validity Cells carry only their value and one frozen missing
+state; Encoded Cells carry their value and a non-null int16 state column.
+Carrier selection follows declared policies and construction, never sampled
+rows. `core/cell_encoding.py` owns the canonical per-slot reason dictionaries;
+`materialization/cell_arrow.py` owns their Arrow operations and public decoding.
+Fixed execution and retained storage use the same bindings. Scalar algorithms
+may decode individual Cells; public rendering/export restores the existing
+string tag/reason columns and their ordering. Each emitted expression has exact
+SourceLeaf provenance;
 provenance is not reconstructed by comparing Ibis expressions. The compiler
 does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
 

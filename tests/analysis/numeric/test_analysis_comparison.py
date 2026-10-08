@@ -103,10 +103,10 @@ def test_difference_state_refuses_old_version() -> None:
     from marivo.analysis.materialization.graph_protocol import MethodState
 
     state = MethodState(
-        "marivo.analysis.method_state/v1",
+        "marivo.analysis.method_state/v2",
         "difference",
         "marivo.analysis.state.difference",
-        2,
+        3,
         "cell.difference",
         1,
         "ordered-inputs",

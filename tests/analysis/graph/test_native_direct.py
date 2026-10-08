@@ -25,6 +25,8 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.materialization import graph_source_execution as native
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -77,7 +79,7 @@ def _scalar_parts(
     checked = result._dataset.verified()
     assert checked.primary is not None
     assert checked.primary.schema.field("value").type == pa.int64()
-    assert checked.primary.to_pylist() == [
+    assert cell_rows(checked.primary) == [
         {"value": total, "cell_tag": "defined", "cell_reason": None}
     ]
     parts = {part.role: part.table for part in checked.parts}
@@ -172,7 +174,7 @@ def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
         ]
         actual = {
             tuple(row[key] for key in keys): (row["value"], row["cell_tag"], row["cell_reason"])
-            for row in checked.primary.to_pylist()
+            for row in cell_rows(checked.primary)
         }
         expected = {
             (row["tenant"], row["id"], row["revision"]): (
@@ -385,7 +387,7 @@ def test_final_exchange_owner_distinguishes_nullable_attribution_axes_from_ident
         )
         if role == "group":
             result = from_arrow(primary, contract)
-            assert result.primary.equals(primary)
+            assert logical_table(result.primary).equals(primary)
         else:
             with pytest.raises(MaterializationError, match="null or duplicate complete key"):
                 from_arrow(primary, contract)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Annotated, Literal, TypeVar, get_args
 
 import pyarrow as pa
@@ -13,6 +13,7 @@ from pydantic import BeforeValidator, PlainSerializer, TypeAdapter, ValidationEr
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, RouteChoice
 from marivo.analysis.compiler.graph_plan import plan as make_plan
+from marivo.analysis.core.cell_encoding import CellTable
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Evidence,
@@ -69,7 +70,7 @@ def invalid(received: str) -> IntegrityError:
     return IntegrityError(
         expected="one complete canonical v8 graph Artifact with exact bindings",
         received=received,
-        repair="Preserve existing state; use a fresh project for v8 or restore the exact committed files and metadata.",
+        repair="Preserve existing state and files; re-execute the source analysis for a current Artifact or restore its exact committed metadata.",
         stage="graph_protocol",
         help_target="session.artifact",
     )
@@ -92,11 +93,11 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             raise invalid("noncanonical, missing or extra metadata fields")
         return value
     except ValidationError as error:
-        if adapter in (GRAPH, SNAPSHOT, DESCRIPTOR) and any(
-            item["loc"] == ("schema",) for item in error.errors()
+        if adapter in (GRAPH, SNAPSHOT, DESCRIPTOR, STATE) and any(
+            item["loc"] in (("schema",), ("method_state", "schema")) for item in error.errors()
         ):
             raise IntegrityError(
-                expected="graph DAG v3, descriptor v4 and continuation v5 schema versions",
+                expected="graph DAG v3, descriptor v5, method state v2 and continuation v5 schema versions",
                 received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",
@@ -174,8 +175,9 @@ class PartReceipt:
     local: PhysicalReceipt
     role: str
     contract_id: str
-    contract_version: Literal[1, 2]
-    method_state_version: Literal[1, 2]
+    contract_version: Literal[3]
+    method_state_version: Literal[3]
+    cell_table: CellTable = field(default_factory=lambda: CellTable((), ()))
 
 
 RECEIPT: TypeAdapter[PrimaryReceipt | PartReceipt] = TypeAdapter(PrimaryReceipt | PartReceipt)
@@ -183,10 +185,10 @@ RECEIPT: TypeAdapter[PrimaryReceipt | PartReceipt] = TypeAdapter(PrimaryReceipt 
 
 @dataclass(frozen=True, slots=True)
 class MethodState:
-    schema: Literal["marivo.analysis.method_state/v1"]
+    schema: Literal["marivo.analysis.method_state/v2"]
     kind: PersistentStateKind
     contract_id: str
-    contract_version: Literal[1, 2]
+    contract_version: Literal[3]
     method_name: MethodName
     method_version: Literal[1]
     input_binding: str
@@ -253,13 +255,7 @@ class MethodState:
             )
             else ("row_state",)
         )
-        allowed_versions = (
-            (1, 2)
-            if self.kind == "none" and "correspondence" in self.ordered_part_roles
-            else (2,)
-            if self.kind == "difference"
-            else (1,)
-        )
+        allowed_versions = (3,)
         if self.contract_version not in allowed_versions:
             raise IntegrityError(
                 expected=f"{self.kind} state and part contract version in {allowed_versions}",
@@ -267,7 +263,7 @@ class MethodState:
                 repair=(
                     "Re-execute the reference from complete verified inputs to produce its current retained state; incompatible reference state cannot continue."
                     if self.kind in ("share", "penetration", "standardized")
-                    else "Re-execute the source comparison to produce its current retained state; old comparison state cannot continue."
+                    else "Re-execute the producing source analysis to create current retained state; old state cannot continue."
                 ),
                 stage="graph_protocol",
                 help_target="actions.execute",
@@ -336,7 +332,7 @@ class MethodBinding:
 
 @dataclass(frozen=True, slots=True)
 class Descriptor:
-    schema: Literal["marivo.analysis.artifact_descriptor/v4"]
+    schema: Literal["marivo.analysis.artifact_descriptor/v5"]
     definition_fingerprint: str
     producing_run_ref: str
     execution_key_digest: str

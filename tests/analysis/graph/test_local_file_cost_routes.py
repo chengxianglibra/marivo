@@ -10,6 +10,7 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -132,7 +133,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         checked = result._dataset.verified()
         assert checked.primary is not None
         assert checked.primary.schema.field("value").type == pa.int64()
-        assert checked.primary.to_pylist() == [
+        assert cell_rows(checked.primary) == [
             {"value": total, "cell_tag": "defined", "cell_reason": None}
         ]
         parts = {part.role: part.table for part in checked.parts}

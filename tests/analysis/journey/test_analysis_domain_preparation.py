@@ -22,6 +22,8 @@ from marivo.analysis.core.graph import Edge, FixedLeaf, SourceDefinition, Source
 from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, Signature
 from marivo.analysis.core.rules import OccurrencePrepare
 from marivo.analysis.materialization.admission import DatasetRuntime
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
 from marivo.analysis.materialization.graph_protocol import (
@@ -309,11 +311,11 @@ def test_source_fixed_and_cold_precision(tmp_path, subject, occurrence, form, un
         )
         result = read_result(tmp_path, artifact.descriptor)
         assert result.primary.num_rows == 3
-        assert len({tuple(row.values()) for row in result.primary.to_pylist()}) == 3
+        assert len({tuple(row.values()) for row in cell_rows(result.primary)}) == 3
         expected_keys = _keys(occurrence, "occurrence", 3)
         actual = {
             tuple(row[name] for name in result.contract.key_fields)
-            for row in result.primary.to_pylist()
+            for row in cell_rows(result.primary)
         }
         assert actual == {
             ("commerce.hit", *(values[index] for values in expected_keys.values()))
@@ -359,7 +361,7 @@ def test_source_fixed_and_cold_precision(tmp_path, subject, occurrence, form, un
             continuation, (RouteChoice(continuation.identity, "artifact_python"),)
         )
         fixed_result = read_result(tmp_path, fixed.descriptor)
-        assert fixed_result.primary.equals(result.primary, check_metadata=True)
+        assert logical_table(fixed_result.primary).equals(logical_table(result.primary))
         assert (
             runtime._execute_graph(
                 continuation, (RouteChoice(continuation.identity, "artifact_python"),)
@@ -633,7 +635,7 @@ def test_f13_source_prefix_before_actual_subject_image(
         )
         if not empty and not subset:
             expected["subject1"] = 1 if method == "count" else 30 if method == "sum" else 30.0
-        assert {row["key_0"]: row["value"] for row in result.primary.to_pylist()} == expected
+        assert {row["key_0"]: row["value"] for row in cell_rows(result.primary)} == expected
         assert b"r7.restriction" in result.primary.schema.metadata
         assert json.loads(result.primary.schema.metadata[b"r7.precision"])[0]["possible_loss"] is (
             unit == "ns"
@@ -1389,8 +1391,8 @@ def test_native_sequence_capture_and_fixed_order(tmp_path, enum):
             value_type=root.value_type,
         )
         continued = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-        assert read_result(tmp_path, continued.descriptor).primary.equals(
-            result.primary, check_metadata=True
+        assert logical_table(read_result(tmp_path, continued.descriptor).primary).equals(
+            logical_table(result.primary)
         )
 
 
@@ -1489,7 +1491,7 @@ def test_filtered_event_predicate_uses_frozen_sidecar(tmp_path):
             source_factory=factory,
         )
         assert {
-            row["key_1"] for row in read_result(tmp_path, artifact.descriptor).primary.to_pylist()
+            row["key_1"] for row in cell_rows(read_result(tmp_path, artifact.descriptor).primary)
         } == {"occurrence1", "occurrence2"}
 
 
@@ -1526,7 +1528,7 @@ def test_f13_float64_retains_support_and_magnitude(tmp_path, method, empty):
             source_factory=factory,
         )
         result = read_result(tmp_path, artifact.descriptor)
-        assert {row["key_0"]: row["value"] for row in result.primary.to_pylist()} == (
+        assert {row["key_0"]: row["value"] for row in cell_rows(result.primary)} == (
             {} if empty else {"subject0": 10.5, "subject1": -20.25}
         )
         original_state = next(part.table for part in result.parts if part.role == "original_state")
@@ -1589,7 +1591,7 @@ def test_review_reordered_key():
                 root, routes, source_bindings=bindings, source_factory=source
             )
             result = read_result(directory, artifact.descriptor)
-            assert [row["value"] for row in result.primary.to_pylist()] == [30, 70]
+            assert [row["value"] for row in cell_rows(result.primary)] == [30, 70]
 
 
 @pytest.mark.runtime
@@ -1741,7 +1743,7 @@ def test_review_normalized_version_path():
                 root, routes, source_bindings=(*keys, binding), source_factory=factory
             )
             result = read_result(directory, artifact.descriptor)
-            assert [row["value"] for row in result.primary.to_pylist()] == [10, 0]
+            assert [row["value"] for row in cell_rows(result.primary)] == [10, 0]
 
 
 @pytest.mark.runtime
@@ -1903,7 +1905,7 @@ def test_review_version_ns_zone():
                 root, routes, source_bindings=(*keys, binding), source_factory=factory
             )
             result = read_result(directory, artifact.descriptor)
-            assert [row["value"] for row in result.primary.to_pylist()] == [10, 0]
+            assert [row["value"] for row in cell_rows(result.primary)] == [10, 0]
 
 
 @pytest.mark.runtime
@@ -2192,7 +2194,7 @@ def test_matching_consumes_prepared_capture(tmp_path, form, policy):
             fixed_match, (RouteChoice(fixed_match.identity, "artifact_python"),)
         )
         retained = read_result(tmp_path, fixed.descriptor)
-        assert retained.primary.equals(result.primary, check_metadata=False)
+        assert logical_table(retained.primary).equals(logical_table(result.primary))
         assert next(part.table for part in retained.parts if part.role == "journey").equals(
             next(part.table for part in result.parts if part.role == "journey")
         )

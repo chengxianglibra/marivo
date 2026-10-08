@@ -1377,7 +1377,7 @@ def test_old_descriptor_rejects_without_migration(case):
 
     output = _execute(case)
     old = encode(output.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v4", "artifact_descriptor/v3"
+        "artifact_descriptor/v5", "artifact_descriptor/v4"
     )
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, DESCRIPTOR)
@@ -1454,3 +1454,56 @@ def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
             case[0].store, connection, output.descriptor, output.artifact_ref
         )
     assert evidence.finding_count == len(findings)
+
+
+def test_compact_binding_has_one_frozen_storage_owner(case):
+    import pyarrow.parquet as pq
+
+    from marivo.analysis.materialization.cell_arrow import binding, column
+    from marivo.analysis.materialization.graph_protocol import schema_from
+
+    record = _capture(case)
+    descriptor = record.descriptor
+    schema = schema_from(descriptor.realized_schema)
+    assert binding(schema).cells
+    assert "cell_tag" not in schema.names and "cell_reason" not in schema.names
+    path = (
+        case[0].store.project_root
+        / descriptor.primary_receipt.local.project_relative_path
+        / "data.parquet"
+    )
+    assert b"marivo.analysis.cell_table" not in (pq.read_schema(path).metadata or {})
+    recovered = read_result(case[0].store.project_root, descriptor)
+    assert recovered.primary.schema.equals(schema, check_metadata=True)
+    assert column(recovered.primary, "cell_tag").to_pylist() == ["defined"] * 3
+    assert descriptor.schema == "marivo.analysis.artifact_descriptor/v5"
+    assert descriptor.method_state.schema == "marivo.analysis.method_state/v2"
+    assert descriptor.method_state.contract_version == 3
+    assert all(item.implementation_version == 6 for item in descriptor.method_bindings)
+
+
+@pytest.mark.parametrize("target", ["descriptor", "method_state"])
+def test_obsolete_artifact_cannot_hit_cache_or_mutate_saved_files(case, target):
+    saved = _capture(case)
+    fixed = _fixed(saved)
+    case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+    payload = encode(saved.descriptor, DESCRIPTOR).replace(
+        "artifact_descriptor/v5" if target == "descriptor" else "method_state/v2",
+        "artifact_descriptor/v4" if target == "descriptor" else "method_state/v1",
+    )
+    with case[0].store._write() as connection:
+        connection.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            (payload, saved.artifact_ref),
+        )
+        connection.execute(
+            "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
+            (digest(payload), saved.artifact_ref),
+        )
+    paths = tuple(case[0].store.project_root.glob(".marivo/analysis/**/data.parquet"))
+    before = {path: path.read_bytes() for path in paths}
+    counts, opens = _counts(case[0].store), list(case[4])
+    with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
+        case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+    assert _counts(case[0].store) == counts and case[4] == opens
+    assert before and all(path.read_bytes() == data for path, data in before.items())

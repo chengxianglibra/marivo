@@ -13,6 +13,7 @@ import pyarrow as pa
 from marivo.analysis.compiler.graph_plan import LocalMethodStage
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
+from marivo.analysis.materialization.cell_arrow import logical_schema, rows
 from marivo.analysis.methods.association_numeric import score
 from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
@@ -58,7 +59,9 @@ def score_spearman(
             "analysis.local",
         )
     expected = {*keys, "value", "cell_tag", "cell_reason"}
-    if not expected <= set(left.column_names) or not expected <= set(right.column_names):
+    if not expected <= set(logical_schema(left.schema).names) or not expected <= set(
+        logical_schema(right.schema).names
+    ):
         reject(
             "two complete keyed Cell inputs",
             "missing fields",
@@ -68,7 +71,7 @@ def score_spearman(
     paired: list[dict[tuple[object, ...], tuple[str, int | float | None]]] = []
     for table in (left, right):
         mapping: dict[tuple[object, ...], tuple[str, int | float | None]] = {}
-        for row in table.to_pylist():
+        for row in rows(table):
             identity = tuple(row[key] for key in keys)
             tag, value, reason = row["cell_tag"], row["value"], row["cell_reason"]
             if any(item is None for item in identity) or identity in mapping:
@@ -80,7 +83,8 @@ def score_spearman(
                 )
             if tag == "defined":
                 if (
-                    type(value) not in (int, float)
+                    isinstance(value, bool)
+                    or not isinstance(value, (int, float))
                     or not math.isfinite(value)
                     or reason is not None
                 ):
@@ -105,6 +109,7 @@ def score_spearman(
                     "Use a qualified pair policy.",
                     "analysis.local",
                 )
+            assert isinstance(tag, str) and (value is None or isinstance(value, (int, float)))
             mapping[identity] = (tag, value)
         paired.append(mapping)
     a, b = paired

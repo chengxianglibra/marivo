@@ -32,6 +32,9 @@ from marivo.analysis.core.rules import (
     OccurrencePrepare,
     PartsTransport,
 )
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import required
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
@@ -124,7 +127,7 @@ def assemble_axes(base: pa.Table, mappings: tuple[pa.Table, ...]) -> pa.Table:
     for mapping in mappings:
         check()
         indices: list[int | None] = [None] * base.num_rows
-        for index, row in enumerate(mapping.select(keys).to_pylist()):
+        for index, row in enumerate(cell_project(mapping, keys).to_pylist()):
             check()
             key = tuple(row[name] for name in keys)
             if key not in positions or indices[positions[key]] is not None:
@@ -159,7 +162,7 @@ def axes_result(node: MethodNode, table: pa.Table, binding: str) -> ExchangeResu
     state = f.EntryAxisState(
         tuple(rows), (table.schema.metadata or {})[b"r7.capture_authority"].decode()
     )
-    return _result(node, table.select(keys), (_retained("entry_axes", state),), binding)
+    return _result(node, cell_project(table, keys), (_retained("entry_axes", state),), binding)
 
 
 def _coverage(state: f.FunnelState, declaration: FunnelPart) -> None:
@@ -579,7 +582,7 @@ def transport(
     assert isinstance(params, PartsTransport)
     keys = source.contract.key_fields
     rows = [
-        {tuple(row[k] for k in keys): row for row in item.primary.to_pylist()}
+        {tuple(row[k] for k in keys): row for row in cell_rows(item.primary)}
         for item in (source, *dependencies)
     ]
     if any(set(r) != set(rows[0]) for r in rows[1:]):
@@ -605,12 +608,14 @@ def transport(
     if params.mode == "limit":
         ordering = next(p.table for p in source.parts if p.role == "ordering")
         positions = {
-            tuple(r[k] for k in keys): r["ordering__position"] for r in ordering.to_pylist()
+            tuple(r[k] for k in keys): r["ordering__position"] for r in cell_rows(ordering)
         }
-        selected = set(sorted(selected, key=lambda k: positions[k])[: params.limit_count])
+        selected = set(
+            sorted(selected, key=lambda k: required(positions[k], int))[: params.limit_count]
+        )
     primary = source.primary.filter(
         pa.array(
-            [tuple(r[k] for k in keys) in selected for r in source.primary.to_pylist()],
+            [tuple(r[k] for k in keys) in selected for r in cell_rows(source.primary)],
             type=pa.bool_(),
         )
     )
@@ -618,13 +623,13 @@ def transport(
         projected = project(source, params.attribution_view)
         primary = projected.primary.filter(
             pa.array(
-                [tuple(r[k] for k in keys) in selected for r in projected.primary.to_pylist()],
+                [tuple(r[k] for k in keys) in selected for r in cell_rows(projected.primary)],
                 type=pa.bool_(),
             )
         )
     if params.display_view == "ranks":
         ranks = next(p.table for p in source.parts if p.role == "ranks")
-        by_key = {tuple(r[k] for k in keys): r for r in ranks.to_pylist()}
+        by_key = {tuple(r[k] for k in keys): r for r in cell_rows(ranks)}
         for name in ("value", "cell_tag", "cell_reason"):
             primary = primary.set_column(
                 primary.schema.get_field_index(name),
@@ -632,7 +637,7 @@ def transport(
                 pa.array(
                     [
                         by_key[tuple(r[k] for k in keys)]["ranks__" + name]
-                        for r in primary.to_pylist()
+                        for r in cell_rows(primary)
                     ],
                     type=ranks.schema.field("ranks__" + name).type,
                 ),

@@ -19,6 +19,7 @@ from marivo.analysis.evidence._dataset_codec import (
     decode_finding_body,
     finding_identity,
 )
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -101,7 +102,7 @@ POLICY = TypeAdapter(Policy)
 def _eligible(primary: pa.Table, producer: str) -> list[dict[str, object]]:
     if producer.startswith("deviation.") or producer == "time.runs":
         return []
-    rows = [r for r in primary.to_pylist() if r["cell_tag"] == "defined"]
+    rows = [r for r in cell_rows(primary) if r["cell_tag"] == "defined"]
     keys = tuple(k for k in primary.column_names if k.startswith("key_"))
 
     def ordering(row: dict[str, object]) -> tuple[tuple[tuple[int, int | str], ...], ...]:

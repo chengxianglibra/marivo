@@ -22,6 +22,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import DeviationFit, DeviationRead, DisplayTable
 from marivo.analysis.errors import StatisticalRelationError
 from marivo.analysis.materialization import deviation_execution as execution
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangeResult,
@@ -95,7 +96,7 @@ def test_four_cell_policies_and_exact_scope(
     node, source = _input(cells, method)
     result = execution.execute(node, (source,), "result")
     inputs, state = execution._decode(result.parts)
-    rows = execution.load(state.views).to_pylist()
+    rows = cell_rows(execution.load(state.views))
     partition = state.partitions[0]
     assert (partition.defined, partition.null, partition.undefined, partition.unknown) == (
         len(values),

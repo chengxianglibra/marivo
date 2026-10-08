@@ -63,6 +63,18 @@ from marivo.analysis.core.rules import (
     TimeRunRead,
     TimeRuns,
 )
+from marivo.analysis.materialization.cell_arrow import binding as cell_binding
+from marivo.analysis.materialization.cell_arrow import (
+    compact_schema,
+    from_rows,
+    logical_schema,
+    policies,
+    required,
+    schema_binding,
+)
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import rename as cell_rename
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -73,7 +85,6 @@ from marivo.analysis.materialization.graph_exchange import (
     PartContract,
     VerifiedFixedInput,
     from_arrow,
-    from_pandas,
     from_receipts,
     numeric_primary,
 )
@@ -106,7 +117,7 @@ def _invalid(received: str) -> MaterializationError:
 
 def _transport_rows(table: pa.Table) -> list[dict[str, object]]:
     """Decode one row representation for its actual consumer."""
-    rows: list[dict[str, object]] = table.to_pylist()
+    rows: list[dict[str, object]] = cell_rows(table)
     return rows
 
 
@@ -135,7 +146,7 @@ def time_product(node: MethodNode, source: ExchangeResult, binding: str) -> Exch
     anchor = f"key_{len(keys)}"
     positions = [i for i in range(source.primary.num_rows) for _ in grid.cells]
     primary = (
-        source.primary.select(keys)
+        cell_project(source.primary, keys)
         .take(pa.array(positions, type=pa.int64()))
         .append_column(
             anchor,
@@ -164,22 +175,32 @@ def time_product(node: MethodNode, source: ExchangeResult, binding: str) -> Exch
 
 
 def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
-    if not {"value", "cell_tag", "cell_reason"} <= set(input_value.primary.column_names):
+    if not {"value", "cell_tag", "cell_reason"} <= set(
+        logical_schema(input_value.primary.schema).names
+    ):
         raise _invalid("fixed input lacks Cell fields")
     cells: list[Cell] = []
-    for row in (
-        numeric_primary(input_value.primary)
-        .select(("value", "cell_tag", "cell_reason"))
-        .to_pylist()
+    for row in cell_rows(
+        cell_project(numeric_primary(input_value.primary), ("value", "cell_tag", "cell_reason"))
     ):
         value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+        if value is not None and not isinstance(
+            value, (bool, int, float, str, date, datetime, Decimal)
+        ):
+            raise _invalid("Cell has an unsupported scalar value")
+        if reason is not None and not isinstance(reason, str):
+            raise _invalid("Cell has a non-string reason")
         if tag == "defined":
+            assert value is not None
             cells.append(Defined(value))
         elif tag == "null":
+            assert reason is not None
             cells.append(Null(reason))
         elif tag == "undefined":
+            assert reason is not None
             cells.append(Undefined(reason))
         elif tag == "unknown":
+            assert reason is not None
             cells.append(Unknown(reason))
         else:
             raise _invalid("unknown Cell tag")
@@ -402,7 +423,7 @@ def _row_result(
                 bound += roundoff(magnitude)
         else:
             indexed = _operand_components(verified)
-            rows = verified.primary.to_pylist()
+            rows = cell_rows(verified.primary)
             bounds = [
                 _fixed_operand_bound(
                     verified,
@@ -412,7 +433,8 @@ def _row_result(
                 for row in rows
             ]
             bound = (
-                math.fsum(bounds) + roundoff(math.fsum(abs(row["value"]) for row in rows))
+                math.fsum(bounds)
+                + roundoff(math.fsum(abs(required(row["value"], float)) for row in rows))
                 if params.method in ("sum", "mean")
                 else max(bounds, default=0.0)
             )
@@ -442,6 +464,9 @@ def _row_result(
             pa.field("cell_tag", pa.string()),
             pa.field("cell_reason", pa.string()),
         )
+    )
+    primary_schema = compact_schema(
+        primary_schema, REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons
     )
     part_schema = pa.schema(
         tuple(
@@ -483,8 +508,8 @@ def _row_result(
         schema=part_schema,
         preserve_index=False,
     )
-    return from_pandas(
-        pd.DataFrame({"value": [value], "cell_tag": [tag], "cell_reason": [reason]}),
+    return from_arrow(
+        from_rows(({"value": value, "cell_tag": tag, "cell_reason": reason},), primary_schema),
         contract,
         parts=(ExchangePart("row_state", part),),
         completed_checks=tuple(completed),
@@ -640,11 +665,11 @@ def _transport_stage(
         assert params.limit_count is not None
         ordering = next(part.table for part in source.parts if part.role == "ordering")
         positions = {
-            tuple(row[k] for k in keys): row["ordering__position"] for row in ordering.to_pylist()
+            tuple(row[k] for k in keys): row["ordering__position"] for row in cell_rows(ordering)
         }
-        ordered = sorted(selected_keys, key=lambda key: positions[key])
+        ordered = sorted(selected_keys, key=lambda key: required(positions[key], int))
         selected_keys = set(ordered[: params.limit_count])
-        keep = [tuple(row[k] for k in keys) in selected_keys for row in source.primary.to_pylist()]
+        keep = [tuple(row[k] for k in keys) in selected_keys for row in cell_rows(source.primary)]
     filtered = source.primary.filter(pa.array(keep, type=pa.bool_()))
     columns = (
         (*keys, "value", "cell_tag", "cell_reason")
@@ -654,7 +679,7 @@ def _transport_stage(
         and any(p.role == "history_view" for p in source.parts)
         else keys
     )
-    primary = filtered.select(columns)
+    primary = cell_project(filtered, columns)
     if params.attribution_view is not None:
         allocation = next(p.table for p in source.parts if p.role == "allocation")
         rows = _index_rows(allocation, keys)
@@ -664,7 +689,7 @@ def _transport_stage(
             pa.array(
                 [
                     rows[tuple(r[k] for k in keys)]["allocation__" + params.attribution_view]
-                    for r in primary.to_pylist()
+                    for r in cell_rows(primary)
                 ],
                 type=primary.schema.field("value").type,
             ),
@@ -672,18 +697,17 @@ def _transport_stage(
     if params.display_view == "ranks":
         ranks = next(part.table for part in source.parts if part.role == "ranks")
         rows = _index_rows(ranks, keys)
-        for field in ("value", "cell_tag", "cell_reason"):
-            primary = primary.set_column(
-                primary.schema.get_field_index(field),
-                field,
-                pa.array(
-                    [
-                        rows[tuple(row[k] for k in keys)]["ranks__" + field]
-                        for row in primary.to_pylist()
-                    ],
-                    type=ranks.schema.field("ranks__" + field).type,
-                ),
+        positions = {key: index for index, key in enumerate(rows)}
+        selected_ranks = cell_rename(
+            cell_project(ranks, (*keys, "ranks__value", "ranks__cell_tag", "ranks__cell_reason")),
+            (*keys, "value", "cell_tag", "cell_reason"),
+        )
+        primary = selected_ranks.take(
+            pa.array(
+                [positions[tuple(row[k] for k in keys)] for row in cell_rows(primary)],
+                type=pa.int64(),
             )
+        )
     parts: list[ExchangePart] = []
     for role in params.retained_roles:
         prior = next((part for part in source.parts if part.role == role), None)
@@ -767,7 +791,7 @@ def _transport_part_keys(
     from marivo.analysis.materialization.execute_deadline import check
 
     positions: list[tuple[object, ...]] = []
-    for row in _transport_rows(part.table.select(keys)):
+    for row in _transport_rows(cell_project(part.table, keys)):
         check()
         positions.append(tuple(row[key] for key in keys))
     return tuple(positions)
@@ -888,7 +912,9 @@ def _selection_source_supported(method: LoweredLocal, source: ExchangeResult) ->
     params = method.stage.node.parameters
     assert isinstance(params, PartsTransport)
     keys = source.contract.key_fields
-    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(source.primary.column_names):
+    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(
+        logical_schema(source.primary.schema).names
+    ):
         raise _invalid("fixed selection input lacks complete keys or Cell fields")
     if not source.primary.schema.equals(source.contract.schema, check_metadata=False):
         raise _invalid("fixed selection producer schema differs from its contract")
@@ -930,8 +956,9 @@ def _selection_group_result(
                 survivors.append(position)
         positions = survivors
     check()
-    primary = source.primary.take(pa.array(positions, type=pa.int64())).select(
-        (*keys, "value", "cell_tag", "cell_reason")
+    primary = cell_project(
+        source.primary.take(pa.array(positions, type=pa.int64())),
+        (*keys, "value", "cell_tag", "cell_reason"),
     )
     selected_keys = {ordered_keys[position] for position in positions}
     restricted: list[ExchangePart] = []
@@ -1002,7 +1029,9 @@ def _reduction_groups(lowered: LoweredPlan) -> dict[str, tuple[LoweredLocal, ...
 def _reduction_source_supported(method: LoweredLocal, source: ExchangeResult) -> bool:
     """Check consumed physical layouts before starting a direct-key reduction group."""
     keys = source.contract.key_fields
-    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(source.primary.column_names):
+    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(
+        logical_schema(source.primary.schema).names
+    ):
         raise _invalid("original reduction input lacks complete keys or Cell fields")
     if not source.primary.schema.equals(source.contract.schema, check_metadata=False):
         raise _invalid("original reduction producer schema differs from its contract")
@@ -1374,7 +1403,7 @@ def _difference_stage(
 
     def index_rows(table: pa.Table) -> dict[tuple[object, ...], dict[str, object]]:
         rows: dict[tuple[object, ...], dict[str, object]] = {}
-        for row in numeric_primary(table).to_pylist():
+        for row in cell_rows(numeric_primary(table)):
             key = tuple(row[column] for column in keys)
             if key in rows:
                 raise _invalid("fixed Difference endpoint keys are not injective")
@@ -1560,16 +1589,29 @@ def _difference_stage(
         )
         for index, role in enumerate(("current_endpoint", "baseline_endpoint"))
     )
-    primary = pa.Table.from_pylist(primary_rows, schema=primary_schema)
+    output_reasons = (
+        *REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons,
+        *policies(current.primary),
+        *policies(baseline.primary),
+    )
+    primary = from_rows(primary_rows, compact_schema(primary_schema, output_reasons))
     parts: tuple[ExchangePart, ...] = (
         ExchangePart(
-            "current_endpoint", pa.Table.from_pylist(current_parts, schema=part_schemas[0])
+            "current_endpoint",
+            from_rows(
+                current_parts,
+                compact_schema(part_schemas[0], output_reasons, optional=params.pairing == "keep"),
+            ),
         ),
         ExchangePart(
-            "baseline_endpoint", pa.Table.from_pylist(baseline_parts, schema=part_schemas[1])
+            "baseline_endpoint",
+            from_rows(
+                baseline_parts,
+                compact_schema(part_schemas[1], output_reasons, optional=params.pairing == "keep"),
+            ),
         ),
     )
-    correspondence = primary.select(keys)
+    correspondence = cell_project(primary, keys)
     for side in ("current", "baseline"):
         correspondence = correspondence.append_column(
             f"correspondence__{side}_present",
@@ -1626,7 +1668,7 @@ def _difference_stage(
                 [subject_rows[key] for key in union_keys], schema=retained_subject.schema
             )
         else:
-            subject = primary.select(keys)
+            subject = cell_project(primary, keys)
             for index, key_name in enumerate(keys):
                 subject = subject.append_column(f"subject__key_{index}", primary[key_name])
         parts = (ExchangePart("subject", subject), *parts)
@@ -1657,10 +1699,10 @@ def _difference_stage(
         method.stage.node.signature,
         method.stage.node.method,
         input_binding,
-        primary_schema,
+        primary.schema,
         keys,
         tuple(PartContract(part.role, part.table.schema, keys) for part in parts),
-        REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons,
+        policies(primary),
         REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind or "none",
         status_schema,
         checks,
@@ -1727,7 +1769,7 @@ def _coordinate_rollup_stage(
             for column in columns
         )
         entries = []
-        for row in state.to_pylist():
+        for row in cell_rows(state):
             nested: object = row["coordinate_state__groups"]
             if not isinstance(nested, list):
                 raise _invalid("coordinate state is not a complete list")
@@ -1757,7 +1799,7 @@ def _coordinate_rollup_stage(
         row["coverage__complete"] is not True
         for p in source.parts
         if p.role == "coverage"
-        for row in p.table.to_pylist()
+        for row in cell_rows(p.table)
     ):
         raise _invalid("coordinate reduction requires complete retained coverage")
     original_table = next(p.table for p in source.parts if p.role == "original_state")
@@ -1810,7 +1852,10 @@ def _coordinate_rollup_stage(
             ("cell_reason", pa.string()),
         ]
     )
-    primary = pa.Table.from_pylist(primary_rows, schema=primary_schema)
+    primary_schema = compact_schema(
+        primary_schema, REGISTRY.lookup(method.stage.node.method).semantics.empty_cell_reasons
+    )
+    primary = from_rows(primary_rows, primary_schema)
     state_schema = pa.schema(
         [
             *list(zip(key_fields, key_types, strict=True)),
@@ -1822,7 +1867,9 @@ def _coordinate_rollup_stage(
     coverage = pa.table(
         {**labels, "coverage__complete": pa.array([True] * len(groups), type=pa.bool_())}
     )
-    status = pa.table({**labels, "status": primary["cell_tag"]})
+    status = pa.table(
+        {**labels, "status": pa.array([row["cell_tag"] for row in primary_rows], pa.string())}
+    )
     parts: tuple[ExchangePart, ...] = (
         ExchangePart("original_state", original),
         ExchangePart("coverage", coverage),
@@ -1926,13 +1973,18 @@ def _original_rollup_stage(
         )
     except (ValueError, OverflowError, KeyError) as error:
         raise _invalid(str(error)) from error
-    primary = pa.table(
-        {
-            "value": pa.array([value], type=arrow_scalar_type(method.stage.node.value_type)),
-            "cell_tag": [tag],
-            "cell_reason": pa.array([reason], type=pa.string()),
-        }
+    semantics = REGISTRY.lookup(method.stage.node.method).semantics
+    primary_schema = compact_schema(
+        pa.schema(
+            (
+                ("value", arrow_scalar_type(method.stage.node.value_type)),
+                ("cell_tag", pa.string()),
+                ("cell_reason", pa.string()),
+            )
+        ),
+        semantics.empty_cell_reasons,
     )
+    primary = from_rows(({"value": value, "cell_tag": tag, "cell_reason": reason},), primary_schema)
     original = pa.table(
         {
             "original_state__" + name: pa.array(
@@ -2560,7 +2612,7 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
     retained = next(part.table for part in source.parts if part.role == "subject")
     fields = tuple(f"subject__key_{i}" for i in range(len(subject.subject_key)))
     keys = tuple(f"key_{i}" for i in range(len(fields)))
-    rows = retained.select(fields).to_pylist()
+    rows = cell_project(retained, fields).to_pylist()
     seen: set[tuple[object, ...]] = set()
     indices: list[int] = []
     for index, row in enumerate(rows):
@@ -2574,7 +2626,9 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
             raise _invalid("Subject mapping contains a null identity")
         seen.add(identity)
         indices.append(index)
-    primary = retained.select(fields).take(pa.array(indices, type=pa.int64())).rename_columns(keys)
+    primary = cell_rename(
+        cell_project(retained, fields).take(pa.array(indices, type=pa.int64())), keys
+    )
     if b"r7.precision" in (source.primary.schema.metadata or {}):
         primary = primary.replace_schema_metadata(source.primary.schema.metadata)
     part_table = primary
@@ -2608,9 +2662,9 @@ def _attach_category_stage(
         raise _invalid("classification has duplicate complete keys")
     mapping = next((p.table for p in source.parts if p.role == "subject"), None)
     rows = (
-        mapping.to_pylist()
+        cell_rows(mapping)
         if params.subject_mapping and mapping is not None
-        else numeric_primary(source.primary).to_pylist()
+        else cell_rows(numeric_primary(source.primary))
     )
     for row in rows:
         match = (
@@ -2636,13 +2690,18 @@ def _attach_category_stage(
         values = [
             labels[tuple(row[k] for k in source.contract.key_fields)] for row in table.to_pylist()
         ]
-        return table.append_column(
-            new_key, pa.array(values, type=category.primary.schema.field("value").type)
-        ).select(
+        return cell_project(
+            table.append_column(
+                new_key, pa.array(values, type=category.primary.schema.field("value").type)
+            ),
             (
                 *keys,
-                *(name for name in table.column_names if name not in source.contract.key_fields),
-            )
+                *(
+                    name
+                    for name in logical_schema(table.schema).names
+                    if name not in source.contract.key_fields
+                ),
+            ),
         )
 
     primary = attach(source.primary)
@@ -2676,7 +2735,7 @@ def _grouped_row_result(
     columns = tuple(f"key_{source_keys.index(c)}" for c in domain.instance_key)
     keys = tuple(f"key_{i}" for i in range(len(columns)))
     groups: dict[tuple[object, ...], list[int]] = {}
-    for index, row in enumerate(numeric_primary(source.primary).to_pylist()):
+    for index, row in enumerate(cell_rows(numeric_primary(source.primary))):
         groups.setdefault(tuple(row[name] for name in columns), []).append(index)
     scalar_domain = replace(domain, kind="singleton", instance_key=(), target_key=())
     scalar_node = replace(
@@ -2684,6 +2743,24 @@ def _grouped_row_result(
         parameters=replace(params, output_domain=scalar_domain),
     )
     scalar_method = replace(method, stage=replace(method.stage, node=scalar_node))
+
+    def grouped_schema(schema: pa.Schema) -> pa.Schema:
+        declared = cell_binding(schema)
+        return schema_binding(
+            pa.schema(
+                [
+                    *(
+                        pa.field(key, source.primary.schema.field(column).type)
+                        for key, column in zip(keys, columns, strict=True)
+                    ),
+                    *schema,
+                ],
+                metadata=schema.metadata,
+            ),
+            declared.cells,
+            (*keys, *declared.logical_columns),
+        )
+
     outputs: list[ExchangeResult] = []
     scalar_template: ExchangeResult | None = None
     for label, indices in sorted(groups.items()):
@@ -2717,8 +2794,8 @@ def _grouped_row_result(
                 for value, column in zip(label, columns, strict=True)
             ]
             return pa.Table.from_arrays(
-                [*fields, *table.columns], names=[*keys, *table.column_names]
-            ).replace_schema_metadata(table.schema.metadata)
+                [*fields, *table.columns], schema=grouped_schema(table.schema)
+            )
 
         outputs.append(
             replace(
@@ -2749,18 +2826,7 @@ def _grouped_row_result(
     def combine(tables: list[pa.Table], schema: pa.Schema) -> pa.Table:
         if tables:
             return pa.concat_tables(tables)
-        return pa.Table.from_pylist(
-            [],
-            schema=pa.schema(
-                [
-                    *(
-                        pa.field(key, source.primary.schema.field(column).type)
-                        for key, column in zip(keys, columns, strict=True)
-                    ),
-                    *schema,
-                ]
-            ),
-        )
+        return pa.Table.from_pylist([], schema=grouped_schema(schema))
 
     primary = combine([o.primary for o in outputs], template.primary.schema)
     parts = tuple(
@@ -2803,7 +2869,7 @@ def _complete_groups_stage(
 
     keys = source.contract.key_fields
     targets = [
-        tuple(row[k] for k in target.contract.key_fields) for row in target.primary.to_pylist()
+        tuple(row[k] for k in target.contract.key_fields) for row in cell_rows(target.primary)
     ]
     if len(set(targets)) != len(targets) or any(any(v is None for v in key) for key in targets):
         raise _invalid("explicit target requires unique complete keys")
@@ -2839,7 +2905,9 @@ def _complete_groups_stage(
         }
         for key in sorted(targets)
     ]
-    primary = pa.Table.from_pylist(primary_rows, schema=source.primary.schema)
+    primary = from_rows(
+        primary_rows, compact_schema(source.primary.schema, source.contract.cell_reasons)
+    )
     subject_fields = {
         f"subject__key_{i}": source.contract.signature.domain.instance_key.index(coordinate)
         for declaration in source.contract.signature.parts
@@ -2900,7 +2968,7 @@ def _group_domain_stage(
     identities = sorted(
         {
             tuple(row[column] for column in columns)
-            for row in numeric_primary(source.primary).to_pylist()
+            for row in cell_rows(numeric_primary(source.primary))
         }
     )
     schema = pa.schema(
@@ -3014,7 +3082,7 @@ def _cohort_stage(
             }
         )
     mask = pa.array(kept, type=pa.bool_())
-    primary = target.primary.select(keys).filter(mask)
+    primary = cell_project(target.primary, keys).filter(mask)
     subject = next(part for part in target.parts if part.role == "subject")
     subject_mask = pa.array(
         [tuple(row[key] for key in keys) in selected_keys for row in subject.table.to_pylist()],
@@ -3099,14 +3167,17 @@ def _duration_mean(
         raise _invalid("Duration sum exceeds int64 ticks")
     value = round(Fraction(total, support)) if support else None
     tag, reason = ("defined", None) if support else ("undefined", "empty_completed_set")
-    primary = pa.table(
-        {
-            "value": pa.array([value], type=arrow_scalar_type(output_type)),
-            "cell_tag": pa.array([tag], type=pa.string()),
-            "cell_reason": pa.array([reason], type=pa.string()),
-        }
+    primary_schema = compact_schema(
+        pa.schema(
+            (
+                ("value", arrow_scalar_type(output_type)),
+                ("cell_tag", pa.string()),
+                ("cell_reason", pa.string()),
+            )
+        ),
+        (("undefined", ("empty_completed_set",)),),
     )
-    primary = primary.replace_schema_metadata(source.primary.schema.metadata)
+    primary = from_rows(({"value": value, "cell_tag": tag, "cell_reason": reason},), primary_schema)
     retained = pa.table(
         {
             "row_state__sum": pa.array([total], type=pa.int64()),

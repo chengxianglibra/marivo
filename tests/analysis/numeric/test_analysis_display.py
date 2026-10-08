@@ -7,6 +7,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.graph_display import ranked
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
@@ -829,8 +830,10 @@ def test_closed_display_exchange_preserves_four_cells(
     ranks = project(ranking, "ranks")
     values = project(ranking, "values")
     assert _public_table(ranks)["member"].to_pylist() == [1, 2, 3, 4]
-    assert ranks.primary["cell_tag"].to_pylist() == primary["cell_tag"].to_pylist()
-    assert ranks.primary["cell_reason"].to_pylist() == primary["cell_reason"].to_pylist()
+    assert cell_column(ranks.primary, "cell_tag").to_pylist() == primary["cell_tag"].to_pylist()
+    assert (
+        cell_column(ranks.primary, "cell_reason").to_pylist() == primary["cell_reason"].to_pylist()
+    )
     inputs = tuple(
         FixedLeaf(
             ArtifactRef(ref=name),
@@ -852,7 +855,10 @@ def test_closed_display_exchange_preserves_four_cells(
     assert exported.column_0__value.tolist()[0] == 2**53 + 1
     assert exported.column_0__value.isna().tolist() == [False, True, True, True]
     for i in range(2):
-        assert table.primary[f"column_{i}__cell_tag"].to_pylist() == primary["cell_tag"].to_pylist()
+        assert (
+            cell_column(table.primary, f"column_{i}__cell_tag").to_pylist()
+            == primary["cell_tag"].to_pylist()
+        )
 
 
 def test_represented_float_order_has_no_epsilon_ties() -> None:

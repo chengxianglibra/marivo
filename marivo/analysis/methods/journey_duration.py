@@ -16,6 +16,12 @@ DurationStatus = Literal[
 ]
 
 
+CELL_REASONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("undefined", ("not_entered", "not_completed")),
+    ("unknown", ("entry_unknown", "coverage_censored")),
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DurationObservation:
     status: DurationStatus

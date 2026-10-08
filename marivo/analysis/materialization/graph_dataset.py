@@ -44,6 +44,7 @@ from marivo.analysis.datasets.state import MaterializedDatasetState, _materializ
 from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode, invalid
 from marivo.analysis.materialization.graph_snapshot import GraphDocument, MethodRecord, Record
@@ -80,7 +81,7 @@ _IDS = d._StableIdRegistry(
 
 
 def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.Table:
-    table = result.primary
+    table = logical_table(result.primary)
     signature = result.contract.signature
     terminal = any(isinstance(p, DisplayPart) and p.role == "columns" for p in signature.parts)
     if terminal:

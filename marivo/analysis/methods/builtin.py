@@ -1238,7 +1238,9 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Bind component composition to member, group or overall observation grains."""
-    declarations = _grain_implementations(method)
+    declarations = tuple(
+        replace(item, contract_version=6) for item in _grain_implementations(method)
+    )
     if method.name not in ("metric.ratio", "metric.linear") and not method.name.startswith(
         "state_rollup."
     ):
@@ -2162,7 +2164,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         return replace(
             implementation,
             key=replace(implementation.key, input_types=key.input_types),
-            contract_version=4,
+            contract_version=6,
             qualification=Qualified(
                 implementation.qualification.implementation_id,
                 implementation.qualification.consumer_id,

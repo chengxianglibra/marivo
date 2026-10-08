@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING, Literal
 
 import pyarrow as pa
 
+from marivo.analysis.materialization.cell_arrow import number as arrow_number
+from marivo.analysis.materialization.cell_arrow import project as cell_project
+from marivo.analysis.materialization.cell_arrow import required
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_relation import Relation
 
@@ -304,6 +309,7 @@ def finish(
     tables = {part.role: part.table for part in parts}
     values, reference = tables["stratum_values"], tables["fixed_reference"]
     keys = tuple(f"key_{index}" for index in range(len(params.output_domain.instance_key)))
+    result: list[tuple[tuple[object, ...], Cell]]
     if params.kind == "penetration":
         proof = tables["reference_proof"]
         ordering = [(name, "ascending") for name in values.column_names]
@@ -318,8 +324,8 @@ def finish(
             raise invalid("complete identity schemas differ")
         if any(table[name].null_count for table in (values, reference) for name in names):
             raise invalid("complete identities cannot contain null coordinates")
-        first = {tuple(row[name] for name in names) for row in values.to_pylist()}
-        second = {tuple(row[name] for name in names) for row in reference.to_pylist()}
+        first = {tuple(row[name] for name in names) for row in cell_rows(values)}
+        second = {tuple(row[name] for name in names) for row in cell_rows(reference)}
         if len(first) != values.num_rows or len(second) != reference.num_rows:
             raise invalid("complete identities cannot contain duplicate rows")
         result = [((), penetration(len(first & second), len(second)))]
@@ -328,8 +334,8 @@ def finish(
         weight_physical = physical_type(reference.schema.field("value").type)
         if reference_type(params.kind, value_physical, weight_physical) != value_type:
             raise invalid("numeric schemas disagree with the frozen result type")
-        rows = numeric_primary(values).to_pylist()
-        refs = numeric_primary(reference).to_pylist()
+        rows = cell_rows(numeric_primary(values))
+        refs = cell_rows(numeric_primary(reference))
         if params.kind == "share":
             if len(refs) != 1 or refs[0]["cell_tag"] != "defined":
                 raise invalid("share reference must be one finite Defined denominator")
@@ -342,7 +348,7 @@ def finish(
                 raise invalid("share lost its original additive support state")
             components = tuple(
                 {name: row["original_state__" + name] for name in state.components}
-                for row in proof.to_pylist()
+                for row in cell_rows(proof)
             )
             _, reproduced, tag, _ = merge_original(
                 components,
@@ -355,7 +361,7 @@ def finish(
             if tag != "defined" or reproduced != denominator:
                 raise invalid("reference denominator differs from complete additive support")
             support = {
-                tuple(row[key] for key in keys): row for row in numeric_primary(proof).to_pylist()
+                tuple(row[key] for key in keys): row for row in cell_rows(numeric_primary(proof))
             }
             result = []
             for row in rows:
@@ -394,9 +400,8 @@ def finish(
             if any(row["cell_tag"] != "defined" for row in refs):
                 raise invalid("reference weights must all be finite Defined")
             ordering = [(name, "ascending") for name in names]
-            if (
-                tables["strata"].sort_by(ordering).to_pylist()
-                != reference.select(names).sort_by(ordering).to_pylist()
+            if cell_rows(tables["strata"].sort_by(ordering)) != cell_rows(
+                cell_project(reference, names).sort_by(ordering)
             ):
                 raise invalid("retained strata differ from the complete reference key image")
             if not tables["reference_proof"].sort_by(ordering).equals(values.sort_by(ordering)):
@@ -446,7 +451,7 @@ def error_bounds(
             for row in primary.to_pylist()
         ]
     values, reference = tables["stratum_values"], tables["fixed_reference"]
-    rows, refs = numeric_primary(values).to_pylist(), numeric_primary(reference).to_pylist()
+    rows, refs = cell_rows(numeric_primary(values)), cell_rows(numeric_primary(reference))
     names = tuple(
         f"key_{index}"
         for index in range(
@@ -464,8 +469,8 @@ def error_bounds(
                 by_key[tuple(row[name] for name in names)]["value"],
                 ref["value"],
                 row["value"],
-                by_key[tuple(row[name] for name in names)]["error_bound"],
-                ref["error_bound"],
+                required(by_key[tuple(row[name] for name in names)]["error_bound"], float),
+                required(ref["error_bound"], float),
             )
             for row in primary.to_pylist()
         ]
@@ -474,8 +479,8 @@ def error_bounds(
         standardized_error(
             tuple(cell(row, physical_type(values.schema.field("value").type)) for row in ordered),
             tuple(row["value"] for row in refs),
-            tuple(row["error_bound"] for row in ordered),
-            tuple(row["error_bound"] for row in refs),
+            tuple(required(row["error_bound"], float) for row in ordered),
+            tuple(required(row["error_bound"], float) for row in refs),
             row["value"],
         )
         for row in primary.to_pylist()
@@ -541,8 +546,8 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
     facts: list[tuple[str, str]] = [("retained_reference", params.reference_id)]
     if params.kind == "penetration":
         names = reference.column_names
-        members = {tuple(row[name] for name in names) for row in values.to_pylist()}
-        population = {tuple(row[name] for name in names) for row in reference.to_pylist()}
+        members = {tuple(row[name] for name in names) for row in cell_rows(values)}
+        population = {tuple(row[name] for name in names) for row in cell_rows(reference)}
         facts.extend(
             (
                 ("reference_members", str(len(population))),
@@ -552,11 +557,11 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
     elif params.kind == "share":
         denominator = reference["value"][0].as_py()
         names = checked.contract.key_fields
-        support = tables["reference_proof"].to_pylist()
+        support = cell_rows(tables["reference_proof"])
         complete = {tuple(row[name] for name in names) for row in support}
-        current = {tuple(row[name] for name in names) for row in checked.primary.to_pylist()}
+        current = {tuple(row[name] for name in names) for row in cell_rows(checked.primary)}
         nonnegative = denominator > 0 and all(
-            row["cell_tag"] == "defined" and row["value"] >= 0 for row in support
+            row["cell_tag"] == "defined" and arrow_number(row["value"]) >= 0 for row in support
         )
         facts.extend(
             (
@@ -619,13 +624,13 @@ def fixed_parts(node: MethodNode, inputs: tuple[ExchangeResult, ...]) -> tuple[E
                                 tuple(row[name] for name in source.contract.key_fields), {}
                             ),
                         )
-                        for row in numeric_primary(source.primary).to_pylist()
+                        for row in cell_rows(numeric_primary(source.primary))
                     ],
                     type=pa.float64(),
                 ),
             )
         if declaration.role == "strata":
-            table = table.select(source.contract.key_fields)
+            table = cell_project(table, source.contract.key_fields)
         if declaration.original_state is not None:
             state = next(part.table for part in source.parts if part.role == "original_state")
             keys = source.contract.key_fields
