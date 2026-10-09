@@ -133,12 +133,12 @@ def test_instance_selection_subject_image_and_duration_mean(tmp_path):
     selected = intervals.where(intervals.status.value.eq("completed"))
     assert len(selected.members(through=binding).execute().to_pandas()) == 1
     durations = selected.observed_duration
-    mean = durations.summarize(mv.mean()).execute()
+    mean = durations.aggregate(mv.mean()).execute()
     assert mean.to_pandas()["value"].tolist() == [timedelta(seconds=5)]
     assert mean._dataset.verified().parts[0].table["row_state__sum"].to_pylist() == [10_000_000]
     empty = intervals.where(intervals.status.value.eq("missing"))
     assert empty.members(through=binding).execute().to_pandas().empty
-    assert empty.observed_duration.summarize(mv.mean()).execute().to_pandas()[
+    assert empty.observed_duration.aggregate(mv.mean()).execute().to_pandas()[
         "cell_reason"
     ].tolist() == ["empty_completed_set"]
     violations = history.violations().execute()
@@ -679,13 +679,13 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
     assert means["open"] == timedelta(microseconds=2)
     assert means["paid"] == timedelta(microseconds=3)
     for field in (dwell.mean_duration, dwell.median_duration, dwell.p90_duration):
-        assert "relation.summarize(method)" not in {a.call for a in field.contract().actions}
+        assert "relation.aggregate(method)" not in {a.call for a in field.contract().actions}
         with pytest.raises(AnalysisError, match="cannot be averaged"):
-            field.summarize(mv.mean())
+            field.aggregate(mv.mean())
     intervals = history.intervals().execute()
     mean = (
         intervals.where(intervals.status.value.eq("completed"))
-        .observed_duration.summarize(mv.mean())
+        .observed_duration.aggregate(mv.mean())
         .execute()
     )
     assert mean.to_pandas()["value"].tolist() == [timedelta(microseconds=2)]
@@ -801,4 +801,4 @@ def test_source_history_owned_fields_use_registered_row_count(tmp_path):
         (history.intervals().left_clipped, 4),
         (history.intervals().observed_duration, 4),
     ):
-        assert relation.summarize(mv.count()).execute().to_pandas()["value"].tolist() == [expected]
+        assert relation.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [expected]

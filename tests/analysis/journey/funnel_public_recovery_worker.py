@@ -260,7 +260,7 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
                 target=mv.funnel_loss_rate(step=steps()[1]),
                 axes=(ms.ref.dimension("commerce.subjects.sid"),),
             ),
-            "duration_mean": duration.summarize(mv.mean()),
+            "duration_mean": duration.aggregate(mv.mean()),
             "dropout": matched.read(mv.dropped_before(step=steps()[1])),
         }
         if "following" in inputs:

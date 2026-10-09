@@ -226,7 +226,7 @@ def test_public_member_read_and_category_selection(
     assert tuple(action.call for action in actions) == (
         "relation.where(predicate)",
         "relation.members()",
-        "relation.summarize(method)",
+        "relation.aggregate(method)",
     )
     assert all(action.help_target.startswith("analysis.") for action in actions)
     assert isinstance(
@@ -454,7 +454,7 @@ def test_public_j2_selected_members_and_next_month_mean(
             via=buyer,
             by=(mv.member(),),
         )
-        .summarize(mv.mean())
+        .aggregate(mv.mean())
         .execute()
     )
 
@@ -490,7 +490,7 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     )
 
     overall = observed.rollup().execute()
-    current_mean = observed.summarize(mv.mean()).execute()
+    current_mean = observed.aggregate(mv.mean()).execute()
     by_channel = observed.group_by(channel).rollup().execute()
 
     assert overall.to_pandas().iloc[0]["value"] == 40
@@ -563,7 +563,7 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     assert association.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association.to_pandas().iloc[0]["complete_pair_count"] == 4
     assert selected.to_pandas().iloc[0]["value"] == pytest.approx(-0.4)
-    assert coefficient.summarize(mv.mean()).execute().to_pandas().value.iloc[0] == pytest.approx(
+    assert coefficient.aggregate(mv.mean()).execute().to_pandas().value.iloc[0] == pytest.approx(
         -0.4
     )
     import marivo.semantic.catalog as catalog
@@ -796,5 +796,5 @@ def test_retired_grouping_calls_reject_before_execution(
             exec(call, namespace)
     assert case.session.runs().items == before
     assert tuple(case.session._runtime.statistics.statements) == statements
-    assert selected.summarize(mv.count()).execute().to_pandas().value.tolist() == [2]
-    assert fixed_selected.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [2]
+    assert selected.aggregate(mv.count()).execute().to_pandas().value.tolist() == [2]
+    assert fixed_selected.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [2]

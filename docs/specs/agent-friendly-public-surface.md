@@ -25,6 +25,8 @@ have stable descriptive names, not pages partitioned by descriptor position.
 Types and receiver members remain focused contracts; the explicit Dataset model
 topics provide its required type navigation without mixing all types into inputs
 or evidence discovery. Roots explain responsibilities, states and route choice.
+Entry summaries state the capability's purpose. Complete matching, replay,
+recovery and backend constraints remain on the exact callable Help page.
 
 Exact examples declare only their actual external inputs and bind public helpers
 through standard imports. Session bootstrap needs no prior Session or Artifact.

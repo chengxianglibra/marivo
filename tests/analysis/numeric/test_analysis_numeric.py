@@ -64,7 +64,7 @@ def test_direct_distribution(
     assert not any(action.call == "relation.rollup()" for action in fixed.contract().actions)
     with pytest.raises(AnalysisError):
         fixed.rollup()
-    assert fixed.summarize(mv.count()).execute().to_pandas()["value"].tolist() == [4]
+    assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [4]
     for relation in (observed, fixed):
         with pytest.raises(AnalysisError):
             relation.group_by(ms.ref.entity("sales.customer")).rollup()
@@ -273,7 +273,7 @@ def test_decimal_original_state(
     fixed = logical.execute()
     assert logical.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
-    assert fixed.summarize(mv.count()).execute().to_pandas()["value"].tolist() == [4]
+    assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [4]
 
 
 @pytest.mark.runtime
@@ -527,7 +527,7 @@ def test_duration_matrix(
                     pa.array(frame["value"]).cast(pa.duration(unit)).cast(pa.int64()).to_pylist()
                 )
                 assert actual == [expected]
-    assert fixed.summarize(mv.count()).execute().to_pandas()["value"].tolist() == [
+    assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [
         5 if coordinates and kind != "count_distinct" else 4
     ]
 
@@ -1213,8 +1213,8 @@ def test_current_row_counts_keep_numeric_null_policy(
     assert isinstance(logical, mv.LogicalNumericRelation)
     fixed = logical.execute()
     for relation in (logical, fixed):
-        assert relation.summarize(mv.count()).execute().to_pandas().value.tolist() == [4]
-        assert relation.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [3]
+        assert relation.aggregate(mv.count()).execute().to_pandas().value.tolist() == [4]
+        assert relation.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [3]
 
     def unexpected_dispatch(*args: object, **kwargs: object) -> None:
         raise AssertionError("Invalid row methods must reject before graph construction.")
@@ -1224,7 +1224,7 @@ def test_current_row_counts_keep_numeric_null_policy(
         for relation in (logical, fixed):
             with pytest.raises(AnalysisError) as caught:
                 # Deliberately cross the typed boundary to verify the concrete runtime repair.
-                relation.summarize(object())  # type: ignore[arg-type]
+                relation.aggregate(object())  # type: ignore[arg-type]
             error = caught.value
             assert error.expected == "mv.sum/count/count_defined/min/max/mean()"
             assert error.received == "object"

@@ -78,7 +78,7 @@ def run_process(
             ("count", mv.count()),
             ("count_defined", mv.count_defined()),
         ):
-            results[name] = observed.group_by(region).summarize(method).execute()
+            results[name] = observed.group_by(region).aggregate(method).execute()
         for name in ("distinct", "approx_distinct", "quantile", "approx_quantile"):
             results[name] = members.observe(
                 ms.ref.metric(f"sales.{name}"),
@@ -127,7 +127,7 @@ def run_process(
                 )
                 with pytest.raises(AnalysisError):
                     fixed.rollup()
-                continuation = fixed.summarize(mv.count())
+                continuation = fixed.aggregate(mv.count())
             result = continuation.execute()
             if name in expected:
                 assert result.to_pandas()["value"].tolist() == [expected[name]]

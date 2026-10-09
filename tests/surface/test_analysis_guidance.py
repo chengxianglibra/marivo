@@ -10,7 +10,8 @@ from collections import deque
 import pytest
 
 import marivo.analysis as mv
-from marivo._help.model import NativeHelpRoute
+from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute
+from marivo._help.render import render_help_text
 from marivo._help.route import route_help_target
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.dataset_render import render
@@ -185,7 +186,7 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
     for owner in members:
         assert not hasattr(owner, "count")
     for owner in scalars:
-        assert hasattr(owner, "summarize")
+        assert hasattr(owner, "aggregate")
     for name in mv.__all__:
         owner = getattr(mv, name)
         if not inspect.isclass(owner):
@@ -195,3 +196,52 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
                 assert "groups" not in inspect.signature(getattr(owner, method)).parameters
     assert not any("GroupedAnalysisDomain" in target for target in REGISTRY.canonical_ids())
     assert "groups:" not in render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
+
+
+def test_current_row_aggregation_has_one_public_entry() -> None:
+    owners = (
+        mv.LogicalCategoryRelation,
+        mv.MaterializedCategoryRelation,
+        mv.LogicalBooleanRelation,
+        mv.MaterializedBooleanRelation,
+        mv.LogicalTemporalRelation,
+        mv.MaterializedTemporalRelation,
+        mv.LogicalSelectedBooleanRelation,
+        mv.MaterializedSelectedBooleanRelation,
+        mv.LogicalSelectedTemporalRelation,
+        mv.MaterializedSelectedTemporalRelation,
+        mv.LogicalSelectedNumericRelation,
+        mv.MaterializedSelectedNumericRelation,
+        mv.LogicalNumericRelation,
+        mv.MaterializedNumericRelation,
+        mv.MaterializedGroupedNumericRelation,
+        mv.LogicalRolledNumericRelation,
+        mv.MaterializedRolledNumericRelation,
+        mv.LogicalRolledRatioRelation,
+        mv.MaterializedRolledRatioRelation,
+        mv.LogicalRatioRelation,
+        mv.MaterializedRatioRelation,
+        mv.LogicalDifferenceRelation,
+        mv.MaterializedDifferenceRelation,
+        mv.LogicalSelectedDifferenceRelation,
+        mv.MaterializedSelectedDifferenceRelation,
+        mv.MaterializedCoefficientRelation,
+        mv.LogicalCoefficientSelectionRelation,
+        mv.MaterializedCoefficientSelectionRelation,
+        mv.GroupedNumericRelation,
+        mv.GroupedRatioRelation,
+        mv.LogicalCoefficientRelation,
+    )
+    for owner in owners:
+        assert callable(owner.aggregate), owner.__name__
+        assert not hasattr(owner, "summarize"), owner.__name__
+        assert not hasattr(owner, "agg"), owner.__name__
+        text, surface, target = render_help_text(owner.aggregate)
+        assert surface == "analysis"
+        assert target is not None and target.endswith(".aggregate")
+        assert text == render_help_text("analysis." + target)[0]
+        assert "relation.aggregate(" in text
+        assert ".summarize" not in text
+        with pytest.raises(MarivoHelpTargetError):
+            render_help_text("analysis." + target.removesuffix("aggregate") + "summarize")
+    assert not any(target.endswith(".summarize") for target in REGISTRY.canonical_ids())

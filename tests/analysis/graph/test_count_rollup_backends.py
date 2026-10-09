@@ -167,7 +167,7 @@ def test_native_count_rollup_and_group_state(
             scalar,
             individual.rollup(),
             scalar.rollup(),
-            individual.summarize(mv.sum()),
+            individual.aggregate(mv.sum()),
         )
         for logical in reductions:
             offset = len(execution_records(tmp_path))

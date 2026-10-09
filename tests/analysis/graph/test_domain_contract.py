@@ -16,7 +16,7 @@ def test_registered_templates_and_non_scalar_units_keep_their_actions(
         by=(mv.member(),),
     )
     assert "relation.correlate(*others)" in {action.call for action in values.contract().actions}
-    statistic = values.summarize(mv.count())
+    statistic = values.aggregate(mv.count())
     assert "relation.compare(baseline)" in {action.call for action in statistic.contract().actions}
     assert "comparison_unavailable" not in dict(statistic.contract()._facts)
     assert "relation.correlate(*others)" not in {

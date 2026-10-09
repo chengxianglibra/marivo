@@ -163,7 +163,7 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         numeric = result.coefficient
         assert result.coefficient.to_pandas().value.tolist() == [1.0]
         assert isinstance(numeric._node.root.signature.quantity, DerivedQuantity)
-        descriptive = numeric.summarize(mv.mean()).execute()
+        descriptive = numeric.aggregate(mv.mean()).execute()
         assert isinstance(descriptive._node.root.signature.quantity, RowStatisticQuantity)
         assert descriptive.to_pandas().value.tolist() == [1.0]
     elif method == "time.runs@v1":
@@ -232,11 +232,11 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         )
         assert isinstance(numeric._node.root.signature.quantity, DerivedQuantity)
         assert isinstance(
-            numeric.summarize(mv.mean())._node.root.signature.quantity, RowStatisticQuantity
+            numeric.aggregate(mv.mean())._node.root.signature.quantity, RowStatisticQuantity
         )
         for bound in (result.lower, result.upper):
             with pytest.raises(AnalysisError):
-                bound.summarize(mv.sum())
+                bound.aggregate(mv.sum())
     assert issued and submitted == issued
     assert not any(
         token in sql.lower()

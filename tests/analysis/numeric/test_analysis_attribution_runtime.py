@@ -812,7 +812,7 @@ def test_numeric_view_rank_uses_typed_other_order(
         calls = {a.call for a in result.contribution.contract().actions}
         assert "relation.where(predicate)" in calls
         assert any(".ratio(" in call for call in calls)
-        assert any(".summarize(" in call for call in calls)
+        assert any(".aggregate(" in call for call in calls)
         ranking = result.contribution.rank(order="descending", ties="ordinal").execute()
         assert isinstance(ranking, mv.MaterializedRankingResult)
         rows = ranking.ranks.to_pandas()

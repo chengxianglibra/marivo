@@ -47,7 +47,7 @@ history.execute().read(mv.in_state(ms.model_state(ms.ref.state_model("sales.mode
 category.where(category.value.eq("west")).execute().members().observe(ms.ref.metric("sales.revenue"))
 observed = members.observe(ms.ref.metric("sales.revenue"), during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=ms.ref.relationship("sales.buyer"))
 assert isinstance(observed, mv.LogicalNumericRelation)
-observed.summarize(mv.mean()).compare(category)
+observed.aggregate(mv.mean()).compare(category)
 observed.compare(observed).rollup()
 observed.correlate(observed, method="partial")
 mv.path(ms.ref.metric("sales.revenue"))

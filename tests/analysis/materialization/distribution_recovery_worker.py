@@ -111,7 +111,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 ("count", mv.count(), 2),
                 ("mean", mv.mean(), total / 2),
             ):
-                result = execute(kind + ":" + name, selected.summarize(method))
+                result = execute(kind + ":" + name, selected.aggregate(method))
                 rows = result.to_pandas()
                 assert len(rows) == 1 and abs(float(rows.value.iloc[0]) - expected) < 1e-12
                 assert rows.cell_tag.tolist() == ["defined"]

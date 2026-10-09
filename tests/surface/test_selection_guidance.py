@@ -26,7 +26,7 @@ def test_selection_discloses_members_only_with_retained_subject_map(
     shares = values.share_of(values.rollup())
     selected_share = shares.where(shares.value.gt(0.5))
     assert "relation.members()" not in {action.call for action in selected_share.contract().actions}
-    assert "relation.summarize(method)" in {
+    assert "relation.aggregate(method)" in {
         action.call for action in selected_share.contract().actions
     }
     with pytest.raises(DatasetConstructionError) as refusal:

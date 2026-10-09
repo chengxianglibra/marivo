@@ -33,7 +33,7 @@ def test_current_row_mean_of_integer_counts(
     expected = sum(str(order[4]).startswith("2026-08") for order in facts.orders) / len(
         facts.customers
     )
-    mean = counts.summarize(mv.mean()).execute()
+    mean = counts.aggregate(mv.mean()).execute()
     assert mean.to_pandas().value.tolist() == [expected]
 
 

@@ -59,7 +59,7 @@ def recover(root: Path, phase: str) -> None:
                     result = session.artifact(dataset.artifact.artifact_ref)
             else:
                 logical = (
-                    fixed.where(fixed.value.is_defined()).summarize(mv.count())
+                    fixed.where(fixed.value.is_defined()).aggregate(mv.count())
                     if state.get("distribution") is True
                     else fixed.rollup()
                 )

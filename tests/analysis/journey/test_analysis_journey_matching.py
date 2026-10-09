@@ -783,7 +783,7 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
             subject(4): (0, 0, 0, False, 0),
         },
     )
-    logical_subject_mean = completed_values.group_by(ref.entity("sales.customers")).summarize(
+    logical_subject_mean = completed_values.group_by(ref.entity("sales.customers")).aggregate(
         mv.mean()
     )
     assert [a.call for a in logical_subject_mean.contract().actions] == ["relation.execute()"]
@@ -792,17 +792,17 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
     assert subject_mean_result.rollup().execute().to_pandas()["value"].iloc[0] == timedelta(
         microseconds=46_666_667
     )
-    source_mean = completed_values.summarize(mv.mean()).execute()
+    source_mean = completed_values.aggregate(mv.mean()).execute()
     assert source_mean.to_pandas()["value"].iloc[0] == timedelta(microseconds=46_666_667)
     fixed_values = completed_values.execute()
-    mean = fixed_values.summarize(mv.mean()).execute()
+    mean = fixed_values.aggregate(mv.mean()).execute()
     assert mean.to_pandas()["value"].iloc[0] == timedelta(microseconds=46_666_667)
     from marivo.analysis.errors import AnalysisError
 
     with pytest.raises(AnalysisError, match="mean reduction only"):
         mean.compare(mean)
 
-    by_subject = fixed_values.group_by(ref.entity("sales.customers")).summarize(mv.mean()).execute()
+    by_subject = fixed_values.group_by(ref.entity("sales.customers")).aggregate(mv.mean()).execute()
     assert sorted(by_subject.to_pandas()["value"].tolist()) == [
         timedelta(seconds=20),
         timedelta(seconds=100),
@@ -922,14 +922,14 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
     assert complete.duration.execute().to_pandas()["cell_tag"].tolist() == ["defined"]
     import marivo.analysis as mv
 
-    assert complete.duration.summarize(mv.mean()).execute().to_pandas()["cell_tag"].tolist() == [
+    assert complete.duration.aggregate(mv.mean()).execute().to_pandas()["cell_tag"].tolist() == [
         "defined"
     ]
     dropout = public.read(mv.dropped_before(step=pattern.steps[1]))
     with pytest.raises(AnalysisError, match="unknown"):
         dropout.where(dropout.value.eq(True)).execute()
     values = complete.duration
-    empty_mean = values.where(values.value.lt(timedelta(0))).summarize(mv.mean()).execute()
+    empty_mean = values.where(values.value.lt(timedelta(0))).aggregate(mv.mean()).execute()
     assert empty_mean.to_pandas()["cell_reason"].tolist() == ["empty_completed_set"]
     empty_state = next(
         part.table for part in empty_mean._dataset.verified().parts if part.role == "row_state"
@@ -969,7 +969,7 @@ completed = session.artifact(sys.argv[4])
 assert isinstance(completed, mv.MaterializedCompletedJourneys)
 values = completed.duration
 assert len(values.execute().to_pandas()) == 1
-values.summarize(mv.mean()).execute()
+values.aggregate(mv.mean()).execute()
 summary = session.artifact(sys.argv[5])
 assert summary.rollup().execute().to_pandas()["value"].iloc[0] == timedelta(microseconds=46666667)
 assert "captured_precision" in dict(elapsed.contract()._facts)

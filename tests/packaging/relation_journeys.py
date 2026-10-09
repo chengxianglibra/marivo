@@ -750,7 +750,7 @@ def _continue(saved: dict[str, Saved], scenario: Scenario) -> dict[str, Saved]:
         selected = difference.where(difference.value.lt(0))
         outputs["where"] = selected.execute()
         outputs["members"] = selected.members().execute()
-        outputs["sum"] = difference.summarize(mv.sum()).execute()
+        outputs["sum"] = difference.aggregate(mv.sum()).execute()
         assert sorted(outputs["members"].to_pandas().member) == _oracle()["selected"]
         current, baseline = saved["current"], saved["baseline"]
         assert isinstance(current, mv.MaterializedNumericRelation) and isinstance(

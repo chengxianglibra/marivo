@@ -182,7 +182,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 ]
                 if owner == "fixed":
                     summary = execute(
-                        name + ":selected_sum", selected.contribution.summarize(mv.sum())
+                        name + ":selected_sum", selected.contribution.aggregate(mv.sum())
                     )
                     assert summary.to_pandas().value.tolist() == [3 if metric == "sum" else 1.5]
             if axis_kind == "joint":

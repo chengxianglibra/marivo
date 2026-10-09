@@ -489,7 +489,7 @@ class Workload:
         self.fixed_expected = sum(
             _integer(row["amount"]) for row in self.rows if row["amount"] is not None
         )
-        return producer.summarize(mv.sum())
+        return producer.aggregate(mv.sum())
 
     def validate(self, result: Result) -> dict[str, bool]:
         assert result._dataset is not None

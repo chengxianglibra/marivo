@@ -58,7 +58,7 @@ def recover(root: Path, phase: str) -> None:
                     dataset = Relation(session._runtime, node, FrozenBinding(node)).execute()
                     result = session.artifact(dataset.artifact.artifact_ref)
             else:
-                logical = fixed.where(fixed.value.is_defined()).summarize(mv.count())
+                logical = fixed.where(fixed.value.is_defined()).aggregate(mv.count())
                 result = logical.execute()
                 assert logical.execute().state.artifact_ref == result.state.artifact_ref
                 graphs[name] = freeze_graph(logical._node.root)

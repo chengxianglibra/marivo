@@ -172,7 +172,7 @@ def accept_chain(
         first_trace = tuple(trace)
         trace.clear()
         fits.clear()
-        summary = observed.summarize(method=mv.count_defined()).execute()
+        summary = observed.aggregate(method=mv.count_defined()).execute()
         assert summary.to_pandas().value.tolist() == [len(wanted)]
         assert len(fits) == 1
         assert max(i for i, event in enumerate(trace) if event == "source_read") < trace.index(

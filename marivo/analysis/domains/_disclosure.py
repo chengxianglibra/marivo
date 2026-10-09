@@ -46,11 +46,23 @@ def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
 
-    for target, value, entry, parameters, output, code, requires, constraint, registrations in (
+    for (
+        target,
+        value,
+        entry,
+        summary,
+        parameters,
+        output,
+        code,
+        requires,
+        constraint,
+        registrations,
+    ) in (
         (
             "events.match",
             JourneyEvents.match,
             "session.events.match",
+            "Match captured Event participants into a canonical Journey.",
             (
                 P(
                     "pattern",
@@ -94,6 +106,7 @@ def provider() -> DisclosureProvider:
             "lifecycle.replay",
             HistoryLifecycle.replay,
             "session.lifecycle.replay",
+            "Replay modeled History from real inception to the window end.",
             (
                 P("model", "Choose an exact loaded StateModel Ref."),
                 P(
@@ -124,7 +137,7 @@ def provider() -> DisclosureProvider:
                 semantic_kinds=(SemanticKind.EVENT,)
                 if target == "events.match"
                 else (SemanticKind.STATE_MODEL,),
-                summary=constraint,
+                summary=summary,
                 discovery_group="entry",
                 related=("session.get_or_create", "catalog.require", "catalog.readiness"),
                 parameters=parameters,

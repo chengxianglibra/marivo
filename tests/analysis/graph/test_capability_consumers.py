@@ -262,7 +262,7 @@ def test_source_coordinates_statistics_and_original_state(
         values = selected.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(values, mv.LogicalNumericRelation)
         grouped = values.group_by(categories)
-        counted = grouped.summarize(mv.count()).execute()
+        counted = grouped.aggregate(mv.count()).execute()
         assert counted._dataset is not None
         assert any(
             item.key.method == MethodKey("group.attach")
@@ -279,7 +279,7 @@ def test_source_coordinates_statistics_and_original_state(
             assert isinstance(revision, mv.LogicalCategoryRelation)
             assert isinstance(selected_revision, mv.LogicalCategoryRelation)
             tuple_result = (
-                values.group_by(categories, selected_revision).summarize(mv.count()).execute()
+                values.group_by(categories, selected_revision).aggregate(mv.count()).execute()
             )
             tuples = tuple_result.to_pandas()
             assert tuples.set_index(["group", "coord_0"]).value.to_dict() == {
@@ -287,11 +287,11 @@ def test_source_coordinates_statistics_and_original_state(
                 ("a", 2): 1,
             }
             source_trace.record(tuple_result)
-        summed = grouped.summarize(mv.sum()).execute()
+        summed = grouped.aggregate(mv.sum()).execute()
         assert summed.to_pandas().set_index("group").value.to_dict() == {"a": 2}
-        defined = grouped.summarize(mv.count_defined()).execute()
+        defined = grouped.aggregate(mv.count_defined()).execute()
         assert defined.to_pandas().set_index("group").value.to_dict() == {"a": 2}
-        mean = grouped.summarize(mv.mean()).execute()
+        mean = grouped.aggregate(mv.mean()).execute()
         means = mean.to_pandas().set_index("group")
         assert means.loc["a", "value"] == 1.0
         assert mean.rollup().execute().to_pandas().value.tolist() == [1.0]
@@ -323,17 +323,17 @@ def test_source_coordinates_statistics_and_original_state(
         assert full.group_by(bucket).rollup().rollup().execute().to_pandas().value.tolist() == [
             full_sum
         ]
-        assert full.summarize(mv.mean()).execute().to_pandas().value.tolist() == pytest.approx(
+        assert full.aggregate(mv.mean()).execute().to_pandas().value.tolist() == pytest.approx(
             [full_sum / 3], abs=1e-12, rel=0
         )
         average = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
         assert isinstance(average, mv.LogicalNumericRelation)
-        assert average.summarize(mv.count()).execute().to_pandas().value.tolist() == [3]
-        assert average.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [2]
+        assert average.aggregate(mv.count()).execute().to_pandas().value.tolist() == [3]
+        assert average.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [2]
         for reducer in (mv.sum(), mv.mean()):
             before = set(tmp_path.rglob("*.parquet"))
             with pytest.raises(MaterializationError) as refused:
-                average.summarize(reducer).execute()
+                average.aggregate(reducer).execute()
             assert refused.value.stage == "graph_check"
             assert refused.value.expected == "finite_numeric"
             assert refused.value.received == "1 violating rows"
@@ -343,8 +343,8 @@ def test_source_coordinates_statistics_and_original_state(
         assert isinstance(empty_members, mv.LogicalAnalysisDomain)
         empty_values = empty_members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(empty_values, mv.LogicalNumericRelation)
-        assert empty_values.summarize(mv.count()).execute().to_pandas().value.tolist() == [0]
-        empty_mean = empty_values.summarize(mv.mean()).execute().to_pandas()
+        assert empty_values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [0]
+        empty_mean = empty_values.aggregate(mv.mean()).execute().to_pandas()
         assert empty_mean.cell_reason.tolist() == ["empty_mean"]
         for result in (counted, summed, defined, mean, original):
             source_trace.record(result)
@@ -462,7 +462,7 @@ def test_original_mean_preserves_component_weights(
         assert isinstance(bucket, mv.LogicalCategoryRelation)
         assert isinstance(values, mv.LogicalNumericRelation)
         grouped = values.group_by(bucket).rollup()
-        current = grouped.group_by().summarize(mv.mean()).execute()
+        current = grouped.group_by().aggregate(mv.mean()).execute()
         original = grouped.rollup().execute()
         assert current.to_pandas().value.tolist() == [50.5]
         assert original.to_pandas().value.tolist() == pytest.approx([200 / 101])
@@ -485,7 +485,7 @@ def test_original_mean_preserves_component_weights(
         submissions_before = len(source_trace.native_sql)
         with monkeypatch.context() as isolated:
             isolated.setattr(type(case.session), "batches", forbid_source)
-            assert fixed.group_by().summarize(mv.mean()).execute().to_pandas().value.tolist() == [
+            assert fixed.group_by().aggregate(mv.mean()).execute().to_pandas().value.tolist() == [
                 50.5
             ]
             assert fixed.rollup().execute().to_pandas().value.tolist() == pytest.approx([200 / 101])

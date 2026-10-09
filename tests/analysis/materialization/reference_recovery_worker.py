@@ -222,7 +222,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ("share_count", mv.count(), 3),
             ("share_mean", mv.mean(), 1 / 3),
         ):
-            statistic = execute(name, share.summarize(method))
+            statistic = execute(name, share.aggregate(method))
             assert statistic.to_pandas().value.tolist() == [expected_stat]
         limited = execute("limited", ranking.limit(2))
         filtered = execute("filtered", ranking.where(ranking.ranks.value.gt(1)))

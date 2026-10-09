@@ -302,8 +302,8 @@ coverage remain distinct.
 ## Inspect current rows
 
 Use `observe(by=...)` for the first Metric grouping. Numeric results can regroup
-and summarize their current rows; Category, Boolean and Temporal results support
-overall `summarize(mv.count())` and `summarize(mv.count_defined())`. Member domains
+and aggregate their current rows; Category, Boolean and Temporal results support
+overall `aggregate(mv.count())` and `aggregate(mv.count_defined())`. Member domains
 do not expose a direct count or grouping operation. The example uses the customer
 sales model and retains only the selected east customers.
 
@@ -326,11 +326,11 @@ original = members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(region,),
 ).execute()
-row_mean = values.group_by(region).summarize(mv.mean()).execute()
+row_mean = values.group_by(region).aggregate(mv.mean()).execute()
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
-row_counts = values.group_by(region).summarize(mv.count()).execute()
-category_count = selected_regions.summarize(mv.count()).execute()
+row_counts = values.group_by(region).aggregate(mv.count()).execute()
+category_count = selected_regions.aggregate(mv.count()).execute()
 ```
 
 For a report with prescribed rows, export with `to_pandas()` and apply display

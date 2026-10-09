@@ -41,7 +41,7 @@ are the shared meta-rule families. Concrete methods have their own versioned
 identity and are derived through the single MethodRegistry. Specialized matching,
 replay, allocation and statistical rules retain their own algorithmic owners.
 
-Current-row `summarize` constructs a new RowStatistic quantity over represented
+Current-row `aggregate` constructs a new RowStatistic quantity over represented
 rows. Original `rollup` merges the retained Metric components and finishes under
 the same governed equation. Empty state can be mergeable even when its finished
 mean or ratio is Undefined. An absent/unknown component is never that empty state.
@@ -60,7 +60,7 @@ retry a different numerical or execution route.
 Native-table Count original reductions admit int64 retained counts over Entity,
 Group and Singleton inputs on PostgreSQL, MySQL, Trino and ClickHouse through
 the Ibis route with an instant/us/UTC physical shape. They merge original
-occurrence counts and coverage in the database; current-row `summarize` remains
+occurrence counts and coverage in the database; current-row `aggregate` remains
 a different quantity. The registry owns the exact keys. Missing-key errors retain
 the requested key and disclose at most three admitted physical profiles for the
 same types, domains and time. These are explicit reconstruction choices, not
@@ -163,7 +163,7 @@ A semantic allowance below still requires a qualified physical implementation.
 | Current-row count_defined | Inspect Cell tag; only Defined counts; empty 0 | checked int64 count, current instance unit/domain and original tag policy | Merge this statistic's counts, never recast as count_all |
 | Current-row sum | All consumed values Defined and finite; admitted empty 0 | sum and row count, new RowStatistic identity | Same statistic's sum-state merge, disjoint current-row contributions |
 | Current-row min/max | All consumed values Defined and finite; empty Undefined(empty_min/empty_max) | optional extremum and row count | Same statistic's extrema merge; empty state is neutral |
-| Current-row mean | All consumed values Defined and finite; empty Undefined(empty_mean) | sum and row count, including valid (0,0) | Same statistic's sum/count merge; Undefined empty Cell is not a zero input to summarize |
+| Current-row mean | All consumed values Defined and finite; empty Undefined(empty_mean) | sum and row count, including valid (0,0) | Same statistic's sum/count merge; Undefined empty Cell is not a zero input to aggregate |
 | Direct count_distinct | Declared value identity; Null excluded; empty 0 | Final value and input/method evidence only; no retained set/sketch promise | No original rollup or attribution |
 | Direct median/percentile | Finite non-null values; Metric empty policy; exact linear interpolation | Final value, q, defined operation and actual algorithm/precision evidence; no distribution/sketch promise | No original rollup or attribution |
 | Semi-additive time fold | Per declared spatial-before-time order, sample/time policy and coverage | Exact ordered evaluation keys plus pre-fold components sufficient to restore that order; method identity includes first/last/min/max/mean/percentile | Only qualified fold/reduction with retained state and order/disjointness proof; finished values alone insufficient |
@@ -268,7 +268,7 @@ bindings, weighting and empty policies remain owned by the registered method.
 Consumption still indexes complete primary/state/coverage keys, rejects duplicate
 insertions and missing components, and checks retained coverage and Cell/state
 agreement. Numerical failures are structured execution failures. Current-row
-`summarize` continues to aggregate represented result rows; it does not replace
+`aggregate` continues to aggregate represented result rows; it does not replace
 original-quantity `rollup`.
 
 ClickHouse native weighted products and retained sums widen exact intermediates
@@ -687,7 +687,7 @@ and retained loss disclosure. There are no replay row, memory or tie-width quota
 History exposes the six views and Duration/Subject observation rules below
 on the unified local graph path. Logical and materialized History both return
 Logical views; materialized receivers retain fixed leaves. Dwell Duration summary
-fields cannot be pooled with summarize or rollup. Current-row mean is admitted on
+fields cannot be pooled with aggregate or rollup. Current-row mean is admitted on
 interval observed_duration and retains exact sum/count for fixed merging.
 
 Replay starts at real inception, which may precede the report window; only
@@ -966,7 +966,7 @@ association.max_abs_coefficient_min_abs_lag_min_signed_lag@v1. All invalid and
 valid candidates remain. Pair*lag*series ceiling is 4096, checked statically when
 known and at execution otherwise; it is unrelated to input rows/bytes/memory.
 where does not recompute coefficients, selected flags or original search_summary.
-Coefficient summarize describes current coefficient rows; it is not pooled
+Coefficient aggregate describes current coefficient rows; it is not pooled
 correlation, original rollup, Entity selection, causality or inference.
 
 ### Forecast model and interval equations

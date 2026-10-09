@@ -68,7 +68,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         before = run_ids(session)
         outputs: dict[str, Json] = {}
         operations: dict[str, Continuation] = {
-            "current": value.group_by().summarize(mv.mean()),
+            "current": value.group_by().aggregate(mv.mean()),
             "original": value.rollup(),
         }
         for name, operation in operations.items():

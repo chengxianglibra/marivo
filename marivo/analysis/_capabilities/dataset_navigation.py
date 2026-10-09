@@ -83,7 +83,6 @@ _HUBS = (
         "decision_hub",
         guidance=(
             "Existing object: follow the receiver's contract() actions and exact Help targets directly.",
-            "Current-row statistics create a new quantity; Metric rollup merges retained original state.",
         ),
     ),
     NavigationInput(
@@ -167,12 +166,11 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result.append(
         NavigationInput(
             "",
-            "Governed lazy analysis: construct -> execute -> inspect.",
+            "Construct without business reads; execute() publishes; show() inspects results.",
             tuple(hub.canonical_id for hub in _HUBS),
             "root",
             guidance=(
                 "Imports: import marivo; import marivo.analysis as mv; import marivo.semantic as ms",
-                "Construct without business reads; execute() publishes; show() reads results.",
                 "Unknown capability: choose a route. Existing object: contract().show() -> exact Help.",
                 "Agent: method choice and conclusions. Marivo: typed computation and Evidence.",
                 "Errors own expected/received facts and the exact repair.",

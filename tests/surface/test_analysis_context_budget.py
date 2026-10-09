@@ -121,9 +121,9 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     if "analysis.methods.metric.summary" not in methods:
         trace.help("analysis.methods.metric")
     summary = trace.help("analysis.methods.metric.summary")
-    assert "analysis.dsl.LogicalNumericRelation.summarize" in summary
-    trace.help(values.summarize)
-    mean = values.summarize(mv.mean()).execute()
+    assert "analysis.dsl.LogicalNumericRelation.aggregate" in summary
+    trace.help(values.aggregate)
+    mean = values.aggregate(mv.mean()).execute()
     trace.identities[mean.state.artifact_ref.ref] = "<artifact>"
     trace.identities[mean.state.producing_run_ref] = "<run>"
     trace.read("mean result", mean.show)
@@ -171,14 +171,14 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     contract = fixed.contract()
     trace.read("fixed contract", contract.show)
     summary_action = next(
-        action for action in contract.actions if action.call.startswith("relation.summarize(")
+        action for action in contract.actions if action.call.startswith("relation.aggregate(")
     )
     trace.help(summary_action.help_target)
     # Fixed execution must succeed with the source unavailable.
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        fixed_mean = fixed.summarize(mv.mean()).execute()
+        fixed_mean = fixed.aggregate(mv.mean()).execute()
         trace.identities[fixed_mean.state.artifact_ref.ref] = "<next-artifact>"
         trace.identities[fixed_mean.state.producing_run_ref] = "<next-run>"
         trace.read("fixed mean result", fixed_mean.show)
