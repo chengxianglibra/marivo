@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
-from typing import Literal
 from uuid import uuid4
 
 import ibis
@@ -87,7 +86,7 @@ from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_store import GraphArtifact
 from marivo.analysis.methods.physical import ScalarType, ValueType
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
-from marivo.analysis.observation.route_inputs import RootRoutesValue, RootRouteValue
+from marivo.analysis.observation.route_inputs import RelationshipPath
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.refs import (
     DimensionKind,
@@ -137,11 +136,10 @@ class MemberGraph:
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridPoint | None = None,
-        via: Ref[RelationshipKind] | RootRouteValue | RootRoutesValue | None = None,
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
         sidecar: CompiledExpressionSidecar | None = None,
         report_timezone: str = "UTC",
         inherit_member_version: bool = False,
-        match_verification: Literal["check", "assume"] = "check",
         resolver: RelationshipResolver | None = None,
     ) -> MemberGraph:
         """Bind a typed scalar field through one complete, single-valued path."""
@@ -160,8 +158,6 @@ class MemberGraph:
             SemanticKind.MEASURE,
         ):
             raise reject(repr(dimension))
-        if match_verification not in ("check", "assume"):
-            raise reject("match_verification must be 'check' or 'assume'")
         if isinstance(at, GridPoint) and at.grid != self.root.signature.domain.time_grid:
             raise reject("attribute endpoint belongs to a different grid")
         body: ExpressionBody | None = None
@@ -206,6 +202,8 @@ class MemberGraph:
                 raise reject("field kind differs from its declaration")
         start = self.root.signature.domain.instance_key[0].entity_ref.path
         owner = field.entity_ref.path
+        if isinstance(via, tuple):
+            raise reject("read accepts one Relationship Ref or RelationshipPath")
         resolver = resolver or RelationshipResolver.build(self.registry)
         overrides = resolver.overrides(
             via, roots=(ref.entity(start),), target="dsl.LogicalAnalysisDomain.read"
@@ -359,7 +357,6 @@ class MemberGraph:
                 if dimension.kind is SemanticKind.MEASURE
                 and any(anchor is not None for anchor in anchors)
                 else "untimed",
-                match_verification=match_verification,
                 owner_selection=leaves[-1].signature.domain.version_selection,
             ),
             sources=leaves,

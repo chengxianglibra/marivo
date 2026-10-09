@@ -124,18 +124,12 @@ def _produce(
         saved = members.observe(
             ms.ref.metric("operations.energy_per_reading"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=mv.routes(
-                mv.route(
-                    ms.ref.entity("operations.sample"),
-                    through=(
-                        ms.ref.relationship("operations.sample_reading"),
-                        ms.ref.relationship("operations.reading_device"),
-                    ),
+            via=(
+                mv.path(
+                    ms.ref.relationship("operations.sample_reading"),
+                    ms.ref.relationship("operations.reading_device"),
                 ),
-                mv.route(
-                    ms.ref.entity("operations.reading"),
-                    through=(ms.ref.relationship("operations.reading_device"),),
-                ),
+                mv.path(ms.ref.relationship("operations.reading_device")),
             ),
             coordinates=(ms.ref.dimension("operations.reading.sensor"),),
         ).execute()

@@ -13,7 +13,6 @@ from marivo.analysis.compiler.graph_lowering import (
     LoweredRelation,
     RelationLayout,
     SourceBinding,
-    captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.rules import HistoryAxesPrepare
@@ -56,23 +55,12 @@ def lower_axes(
                     if index == 0
                     else tuple(right for _, right in route[index - 1])
                 )
-                current_ids = tuple(
-                    dict.fromkeys((*occurrences.source_ids, *axis.source_ids[: index + 1]))
-                )
                 joined = current.left_join(
                     raw,
                     [
                         *(current[f"__join_{i}"] == raw[key] for i, key in enumerate(join_keys)),
                         _version(raw, bound, current.__instant),
                     ],
-                )
-                checks.append(
-                    captured_match_check(
-                        stage,
-                        f"point:{point_index}:axis:{axis_index}:hop:{index}",
-                        joined.filter(raw[join_keys[0]].isnull()),
-                        current_ids,
-                    )
                 )
                 fields = {name: current[name] for name in (*keys, "__instant")}
                 if index < len(route):

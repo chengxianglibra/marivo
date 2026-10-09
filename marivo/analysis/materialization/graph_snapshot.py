@@ -47,7 +47,7 @@ MAX_REFERENCES = 16384
 MAX_DEPTH = 128
 MAX_EXPANDED_BYTES = 4 * 1024 * 1024
 MAX_ENCODED_BYTES = 262144
-PREFIX = "graph-dag-v6:"
+PREFIX = "graph-dag-v7:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +98,7 @@ Record = Annotated[SourceRecord | FixedRecord | MethodRecord, Field(discriminato
 
 @dataclass(frozen=True, slots=True)
 class GraphDocument:
-    schema: Literal["marivo.analysis.graph_dag/v6"]
+    schema: Literal["marivo.analysis.graph_dag/v7"]
     root: str
     nodes: tuple[Record, ...]
 
@@ -147,7 +147,7 @@ def _record_text(record: Record) -> str:
 
     # Dataclass equality can equate differently typed literals (e.g. 1 and 1.0).
     # Compare the exact closed wire facts, without recursively expanding inputs.
-    return encode(GraphDocument("marivo.analysis.graph_dag/v6", record.identity, (record,)), GRAPH)
+    return encode(GraphDocument("marivo.analysis.graph_dag/v7", record.identity, (record,)), GRAPH)
 
 
 def same_node_definition(first: Node, second: Node) -> bool:
@@ -294,7 +294,7 @@ def graph_document(root: Node) -> GraphDocument:
             pending.extend(node.sources)
             pending.extend(node.retained_endpoints)
     document = GraphDocument(
-        "marivo.analysis.graph_dag/v6",
+        "marivo.analysis.graph_dag/v7",
         root.identity,
         tuple(records[identity] for identity in sorted(records)),
     )
@@ -378,7 +378,7 @@ def read_graph_document(text: str) -> GraphDocument:
 
     if not text.startswith(PREFIX):
         raise IntegrityError(
-            expected="the current graph-dag-v6 frozen definition",
+            expected="the current graph-dag-v7 frozen definition",
             received="obsolete or unknown graph snapshot format",
             repair="Preserve existing state and files. Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
             stage="graph_protocol",

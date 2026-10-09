@@ -222,7 +222,11 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
         (order_source,),
         replace(direct, path=(buyer,), path_contracts=(buyer_contract,)),
     )
-    assert via_buyer.obligations[0].fact.kind == "mapping_total"
+    assert via_buyer.obligations == ()
+    assert any(
+        item.fact.kind == "mapping_total" and item.basis == "assumption"
+        for item in via_buyer.output.evidence
+    )
     with pytest.raises(CoreRuleError, match="directed single-valued"):
         derive(
             (source,),

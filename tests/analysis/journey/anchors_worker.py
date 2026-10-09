@@ -1,6 +1,7 @@
 """Three-process public Anchor production, offline continuation and exact recovery."""
 
 import json
+import os
 import shutil
 import sys
 from contextlib import ExitStack
@@ -71,6 +72,7 @@ def produce(root: Path) -> None:
 
 
 def offline(root: Path, cold: bool) -> None:
+    os.chdir(root)
     data = json.loads((root / "manifest.json").read_text())
     executed = []
     with ExitStack() as guards:

@@ -318,15 +318,9 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
     manifest: dict[str, Json] = {"session": session.id, "inputs": inputs}
     for index, (metric, expected) in enumerate(variants):
         via = (
-            mv.routes(
-                mv.route(
-                    ms.ref.entity("commerce.facts"),
-                    through=(ms.ref.relationship("commerce.participant"),),
-                ),
-                mv.route(
-                    ms.ref.entity("commerce.other"),
-                    through=(ms.ref.relationship("commerce.other_participant"),),
-                ),
+            (
+                mv.path(ms.ref.relationship("commerce.participant")),
+                mv.path(ms.ref.relationship("commerce.other_participant")),
             )
             if metric is linear
             else ms.ref.relationship("commerce.participant")

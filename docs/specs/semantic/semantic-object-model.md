@@ -933,7 +933,7 @@ interpreting a semantic ref path as a physical column.
 For a versioned endpoint, this is conditional on the consuming operation's
 exact snapshot or validity selection. Loading checks these declarations without
 reading rows. Analysis trusts declared multiplicity/version grain; unknown
-required matching has an exact invocation check or call assumption. A weaker
+required matching is retained as an exact unverified consuming-contract assumption. A weaker
 many side never grants fanout safety. Derived
 cardinality grants no evidence of actual rows. When completeness matters, an
 explicit bounded `source_check.relationship_matches(...)` can test its declared

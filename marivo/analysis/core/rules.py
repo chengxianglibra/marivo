@@ -168,7 +168,6 @@ class BindProject:
     expression_bodies: tuple[tuple[str, str, str], ...] = ()
     measure_unit: str | None = None
     attribute_time: str = "untimed"
-    match_verification: Literal["check", "assume"] = "check"
     owner_selection: (
         TargetSnapshotSelection | TargetValiditySelection | GridVersionSelection | None
     ) = None
@@ -851,26 +850,20 @@ def captured_mapping_derivation(
     else:
         return derivation
     facts = tuple(captured_mapping_fact(inputs, params, slot) for slot in slots)
-    obligations = tuple(
-        dict.fromkeys(
-            (
-                *derivation.obligations,
-                *(Obligation(fact, "source.group_mapping@v1", "consume") for fact in facts),
-            )
-        )
-    )
+    assumptions = tuple(Evidence(fact, "assumption", "relationship_contract") for fact in facts)
     return replace(
         derivation,
         pre=(*derivation.pre, *facts),
-        obligations=obligations,
         output=replace(
             derivation.output,
-            obligations=obligations,
-            evidence=tuple(
-                replace(item, dependencies=tuple(dict.fromkeys((*item.dependencies, *facts))))
-                if item.basis == "builder" and item.source_id == derivation.eval_id
-                else item
-                for item in derivation.output.evidence
+            evidence=(
+                *(
+                    replace(item, dependencies=tuple(dict.fromkeys((*item.dependencies, *facts))))
+                    if item.basis == "builder" and item.source_id == derivation.eval_id
+                    else item
+                    for item in derivation.output.evidence
+                ),
+                *assumptions,
             ),
         ),
     )
@@ -1413,13 +1406,6 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
             "Freeze the resolved field body and each bound field definition.",
             "core.bind_project.expression",
         )
-    if params.match_verification not in ("check", "assume"):
-        reject(
-            "check or assume",
-            str(params.match_verification),
-            "Choose match_verification='check' or 'assume'.",
-            "core.bind_project.verification",
-        )
     match_scope = (
         params.ref.path
         + ":"
@@ -1438,11 +1424,9 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
     if not params.path and params.owner_selection == source.domain.version_selection:
         established = (*established, Evidence(pre[2], "builder", match_scope))
         obligations = ()
-    elif params.match_verification == "assume":
+    else:
         established = (*established, Evidence(pre[2], "assumption", match_scope))
         obligations = ()
-    else:
-        obligations = _premise(inputs, pre[2], check_id="source.group_mapping@v1", before="consume")
     quantity = params.quantity
     projected_quantity: ObservedQuantity | DerivedQuantity | None = quantity
     if params.ref.kind is SemanticKind.MEASURE:
@@ -1875,13 +1859,12 @@ def _observe_metric(
             *(part_role(p) for p in coordinate_parts),
         ),
         post=(_fact("state_binding", binding, quantity.definition_id),),
-        obligations=tuple(
-            Obligation(fact, "source.group_mapping@v1", "consume") for fact in mappings
-        ),
+        obligations=(),
         eval_id=f"metric.observe.{aggregate_method}@v1",
         established=(
-            Evidence(partition, "builder", quantity.contribution_id),
-            Evidence(complete, "builder", quantity.definition_id),
+            Evidence(partition, "builder", quantity.contribution_id, mappings),
+            Evidence(complete, "builder", quantity.definition_id, mappings),
+            *(Evidence(fact, "assumption", "relationship_contract") for fact in mappings),
         ),
         preserve_key_domain=output_domain == source.domain,
     )
@@ -3655,7 +3638,7 @@ def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> R
         if not params.subject_mapping
         and source.key_domain_id
         and source.key_domain_id == category.key_domain_id
-        else ()
+        else (Evidence(match, "assumption", "classification_contract"),)
     )
     return _result(
         "parts_transport@v1",
@@ -3667,14 +3650,7 @@ def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> R
         required=("subject",) if params.subject_mapping else (),
         created=(),
         post=(),
-        obligations=(
-            *(
-                (Obligation(match, "source.group_mapping@v1", "consume"),)
-                if not established
-                else ()
-            ),
-            Obligation(policy, "source.cell_policy@v1", "consume"),
-        ),
+        obligations=(Obligation(policy, "source.cell_policy@v1", "consume"),),
         eval_id="group.attach.complete_keys@v1",
         established=established,
     )

@@ -76,7 +76,7 @@ class ValueTables:
 
 @dataclass(frozen=True, slots=True)
 class WireDocument:
-    schema: Literal["marivo.analysis.graph_dag/v6"]
+    schema: Literal["marivo.analysis.graph_dag/v7"]
     root: str
     nodes: tuple[JsonObject, ...]
     tables: ValueTables
@@ -274,7 +274,7 @@ class GraphValueCodec(Generic[T]):
         if not isinstance(root, str) or not isinstance(nodes, list):
             _invalid("invalid serialized graph envelope")
         wire = WireDocument(
-            "marivo.analysis.graph_dag/v6",
+            "marivo.analysis.graph_dag/v7",
             root,
             tuple(_object(node) for node in nodes),
             writer.tables(),

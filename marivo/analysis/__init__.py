@@ -230,8 +230,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import MemberAxis as MemberAxis
     from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
     from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
-    from marivo.analysis.public_dsl import RootRoute as RootRoute
-    from marivo.analysis.public_dsl import RootRoutes as RootRoutes
+    from marivo.analysis.public_dsl import RelationshipPath as RelationshipPath
     from marivo.analysis.public_dsl import RowMethod as RowMethod
     from marivo.analysis.public_dsl import TimeGrid as TimeGrid
     from marivo.analysis.public_dsl import count as count
@@ -241,9 +240,8 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import member as member
     from marivo.analysis.public_dsl import min as min
     from marivo.analysis.public_dsl import one_to_one as one_to_one
+    from marivo.analysis.public_dsl import path as path
     from marivo.analysis.public_dsl import reference_weights as reference_weights
-    from marivo.analysis.public_dsl import route as route
-    from marivo.analysis.public_dsl import routes as routes
     from marivo.analysis.public_dsl import sum as sum
     from marivo.analysis.public_dsl import table as table
     from marivo.analysis.public_dsl import time_grid as time_grid

@@ -132,12 +132,7 @@ from marivo.analysis.materialization.graph_fields import (
 )
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
-from marivo.analysis.observation.route_inputs import (
-    RootRoutesValue,
-    RootRouteValue,
-    root_route,
-    root_routes,
-)
+from marivo.analysis.observation.route_inputs import RelationshipPath as RelationshipPath
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.subject import DroppedBefore
 from marivo.introspection.live.reflect import required_arguments
@@ -162,8 +157,6 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.graph_exchange import ExchangeResult
 
-RootRoute: TypeAlias = RootRouteValue
-RootRoutes: TypeAlias = RootRoutesValue
 MetricInputValue: TypeAlias = Ref[MetricKind] | RuntimeMetricExpr
 _TOKEN = object()
 _DEFAULT_FORECAST_MODEL = naive()
@@ -296,28 +289,20 @@ def max() -> RowMethod:
     return RowMethod("max")
 
 
-def route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) -> RootRoute:
-    """Bind a contribution Entity to one governed relationship path.
+def path(
+    first_relationship: Ref[RelationshipKind], *remaining_relationships: Ref[RelationshipKind]
+) -> RelationshipPath:
+    """Compose a nonempty ordered relationship path.
 
     Args:
-        root: Exact contribution Entity Ref.
-        through: Ordered Relationship Ref path; empty selects identity at the root.
-    Returns: A closed RootRoute for read or observe.
-    Example: ``path = mv.route(order, through=(buyer,))``.
-    Constraints: The route is validated against the selected member and Metric.
+        first_relationship: First exact Relationship Ref, determining the source Entity.
+        remaining_relationships: Subsequent directed contiguous Relationship Refs.
+    Returns: An immutable RelationshipPath for read or observe.
+    Example: ``selection = mv.path(line_order, buyer)``.
+    Constraints: Endpoints and to-one roles are validated by the consuming operation.
+    A tuple passed to observe.via selects separate roots; mv.path composes hops.
     """
-    return root_route(root, through=through)
-
-
-def routes(*items: RootRoute) -> RootRoutes:
-    """Bind explicit relationship roles by contribution root identity.
-
-    Args: items: One or more RootRoute values for distinct roots.
-    Returns: A closed RootRoutes value for read or observe.
-    Example: ``pair = mv.routes(line_route, order_route)``.
-    Constraints: Read requires one member-rooted route. Observe accepts partial root overrides in any order; remaining roots resolve automatically. Duplicate and extra roots reject.
-    """
-    return root_routes(*items)
+    return RelationshipPath._from_refs((first_relationship, *remaining_relationships))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1007,7 +992,7 @@ class _Value:
                         f"{kind}:{len([fact for fact in assumptions if fact.kind == kind])}"
                         for kind in sorted({fact.kind for fact in assumptions})
                     )
-                    + "; not checked",
+                    + "; trusted contract, not checked",
                 )
             )
         from marivo.analysis.core.model import RunCellsPart
@@ -2710,8 +2695,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[MeasureKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
-        match_verification: Literal["check", "assume"] = "check",
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
     ) -> LogicalNumericRelation: ...
 
     @overload
@@ -2720,8 +2704,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[DimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
-        match_verification: Literal["check", "assume"] = "check",
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
     ) -> LogicalCategoryRelation | LogicalBooleanRelation: ...
 
     @overload
@@ -2730,8 +2713,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
-        match_verification: Literal["check", "assume"] = "check",
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
     ) -> LogicalTemporalRelation: ...
 
     def read(
@@ -2739,8 +2721,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[MeasureKind] | Ref[DimensionKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
-        match_verification: Literal["check", "assume"] = "check",
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
     ) -> (
         LogicalNumericRelation
         | LogicalCategoryRelation
@@ -2752,11 +2733,10 @@ class LogicalAnalysisDomain(_CohortDomain):
         Args:
             field: Declared Measure, direct Dimension/TimeDimension, or bound Boolean Dimension expression Ref.
             at: Independent aware attribute instant or grid endpoint; an endpoint binds every member/time cell. Unversioned fields accept None or a grid endpoint and keep their stable value.
-            via: Relationship Ref, RootRoute or one-entry RootRoutes selecting a member-to-owner role; omit or pass None to infer the unique directed to-one path.
-            match_verification: Check unknown owner matching, or assume it for this call.
+            via: Relationship Ref or RelationshipPath selecting a member-to-owner role; omit or pass None to infer the unique directed to-one path.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
         Example: ``values = members.read(field, at=scope.before_end)``.
-        Constraints: Unknown matching is checked by default; assume records a call premise. Declared to-one cardinality is trusted. Member versions remain independent; before_end is a symbolic left limit.
+        Constraints: Required matching is trusted as an unverified premise. An absent owner operand fails when the field is consumed; a present owner's Null field remains source_null. Declared to-one cardinality is trusted. Member versions remain independent; before_end is a symbolic left limit.
         """
         point: datetime | BeforeEndBoundary | GridPoint | None = (
             at if not isinstance(at, GridEndpoint) else None
@@ -2765,7 +2745,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         if isinstance(at, GridEndpoint):
             receiver, bound = self._bind_time_grid(at._grid)
             point = GridPoint(bound, at._side)
-        node = receiver.read(field, at=point, via=via, match_verification=match_verification)
+        node = receiver.read(field, at=point, via=via)
         if field.kind is SemanticKind.MEASURE:
             return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
         if field.kind is SemanticKind.TIME_DIMENSION:
@@ -2780,7 +2760,10 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         during: TimeScope | TimeGrid | None = None,
         at: datetime | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
+        via: Ref[RelationshipKind]
+        | RelationshipPath
+        | tuple[Ref[RelationshipKind] | RelationshipPath, ...]
+        | None = None,
         by: tuple[MemberAxis | Ref[DimensionKind] | LogicalCategoryRelation, ...] = (),
         complete_during: tuple[TimeScope, ...] | None = None,
     ) -> LogicalNumericRelation | LogicalRatioRelation:
@@ -2790,7 +2773,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             metric: Declared Metric Ref or closed runtime Metric expression to observe.
             during: Fixed TimeScope, a TimeGrid selecting each bucket's window, or None for no added restriction.
             at: Explicit cumulative endpoint, grid endpoint binding every time cell, or aware datetime.
-            via: Relationship Ref, RootRoute or RootRoutes selecting contribution roles by root identity. Omit or pass None to infer unique directed to-one paths; partial overrides leave other roots automatic.
+            via: Relationship Ref, RelationshipPath or nonempty tuple of paths selecting contribution roles by root identity. Omit or pass None to infer unique directed to-one paths; partial overrides leave other roots automatic.
             by: Ordered tuple of mv.member(), categorical Dimensions, or
                 same-Session logical member or contribution-root classifications. Independent scalar Dimension branches are allowed. The member axis retains the receiver's full primary key and Subject identity.
                 Empty means Singleton on ordinary members, or one overall value per time bucket.
@@ -2839,29 +2822,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         overrides = resolver.overrides(
             via, roots=root_refs, target="dsl.LogicalAnalysisDomain.observe"
         )
-        paths_list: list[tuple[Ref[RelationshipKind], ...]] = []
-        for root in root_refs:
-            prefixes = tuple(
-                tuple(semantic_ref.relationship(item.path) for item in component.event_time_path)
-                for component in metric_contract.components
-                if component.computation_root.path == root.path
-            )
-            prefix = builtins.max(prefixes, key=len, default=())
-            if any(prefix[: len(item)] != item for item in prefixes):
-                raise _reject(
-                    "compatible declared component roles",
-                    root.path,
-                    "Observe conflicting component roles independently.",
-                )
-            paths_list.append(
-                resolver.resolve(
-                    root.path,
-                    subject.entity_ref.path,
-                    explicit=overrides.get(root.path),
-                    prefix=prefix,
-                )
-            )
-        paths = tuple(paths_list)
+        paths = resolver.metric_paths(metric_contract, subject.entity_ref.path, overrides)
         keys: list[Coordinate] = []
         categories: list[LogicalCategoryRelation] = []
         contribution_domains: dict[str, Relation] = {}
@@ -2906,7 +2867,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                 ):
                     member_read = member_classifier_base.read(
                         dimension,
-                        via=RootRouteValue(subject.entity_ref, member_paths[0]),
+                        via=path(*member_paths[0]) if member_paths[0] else None,
                         resolver=resolver,
                     )
                     node = node.attach_category(member_read)
@@ -2972,7 +2933,9 @@ class LogicalAnalysisDomain(_CohortDomain):
                             root.path, owner, bound_member=(subject.entity_ref.path, route_path)
                         )
                     read = base.read(
-                        dimension, via=RootRouteValue(root, read_path), resolver=resolver
+                        dimension,
+                        via=path(*read_path) if read_path else None,
+                        resolver=resolver,
                     )
                 bound_categories.append((root, read))
             bound_coordinates = tuple(
@@ -7213,18 +7176,21 @@ class _AnchorDomain(_Value):
         metric: Ref[MetricKind] | RuntimeMetricExpr,
         *,
         within: ElapsedWindow | CalendarWindow,
-        via: Ref[RelationshipKind] | RootRoutes,
+        via: Ref[RelationshipKind]
+        | RelationshipPath
+        | tuple[Ref[RelationshipKind] | RelationshipPath, ...]
+        | None = None,
     ) -> LogicalNumericRelation:
         """Observe a governed Metric separately in each relative Anchor window.
 
         Args:
             metric: Exact Metric or RuntimeMetricExpr.
             within: Positive closed relative window.
-            via: Exact route or independently bound contribution-root routes.
+            via: Relationship Ref, RelationshipPath or nonempty tuple of paths bound by contribution-root identity; omit or pass None to infer.
 
         Returns: A LogicalNumericRelation on the complete Anchor instance domain.
-        Example: ``values = anchors.observe(revenue, within=mv.elapsed(mv.duration(hours=168)), via=route)``.
-        Constraints: Shared overlapping contributions retain use keys; fixed new source input rejects. SQLite admits count and additive int64/float64 sums with zero/null empty policy, filtered slices and ratio/linear compositions. Relative paths have no fixed hop limit and retain version capture. Fold, cumulative, mean, distinct and contribution coordinates remain unqualified.
+        Example: ``values = anchors.observe(revenue, within=mv.elapsed(mv.duration(hours=168)), via=mv.path(buyer))``.
+        Constraints: Required relationship matching is trusted as an unverified premise. Shared overlapping contributions retain use keys; fixed new source input rejects. SQLite admits count and additive int64/float64 sums with zero/null empty policy, filtered slices and ratio/linear compositions. Relative paths have no fixed hop limit and retain version capture. Fold, cumulative, mean, distinct and contribution coordinates remain unqualified.
         """
         from marivo.analysis.materialization.graph_anchors import observe
 
@@ -7238,29 +7204,20 @@ class _AnchorDomain(_Value):
                 f"{type(self).__name__} with fixed starts and no retained Metric input",
                 "Observe on the source Anchor before executing it; continue an already observed numeric Artifact through its current contract.",
             )
-        declared = via.routes if isinstance(via, RootRoutesValue) else (via,)
-        if isinstance(self._node.binding, LiveBinding):
-            from marivo.semantic.validator import normalize_target_relationship
+        from marivo.analysis.materialization.graph_observation import normalize_metric_input
+        from marivo.analysis.observation.relationship_binding import RelationshipResolver
+        from marivo.refs import ref as semantic_ref
 
-            for route in declared:
-                if isinstance(route, RootRouteValue):
-                    if not route.through:
-                        raise _reject(
-                            "a nonempty explicit Anchor route",
-                            route.root.path,
-                            "Bind the existing Anchor contribution route explicitly.",
-                        )
-                    relationship = normalize_target_relationship(
-                        self._node.binding.graph.registry, route.through[0].path
-                    )
-                    if relationship.from_entity_ref.path != route.root.path:
-                        raise _reject(
-                            f"contribution root {relationship.from_entity_ref.path}",
-                            route.root.path,
-                            f"Bind the route root to {relationship.from_entity_ref.path}, declared by {route.through[0].path}.",
-                        )
-        paths = tuple(
-            route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
+        live = self._node.binding
+        contract = normalize_metric_input(live.graph.registry, metric, sidecar=live.sidecar)
+        resolver = RelationshipResolver.build(live.graph.registry)
+        roots = tuple(semantic_ref.entity(root.path) for root in contract.computation_roots)
+        overrides = resolver.overrides(via, roots=roots, target="dsl.LogicalAnchorDomain.observe")
+        subject = next(
+            part for part in self._node.root.signature.parts if isinstance(part, SubjectPart)
+        )
+        paths = resolver.metric_paths(
+            contract, subject.entity_ref.path, overrides, target="dsl.LogicalAnchorDomain.observe"
         )
         return LogicalNumericRelation(
             _TOKEN,

@@ -57,13 +57,7 @@ line/order 模型还声明了 `sales.aov_from_lines`及两条关系路径。前�
 {/* example: multi-root-ratio */}
 
 ```python
-ratio_routes = mv.routes(
-    mv.route(
-        ms.ref.entity("sales.order_line"),
-        through=(ms.ref.relationship("sales.line_order"), buyer),
-    ),
-    mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
-)
+ratio_routes = (mv.path(ms.ref.relationship("sales.line_order"), buyer),mv.path(buyer),)
 channel = ms.ref.dimension("sales.order.channel")
 aov = customers.observe(
     ms.ref.metric("sales.aov_from_lines"),

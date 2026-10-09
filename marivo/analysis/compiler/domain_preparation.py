@@ -16,7 +16,6 @@ from marivo.analysis.compiler.graph_lowering import (
     RelationLayout,
     SourceBinding,
     canonical_layout,
-    captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.compiler.source_time import encoded_time_predicate, source_time
@@ -240,14 +239,6 @@ def lower_occurrences(
                     ),
                     _version(destination, destination_binding, table.__instant),
                 ],
-            )
-            checks.append(
-                captured_match_check(
-                    stage,
-                    f"event:{event.ref.path}:hop:{index}",
-                    joined.filter(destination[hop.keys[0][1]].isnull()),
-                    current_ids,
-                )
             )
             fields = {name: table[name] for name in table.columns if not name.startswith("__join_")}
             fields.update(

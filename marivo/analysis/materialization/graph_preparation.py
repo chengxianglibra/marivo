@@ -9,6 +9,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.types as ir
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import (
@@ -393,6 +395,19 @@ def _observation(
 
 
 def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession) -> ExchangeResult:
+    owned: list[ir.Table] = []
+    try:
+        return _execute(prepared, lowered, source, owned)
+    finally:
+        source.release_staged(owned)
+
+
+def _execute(
+    prepared: PreparedGraph,
+    lowered: LoweredPlan,
+    source: SourceSession,
+    lookup_relations: list[ir.Table],
+) -> ExchangeResult:
     from marivo.analysis.materialization.graph_local_execution import (
         _row_result,
         _subject_image,
@@ -400,6 +415,9 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
     )
     from marivo.analysis.materialization.graph_source_execution import (
         _check,
+        _consume_field,
+        _field_lookup,
+        _issue,
         _ordered_checks,
         _read,
         _result,
@@ -510,6 +528,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 completed.append(proof)
     relations = {item.output: item for item in lowered.stages if isinstance(item, LoweredRelation)}
     tables: dict[str, pa.Table] = {}
+    replacements: dict[ops.Node, ops.Node] = {}
     results: dict[str, ExchangeResult] = {}
     originals = {
         item.stage.node.inputs[1].node.identity
@@ -542,6 +561,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             )
             and stage.node.identity not in originals
             and stage.output not in local_source_inputs
+            and not _field_lookup(stage)
         ):
             continue
         table = _read(
@@ -549,10 +569,22 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
             lowered,
             stage.expression,
             purpose="analysis.domain.prepare",
-            replacements={},
+            replacements=replacements,
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
+        _consume_field(stage, table)
+        if _field_lookup(stage):
+            issued = _issue(
+                source,
+                lowered,
+                stage.expression,
+                purpose="analysis.domain.prepare",
+                replacements=replacements,
+            )
+            staged = source.stage_calculated(issued, table)
+            lookup_relations.append(staged)
+            replacements[stage.expression.op()] = staged.op()
         if isinstance(params, (FunnelAxesPrepare, AnchorObserve)) and stage.part_expressions:
             pools: list[pa.Table] = []
             for _, expression in stage.part_expressions:
@@ -565,7 +597,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                         lowered,
                         expression,
                         purpose="analysis.domain.prepare",
-                        replacements={},
+                        replacements=replacements,
                         keys=(),
                         validate_cells=False,
                     )
@@ -648,7 +680,9 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 None,
             )
             if capture is not None:
-                table = table.replace_schema_metadata(capture.primary.schema.metadata)
+                table = table.replace_schema_metadata(
+                    {**(capture.primary.schema.metadata or {}), **(table.schema.metadata or {})}
+                )
         if isinstance(params, AnchorRetention):
             from marivo.analysis.materialization.retention_execution import native_result
 

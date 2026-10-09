@@ -666,22 +666,22 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
             "source",
             "82816f07666e8eb1cf366830b6266f48fd14253bf0bd41ee95a48a64dd0b2a12",
             "d1ed60a0a26f1417da8df85d9a013eb4c6e41c880f511d8623d007bd8c84532a",
-            "8f574ca1de6065b3e9bd427a0a96051b54b25cc03f6edd60e3c39d3773acf414",
+            "6adadcd0f8a443c4943aa1f92295d059afe24777b452c92dff9119d991bf7120",
         ),
         (
             "fixed",
             "8cf118f0b71fdfd4d14f5278f0cfe660f6e22acef6daf93ca300ecc8b4e9c609",
             "7c98a8ad6bfaf046afce13cbc2cf749592f9cfbab8baa8ce489f010bfd2da1c8",
-            "26b6bf4ebe56cbdf90a2a55fe6c6dc22db46043370e25940a9bace301a59aecc",
+            "a3064c687bcb079b719ae09b7db6fc4aec545d19e7fcf5830eea449d4f0ee491",
         ),
     ],
 )
-def test_persisted_identity_pins_v6_snapshot_without_semantic_changes(
+def test_persisted_identity_pins_v7_snapshot_without_semantic_changes(
     kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 
-    # Definition and plan pins stay unchanged; v6 changes only frozen wire bytes.
+    # Definition and plan pins stay unchanged; v7 changes only frozen wire bytes.
     root = _source() if kind == "source" else _fixed()
     root = replace(root, identity="leaf")
     routes = []

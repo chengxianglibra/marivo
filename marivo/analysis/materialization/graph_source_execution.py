@@ -193,6 +193,15 @@ def _issue(
         rewritten = lower_temporal(rewritten, "sqlite")
     if not isinstance(rewritten, ir.Table):
         raise _invalid("rewritten stage is not an Ibis table")
+    # Ibis outer joins can widen state nullability; the Cell carrier is still
+    # mandatory (including the non-null code for an absent optional operand).
+    rewritten = rewritten.mutate(
+        **{
+            cell.state: rewritten[cell.state].cast("!int16")
+            for cell in compact.cells
+            if isinstance(cell, EncodedCell) and rewritten[cell.state].type().nullable
+        }
+    )
     schema = schema_binding(
         compact.expression.schema().to_pyarrow(), compact.cells, compact.logical_columns
     )
@@ -233,6 +242,35 @@ def _read(
     if not stream.completed:
         raise _invalid("source stream was not exhausted")
     return table
+
+
+def _consume_field(stage: LoweredRelation, table: pa.Table) -> None:
+    """Require the operand returned by a field lookup, without proving its mapping."""
+    params = stage.node.parameters if isinstance(stage.node, MethodNode) else None
+    if not isinstance(params, BindProject) or params.field_contract is None:
+        return
+    cell = stage.layout.cell
+    assert cell is not None
+    missing = cell_column(table, cell.tag).null_count
+    if missing:
+        raise MaterializationError(
+            expected=f"an owner operand for {params.ref.path} on every consumed complete key",
+            received=f"required field owner operand is missing for {missing} consumed complete keys",
+            repair=f"Restore the required {params.field_owner.path} records for this field lookup and retry.",
+            stage="source_execution",
+        )
+
+
+def _field_lookup(stage: LoweredRelation) -> bool:
+    """Unknown field matching must be consumed before a later SQL operation drops rows."""
+    node = stage.node
+    if not isinstance(node, MethodNode) or not isinstance(node.parameters, BindProject):
+        return False
+    params = node.parameters
+    return params.field_contract is not None and (
+        bool(params.path)
+        or params.owner_selection != node.inputs[0].node.signature.domain.version_selection
+    )
 
 
 def _check(
@@ -334,7 +372,7 @@ def _check(
                 and isinstance(owner, MethodNode)
                 and isinstance(owner.parameters, BindProject)
             ):
-                repair = "Provide a matching owner row for every consumed key; use match_verification='assume' only when this exact read guarantees matching."
+                repair = "Provide the required operand for every consumed complete key."
             elif (
                 fact.kind == "cell_policy"
                 and isinstance(owner, MethodNode)
@@ -908,19 +946,34 @@ def execute_source_graph(
                     if proof is not None:
                         completed.append(proof)
             if direct_native:
-                if stage.output == lowered.primary_output:
+                if stage.output == lowered.primary_output or _field_lookup(stage):
+                    expression = (
+                        stage.transport if stage.transport is not None else stage.expression
+                    )
                     received = _read(
                         source,
                         lowered,
-                        stage.transport if stage.transport is not None else stage.expression,
+                        expression,
                         purpose="analysis.graph.stage",
-                        replacements={},
+                        replacements=replacements,
                         cell_reasons=stage.cell_reasons,
                     )
                     if stage.transport is not None:
                         received, retained = _split_transport(stage, received)
                         coordinate_parts[stage.output] = retained
+                    _consume_field(stage, received)
                     tables[stage.output] = received
+                    if stage.output != lowered.primary_output:
+                        issued = _issue(
+                            source,
+                            lowered,
+                            stage.expression,
+                            purpose="analysis.graph.stage",
+                            replacements=replacements,
+                        )
+                        staged = source.stage_calculated(issued, received)
+                        owned.append(staged)
+                        replacements[stage.expression.op()] = staged.op()
             else:
                 issued = _issue(
                     source,
@@ -947,6 +1000,7 @@ def execute_source_graph(
                         table = from_rows(rows(table), issued.schema)
                     staged = source.stage_calculated(issued, table)
                 owned.append(staged)
+                _consume_field(stage, table)
                 tables[stage.output] = table
                 replacements[stage.expression.op()] = staged.op()
             for check in lowered.checks:

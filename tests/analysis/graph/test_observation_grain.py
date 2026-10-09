@@ -367,15 +367,9 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
     case = analysis_dsl_case_factory("j3_weighting")
     entity = ms.ref.entity("sales.customer")
     members = case.session.members(entity)
-    routes = mv.routes(
-        mv.route(
-            ms.ref.entity("sales.order_line"),
-            through=(
-                ms.ref.relationship("sales.line_order"),
-                ms.ref.relationship("sales.order_buyer"),
-            ),
-        ),
-        mv.route(ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)),
+    routes = (
+        mv.path(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
+        mv.path(ms.ref.relationship("sales.order_buyer")),
     )
     overall = members.observe(ms.ref.metric("sales.aov_from_lines"), via=routes)
     individual = members.observe(

@@ -12,7 +12,6 @@ from marivo.analysis.compiler.graph_lowering import (
     LoweredRelation,
     RelationLayout,
     SourceBinding,
-    captured_match_check,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.domain_captures import EntryAxisCapture
@@ -97,14 +96,6 @@ def lower_axes(
                     *(current[f"__join_{i}"] == raw[key] for i, key in enumerate(join_keys)),
                     _version(raw, bound, current.__instant),
                 ],
-            )
-            checks.append(
-                captured_match_check(
-                    stage,
-                    f"axis:{axis_index}:hop:{index}",
-                    joined.filter(raw[join_keys[0]].isnull()),
-                    current_ids,
-                )
             )
             fields = {name: current[name] for name in (*keys, "__instant")}
             if index < len(route):

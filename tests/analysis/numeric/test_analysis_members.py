@@ -716,12 +716,7 @@ def test_wrong_role_many_mapping_and_missing_coverage_reject_before_io(
         with pytest.raises(AnalysisError, match="path"):
             members.read(field, at=at)
     # One explicit route and one Relationship Ref have the same scalar meaning.
-    path = mv.routes(
-        mv.route(
-            ms.ref.entity(f"{prefix}.plain"),
-            through=(ms.ref.relationship(f"{prefix}.to_snapshot"),),
-        )
-    )
+    path = (mv.path(ms.ref.relationship(f"{prefix}.to_snapshot")),)
     assert members.read(field, at=at, via=path).execute().to_pandas()["value"].tolist() == [10, 20]
 
 

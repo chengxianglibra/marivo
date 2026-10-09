@@ -1679,7 +1679,7 @@ class Evidence:
             reject(
                 "an exact pairing or field-owner matching assumption",
                 self.fact.kind,
-                "Use the named verification parameter for this operation.",
+                "Keep the exact trusted matching premise or use the named pairing policy.",
                 "core.evidence.assumption",
             )
         if type(self.dependencies) is not tuple or any(

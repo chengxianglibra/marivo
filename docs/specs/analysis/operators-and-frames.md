@@ -113,8 +113,7 @@ Contribution coordinates are independent flat relations. SQLite, MySQL and
 ClickHouse do not require arrays or structs for this state. Relationship inference
 does not change backend admission or substitute a path.
 
-`LogicalAnalysisDomain.read(field, *, at=None, via=None,
-match_verification="check")` and its governed variants use declared field owner,
+`LogicalAnalysisDomain.read(field, *, at=None, via=None)` and its governed variants use declared field owner,
 complete relationship keys and captured version facts. Both scalar reads and
 ordinary member observations infer unique directed keyed to-one paths when via
 is omitted or None. Explicit routes bind roles by root identity, independent of
@@ -122,9 +121,9 @@ argument order; partial observation overrides leave other roots automatic.
 Contribution attribution and complete-key classification are independent bindings.
 Versioned fields still require their own explicit attribute instant; the observation
 window does not choose their version. Same-owner/same-version
-reads need no matching query. Unknown path/version totality creates an exact
-`mapping_total` obligation. `match_verification="assume"` removes only that
-call's matching query and retains the assumption, without a new Null policy.
+reads establish matching by construction. Unknown path/version totality retains
+an exact `mapping_total` assumption. Relationship matching has no verification
+switch or automatic query. Trust adds no missing-value policy or completed proof.
 
 `ExactKeys(verification="check")` and `ExactKeys(verification="assume")`
 similarly distinguish checked pairing from a call assumption. Both policies

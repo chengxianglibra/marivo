@@ -50,7 +50,7 @@ assert isinstance(observed, mv.LogicalNumericRelation)
 observed.summarize(mv.mean()).compare(category)
 observed.compare(observed).rollup()
 observed.correlate(observed, method="partial")
-mv.route(ms.ref.metric("sales.revenue"), through=(ms.ref.relationship("sales.buyer"),))
+mv.path(ms.ref.metric("sales.revenue"))
 mv.sum("extra")
 category.rank(order="ascending", ties="dense")
 observed.group_by(mv.member())
@@ -108,7 +108,7 @@ table.execute().execute()
     assert 'Argument 1 to "compare"' in output
     assert 'LogicalDifferenceRelation" has no attribute "rollup"' in output
     assert 'Argument "method" to "correlate"' in output
-    assert 'Argument 1 to "route"' in output
+    assert 'Argument 1 to "path"' in output
     assert 'Too many arguments for "sum"' in output
     assert 'Argument "order" to "rank"' in output
     assert 'Argument "ties" to "rank"' in output

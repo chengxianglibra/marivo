@@ -92,9 +92,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     case = analysis_dsl_case_factory("j1")
     customers = case.session.members(CUSTOMER)
     automatic = customers.observe(LINE_REVENUE, during=WINDOW)
-    explicit = customers.observe(
-        LINE_REVENUE, during=WINDOW, via=mv.route(LINE, through=(LINE_ORDER, BUYER))
-    )
+    explicit = customers.observe(LINE_REVENUE, during=WINDOW, via=mv.path(LINE_ORDER, BUYER))
     assert automatic._node.root.signature.quantity == explicit._node.root.signature.quantity
     orders = case.session.members(ORDER)
     assert (
@@ -103,11 +101,12 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     )
     assert customers.read(REGION, via=None)._node.classification_coordinate().binding_id == "direct"
     ratio = ms.ref.metric("sales.aov_from_lines")
-    forward = mv.routes(
-        mv.route(LINE, through=(LINE_ORDER, BUYER)), mv.route(ORDER, through=(BUYER,))
+    forward = (
+        mv.path(LINE_ORDER, BUYER),
+        mv.path(BUYER),
     )
-    reverse = mv.routes(*reversed(forward.routes))
-    partial = mv.routes(mv.route(LINE, through=(LINE_ORDER, BUYER)))
+    reverse = (*reversed(forward),)
+    partial = (mv.path(LINE_ORDER, BUYER),)
     quantities = [
         customers.observe(ratio, during=WINDOW, via=via)._node.root.signature.quantity
         for via in (None, forward, reverse, partial)
@@ -115,7 +114,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     assert all(q == quantities[0] for q in quantities)
     with pytest.raises(AnalysisError):
         customers.read(REGION, via=forward)
-    identity_root = orders.observe(ratio, during=WINDOW, via=mv.routes(mv.route(ORDER, through=())))
+    identity_root = orders.observe(ratio, during=WINDOW, via=None)
     assert identity_root._node.root.signature.quantity is not None
 
 
@@ -186,7 +185,7 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         {"A": 150, "B": 400, "C": 450},
     )
     for choice, expected in zip(choices, expected_roles, strict=True):
-        assert isinstance(choice, mv.RootRoute)
+        assert isinstance(choice, mv.RelationshipPath)
         observed = customers.observe(REVENUE, during=WINDOW, via=choice, by=(mv.member(),))
         frame = observed.execute().to_pandas().set_index("member")
         assert frame.loc[frame["cell_tag"] == "defined", "value"].to_dict() == expected
@@ -280,7 +279,14 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     with pytest.raises(AnalysisError):
         customers.observe(LINE_REVENUE, during=WINDOW, by=(selected,)).execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [1000]
+    assumptions = {e.fact for e in fixed._node.root.signature.evidence if e.basis == "assumption"}
+    assert assumptions
+    assert "trusted contract, not checked" in facts["premise_assumptions"]
+    continued = fixed.rollup().execute()
+    assert {
+        e.fact for e in continued._node.root.signature.evidence if e.basis == "assumption"
+    } == assumptions
+    assert continued.to_pandas()["value"].tolist() == [1000]
     script = """
 import sys
 import marivo.analysis as mv
@@ -291,7 +297,14 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 fixed = mv.session.resume(sys.argv[1], by='id').artifact(sys.argv[2])
-assert fixed.rollup().execute().to_pandas()['value'].tolist() == [1000]
+assert any(e.basis == 'assumption' and e.fact.kind == 'mapping_total' for e in fixed._node.root.signature.evidence)
+assert not any(c.fact.kind == 'mapping_total' for c in fixed._dataset.artifact.descriptor.completed_checks)
+assumptions = {e.fact for e in fixed._node.root.signature.evidence if e.basis == 'assumption'}
+continued = fixed.rollup().execute()
+assert {e.fact for e in continued._node.root.signature.evidence if e.basis == 'assumption'} == assumptions
+assert 'trusted contract, not checked' in dict(continued.contract()._facts)['premise_assumptions']
+assert not any(c.fact.kind == 'mapping_total' for c in continued._dataset.artifact.descriptor.completed_checks)
+assert continued.to_pandas()['value'].tolist() == [1000]
 assert fixed.group_by(ms.ref.dimension('sales.product.category')).execute().to_pandas().set_index('group')['value'].to_dict() == {'book': 700, 'game': 300}
 """
     completed = subprocess.run(
@@ -391,5 +404,11 @@ def test_timed_classification_cannot_remove_consumed_contributions(
     complete = customers.observe(LINE_REVENUE, during=grid, by=(category,)).execute().to_pandas()
     assert complete["value"].sum() == (1099 if missing_bucket else 1000)
     selected = category.where(category.value.eq("book"))
-    with pytest.raises(AnalysisError, match="Expected: mapping_total"):
-        customers.observe(LINE_REVENUE, during=grid, by=(selected,)).execute()
+    trusted = customers.observe(LINE_REVENUE, during=grid, by=(selected,))
+    assert any(
+        item.basis == "assumption" and item.fact.kind == "mapping_total"
+        for item in trusted._node.root.signature.evidence
+    )
+    assert not any(
+        item.fact.kind == "mapping_total" for item in trusted._node.root.signature.obligations
+    )

@@ -197,8 +197,9 @@ def observe(
                 and_,
                 (
                     a[keys[width + 1 + j]] == c[name]
-                    for j, name in enumerate(c.columns)
-                    if name.startswith("anchor_key_")
+                    for j, name in enumerate(
+                        name for name in c.columns if name.startswith("anchor_key_")
+                    )
                 ),
                 ibis.literal(True),
             )

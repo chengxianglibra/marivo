@@ -24,18 +24,12 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.LogicalRat
     return case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
         ms.ref.metric(f"{n.domain}.{n.aov}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(
-                ms.ref.entity(f"{n.domain}.{n.order_line}"),
-                through=(
-                    ms.ref.relationship(f"{n.domain}.{n.line_order}"),
-                    ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-                ),
+        via=(
+            mv.path(
+                ms.ref.relationship(f"{n.domain}.{n.line_order}"),
+                ms.ref.relationship(f"{n.domain}.{n.buyer}"),
             ),
-            mv.route(
-                ms.ref.entity(f"{n.domain}.{n.order}"),
-                through=(ms.ref.relationship(f"{n.domain}.{n.buyer}"),),
-            ),
+            mv.path(ms.ref.relationship(f"{n.domain}.{n.buyer}")),
         ),
         by=(
             mv.member(),

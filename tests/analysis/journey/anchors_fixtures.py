@@ -171,11 +171,7 @@ def observations(anchors, *, calendar=False):
         if history
         else (ms.ref.relationship("commerce.other_participant"),)
     )
-    route = (
-        mv.routes(mv.route(ms.ref.entity("commerce.facts"), through=facts_path))
-        if history
-        else facts_path[0]
-    )
+    route = (mv.path(*facts_path),) if history else facts_path[0]
     bases = [
         ms.ref.metric("commerce.fact_count"),
         ms.ref.metric("commerce.integer_sum"),
@@ -196,12 +192,9 @@ def observations(anchors, *, calendar=False):
     result = []
     for metric in (*bases, *ratios, linear, multi_ratio):
         via = (
-            mv.routes(
-                mv.route(ms.ref.entity("commerce.facts"), through=facts_path),
-                mv.route(
-                    ms.ref.entity("commerce.other"),
-                    through=other_path,
-                ),
+            (
+                mv.path(*facts_path),
+                mv.path(*other_path),
             )
             if metric in (linear, multi_ratio)
             else route

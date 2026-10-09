@@ -293,7 +293,7 @@ def lower_cells(
                     ).cast("!int16")
             bindings[node] = source_cells
             return original.select(**source_values).op()
-        if isinstance(node, ops.JoinReference) and node in outer_references:
+        if isinstance(node, (ops.JoinReference, ops.SelfReference)) and node in outer_references:
             parent = kwargs.get("parent", node.parent)
             assert isinstance(parent, ops.Relation)
             reference_cells = bindings.get(node.parent, ())

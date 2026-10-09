@@ -95,8 +95,6 @@ from marivo.analysis.core.rules import (
     ReferenceDerive,
     RowState,
     TimeProduct,
-    _contribution_mapping_fact,
-    captured_mapping_fact,
     group_consumption_facts,
 )
 from marivo.analysis.core.time_authority import SourceTimeAuthority
@@ -414,25 +412,6 @@ class LoweredPlan:
 def _source_ids(*groups: tuple[str, ...]) -> tuple[str, ...]:
     """Preserve ordered explicit provenance without merging equal definitions."""
     return tuple(dict.fromkeys(identity for group in groups for identity in group))
-
-
-def captured_match_check(
-    stage: SourceMethodStage, slot: str, violations: ir.Table, source_ids: tuple[str, ...]
-) -> SemanticCheck:
-    """Fulfill only the capture owner's physically admitted exact match obligation."""
-    params = stage.node.parameters
-    assert isinstance(params, (OccurrencePrepare, FunnelAxesPrepare, HistoryAxesPrepare))
-    fact = captured_mapping_fact(
-        tuple(edge.node.signature for edge in stage.node.inputs), params, slot
-    )
-    obligation = next(
-        (item for item in stage.node.derivation.obligations if item.fact == fact), None
-    )
-    if obligation is None:
-        _fail("a qualified exact historical match obligation", slot)
-    return SemanticCheck(
-        CheckRequirement(stage.node.identity, stage.output, obligation), violations, source_ids
-    )
 
 
 def consumption_check(
@@ -1442,15 +1421,14 @@ def _bind(
             *(scoped[f"member__{i}"].name(key) for i, key in enumerate(keys)),
             __bound_value=scoped[f"owner__{field}"],
         ).view()
-    source_ids = _source_ids(source.source_ids, tuple(item.leaf.identity for item in selected))
-    checks.extend(
-        SemanticCheck(
-            CheckRequirement(stage.node.identity, stage.output, obligation),
-            source.expression.anti_join(projected, keys),
-            source_ids,
-        )
-        for obligation in stage.node.derivation.obligations
-        if obligation.fact in stage.node.derivation.pre and obligation.fact.kind == "mapping_total"
+    # Build the Cell on the owner side: an absent owner is not a nullable field.
+    projected = projected.select(
+        *keys,
+        value=projected.__bound_value,
+        cell_tag=ibis.ifelse(projected.__bound_value.isnull(), "null", "defined"),
+        cell_reason=ibis.ifelse(
+            projected.__bound_value.isnull(), "source_null", ibis.null().cast("string")
+        ),
     )
     joined = source.expression.left_join(projected, keys).select(
         *(
@@ -1458,11 +1436,9 @@ def _bind(
             for c in source.layout.columns
             if c not in ("value", "cell_tag", "cell_reason")
         ),
-        value=projected.__bound_value,
-        cell_tag=ibis.ifelse(projected.__bound_value.isnull(), "null", "defined"),
-        cell_reason=ibis.ifelse(
-            projected.__bound_value.isnull(), "source_null", ibis.null().cast("string")
-        ),
+        projected.value,
+        projected.cell_tag,
+        projected.cell_reason,
     )
     target_layout = canonical_layout(stage.node.signature, has_value=True)
     return joined.select(*target_layout.columns), target_layout
@@ -2785,28 +2761,6 @@ def _contribution_rows(
             predicates,
         )
         source_ids = _source_ids(source_ids, (binding.leaf.identity,))
-        member_input = stage.node.inputs[
-            1 if isinstance(stage.node.parameters, AnchorObserve) else 0
-        ].node.signature
-        fact = _contribution_mapping_fact(
-            tuple(edge.node.signature for edge in stage.node.inputs)
-            if params.classification_coordinates
-            else (member_input,),
-            params,
-            index,
-        )
-        obligation = next(
-            (item for item in stage.node.derivation.obligations if item.fact == fact), None
-        )
-        if obligation is None:
-            _fail("a typed obligation for the unknown contribution path match", fact.subject_id)
-        checks.append(
-            SemanticCheck(
-                CheckRequirement(stage.node.identity, stage.output, obligation),
-                joined.filter(reduce(or_, (destination[key].isnull() for key in destination_keys))),
-                source_ids,
-            )
-        )
         selected = {name: rows[name] for name in rows.columns if not name.startswith("next_key_")}
         if relationship.to_entity_ref.path == params.event.entity_ref.path:
             selected["event_time"] = destination[params.event.source_column]
@@ -4530,7 +4484,11 @@ def _attach_category(
         left[column] == right[key.column]
         for column, key in zip(columns, category.layout.keys, strict=True)
     ]
-    selected = right.semi_join(left, predicates)
+    selected = left.left_join(right, predicates).select(
+        *(left[column] for column in columns),
+        __classification_value=right[cell.value],
+        __classification_tag=right[cell.tag],
+    )
     source_ids = _source_ids(source.source_ids, category.source_ids)
     facts = group_consumption_facts(tuple(item.node.signature for item in inputs), params)
     for fact in facts:
@@ -4538,12 +4496,9 @@ def _attach_category(
             (item for item in stage.node.derivation.obligations if item.fact == fact), None
         )
         if obligation is not None:
-            violations = (
-                left.anti_join(right, predicates)
-                if fact.kind == "mapping_total"
-                else selected.filter(
-                    (selected[cell.tag] != "defined") | selected[cell.value].isnull()
-                )
+            violations = selected.filter(
+                (selected.__classification_tag != "defined")
+                | selected.__classification_value.isnull()
             )
             checks.append(
                 SemanticCheck(

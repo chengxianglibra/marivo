@@ -49,7 +49,6 @@ if TYPE_CHECKING:
         members.read(
             ms.ref.measure("sales.customer.balance"),
             at=grid.before_end,
-            match_verification="assume",
         ),
         mv.LogicalNumericRelation,
     )
@@ -99,17 +98,11 @@ if TYPE_CHECKING:
     ratio = members.observe(
         ms.ref.metric("sales.aov_from_lines"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(
-                ms.ref.entity("sales.order_line"),
-                through=(
-                    ms.ref.relationship("sales.line_order"),
-                    ms.ref.relationship("sales.order_buyer"),
-                ),
+        via=(
+            mv.path(
+                ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")
             ),
-            mv.route(
-                ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)
-            ),
+            mv.path(ms.ref.relationship("sales.order_buyer")),
         ),
         by=(mv.member(),),
     )

@@ -51,7 +51,6 @@ amounts = orders.read(ms.ref.measure("commerce.order.amount"))
 regions = orders.read(
     ms.ref.dimension("commerce.customer.region"),
     via=ms.ref.relationship("commerce.order_customer"),
-    match_verification="assume",
 )
 quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
 change = current.compare(
@@ -61,9 +60,12 @@ quotient.contract().show()
 ```
 
 先选择 Defined 值，再调用数值谓词。完整 typed key tuples、Session ownership 与单位
-必须匹配。`verification="assume"`和 `match_verification="assume"`是明确调用方前提，
-不是验证成功；只有真实独立依据时使用。Checked premise 失败需要修复输入或对齐，
-不能只把声明改为 assume。
+必须匹配。关系完整匹配信任消费契约，保留为未验证前提，不自动查询验证。
+目标记录存在但字段为空时，仍返回 `Null(source_null)`；缺失目标操作数在字段消费时失败。
+后续过滤或归约不能隐藏该失败：字段读取结果只消费一次，后续计算复用该结果。
+这不构成匹配检查证明，也不新增缺失规则。
+键配对的 `verification="assume"` 仍是显式调用前提，不是验证成功；
+Checked premise 失败需要修复输入或对齐。
 
 ## 修复恢复与输出
 

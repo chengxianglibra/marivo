@@ -173,18 +173,12 @@ def test_public_empty_and_undefined_cards(
     observed = members.observe(
         ms.ref.metric(f"{names.domain}.{names.aov}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(
-                ms.ref.entity(f"{names.domain}.{names.order_line}"),
-                through=(
-                    ms.ref.relationship(f"{names.domain}.{names.line_order}"),
-                    ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-                ),
+        via=(
+            mv.path(
+                ms.ref.relationship(f"{names.domain}.{names.line_order}"),
+                ms.ref.relationship(f"{names.domain}.{names.buyer}"),
             ),
-            mv.route(
-                ms.ref.entity(f"{names.domain}.{names.order}"),
-                through=(ms.ref.relationship(f"{names.domain}.{names.buyer}"),),
-            ),
+            mv.path(ms.ref.relationship(f"{names.domain}.{names.buyer}")),
         ),
         by=(mv.member(),),
     )
@@ -485,9 +479,9 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     observed = customers.observe(
         aov,
         during=august,
-        via=mv.routes(
-            mv.route(line, through=(line_order, buyer)),
-            mv.route(order, through=(buyer,)),
+        via=(
+            mv.path(line_order, buyer),
+            mv.path(buyer),
         ),
         by=(
             mv.member(),
