@@ -227,7 +227,7 @@ def components(part: Part) -> tuple[str, ...]:
                 if part.original_state
                 else ()
             ),
-            *(("groups",) if part.coordinate_state else ()),
+            *(("contribution_present",) if part.coordinate_state else ()),
             *(("complete",) if part.original_state else ()),
         )
     if isinstance(part, DisplayPart):
@@ -247,7 +247,7 @@ def components(part: Part) -> tuple[str, ...]:
     if isinstance(part, (OriginalStatePart, RowStatePart)):
         return part.components
     if isinstance(part, CoordinateStatePart):
-        return ("groups",)
+        return ("present",)
     if isinstance(part, CohortDecisionPart):
         return (
             "true_count",
@@ -323,6 +323,8 @@ class LoweredRelation:
     part_expressions: tuple[tuple[str, ir.Table], ...] = ()
     part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
     column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = ()
+    coordinate_relations: tuple[tuple[str, ir.Table], ...] = ()
+    transport: ir.Table | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +395,8 @@ class LoweredPlan:
                 isinstance(item, LoweredRelation)
                 and (
                     item.expression is expression
+                    or item.transport is expression
+                    or any(value is expression for _, value in item.coordinate_relations)
                     or any(
                         part_expression is expression
                         for _, part_expression in item.part_expressions
@@ -486,50 +490,6 @@ def canonical_layout(signature: Signature, *, has_value: bool) -> RelationLayout
     )
 
 
-def coordinate_state_type(part: CoordinateStatePart) -> dt.Array:
-    return dt.Array(
-        dt.Struct.from_tuples(
-            [
-                *((name, dt.string) for name in part.columns),
-                *(
-                    (
-                        name,
-                        dt.dtype(
-                            "int64"
-                            if dict(part.component_types)[name].startswith("interval(")
-                            else dict(part.component_types)[name]
-                        )
-                        if name in dict(part.component_types)
-                        else dt.Decimal(38, (dt.dtype(part.value_type).scale or 0) * 2)
-                        if name == "weighted_numerator" and part.value_type.startswith("decimal(")
-                        else dt.dtype(
-                            "int64" if part.value_type.startswith("interval(") else part.value_type
-                        )
-                        if "count" not in name
-                        else dt.int64,
-                    )
-                    for name in part.components
-                ),
-            ]
-        )
-    )
-
-
-def unnest_coordinate_state(
-    stage: SourceMethodStage, table: ir.Table, keys: tuple[str, ...], column: str
-) -> ir.Table:
-    if (
-        isinstance(stage.implementation.key.shape, SourceShape)
-        and stage.implementation.key.shape.backend == "trino"
-    ):
-        # Trino UNNEST expands ROW fields; integer positions preserve the
-        # single struct column required by the logical expression.
-        positions = ibis.range(0, table[column].length()).name("__coordinate_index")
-        expanded = table.unnest(positions)
-        return expanded.select(*keys, group=expanded[column][expanded.__coordinate_index])
-    return table.select(*keys, group=table[column].unnest())
-
-
 def _validate_layout(
     table: ir.Table, layout: RelationLayout, signature: Signature, value_type: str
 ) -> None:
@@ -577,8 +537,8 @@ def _validate_layout(
                     _fail("exact display component type", component.column)
                 continue
             if isinstance(part.part, CoordinateStatePart):
-                if table[component.column].type() != coordinate_state_type(part.part):
-                    _fail("the exact nested contribution coordinate state", component.column)
+                if not table[component.column].type().is_boolean():
+                    _fail("a boolean contribution existence marker", component.column)
                 continue
             if role == "subject":
                 actual = table[component.column].type()
@@ -789,6 +749,7 @@ def _difference(
     stage: SourceMethodStage,
     inputs: tuple[LoweredRelation, LoweredRelation],
     checks: list[LoweredCheck],
+    coordinate_relations: list[tuple[str, ir.Table]],
 ) -> tuple[ir.Table, RelationLayout]:
     left, right = inputs
     params = stage.node.parameters
@@ -867,10 +828,19 @@ def _difference(
         else baseline[f"baseline_key_{i}"]
         for i in range(len(keys))
     }
-    paired = current.join(
-        baseline,
-        [current[f"current_key_{i}"] == translated_keys[i] for i in range(len(keys))],
-        how="inner" if params.pairing == "exact" else "outer",
+    from marivo.analysis.compiler.coordinate_state import complete_join, entries
+
+    paired = (
+        current.inner_join(
+            baseline, [current[f"current_key_{i}"] == translated_keys[i] for i in range(len(keys))]
+        )
+        if params.pairing == "exact"
+        else complete_join(
+            current,
+            baseline,
+            tuple(current[f"current_key_{i}"] for i in range(len(keys))),
+            tuple(translated_keys[i] for i in range(len(keys))),
+        )
     )
     present_a, present_b = (
         paired.current_present.fill_null(False),
@@ -983,13 +953,15 @@ def _difference(
         cell_tag=tag,
         cell_reason=reason,
         **{
-            name: paired[name]
+            name: paired[name].fill_null(False)
+            if name.endswith(("__contribution_present", "__complete"))
+            else paired[name]
             for name in paired.columns
             if name.startswith(("current_endpoint__state__", "baseline_endpoint__state__"))
             or name
             in (
-                "current_endpoint__groups",
-                "baseline_endpoint__groups",
+                "current_endpoint__contribution_present",
+                "baseline_endpoint__contribution_present",
                 "current_endpoint__complete",
                 "baseline_endpoint__complete",
             )
@@ -1024,6 +996,26 @@ def _difference(
             else {}
         ),
     )
+    for side, source in (("current", left), ("baseline", right)):
+        coordinate = next(
+            (p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)), None
+        )
+        if coordinate is not None:
+            full = entries(source, coordinate)
+            if side == "baseline" and params.time_index is not None:
+                key = f"key_{params.time_index}"
+                full = full.mutate(
+                    **{
+                        key: ibis.cases(
+                            *((full[key] == old, new) for new, old in params.bucket_mapping),
+                            else_=ibis.null().cast(full[key].type()),
+                        )
+                    }
+                )
+            if keys:
+                domain = output.select(*keys).distinct()
+                full = full.view().semi_join(domain.view(), list(keys))
+            coordinate_relations.append((side + "_endpoint_coordinates", full))
     return output.select(*target.columns), target
 
 
@@ -1821,6 +1813,7 @@ def _occurrence_combine(
     inputs: tuple[LoweredRelation, ...],
     checks: list[LoweredCheck],
     admitted: GraphPlan,
+    coordinate_relations: list[tuple[str, ir.Table]],
 ) -> tuple[ir.Table, RelationLayout]:
     """Combine independently reduced occurrences under ordered signed terms."""
     params = stage.node.parameters
@@ -1860,7 +1853,11 @@ def _occurrence_combine(
     table = parts[0]
     for part in parts[1:]:
         if params.union_targets:
-            joined = table.outer_join(part, keys)
+            from marivo.analysis.compiler.coordinate_state import complete_join
+
+            joined = complete_join(
+                table, part, tuple(table[k] for k in keys), tuple(part[k] for k in keys)
+            )
             table = joined.select(
                 **{key: table[key].coalesce(part[key]) for key in keys},
                 **{
@@ -1877,24 +1874,30 @@ def _occurrence_combine(
         (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
     )
     if coordinate is not None:
+        from marivo.analysis.compiler.coordinate_state import finish_sum, sum_value
+
         branches: list[ir.Table] = []
         for index, source in enumerate(inputs):
-            raw = source.expression
-            branch = raw.select(*keys, group=raw.coordinate_state__groups.unnest())
+            from marivo.analysis.compiler.coordinate_state import entries
+
+            branch = entries(
+                source,
+                next(p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)),
+            )
             state = _original_state(source.node.signature)
             magnitude, support = _state_magnitude(state)
             branch = branch.select(
                 *keys,
-                **{name: branch.group[name] for name in coordinate.columns},
+                **{name: branch[name] for name in coordinate.columns},
                 **{
-                    name: branch.group.absolute_sum
+                    name: branch.absolute_sum
                     if name.split("_")[1] == str(index)
                     else ibis.literal(0).cast("float64")
                     for name in coordinate.components
                     if name.endswith("_absolute_sum")
                 },
                 **{
-                    name: branch.group[
+                    name: branch[
                         (magnitude if offset == 0 else support).removeprefix("original_state__")
                     ]
                     if term == index
@@ -1912,37 +1915,44 @@ def _occurrence_combine(
         union = branches[0].union(*branches[1:], distinct=False)
         merged = union.group_by(*keys, *coordinate.columns).aggregate(
             **{
-                name: union[name].sum().fill_null(0).cast(union[name].type())
+                name: finish_sum(stage, sum_value(stage, union[name]), union[name].type())
                 for name in coordinate.components
             }
         )
-        cells = ibis.struct(
-            {name: merged[name] for name in (*coordinate.columns, *coordinate.components)}
-        )
-        table = merged.select(
-            *keys,
-            **{
-                f"key_{len(keys) + i}": merged[name]
-                for i, name in enumerate(coordinate.columns)
-                if coordinate.coordinates[i] not in first.node.signature.domain.instance_key
-            },
-            **{f"original_state__{name}": merged[name] for name in coordinate.components},
-            **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
-            if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
-            else {},
-            coordinate_state__groups=ibis.array([cells]),
-        )
-        if params.union_targets and not set(coordinate.coordinates) <= set(
-            first.node.signature.domain.instance_key
-        ):
-            table = (merged.group_by(*keys) if keys else merged).aggregate(
+        output_keys = tuple(k.column for k in layout.keys)
+        expanded = (
+            merged.select(
+                *keys,
                 **{
-                    f"original_state__{name}": merged[name].sum().fill_null(0)
-                    for name in coordinate.components
+                    f"key_{len(keys) + i}": merged[name]
+                    for i, name in enumerate(coordinate.columns)
+                    if coordinate.coordinates[i] not in first.node.signature.domain.instance_key
                 },
-                coordinate_state__groups=cells.collect(
-                    order_by=[merged[name] for name in coordinate.columns]
-                ),
+                **{name: merged[name] for name in (*coordinate.columns, *coordinate.components)},
+            )
+            if not params.union_targets
+            else merged
+        )
+        coordinate_relations.append((part_role(coordinate), expanded))
+        targets = table.select(*keys).distinct() if keys and output_keys == keys else None
+        table = (expanded.group_by(*output_keys) if output_keys else expanded).aggregate(
+            **{
+                f"original_state__{name}": finish_sum(
+                    stage, sum_value(stage, expanded[name]), expanded[name].type()
+                )
+                for name in coordinate.components
+            },
+            **{part_role(coordinate) + "__present": expanded.count() > 0},
+        )
+        if targets is not None:
+            reduced = table
+            table = targets.left_join(reduced, list(keys)).select(
+                *[targets[key] for key in keys],
+                **{
+                    name: reduced[name].fill_null(False if name.endswith("__present") else 0)
+                    for name in reduced.columns
+                    if name not in keys
+                },
             )
     table = _reduction_subjects(table, stage.node.signature)
     table = _linear_finish(table, layout, stage.node.signature, stage.node.value_type.name)
@@ -2106,13 +2116,20 @@ def _original_ratio(
     inputs: tuple[LoweredRelation, LoweredRelation],
     checks: list[LoweredCheck],
     admitted: GraphPlan,
+    coordinate_relations: list[tuple[str, ir.Table]],
 ) -> tuple[ir.Table, RelationLayout]:
     left, right = inputs
     params = stage.node.parameters
     assert isinstance(params, OriginalRatio)
     a, b = left.expression.view(), right.expression.view()
     keys = tuple(k.column for k in left.layout.keys)
-    joined = a.outer_join(b, keys) if params.union_targets else a.inner_join(b, keys)
+    from marivo.analysis.compiler.coordinate_state import complete_join
+
+    joined = (
+        complete_join(a, b, tuple(a[k] for k in keys), tuple(b[k] for k in keys))
+        if params.union_targets
+        else a.inner_join(b, keys)
+    )
     layout = canonical_layout(stage.node.signature, has_value=True)
     first_sum, first_support = _state_magnitude(_original_state(left.node.signature))
     second_sum, second_support = _state_magnitude(_original_state(right.node.signature))
@@ -2137,33 +2154,40 @@ def _original_ratio(
         (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None
     )
     if coordinate is not None:
-        first = a.select(*keys, group=a.coordinate_state__groups.unnest())
+        from marivo.analysis.compiler.coordinate_state import entries, finish_sum, sum_value
+
+        first = entries(
+            left, next(p for p in left.node.signature.parts if isinstance(p, CoordinateStatePart))
+        )
         first = first.select(
             *keys,
-            **{name: first.group[name] for name in coordinate.columns},
+            **{name: first[name] for name in coordinate.columns},
             **(
-                {"numerator_absolute_sum": first.group.absolute_sum}
+                {"numerator_absolute_sum": first.absolute_sum}
                 if "numerator_absolute_sum" in coordinate.components
                 else {}
             ),
-            numerator_sum=first.group[first_sum.removeprefix("original_state__")],
-            numerator_non_null_count=first.group[first_support.removeprefix("original_state__")],
+            numerator_sum=first[first_sum.removeprefix("original_state__")],
+            numerator_non_null_count=first[first_support.removeprefix("original_state__")],
         )
-        second = b.select(*keys, group=b.coordinate_state__groups.unnest())
+        second = entries(
+            right, next(p for p in right.node.signature.parts if isinstance(p, CoordinateStatePart))
+        )
         second = second.select(
             *keys,
-            **{name: second.group[name] for name in coordinate.columns},
+            **{name: second[name] for name in coordinate.columns},
             **(
-                {"denominator_absolute_sum": second.group.absolute_sum}
+                {"denominator_absolute_sum": second.absolute_sum}
                 if "denominator_absolute_sum" in coordinate.components
                 else {}
             ),
-            denominator_sum=second.group[second_sum.removeprefix("original_state__")],
-            denominator_non_null_count=second.group[
-                second_support.removeprefix("original_state__")
-            ],
+            denominator_sum=second[second_sum.removeprefix("original_state__")],
+            denominator_non_null_count=second[second_support.removeprefix("original_state__")],
         )
-        paired = first.outer_join(second, (*keys, *coordinate.columns))
+        full_keys = (*keys, *coordinate.columns)
+        paired = complete_join(
+            first, second, tuple(first[k] for k in full_keys), tuple(second[k] for k in full_keys)
+        )
         merged = paired.select(
             **{key: first[key].coalesce(second[key]) for key in keys},
             **{name: first[name].coalesce(second[name]) for name in coordinate.columns},
@@ -2182,36 +2206,52 @@ def _original_ratio(
             denominator_sum=second.denominator_sum.fill_null(0),
             denominator_non_null_count=second.denominator_non_null_count.fill_null(0),
         )
-        cells = ibis.struct(
-            {
-                **{name: merged[name] for name in coordinate.columns},
-                **{name: merged[name] for name in coordinate.components},
-            }
-        )
-        base = merged.select(
-            *keys,
-            **{
-                f"key_{len(keys) + i}": merged[name]
-                for i, name in enumerate(coordinate.columns)
-                if coordinate.coordinates[i] not in left.node.signature.domain.instance_key
-            },
-            **{f"original_state__{name}": merged[name] for name in coordinate.components},
-            **{f"subject__key_{i}": merged[key] for i, key in enumerate(keys)}
-            if any(isinstance(part, SubjectPart) for part in stage.node.signature.parts)
-            else {},
-            coordinate_state__groups=ibis.array([cells]),
-        )
-        if params.union_targets and not set(coordinate.coordinates) <= set(
-            left.node.signature.domain.instance_key
-        ):
-            base = (merged.group_by(*keys) if keys else merged).aggregate(
+        output_keys = tuple(k.column for k in layout.keys)
+        expanded = (
+            merged.select(
+                *keys,
                 **{
-                    f"original_state__{name}": merged[name].sum().fill_null(0)
+                    f"key_{len(keys) + i}": merged[name]
+                    for i, name in enumerate(coordinate.columns)
+                    if coordinate.coordinates[i] not in left.node.signature.domain.instance_key
+                },
+                **{name: merged[name] for name in (*coordinate.columns, *coordinate.components)},
+            )
+            if not params.union_targets
+            else merged
+        )
+        coordinate_relations.append((part_role(coordinate), expanded))
+        targets = base.select(*keys).distinct() if keys and output_keys == keys else None
+        base = (
+            expanded.group_by(*output_keys).aggregate(
+                **{
+                    f"original_state__{name}": finish_sum(
+                        stage, sum_value(stage, expanded[name]), expanded[name].type()
+                    )
                     for name in coordinate.components
                 },
-                coordinate_state__groups=cells.collect(
-                    order_by=[merged[name] for name in coordinate.columns]
-                ),
+                **{part_role(coordinate) + "__present": ibis.literal(True)},
+            )
+            if output_keys
+            else expanded.aggregate(
+                **{
+                    f"original_state__{name}": finish_sum(
+                        stage, sum_value(stage, expanded[name]), expanded[name].type()
+                    )
+                    for name in coordinate.components
+                },
+                **{part_role(coordinate) + "__present": expanded.count() > 0},
+            )
+        )
+        if targets is not None:
+            reduced = base
+            base = targets.left_join(reduced, list(keys)).select(
+                *[targets[key] for key in keys],
+                **{
+                    name: reduced[name].fill_null(False if name.endswith("__present") else 0)
+                    for name in reduced.columns
+                    if name not in keys
+                },
             )
     table = _ratio_finish(
         _reduction_subjects(base, stage.node.signature), layout, stage.node.signature
@@ -2437,25 +2477,19 @@ def _original_sum(
             coordinate = next(
                 p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)
             )
-            exploded = unnest_coordinate_state(
-                stage,
-                table,
-                tuple(key.column for key in source.layout.keys),
-                "coordinate_state__groups",
-            )
+            from marivo.analysis.compiler.coordinate_state import entries
+
+            exploded = entries(source, coordinate)
             table = exploded.select(
                 **{
                     key: (
                         exploded[f"key_{source_keys.index(c)}"]
                         if c in source_keys
-                        else exploded.group[coordinate.columns[coordinate.coordinates.index(c)]]
+                        else exploded[coordinate.columns[coordinate.coordinates.index(c)]]
                     )
                     for key, c in zip(keys, params.coordinates, strict=True)
                 },
-                **{
-                    f"original_state__{name}": exploded.group[name]
-                    for name in coordinate.components
-                },
+                **{f"original_state__{name}": exploded[name] for name in coordinate.components},
                 coverage__complete=ibis.literal(True),
             )
     grouped = table.group_by(*keys) if keys else table
@@ -2997,6 +3031,8 @@ def _observe(
     relations: tuple[LoweredRelation, ...],
     classification: LoweredRelation | None = None,
     classification_scopes: dict[str, list[tuple[ir.Table, tuple[str, ...]]]] | None = None,
+    coordinate_relations: list[tuple[str, ir.Table]] | None = None,
+    transports: list[ir.Table] | None = None,
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
     from datetime import date, datetime
 
@@ -3575,6 +3611,8 @@ def _observe(
             original_state__row_count=summed.rows.fill_null(0).cast("int64"),
             coverage__complete=ibis.literal(True),
         )
+    if coordinate_part is not None and "original_state__row_count" in table.columns:
+        table = table.mutate(__contribution_present=table.original_state__row_count > 0)
     if (
         isinstance(params, ObserveMetric)
         and params.method == "mean"
@@ -3585,9 +3623,15 @@ def _observe(
             replace(
                 target,
                 parts=tuple(p for p in target.parts if not isinstance(p.part, CoordinateStatePart)),
-                extras=(*target.extras, "__target")
-                if "__target" in table.columns
-                else target.extras,
+                extras=(
+                    *target.extras,
+                    *(("__target",) if "__target" in table.columns else ()),
+                    *(
+                        ("__contribution_present",)
+                        if "__contribution_present" in table.columns
+                        else ()
+                    ),
+                ),
             ),
             duration=isinstance(stage.node.value_type, DurationType),
         )
@@ -3641,24 +3685,22 @@ def _observe(
                 count=values.count().cast("int64"),
                 row_count=values.count().cast("int64"),
             )
-        cells = ibis.struct(
-            {
-                **{name: grouped[name] for name in part.columns},
-                **{name: grouped[name] for name in part.components},
-            }
-        )
-        nested = grouped.group_by(*target_keys).aggregate(
-            coordinate_state__groups=cells.collect(
-                order_by=[grouped[name] for name in part.columns]
+        assert coordinate_relations is not None and transports is not None
+        if set(part.coordinates) <= set(output_coordinates):
+            table = table.mutate(
+                **{
+                    part_role(part) + "__present": table.__contribution_present
+                    if "__contribution_present" in table.columns
+                    else table.original_state__row_count > 0
+                }
             )
-        )
-        combined = table.left_join(nested, list(target_keys))
-        table = combined.select(
-            *[table[name] for name in table.columns],
-            coordinate_state__groups=nested.coordinate_state__groups.fill_null(
-                ibis.literal([], type=coordinate_state_type(part))
-            ),
-        )
+        else:
+            from marivo.analysis.compiler.coordinate_state import window_result
+
+            full = grouped.select(*target_keys, *part.columns, *part.components)
+            coordinate_relations.append((part_role(part), full))
+            table, target, stream = window_result(stage, full, targets, target_keys)
+            transports.append(stream)
     if isinstance(params, ObserveMetric) and params.fold is not None:
         sample_type = dt.dtype(
             "int64" if params.amount_type.startswith("interval(") else params.amount_type
@@ -3787,6 +3829,8 @@ def lower(
     layouts: dict[str, RelationLayout] = {}
     for stage in admitted.stages:
         part_expressions: list[tuple[str, ir.Table]] = []
+        coordinate_relations: list[tuple[str, ir.Table]] = []
+        transports: list[ir.Table] = []
         part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
         if isinstance(stage, ArtifactReadStage):
             layout = canonical_layout(
@@ -4079,12 +4123,20 @@ def lower(
                 )
 
                 table, layout = prepare_attribution(stage, inputs, checks, part_expressions)
+                coordinate_relations.extend(inputs[1].coordinate_relations)
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = ()
             elif isinstance(params, (DisplayRank, DisplayTable)):
                 from marivo.analysis.compiler.graph_display import prepare
+                from marivo.analysis.methods.coordinate_state import declarations
 
                 table, layout = prepare(stage, inputs, checks)
+                roles = {role for role, _, _, _ in declarations(stage.node.signature)}
+                coordinate_relations.extend(
+                    (role, relation)
+                    for role, relation in inputs[0].coordinate_relations
+                    if role in roles
+                )
                 part_expressions.extend(
                     (role, expression)
                     for role, expression in inputs[0].part_expressions
@@ -4151,6 +4203,21 @@ def lower(
                                 )
                             )
                 table, layout = _transport(stage, inputs[0], checks, inputs[1:], part_expressions)
+                for coordinate_role, relation in inputs[0].coordinate_relations:
+                    if coordinate_role in ("coordinate_state", "allocation_state"):
+                        keys = tuple(k.column for k in layout.keys)
+                        relation = (
+                            relation.view().semi_join(
+                                table.select(*keys).distinct().view(), list(keys)
+                            )
+                            if keys
+                            else relation.cross_join(
+                                table.aggregate(__selected_count=table.count())
+                            )
+                            .filter(lambda t: t.__selected_count > 0)
+                            .select(*relation.columns)
+                        )
+                    coordinate_relations.append((coordinate_role, relation))
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = () if params.mode == "cohort" else inputs[0].cell_reasons
             elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
@@ -4163,6 +4230,8 @@ def lower(
                     tuple(results.values()),
                     inputs[1] if params.classification_coordinates else None,
                     classification_scopes,
+                    coordinate_relations,
+                    transports,
                 )
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, BindProject):
@@ -4177,11 +4246,15 @@ def lower(
                 if params.mode == "union_keys":
                     source_ids = _source_ids(*(input.source_ids for input in inputs))
             elif isinstance(params, OriginalRatio) and len(inputs) == 2:
-                table, layout = _original_ratio(stage, (inputs[0], inputs[1]), checks, admitted)
+                table, layout = _original_ratio(
+                    stage, (inputs[0], inputs[1]), checks, admitted, coordinate_relations
+                )
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, OccurrenceCombine) and len(inputs) >= 2:
-                table, layout = _occurrence_combine(stage, inputs, checks, admitted)
+                table, layout = _occurrence_combine(
+                    stage, inputs, checks, admitted, coordinate_relations
+                )
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, TimeProduct):
@@ -4189,6 +4262,20 @@ def lower(
                 cell_reasons = ()
             elif isinstance(params, AttachCategory):
                 table, layout = _attach_category(stage, inputs, checks)
+                for coordinate_role, relation in inputs[0].coordinate_relations:
+                    if coordinate_role in ("coordinate_state", "allocation_state"):
+                        old_keys = tuple(k.column for k in inputs[0].layout.keys)
+                        new_key = f"key_{len(old_keys)}"
+                        parent, child = table.select(*old_keys, new_key).view(), relation.view()
+                        joined = (
+                            child.inner_join(parent, list(old_keys))
+                            if old_keys
+                            else child.cross_join(parent)
+                        )
+                        relation = joined.select(
+                            *[child[name] for name in child.columns], **{new_key: parent[new_key]}
+                        )
+                    coordinate_relations.append((coordinate_role, relation))
                 cell_reasons = inputs[0].cell_reasons
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
             elif isinstance(params, OriginalReduce):
@@ -4199,7 +4286,9 @@ def lower(
                 )
                 from marivo.analysis.compiler.graph_attribution import retain_partition
 
-                table, layout = retain_partition(stage, inputs[0], table, layout)
+                table, layout = retain_partition(
+                    stage, inputs[0], table, layout, coordinate_relations, transports
+                )
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, RowState):
                 table, layout = _count(stage, inputs[0])
@@ -4209,7 +4298,9 @@ def lower(
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, CellDerive) and len(inputs) == 2:
-                table, layout = _difference(stage, (inputs[0], inputs[1]), checks)
+                table, layout = _difference(
+                    stage, (inputs[0], inputs[1]), checks, coordinate_relations
+                )
                 source_ids = _source_ids(*(item.source_ids for item in inputs))
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             else:
@@ -4228,6 +4319,10 @@ def lower(
             if isinstance(node, MethodNode) and isinstance(node.parameters, DisplayTable)
             else (),
         )
+        from marivo.analysis.compiler.coordinate_state import transport
+
+        relation = replace(relation, coordinate_relations=tuple(coordinate_relations))
+        relation = replace(relation, transport=transports[0] if transports else transport(relation))
         results[stage.output] = relation
         layouts[stage.output] = layout
         stages.append(relation)
@@ -4691,9 +4786,9 @@ def endpoint_fields(signature: Signature, side: str, table: ir.Table) -> dict[st
     if part.original_state:
         fields[f"{side}_endpoint__complete"] = table.coverage__complete
     if part.coordinate_state:
-        fields[f"{side}_endpoint__groups"] = table[
-            "allocation_state__groups"
+        fields[f"{side}_endpoint__contribution_present"] = table[
+            "allocation_state__present"
             if part.coordinate_state.attribution_only
-            else "coordinate_state__groups"
+            else "coordinate_state__present"
         ]
     return fields

@@ -106,7 +106,7 @@ def test_difference_state_refuses_old_version() -> None:
         "marivo.analysis.method_state/v2",
         "difference",
         "marivo.analysis.state.difference",
-        3,
+        4,
         "cell.difference",
         1,
         "ordered-inputs",

@@ -12,7 +12,6 @@ from marivo.analysis.compiler.graph_lowering import (
     _pair_violations,
     canonical_layout,
     consumption_check,
-    unnest_coordinate_state,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.model import AttributionPart
@@ -85,11 +84,18 @@ def prepare(
 
 
 def retain_partition(
-    stage: SourceMethodStage, source: LoweredRelation, table: ir.Table, layout: RelationLayout
+    stage: SourceMethodStage,
+    source: LoweredRelation,
+    table: ir.Table,
+    layout: RelationLayout,
+    coordinate_relations: list[tuple[str, ir.Table]],
+    transports: list[ir.Table],
 ) -> tuple[ir.Table, RelationLayout]:
-    """Retain only allocation evidence when original reduction removes axes."""
-    from marivo.analysis.compiler.graph_lowering import coordinate_state_type
-    from marivo.analysis.core.model import CoordinateStatePart
+    """Retain flat allocation evidence when original reduction removes axes."""
+    from dataclasses import replace
+
+    from marivo.analysis.compiler.coordinate_state import entries, finish_sum, sum_value
+    from marivo.analysis.core.model import CoordinateStatePart, part_role
     from marivo.analysis.core.rules import OriginalReduce
 
     params = stage.node.parameters
@@ -100,16 +106,9 @@ def retain_partition(
     if coordinate is None:
         return table, layout
     original = next(p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart))
-    from marivo.analysis.core.model import part_role
-
-    raw = source.expression
-    exploded = unnest_coordinate_state(
-        stage, raw, tuple(k.column for k in source.layout.keys), part_role(original) + "__groups"
-    )
+    exploded = entries(source, original)
     source_keys = source.node.signature.domain.instance_key
     if params.time_mapping:
-        from dataclasses import replace
-
         grid = params.output_domain.time_grid
         assert grid is not None
         index = next(i for i, c in enumerate(source_keys) if c.role == "anchor")
@@ -129,26 +128,33 @@ def retain_partition(
     keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
     selected = exploded.select(
         **{
-            k: exploded[f"key_{source_keys.index(c)}"]
+            key: exploded[f"key_{source_keys.index(c)}"]
             if c in source_keys
-            else exploded.group[original.columns[original.coordinates.index(c)]]
-            for k, c in zip(keys, params.coordinates, strict=True)
+            else exploded[original.columns[original.coordinates.index(c)]]
+            for key, c in zip(keys, params.coordinates, strict=True)
         },
-        **{c: exploded.group[c] for c in (*original.columns, *original.components)},
+        **{name: exploded[name] for name in (*original.columns, *original.components)},
     )
-    grouped = selected.group_by(*keys, *original.columns).aggregate(
-        **{c: selected[c].sum().cast(selected[c].type()) for c in original.components}
+    fields: dict[str, ir.Value] = {}
+    for name in original.components:
+        value = selected[name]
+        if name in ("min", "max"):
+            value = (selected.non_null_count > 0).ifelse(value, ibis.null().cast(value.type()))
+            reduced = value.min() if name == "min" else value.max()
+        else:
+            reduced = sum_value(stage, value)
+        fields[name] = finish_sum(stage, reduced, selected[name].type())
+    grouped = selected.group_by(*keys, *original.columns).aggregate(**fields)
+    coordinate_relations.append((part_role(coordinate), grouped))
+    from marivo.analysis.compiler.coordinate_state import window_result
+
+    targets = (
+        table.select(*keys).distinct()
+        if keys
+        else table.aggregate(__target=ibis.literal(0, type="int64"))
     )
-    cell = ibis.struct({c: grouped[c] for c in (*original.columns, *original.components)})
-    nested = (grouped.group_by(*keys) if keys else grouped).aggregate(
-        allocation_state__groups=cell.collect(order_by=[grouped[c] for c in original.columns])
-    )
-    joined = table.left_join(nested, list(keys)) if keys else table.cross_join(nested)
-    output = joined.select(
-        *(table[c] for c in table.columns),
-        allocation_state__groups=nested.allocation_state__groups.fill_null(
-            ibis.literal([], type=coordinate_state_type(coordinate))
-        ),
-    )
-    target = canonical_layout(stage.node.signature, has_value=True)
-    return output.select(*target.columns), target
+    if not keys:
+        grouped = grouped.mutate(__target=ibis.literal(0, type="int64"))
+    primary, target, stream = window_result(stage, grouped, targets, keys or ("__target",))
+    transports.append(stream)
+    return primary, target

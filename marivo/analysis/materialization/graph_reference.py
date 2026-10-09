@@ -267,6 +267,11 @@ def bind(
 
 
 def part_keys(signature: Signature, role: str) -> tuple[str, ...]:
+    from marivo.analysis.methods.coordinate_state import key_fields
+
+    coordinate_keys = key_fields(signature, role)
+    if coordinate_keys is not None:
+        return coordinate_keys
     from marivo.analysis.core.model import AttributionPart
     from marivo.analysis.materialization.graph_attribution import part_keys as attribution_keys
 

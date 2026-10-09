@@ -132,8 +132,8 @@ source re-execution guidance; there is no dual read or migration. Fixed grouping
 rollup and cold recovery use captured complete keys and coordinate bindings without
 resolving relationships or acquiring source data.
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
-| artifact_descriptor/v5 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
-| receipt/v1 | Closed primary/part variants with complete key schema and local storage facts |
+| artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
+| receipt/v1 (primary), receipt/v2 (part) | Complete key schema, local storage facts, exact part payload SHA-256 and closed table/keyed/partition layout with an explicit owner role |
 | method_state/v2 | Kind-dispatched state, binding and method/contract versions |
 | continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
 | execution_key/v3 | Same-Session execution identity, independent of Store generation |
@@ -143,13 +143,22 @@ exact physical types, Decimal precision/scale and Duration/timestamp units.
 Each Cell slot freezes its carrier and canonical reason dictionary in the
 descriptor's primary Arrow schema or its part receipt. Parquet payloads carry
 only physical fields; they do not repeat the dictionary in their headers. Reads
-restore the one frozen binding before validating codes. Physical implementation ABI 6 and
-state/part contract 3 bind this representation. Defined is code 0. Non-Defined
+restore the one frozen binding before validating codes. Physical implementation ABI 7 and
+state/part contract 4 bind this representation. Defined is code 0. Non-Defined
 codes use the low two bits for Null (1), Undefined (2), Unknown (3), with the
 high bits holding the dictionary ordinal (starting at 1). Dictionaries sort by
 tag then reason, admit at most 8191 pairs, and are deterministically rebound when
 inputs combine. Encoded state fields are non-null int16; invalid codes, undeclared
 reasons and state/value-validity disagreements reject without fallback.
+
+Contribution state is persisted directly as flat Arrow/Parquet. A keyed
+coordinate receipt reuses its original or endpoint owner components and retains
+only complete parent keys and presence. A partition receipt retains parent keys,
+remaining coordinates and concrete component carriers. Receipts freeze the layout
+and owner; restoration does not query Semantic or infer endpoint correspondence.
+Descriptor v6, part receipt v2 and state/part contract 4 reject prior formats with
+structured source re-execution guidance, preserving existing files. Store 9,
+graph DAG v5 and continuation v5 remain unchanged; there is no migration or dual read.
 
 Optional correspondence endpoints use -1 solely for an absent endpoint, outside
 the four Cell states. Only a frozen optional binding permits that sentinel;
@@ -157,7 +166,7 @@ correspondence parts still own presence and pairing checks. An absent endpoint
 is distinct from a present Null Cell. Empty streams retain bindings, schemas and
 domains; actual row distributions never alter their carrier.
 
-Descriptor v4 and earlier, method-state v1 and earlier, and prior state/part
+Descriptor v5 and earlier, method-state v1 and earlier, and prior state/part
 contracts reject on recovery. Existing history and files are preserved. Re-execute
 the producing source analysis to create a current Artifact; there is no migration
 or alternate read path. Store 9 adds canonical Session domain-scope metadata;
@@ -440,7 +449,7 @@ may only remove coordinates. Each stage retains the same complete original-state
 binding, contribution, method, output type and finish/empty policy. Only ordinary
 Subject, original_state and coverage parts qualify, with their actual declared
 schemas and full-key layouts. A shared intermediate, requested boundary,
-explicit Artifact leaf, pending check, time coarsening map, nested contribution
+explicit Artifact leaf, pending check, time coarsening map, retained contribution
 coordinate, allocation or other specialized part ends a group. Reference or
 weight changes and ordered folds never qualify.
 

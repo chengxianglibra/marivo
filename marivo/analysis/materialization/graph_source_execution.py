@@ -9,6 +9,7 @@ from dataclasses import replace
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
@@ -70,6 +71,57 @@ from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceSession
 
 
+def _split_transport(
+    stage: LoweredRelation, table: pa.Table
+) -> tuple[pa.Table, tuple[ExchangePart, ...]]:
+    from marivo.analysis.compiler.coordinate_state import physical
+
+    if "__marivo_coordinate_row" in table.column_names:
+        from marivo.analysis.core.model import CoordinateStatePart, part_role
+        from marivo.analysis.methods.coordinate_state import retain
+
+        keys = tuple(key.column for key in stage.layout.keys)
+        positions: dict[tuple[object, ...], int] = {}
+        for index, row in enumerate(
+            table.select(keys).to_pylist() if keys else [{} for _ in range(len(table))]
+        ):
+            positions.setdefault(tuple(row[key] for key in keys), index)
+        primary = project(
+            table.take(pa.array(list(positions.values()), type=pa.int64())), stage.layout.columns
+        )
+        part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
+        actual = table.filter(table["__marivo_coordinate_row"])
+        full = pa.Table.from_arrays(
+            [
+                *(actual[k] for k in keys),
+                *(actual["__coordinate__" + name] for name in (*part.columns, *part.components)),
+            ],
+            names=[*keys, *part.columns, *part.components],
+        )
+        return primary, (
+            ExchangePart(
+                part_role(part), retain(stage.node.signature, part_role(part), full, primary)
+            ),
+        )
+
+    children = physical(stage)
+    kinds = table["__marivo_row_kind"]
+    if kinds.null_count or any(
+        value not in range(len(children) + 1) for value in kinds.to_pylist()
+    ):
+        raise _invalid("terminal transport contains an absent or unknown row kind")
+    result: list[pa.Table] = []
+    for index, expression in enumerate((stage.expression, *(value for _, value in children))):
+        selected = table.filter(pc.equal(table["__marivo_row_kind"], index))
+        names = tuple(expression.columns)
+        result.append(
+            rename(project(selected, tuple(f"__part_{index}__{name}" for name in names)), names)
+        )
+    return result[0], tuple(
+        ExchangePart(role, value) for (role, _), value in zip(children, result[1:], strict=True)
+    )
+
+
 def _invalid(received: str) -> MaterializationError:
     return MaterializationError(
         expected="one admitted and qualified source graph with completed checks",
@@ -126,7 +178,7 @@ def _issue(
             **{
                 name: staged[name].cast(dtype)
                 for name, dtype in emitted.schema().items()
-                if dtype.is_int16() and staged[name].type() != dtype
+                if staged[name].type() != dtype
             }
         )
         physical_replacements[emitted.op()] = staged.op()
@@ -283,6 +335,13 @@ def _check(
                 and isinstance(owner.parameters, BindProject)
             ):
                 repair = "Provide a matching owner row for every consumed key; use match_verification='assume' only when this exact read guarantees matching."
+            elif (
+                fact.kind == "cell_policy"
+                and isinstance(owner, MethodNode)
+                and isinstance(owner.parameters, BindProject)
+            ):
+                expected += f": a valid scalar Cell for {owner.parameters.ref.path} on each consumed complete key"
+                repair = f"Correct missing or invalid source values for {owner.parameters.ref.path}; classification coordinates require Defined scalar values for every consumed complete key."
         if expected.startswith("r7."):
             from marivo.analysis.core.domain_captures import DomainPreparationError
 
@@ -418,11 +477,42 @@ def _result(
                     selected[column].cast(pa.duration(stage.node.value_type.unit), safe=True),
                 )
         from marivo.analysis.materialization.graph_reference import part_keys
-
-        part_contracts.append(
-            PartContract(role, selected.schema, part_keys(stage.node.signature, role))
+        from marivo.analysis.methods.coordinate_state import (
+            PartitionCoordinateLayout,
         )
+        from marivo.analysis.methods.coordinate_state import (
+            layout as coordinate_layout,
+        )
+
+        spec = coordinate_layout(stage.node.signature, role)
+        retained_keys = (
+            tuple(dict.fromkeys((*spec.keys, *spec.coordinates)))
+            if isinstance(spec, PartitionCoordinateLayout)
+            else part_keys(stage.node.signature, role)
+        )
+        part_contracts.append(PartContract(role, selected.schema, retained_keys))
         parts.append(ExchangePart(role, selected))
+    from marivo.analysis.methods.coordinate_state import (
+        KeyedCoordinateLayout,
+        PartitionCoordinateLayout,
+    )
+    from marivo.analysis.methods.coordinate_state import (
+        layout as coordinate_layout,
+    )
+
+    for retained in retained_parts:
+        if any(part.role == retained.role for part in parts):
+            continue
+        spec = coordinate_layout(stage.node.signature, retained.role)
+        if not isinstance(spec, (KeyedCoordinateLayout, PartitionCoordinateLayout)):
+            raise _invalid("undeclared contribution receipt")
+        keys = (
+            tuple(dict.fromkeys((*spec.keys, *spec.coordinates)))
+            if isinstance(spec, PartitionCoordinateLayout)
+            else spec.keys
+        )
+        parts.append(retained)
+        part_contracts.append(PartContract(retained.role, retained.table.schema, keys))
     source_ids = ",".join(stage.source_ids)
     state_kind = REGISTRY.lookup(stage.node.method).semantics.persistent_state_kind
     if state_kind is None:
@@ -585,6 +675,7 @@ def execute_source_graph(
     owned: list[ir.Table] = []
     issued_reads: dict[str, CompiledRead] = {}
     final_local: LoweredRelation | None = None
+    coordinate_parts: dict[str, tuple[ExchangePart, ...]] = {}
     try:
         for stage in lowered.stages:
             if isinstance(stage, LoweredLocal):
@@ -602,19 +693,15 @@ def execute_source_graph(
                 ):
                     from marivo.analysis.materialization.graph_attribution import pack, result
 
-                    retained = tuple(
-                        ExchangePart(
-                            role,
-                            _read(
-                                source,
-                                lowered,
-                                expression,
-                                purpose="analysis.graph.attribution",
-                                replacements=replacements,
-                            ),
-                        )
-                        for role, expression in predecessor.part_expressions
-                        if role in ("current_endpoint", "baseline_endpoint", "basis")
+                    retained = (
+                        *coordinate_parts.get(predecessor.output, ()),
+                        *(
+                            ExchangePart(
+                                role, project(tables[predecessor.output], expression.columns)
+                            )
+                            for role, expression in predecessor.part_expressions
+                            if role in ("current_endpoint", "baseline_endpoint", "basis")
+                        ),
                     )
                     finished = result(
                         stage.stage.node.signature,
@@ -623,6 +710,7 @@ def execute_source_graph(
                         ",".join(predecessor.source_ids),
                     )
                     table = pack(finished, tables[predecessor.output].schema)
+                    coordinate_parts[stage.stage.output] = finished.parts
                     staged = source.stage_calculated(issued_reads[predecessor.output], table)
                     owned.append(staged)
                     tables[stage.stage.output] = table
@@ -644,6 +732,9 @@ def execute_source_graph(
 
                     table = finish(stage.stage.node, tables[predecessor.output])
                     final_local = replace(predecessor, output=stage.stage.output)
+                    coordinate_parts[stage.stage.output] = coordinate_parts.get(
+                        predecessor.output, ()
+                    )
                     staged = source.stage_calculated(issued_reads[predecessor.output], table)
                     owned.append(staged)
                     tables[stage.stage.output] = table
@@ -760,7 +851,10 @@ def execute_source_graph(
                     table = from_rows(output_rows, issued_reads[predecessor.output].schema)
                     final_local = replace(predecessor, output=stage.stage.output)
                     # Validate the finished Cell, endpoint and correspondence exchange before use.
-                    _result(final_local, table, (), ())
+                    coordinate_parts[stage.stage.output] = coordinate_parts.get(
+                        predecessor.output, ()
+                    )
+                    _result(final_local, table, (), (), coordinate_parts[stage.stage.output])
                     staged = source.stage_calculated(issued_reads[predecessor.output], table)
                     owned.append(staged)
                     tables[stage.stage.output] = table
@@ -815,14 +909,18 @@ def execute_source_graph(
                         completed.append(proof)
             if direct_native:
                 if stage.output == lowered.primary_output:
-                    tables[stage.output] = _read(
+                    received = _read(
                         source,
                         lowered,
-                        stage.expression,
+                        stage.transport if stage.transport is not None else stage.expression,
                         purpose="analysis.graph.stage",
                         replacements={},
                         cell_reasons=stage.cell_reasons,
                     )
+                    if stage.transport is not None:
+                        received, retained = _split_transport(stage, received)
+                        coordinate_parts[stage.output] = retained
+                    tables[stage.output] = received
             else:
                 issued = _issue(
                     source,
@@ -832,7 +930,22 @@ def execute_source_graph(
                     replacements=replacements,
                 )
                 issued_reads[stage.output] = issued
-                staged, table = source.stage_derived(issued)
+                if stage.transport is None:
+                    staged, table = source.stage_derived(issued)
+                else:
+                    received = _read(
+                        source,
+                        lowered,
+                        stage.transport,
+                        purpose="analysis.graph.stage",
+                        replacements=replacements,
+                        cell_reasons=stage.cell_reasons,
+                    )
+                    table, retained = _split_transport(stage, received)
+                    coordinate_parts[stage.output] = retained
+                    if table.schema != issued.schema:
+                        table = from_rows(rows(table), issued.schema)
+                    staged = source.stage_calculated(issued, table)
                 owned.append(staged)
                 tables[stage.output] = table
                 replacements[stage.expression.op()] = staged.op()
@@ -851,26 +964,30 @@ def execute_source_graph(
         if final_local is not None and final_local.output == lowered.primary_output:
             primary = final_local
         assert primary is not None
-        retained_parts = tuple(
-            ExchangePart(
-                role,
-                _read(
-                    source,
-                    lowered,
-                    expression,
-                    purpose="analysis.graph.part",
-                    replacements=replacements,
-                    cell_reasons=next(
-                        (
-                            part.cell_reasons
-                            for part in primary.node.signature.parts
-                            if isinstance(part, ReferenceStatePart) and part.role == role
+        retained_parts = (
+            *coordinate_parts.get(primary.output, ()),
+            *tuple(
+                ExchangePart(
+                    role,
+                    _read(
+                        source,
+                        lowered,
+                        expression,
+                        purpose="analysis.graph.part",
+                        replacements=replacements,
+                        cell_reasons=next(
+                            (
+                                part.cell_reasons
+                                for part in primary.node.signature.parts
+                                if isinstance(part, ReferenceStatePart) and part.role == role
+                            ),
+                            (),
                         ),
-                        (),
                     ),
-                ),
-            )
-            for role, expression in primary.part_expressions
+                )
+                for role, expression in primary.part_expressions
+                if role not in {p.role for p in coordinate_parts.get(primary.output, ())}
+            ),
         )
         return _result(
             primary,

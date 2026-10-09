@@ -485,6 +485,17 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         else next(part for part in first.parts if part.role == part_role(p))
         for p in node.signature.parts
     )
+    from marivo.analysis.methods.coordinate_state import declarations
+
+    children = {role for role, _, _, _ in declarations(node.signature)}
+    parts = (
+        *parts,
+        *(
+            part
+            for part in first.parts
+            if part.role in children and not any(p.role == part.role for p in parts)
+        ),
+    )
     state = pa.table(
         {
             **{k: primary[k] for k in keys},
@@ -667,7 +678,13 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
         (source.contract.signature,),
         PartsTransport("view", source.contract.signature.domain, roles, True, display_view=name),
     ).output
-    parts = tuple(p for p in source.parts if p.role in roles)
+    from marivo.analysis.methods.coordinate_state import declarations
+
+    retained_roles = (
+        *roles,
+        *(role for role, _, _, _ in declarations(signature) if role not in roles),
+    )
+    parts = tuple(p for p in source.parts if p.role in retained_roles)
     selected = next(p.table for p in parts if p.role == name)
     primary = cell_rename(
         selected, [*source.contract.key_fields, "value", "cell_tag", "cell_reason"]
@@ -677,7 +694,7 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
         signature=signature,
         method=MethodKey("parts_transport"),
         schema=primary.schema,
-        parts=tuple(p for p in source.contract.parts if p.role in roles),
+        parts=tuple(p for p in source.contract.parts if p.role in retained_roles),
         state_kind="none",
         state_schema=None,
         pending_checks=(),

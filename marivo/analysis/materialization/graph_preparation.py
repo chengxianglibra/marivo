@@ -19,7 +19,6 @@ from marivo.analysis.compiler.graph_lowering import (
     SemanticCheck,
     TemporalCheck,
     canonical_layout,
-    coordinate_state_type,
 )
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode
@@ -83,7 +82,11 @@ from marivo.analysis.domains.completeness import EventCoverageRequestV1
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.domain_preparation import validate_rows
 from marivo.analysis.materialization.execute_deadline import check
-from marivo.analysis.materialization.graph_exchange import CompletedCheck, ExchangeResult
+from marivo.analysis.materialization.graph_exchange import (
+    CompletedCheck,
+    ExchangePart,
+    ExchangeResult,
+)
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.domain_coverage import FACTS, coverage
@@ -174,7 +177,7 @@ def _metadata(
 
 def _observation(
     stage: LoweredLocal, candidates: pa.Table, selected: ExchangeResult, original: pa.Table
-) -> pa.Table:
+) -> tuple[pa.Table, tuple[ExchangePart, ...]]:
     params = stage.stage.node.parameters
     assert isinstance(params, PreparedObservation)
     observation = params.observation
@@ -271,8 +274,9 @@ def _observation(
         None,
     )
     if coordinate is not None:
-        columns["coordinate_state__groups"] = []
-    for rows in restricted:
+        columns["coordinate_state__present"] = []
+    coordinate_rows: list[dict[str, object]] = []
+    for position, rows in enumerate(restricted):
         check()
         components = state(observation, rows)
         support = components["count" if isinstance(observation, ObserveCount) else "non_null_count"]
@@ -308,15 +312,16 @@ def _observation(
                         )
                     labels.append(label)
                 grouped.setdefault(tuple(labels), []).append(row)
-            groups: list[dict[str, object]] = []
-            for group_labels, members in sorted(grouped.items()):
-                groups.append(
+            for group_labels, members in grouped.items():
+                totals = state(observation, tuple(members))
+                coordinate_rows.append(
                     {
+                        **dict(zip(keys, selections[position].key, strict=True)),
                         **dict(zip(coordinate.columns, group_labels, strict=True)),
-                        **state(observation, tuple(members)),
+                        **{name: totals[name] for name in coordinate.components},
                     }
                 )
-            columns["coordinate_state__groups"].append(groups)
+            columns["coordinate_state__present"].append(bool(rows))
     layout = stage.output_layout
     fields = []
     from marivo.analysis.methods.deviation_physical import parse_type
@@ -335,11 +340,9 @@ def _observation(
             else pa.string()
             if name in ("cell_tag", "cell_reason")
             else pa.bool_()
-            if name == "coverage__complete"
+            if name in ("coverage__complete", "coordinate_state__present")
             else subject_table.schema.field(name).type
             if name.startswith("subject__key_")
-            else coordinate_state_type(coordinate).to_pyarrow()
-            if name == "coordinate_state__groups" and coordinate is not None
             else pa.int64()
             if "count" in name
             else amount_type
@@ -361,10 +364,32 @@ def _observation(
             sort_keys=True,
         ).encode(),
     }
-    return pa.Table.from_arrays(
+    table = pa.Table.from_arrays(
         [pa.array(columns[field.name], type=field.type) for field in fields],
         schema=pa.schema(fields, metadata=metadata),
     )
+    retained: tuple[ExchangePart, ...] = ()
+    if coordinate is not None:
+        from marivo.analysis.methods.coordinate_state import component_type, retain
+
+        full_schema = pa.schema(
+            [
+                *(table.schema.field(k) for k in keys),
+                *((name, pa.string()) for name in coordinate.columns),
+                *(
+                    (name, component_type(coordinate, name).to_pyarrow())
+                    for name in coordinate.components
+                ),
+            ]
+        )
+        full = pa.Table.from_pylist(coordinate_rows, schema=full_schema)
+        retained = (
+            ExchangePart(
+                "coordinate_state",
+                retain(stage.stage.node.signature, "coordinate_state", full, table),
+            ),
+        )
+    return table, retained
 
 
 def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession) -> ExchangeResult:
@@ -970,7 +995,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                 for key, relation in relations.items()
                 if relation.node.identity == item.stage.node.inputs[1].node.identity
             )
-            table = _observation(item, candidates, selected, original)
+            table, coordinate_parts = _observation(item, candidates, selected, original)
             state_digest = hashlib.sha256(
                 table.schema.serialize().to_pybytes() + repr(cell_rows(table)).encode()
             ).hexdigest()
@@ -1004,6 +1029,7 @@ def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
                     for c in prepared.admitted.checks
                     if any(proof.requirement == c for proof in completed)
                 ),
+                coordinate_parts,
             )
         for requirement in prepared.admitted.checks:
             if requirement.node_id != item.stage.node.identity or any(

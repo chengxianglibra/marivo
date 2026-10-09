@@ -88,6 +88,7 @@ from marivo.analysis.materialization.graph_exchange import (
     numeric_primary,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
+from marivo.analysis.materialization.graph_reference import part_keys
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import propagated_error, roundoff
@@ -622,6 +623,19 @@ def _transport_result(
     return _transport_stage(method, source, selected.artifact_ref)
 
 
+def _retained_roles(params: PartsTransport, source: ExchangeResult) -> tuple[str, ...]:
+    """Keep declared endpoint children with their retained scalar owner."""
+    return (
+        *params.retained_roles,
+        *(
+            part.role
+            for part in source.parts
+            if part.role.endswith("_endpoint_coordinates")
+            and part.role.removesuffix("_coordinates") in params.retained_roles
+        ),
+    )
+
+
 def _transport_stage(
     method: LoweredLocal,
     source: ExchangeResult,
@@ -708,16 +722,16 @@ def _transport_stage(
             )
         )
     parts: list[ExchangePart] = []
-    for role in params.retained_roles:
+    for role in _retained_roles(params, source):
         prior = next((part for part in source.parts if part.role == role), None)
         if prior is None:
             raise _invalid("required retained transport part is absent")
         from marivo.analysis.core.model import AttributionPart
 
         if any(
-            isinstance(p, AttributionPart) and p.role == role
+            isinstance(p, AttributionPart) and p.role == role.removesuffix("_coordinates")
             for p in source.contract.signature.parts
-        ) and role in ("current_endpoint", "baseline_endpoint"):
+        ) and role.removesuffix("_coordinates") in ("current_endpoint", "baseline_endpoint"):
             parts.append(prior)
             continue
         if role in (
@@ -917,7 +931,7 @@ def _selection_source_supported(method: LoweredLocal, source: ExchangeResult) ->
         raise _invalid("fixed selection input lacks complete keys or Cell fields")
     if not source.primary.schema.equals(source.contract.schema, check_metadata=False):
         raise _invalid("fixed selection producer schema differs from its contract")
-    for role in params.retained_roles:
+    for role in _retained_roles(params, source):
         part = next((item for item in source.parts if item.role == role), None)
         declared = next((item for item in source.contract.parts if item.role == role), None)
         if part is None or declared is None:
@@ -942,7 +956,8 @@ def _selection_group_result(
     params = group[-1].stage.node.parameters
     assert isinstance(params, PartsTransport)
     parts = tuple(
-        next(part for part in source.parts if part.role == role) for role in params.retained_roles
+        next(part for part in source.parts if part.role == role)
+        for role in _retained_roles(params, source)
     )
     part_keys = tuple(_transport_part_keys(part, keys) for part in parts)
     input_rows = [index]
@@ -1700,7 +1715,12 @@ def _difference_stage(
         input_binding,
         primary.schema,
         keys,
-        tuple(PartContract(part.role, part.table.schema, keys) for part in parts),
+        tuple(
+            PartContract(
+                part.role, part.table.schema, part_keys(method.stage.node.signature, part.role)
+            )
+            for part in parts
+        ),
         policies(primary),
         REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind or "none",
         status_schema,
@@ -1754,7 +1774,14 @@ def _coordinate_rollup_stage(
         coordinate = next(
             p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
         )
-        state = next(p.table for p in source.parts if p.role == "coordinate_state")
+        from marivo.analysis.core.model import part_role
+        from marivo.analysis.methods.coordinate_state import entries as coordinate_entries
+
+        state = coordinate_entries(
+            source.contract.signature,
+            {p.role: p.table for p in source.parts},
+            part_role(coordinate),
+        )
         columns = tuple(
             f"key_{source_keys.index(c)}"
             if c in source_keys
@@ -1767,25 +1794,13 @@ def _coordinate_rollup_stage(
             else pa.string()
             for column in columns
         )
-        entries = []
-        for row in cell_rows(state):
-            nested: object = row["coordinate_state__groups"]
-            if not isinstance(nested, list):
-                raise _invalid("coordinate state is not a complete list")
-            for item in nested:
-                if not isinstance(item, dict):
-                    raise _invalid("coordinate state has an invalid entry")
-                entries.append(
-                    {
-                        **{
-                            key: row[column]
-                            if column in source.contract.key_fields
-                            else item[column]
-                            for key, column in zip(key_fields, columns, strict=True)
-                        },
-                        **{name: item[name] for name in components},
-                    }
-                )
+        entries = [
+            {
+                **{key: row[column] for key, column in zip(key_fields, columns, strict=True)},
+                **{name: row[name] for name in components},
+            }
+            for row in state.to_pylist()
+        ]
     if params.time_mapping:
         mapping = dict(params.time_mapping)
         column = key_fields[next(i for i, c in enumerate(params.coordinates) if c.role == "anchor")]
@@ -1902,7 +1917,10 @@ def _coordinate_rollup_stage(
         input_binding,
         primary_schema,
         key_fields,
-        tuple(PartContract(p.role, p.table.schema, key_fields) for p in parts),
+        tuple(
+            PartContract(p.role, p.table.schema, part_keys(method.stage.node.signature, p.role))
+            for p in parts
+        ),
         semantics.empty_cell_reasons,
         state_kind,
         status.schema,
@@ -2008,7 +2026,12 @@ def _original_rollup_stage(
         input_binding,
         primary.schema,
         (),
-        tuple(PartContract(part.role, part.table.schema, ()) for part in parts),
+        tuple(
+            PartContract(
+                part.role, part.table.schema, part_keys(method.stage.node.signature, part.role)
+            )
+            for part in parts
+        ),
         semantics.empty_cell_reasons,
         semantics.persistent_state_kind,
         status.schema,
@@ -2165,7 +2188,10 @@ def _fold_rollup_stage(
         input_binding,
         primary.schema,
         keys,
-        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        tuple(
+            PartContract(p.role, p.table.schema, part_keys(method.stage.node.signature, p.role))
+            for p in parts
+        ),
         (("null", ("empty_contribution",)),),
         "original_fold",
         status.schema,
@@ -2706,7 +2732,10 @@ def _attach_category_stage(
         binding,
         primary.schema,
         keys,
-        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        tuple(
+            PartContract(p.role, p.table.schema, part_keys(method.stage.node.signature, p.role))
+            for p in parts
+        ),
         source.contract.cell_reasons,
         "none",
         None,
@@ -2843,7 +2872,9 @@ def _grouped_row_result(
         signature=node.signature,
         schema=primary.schema,
         key_fields=keys,
-        parts=tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
+        parts=tuple(
+            PartContract(p.role, p.table.schema, part_keys(node.signature, p.role)) for p in parts
+        ),
         state_schema=state.schema,
     )
     return from_arrow(

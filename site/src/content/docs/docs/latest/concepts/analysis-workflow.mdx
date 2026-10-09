@@ -103,8 +103,8 @@ counts represented result rows instead. Native-table Count rollup supports
 PostgreSQL, MySQL, Trino and ClickHouse on the registered UTC microsecond Ibis
 profile. Missing physical support reports the exact key and bounded registered
 alternatives; keep the source unchanged and report that key when none is suitable.
-PostgreSQL Count currently rejects nested categorical grouping before execution.
-Omit categorical axes for an overall Count; per-entity and time-only grouping remain supported.
+Categorical Count retains flat coordinate state, including on PostgreSQL.
+Exact method, type, time and physical profile admission still applies.
 
 Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `summarize(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
 
@@ -161,8 +161,12 @@ coordinate bindings. Use the corresponding classification object for subsequent
 `group_by`, statistic rollup or retained-axis attribution when a bare Dimension Ref
 would be ambiguous. Attribution uses the complete ordered endpoint axes. Fixed continuations
 use saved bindings and complete keys without re-inferring paths.
-SQLite, MySQL and ClickHouse reject observations that require nested contribution-coordinate
-state; automatic relationships preserve the existing backend admission boundary.
+Contribution coordinates use flat state on all six backends, including SQLite,
+MySQL and ClickHouse. Coordinates already in the result key reuse original
+components; other coordinates retain complete flat partitions. Real all-Null
+contributions remain distinct from empty targets. Automatic relationships preserve
+the exact backend admission boundary. Materialized comparisons retain the bound
+endpoint partitions for source-free attribution; old state requires re-execution.
 
 ## Keep source and fixed work explicit
 

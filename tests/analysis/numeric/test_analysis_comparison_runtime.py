@@ -160,8 +160,8 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     dataset = saved._dataset
     assert dataset is not None
     descriptor = dataset.artifact.descriptor
-    assert descriptor.method_state.contract_version == 3
-    assert all(part.contract_version == part.method_state_version == 3 for part in descriptor.parts)
+    assert descriptor.method_state.contract_version == 4
+    assert all(part.contract_version == part.method_state_version == 4 for part in descriptor.parts)
     checked = dataset.verified()
     mapping = next(part.table for part in checked.parts if part.role == "correspondence")
     corrupted = mapping.set_column(
@@ -220,7 +220,7 @@ saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert isinstance(saved, mv.MaterializedDifferenceRelation)
 selected = saved.where(saved.value.gt(-1)).execute()
 assert selected.to_pandas().set_index("member")["value"].to_dict() == {"B": 20, "D": 0}
-assert selected._dataset.artifact.descriptor.method_state.contract_version == 3
+assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
 """
     try:
         completed = subprocess.run(
@@ -380,7 +380,7 @@ def test_relative_change_exact_finish_and_zero_baseline(
         assert frame.loc["D", "cell_tag"] == "undefined"
         assert frame.loc["D", "cell_reason"] == "zero_baseline"
         assert saved._dataset is not None
-        assert saved._dataset.artifact.descriptor.method_state.contract_version == 3
+        assert saved._dataset.artifact.descriptor.method_state.contract_version == 4
 
 
 @pytest.mark.runtime
@@ -681,9 +681,9 @@ first, second, relative, ratio = [session.artifact(ref) for ref in sys.argv[2:]]
 assert isinstance(relative, mv.MaterializedDifferenceRelation)
 assert isinstance(ratio, mv.MaterializedNumericRelation)
 for saved in (relative, ratio):
-    assert saved._dataset.artifact.descriptor.method_state.contract_version == 3
+    assert saved._dataset.artifact.descriptor.method_state.contract_version == 4
     selected = saved.where(saved.value.gt(0)).execute()
-    assert selected._dataset.artifact.descriptor.method_state.contract_version == 3
+    assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
     assert "rollup" not in {action.call.split("(")[0].removeprefix("relation.") for action in saved.contract().actions}
 result = first.compare(second, value="relative_change").execute().to_pandas().set_index("member")
 assert result.loc["A", "value"] == -0.4
@@ -729,7 +729,7 @@ def test_ordinary_ratio_numeric_families(
         assert frame.loc["B", "value"] == 1
         assert frame.loc["D", "cell_reason"] == "zero_denominator"
         assert result._dataset is not None
-        assert result._dataset.artifact.descriptor.method_state.contract_version == 3
+        assert result._dataset.artifact.descriptor.method_state.contract_version == 4
 
 
 @pytest.mark.runtime

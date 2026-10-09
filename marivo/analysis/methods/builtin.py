@@ -29,7 +29,6 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
-    GroupObservationTarget,
     HistoryAxesPrepare,
     HistoryRead,
     HistoryReplay,
@@ -1241,7 +1240,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Bind component composition to member, group or overall observation grains."""
     declarations = tuple(
-        replace(item, contract_version=6) for item in _grain_implementations(method)
+        replace(item, contract_version=7) for item in _grain_implementations(method)
     )
     if method.name not in ("metric.ratio", "metric.linear") and not method.name.startswith(
         "state_rollup."
@@ -2207,7 +2206,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         return replace(
             implementation,
             key=replace(implementation.key, input_types=key.input_types),
-            contract_version=6,
+            contract_version=7,
             qualification=Qualified(
                 implementation.qualification.implementation_id,
                 implementation.qualification.consumer_id,
@@ -2405,25 +2404,6 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         ),
     ):
         return
-    if (
-        isinstance(implementation.key.shape, SourceShape)
-        and implementation.key.shape.backend in ("sqlite", "mysql", "clickhouse")
-        and isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean))
-        and (
-            params.coordinates
-            or params.classification_coordinates
-            or (
-                isinstance(params.target, GroupObservationTarget)
-                and any(c.role == "group" for c in params.target.coordinates)
-            )
-        )
-    ):
-        reject(
-            "an observation without nested contribution-coordinate state on "
-            + implementation.key.shape.backend,
-            repr((params.coordinates, params.classification_coordinates)),
-            "Omit contribution coordinates or use a backend qualified for nested state.",
-        )
     if isinstance(
         params,
         (

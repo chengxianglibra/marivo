@@ -26,7 +26,7 @@ def columns(part: AttributionPart) -> tuple[str, ...]:
                 if endpoint.original_state
                 else ()
             ),
-            *(("groups",) if endpoint.coordinate_state else ()),
+            *(("contribution_present",) if endpoint.coordinate_state else ()),
             *(("complete",) if endpoint.original_state else ()),
         )
     return {

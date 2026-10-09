@@ -1378,7 +1378,7 @@ def test_old_descriptor_rejects_without_migration(case):
 
     output = _execute(case)
     old = encode(output.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v5", "artifact_descriptor/v4"
+        "artifact_descriptor/v6", "artifact_descriptor/v4"
     )
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, DESCRIPTOR)
@@ -1477,20 +1477,28 @@ def test_compact_binding_has_one_frozen_storage_owner(case):
     recovered = read_result(case[0].store.project_root, descriptor)
     assert recovered.primary.schema.equals(schema, check_metadata=True)
     assert column(recovered.primary, "cell_tag").to_pylist() == ["defined"] * 3
-    assert descriptor.schema == "marivo.analysis.artifact_descriptor/v5"
+    assert descriptor.schema == "marivo.analysis.artifact_descriptor/v6"
     assert descriptor.method_state.schema == "marivo.analysis.method_state/v2"
-    assert descriptor.method_state.contract_version == 3
-    assert all(item.implementation_version == 6 for item in descriptor.method_bindings)
+    assert descriptor.method_state.contract_version == 4
+    assert all(item.implementation_version == 7 for item in descriptor.method_bindings)
 
 
-@pytest.mark.parametrize("target", ["descriptor", "method_state"])
+@pytest.mark.parametrize("target", ["descriptor", "method_state", "part_receipt"])
 def test_obsolete_artifact_cannot_hit_cache_or_mutate_saved_files(case, target):
-    saved = _capture(case)
+    saved = _execute(case) if target == "part_receipt" else _capture(case)
     fixed = _fixed(saved)
     case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
     payload = encode(saved.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v5" if target == "descriptor" else "method_state/v2",
-        "artifact_descriptor/v4" if target == "descriptor" else "method_state/v1",
+        "artifact_descriptor/v6"
+        if target == "descriptor"
+        else "receipt/v2"
+        if target == "part_receipt"
+        else "method_state/v2",
+        "artifact_descriptor/v4"
+        if target == "descriptor"
+        else "receipt/v1"
+        if target == "part_receipt"
+        else "method_state/v1",
     )
     with case[0].store._write() as connection:
         connection.execute(

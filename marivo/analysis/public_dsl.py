@@ -2425,7 +2425,7 @@ class _OriginalContinuation(_NumericComparison):
         Constraints: Requires complete original state and coverage; no finished-value averaging.
         Count merges retained occurrence counts. Missing physical support reports the exact key
         and admitted physical profile candidates; execution never changes routes automatically.
-        PostgreSQL Count rejects nested categorical state; overall, Entity and time-only groups remain supported.
+        Contribution coordinates use flat retained state on qualified backend profiles; exact method, type and time admission still applies.
         Execute a prepared observation after local Subject selection before rolling it up.
         """
         node = self._node.rollup()
@@ -3503,7 +3503,7 @@ class LogicalNumericRelation(_NumericComparison):
         Constraints: Requires original retained components; subgroup values are not averaged.
         Count merges retained occurrence counts. Missing physical support reports the exact key
         and admitted physical profile candidates; execution never changes routes automatically.
-        PostgreSQL Count rejects nested categorical state; overall, Entity and time-only groups remain supported.
+        Contribution coordinates use flat retained state on qualified backend profiles; exact method, type and time admission still applies.
         """
         return LogicalRolledNumericRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)

@@ -395,6 +395,25 @@ def test_offline_cold_parts_and_selected_views(
                     method_state=checked.method_state,
                     completed_checks=checked.completed_checks,
                 )
+        if part.role in ("current_endpoint", "baseline_endpoint"):
+            column = part.role + "__contribution_present"
+            assert part.table[column].to_pylist() == [True]
+            for marker in (False, None):
+                bad = part.table.set_column(
+                    part.table.schema.get_field_index(column),
+                    column,
+                    pa.array([marker], type=pa.bool_()),
+                )
+                with pytest.raises(AnalysisError, match="endpoint contribution presence"):
+                    from_arrow(
+                        checked.primary,
+                        checked.contract,
+                        parts=tuple(
+                            ExchangePart(p.role, bad) if p is part else p for p in checked.parts
+                        ),
+                        method_state=checked.method_state,
+                        completed_checks=checked.completed_checks,
+                    )
     path = case.root / "source_files" if parquet else case.database_path
     offline = path.with_name(path.name + ".offline")
     path.rename(offline)
@@ -845,4 +864,4 @@ def test_attribution_publication_cleans_only_failed_run(
             assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
         # A clean retry reaches the same registered method without replaying a failed publication.
         result = difference.attribute(axes=axes).execute()
-        assert len(result._dataset.verified().parts) == 6
+        assert len(result._dataset.verified().parts) == 8
