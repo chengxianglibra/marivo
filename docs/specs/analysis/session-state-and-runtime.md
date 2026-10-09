@@ -138,7 +138,7 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v6, `graph-dag-v6:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
+| graph_dag/v7, `graph-dag-v7:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
 
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
 | artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
@@ -147,12 +147,14 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
 | execution_key/v3 | Same-Session execution identity, independent of Store generation |
 
-Only v6 is accepted. Prior graph protocols return a structured integrity error and
-source re-execution guidance; there is no dual read or migration. Fixed grouping,
+Graph v7 removes the field-read matching strategy and freezes scoped matching
+assumptions instead of automatic matching obligations. Only graph v7 is accepted.
+Prior graph protocols return a structured integrity error and source re-execution
+guidance; there is no dual read or migration. Fixed grouping,
 rollup and cold recovery use captured complete keys and coordinate bindings without
 resolving relationships or acquiring source data.
 
-Graph v6 stores Binding, DomainSignature, Fact and Evidence once in four closed
+Graph v7 stores Binding, DomainSignature, Fact and Evidence once in four closed
 value tables. References bind their exact kind and nonnegative integer index;
 values restore in dependency order without expanding a recursive JSON copy.
 Canonical first-use ordering rejects duplicate, unused or inline pooled values.
@@ -160,7 +162,7 @@ The full uncompressed document, including tables, remains bounded at 4 MiB,
 and the compressed/Base64 graph remains bounded at 256 KiB. Value tables admit
 at most 16,384 entries and 65,536 references in addition to the existing graph
 node, edge and depth budgets. Pooling preserves complete derivations, obligations,
-retained endpoints, capture identities and definition fingerprints. Graph v5 and
+retained endpoints, capture identities and definition fingerprints. Graph v6 and
 earlier require source re-execution; existing state and files are preserved.
 
 
@@ -184,7 +186,7 @@ remaining coordinates and concrete component carriers. Receipts freeze the layou
 and owner; restoration does not query Semantic or infer endpoint correspondence.
 Descriptor v6, part receipt v2 and state/part contract 4 reject prior formats with
 structured source re-execution guidance, preserving existing files. Store 9,
-graph DAG v6 and continuation v5 remain independent; there is no migration or dual read.
+graph DAG v7 and continuation v5 remain independent; there is no migration or dual read.
 
 Optional correspondence endpoints use -1 solely for an absent endpoint, outside
 the four Cell states. Only a frozen optional binding permits that sentinel;
@@ -225,7 +227,7 @@ the typed protocol and method-state consumers own their exact field schemas.
 | history.intervals@v1 / report window | interval_rows | original/clipped boundary causes, statuses, exact observed ticks, SubjectBinding |
 | history.dwell@v1 / completed_window_fragment_duration@v1 | dwell_statistics | complete state domain, classified interval counts, exact completed ticks/order statistics and tick sum/count |
 | anchor.bind@v1 / Event role or Journey starts, population, during, order | anchor_domain | full Anchor keys/starts, source assignment or occurrence input, exact Subject map, frozen order/coverage |
-| anchor.observe@v1 / Metric/RuntimeMetricExpr, RootRoutes, relative window | anchor_observation | per-Anchor Metric components and Cells, exact windows, contribution-use keys, coverage and root/path definitions |
+| anchor.observe@v1 / Metric/RuntimeMetricExpr, relationship path tuples, relative window | anchor_observation | per-Anchor Metric components and Cells, exact windows, contribution-use keys, coverage and root/path definitions |
 | anchor.retention@v1 / returning role, relative window, coverage | anchor_retention | original Omega, K+/K-/K?, windows, exact return uses/absence facts and Anchor-to-Subject mapping |
 | retention.by_subject@v1 / any_anchor or every_anchor | subject_retention | original instance status fibers, explicit Subject-image Omega, quantified truth and bounds |
 | existing parts_transport@v1 / bound selection, completed, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |

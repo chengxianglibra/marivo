@@ -481,13 +481,9 @@ def test_independent_roots_and_temporal_fold(
                 by={ms.ref.dimension("sales.right.owner"): "a"},
                 label="selected",
             )
-        routes = mv.routes(
-            mv.route(
-                ms.ref.entity("sales.left"), through=(ms.ref.relationship("sales.left_subject"),)
-            ),
-            mv.route(
-                ms.ref.entity("sales.right"), through=(ms.ref.relationship("sales.right_subject"),)
-            ),
+        routes = (
+            mv.path(ms.ref.relationship("sales.left_subject")),
+            mv.path(ms.ref.relationship("sales.right_subject")),
         )
         if mode == "linear_fanout":
             from marivo.analysis.datasets.errors import DatasetConstructionError

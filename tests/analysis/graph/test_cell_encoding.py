@@ -226,7 +226,8 @@ def test_maximum_code_and_chunked_empty_buffers_round_trip() -> None:
         remap(pa.chunked_array([pa.array([5], pa.int16())]), book, book)
 
 
-def test_outer_join_known_null_and_validity_distinguish_absent_endpoints() -> None:
+@pytest.mark.parametrize("view", [False, True])
+def test_outer_join_known_null_and_validity_distinguish_absent_endpoints(view: bool) -> None:
     backend = ibis.duckdb.connect()
     try:
         left = backend.create_table("outer_keys", pa.table({"key": [1, 2]}))
@@ -244,6 +245,8 @@ def test_outer_join_known_null_and_validity_distinguish_absent_endpoints() -> No
                 if known
                 else source.x.isnull().ifelse("source_null", ibis.null().cast("string")),
             )
+            if view:
+                right = right.view()
             logical = left.left_join(right, "key").select(
                 key=left.key,
                 value=right.value,

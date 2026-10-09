@@ -119,7 +119,7 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             for item in error.errors()
         ):
             raise IntegrityError(
-                expected="graph DAG v6, descriptor v6, part receipt v2, state contract 4 and continuation v5 schema versions",
+                expected="graph DAG v7, descriptor v6, part receipt v2, state contract 4 and continuation v5 schema versions",
                 received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Preserve existing state and files. Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",

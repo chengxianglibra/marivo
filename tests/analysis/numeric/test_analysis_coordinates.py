@@ -205,12 +205,8 @@ def test_original_mean_merges_support_not_finished_values(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.mean_amount"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.route(
-            ms.ref.entity("sales.order_line"),
-            through=(
-                ms.ref.relationship("sales.line_order"),
-                ms.ref.relationship("sales.order_buyer"),
-            ),
+        via=mv.path(
+            ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")
         ),
         by=(mv.member(),),
     )
@@ -728,14 +724,10 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     lines = members.observe(
         ms.ref.metric("sales.line_revenue"),
         during=window,
-        via=mv.routes(
-            mv.route(
-                ms.ref.entity("sales.order_line"),
-                through=(
-                    ms.ref.relationship("sales.line_order"),
-                    ms.ref.relationship("sales.order_buyer"),
-                ),
-            )
+        via=(
+            mv.path(
+                ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")
+            ),
         ),
         by=(mv.member(),),
     )

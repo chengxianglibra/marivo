@@ -220,15 +220,10 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.MemberAxis,
         dsl.RowMethod,
         dsl.CountMethod,
-        dsl.RootRoute,
-        dsl.RootRoutes,
+        dsl.RelationshipPath,
     )
     for type_value in types:
-        name = (
-            type_value.__name__
-            if type_value not in (dsl.RootRoute, dsl.RootRoutes)
-            else ("RootRoute" if type_value is dsl.RootRoute else "RootRoutes")
-        )
+        name = type_value.__name__
         policy_examples = {
             windows.AnyAnchor: "mv.any_anchor()",
             windows.EveryAnchor: "mv.every_anchor()",
@@ -321,10 +316,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.CountMethod
             else "Call mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean()."
             if type_value is dsl.RowMethod
-            else "Call mv.route(root, through=(...))."
-            if type_value is dsl.RootRoute
-            else "Call mv.routes(first_route, second_route)."
-            if type_value is dsl.RootRoutes
+            else "Call mv.path(first_relationship, *remaining_relationships)."
+            if type_value is dsl.RelationshipPath
             else "Use the linked producer or its owned result field; current continuations belong to the receiver contract."
         )
         producers = (
@@ -384,10 +377,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.CountMethod
             else ("dsl.sum", "dsl.count", "dsl.count_defined", "dsl.min", "dsl.max", "dsl.mean")
             if type_value is dsl.RowMethod
-            else ("dsl.route",)
-            if type_value is dsl.RootRoute
-            else ("dsl.routes",)
-            if type_value is dsl.RootRoutes
+            else ("dsl.path",)
+            if type_value is dsl.RelationshipPath
             else ()
         )
         if type_value is windows.Duration:
@@ -546,13 +537,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else ("AnalysisAction",)
                 if type_value is dsl.AnalysisContract
                 else (
-                    "dsl.routes",
+                    "dsl.RelationshipPath.show",
                     "dsl.LogicalAnalysisDomain.read",
                     "dsl.LogicalAnalysisDomain.observe",
                 )
-                if type_value is dsl.RootRoute
-                else ("dsl.LogicalAnalysisDomain.read", "dsl.LogicalAnalysisDomain.observe")
-                if type_value is dsl.RootRoutes
+                if type_value is dsl.RelationshipPath
                 else ("dsl.LogicalAnalysisDomain.observe",)
                 if type_value is dsl.MemberAxis
                 else ("methods.metric",)
@@ -577,7 +566,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if type_value in policy_examples
                 else (),
                 constraints=(
-                    "Exact member, semantic and Artifact bindings govern continuations.",
+                    "Nonempty ordered relationship composition; endpoints are resolved by the consumer."
+                    if type_value is dsl.RelationshipPath
+                    else "Exact member, semantic and Artifact bindings govern continuations.",
                     *(
                         (_doc_section(dsl.LogicalAnalysisDomain.execute, "Constraints"),)
                         if type_value in (dsl.LogicalAnalysisDomain, dsl.MaterializedAnalysisDomain)
@@ -663,8 +654,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         windows.calendar_days,
         windows.any_anchor,
         windows.every_anchor,
-        dsl.route,
-        dsl.routes,
+        dsl.path,
         dsl.member,
         dsl.sum,
         dsl.count,
@@ -708,16 +698,15 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if name == "member"
                 else "CountMethod"
                 if name in ("count", "count_defined")
-                else "RootRoute"
-                if name == "route"
-                else "RootRoutes"
-                if name == "routes"
+                else "RelationshipPath"
+                if name == "path"
                 else "RowMethod",
                 constraints=(
                     _doc_section(function, "Constraints")
                     if name
                     in (
                         "member",
+                        "path",
                         "duration",
                         "elapsed",
                         "calendar_days",
@@ -748,9 +737,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "any_anchor",
                         "every_anchor",
                     )
-                    else f"result = mv.{name}(root, through=(relationship,))"
-                    if name == "route"
-                    else "result = mv.routes(first_route, second_route)",
+                    else "result = mv.path(relationship)",
                     ()
                     if name
                     in (
@@ -767,9 +754,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "any_anchor",
                         "every_anchor",
                     )
-                    else ("root", "relationship")
-                    if name == "route"
-                    else ("first_route", "second_route"),
+                    else ("relationship",),
                     "result",
                     "A closed Analysis DSL argument.",
                     True,
@@ -997,8 +982,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         *(
             value
             for value in types
-            if value
-            not in (dsl.MemberAxis, dsl.RowMethod, dsl.CountMethod, dsl.RootRoute, dsl.RootRoutes)
+            if value not in (dsl.MemberAxis, dsl.RowMethod, dsl.CountMethod)
         ),
     )
     for owner in owner_methods:
@@ -1035,7 +1019,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "rule"
                     else ("SubjectBinding",)
                     if key == "through" and name in ("cohort", "members")
-                    else ("dsl.route", "dsl.routes")
+                    else ("dsl.path",)
                     if key == "via"
                     else ("dsl.member", "LogicalCategoryRelation")
                     if key == "by" and owner is dsl.LogicalAnalysisDomain and name == "observe"
@@ -1060,7 +1044,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     parameters=params,
                     output=str(installed.return_annotation),
                     constraints=(_doc_section(value, "Constraints"),),
-                    effects=_effects(name),
+                    effects="Display the immutable path argument; no source read or Run."
+                    if owner is dsl.RelationshipPath
+                    else _effects(name),
                     failures=(),
                     example=method_example(value),
                 )

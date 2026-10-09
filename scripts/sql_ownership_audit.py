@@ -219,7 +219,7 @@ def _manifest() -> Manifest:
     )
     add(
         "analysis/materialization/graph_preparation",
-        ("execute",),
+        ("_execute",),
         tuple(
             f"marivo.analysis.materialization.{module}.execute"
             for module in (*local_executors, "history_execution")

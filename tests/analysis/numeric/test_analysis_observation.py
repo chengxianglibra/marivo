@@ -5,12 +5,7 @@ from __future__ import annotations
 import pytest
 
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.observation.route_inputs import (
-    RootRoutesValue,
-    RootRouteValue,
-    root_route,
-    root_routes,
-)
+from marivo.analysis.observation.route_inputs import RelationshipPath
 from marivo.refs import ref
 from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
@@ -61,46 +56,38 @@ assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
     assert result.returncode == 0, result.stderr
 
 
-def _route(entity: str):
-    return root_route(ref.entity(f"sales.{entity}"), through=(ref.relationship("sales.buyer"),))
+def test_relationship_path_rejects_empty_or_non_relationship_hops() -> None:
+    import marivo.analysis as mv
+
+    with pytest.raises(AnalysisError, match=r"mv\.path"):
+        RelationshipPath()
+    with pytest.raises(TypeError, match="first_relationship"):
+        mv.path()
+    with pytest.raises(AnalysisError, match="Relationship"):
+        mv.path(ref.entity("sales.order"))
 
 
-def test_root_routes_accepts_three_distinct_contribution_roots() -> None:
-    routes = root_routes(
-        _route("line"),
-        _route("order"),
-        _route("return"),
-    )
+def test_relationship_path_preserves_hop_order_and_bounded_display(capsys) -> None:
+    import marivo.analysis as mv
 
-    assert isinstance(routes, RootRoutesValue)
-    assert tuple(item.root.path for item in routes.routes) == (
-        "sales.line",
-        "sales.order",
-        "sales.return",
-    )
+    first, second = ref.relationship("sales.line_order"), ref.relationship("sales.buyer")
+    selection = mv.path(first, second)
+    from dataclasses import FrozenInstanceError
 
-
-def test_root_routes_accepts_one_route() -> None:
-    routes = root_routes(_route("order"))
-
-    assert isinstance(routes, RootRoutesValue)
-    assert len(routes.routes) == 1
-
-
-def test_root_routes_rejects_repeated_contribution_root() -> None:
-    with pytest.raises(AnalysisError, match="distinct contribution roots"):
-        root_routes(_route("order"), _route("order"))
-
-
-def test_root_routes_rejects_no_route() -> None:
-    with pytest.raises(AnalysisError, match="route"):
-        root_routes()
-
-
-def test_root_route_accepts_an_identity_path() -> None:
-    route = RootRouteValue(ref.entity("sales.order"), ())
-    assert route.root == ref.entity("sales.order")
-    assert route.through == ()
+    assert selection.through == (first, second)
+    with pytest.raises(FrozenInstanceError):
+        selection.through = (second,)
+    assert "RelationshipPath" in repr(selection) and ".show()" in repr(selection)
+    selection.show()
+    output = capsys.readouterr().out
+    assert output.index(first.path) < output.index(second.path)
+    long_path = mv.path(*(ref.relationship("sales." + "x" * 200) for _ in range(20)))
+    assert len(repr(long_path)) < 100
+    long_path.show()
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 18
+    assert lines[-1] == "  ... 4 more hops"
+    assert all(len(line) < 170 for line in lines)
 
 
 @pytest.mark.runtime
@@ -125,9 +112,9 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
     observed = members.observe(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(line, through=(line_order, buyer)),
-            mv.route(order, through=(buyer,)),
+        via=(
+            mv.path(line_order, buyer),
+            mv.path(buyer),
         ),
         by=(mv.member(),),
     )
@@ -284,17 +271,17 @@ def test_root_routes_rejects_a_route_per_occurrence_of_one_root(
     line_revenue = ms.ref.metric(f"{domain}.{names.line_revenue}")
     order_count = ms.ref.metric(f"{domain}.{names.order_count}")
 
-    expression = mv.runtime_metric.linear(add=[line_revenue, order_count], label="net_readings")
+    expression = mv.runtime_metric.ratio(line_revenue, order_count, label="amount_per_order")
     members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
 
     with pytest.raises(AnalysisError, match="distinct contribution roots"):
         members.observe(
             expression,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=mv.routes(
-                mv.route(line, through=(line_order, buyer)),
-                mv.route(line, through=(line_order, buyer)),
-                mv.route(order, through=(buyer,)),
+            via=(
+                mv.path(line_order, buyer),
+                mv.path(line_order, buyer),
+                mv.path(buyer),
             ),
             by=(mv.member(),),
         )
@@ -325,7 +312,7 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     observed = members.observe(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.route(order, through=(buyer,)),
+        via=mv.path(buyer),
         by=(mv.member(),),
     )
 
@@ -375,9 +362,9 @@ def test_observe_linear_over_two_distinct_contribution_roots(
     observed = members.observe(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(line, through=(line_order, buyer)),
-            mv.route(order, through=(buyer,)),
+        via=(
+            mv.path(line_order, buyer),
+            mv.path(buyer),
         ),
         by=(mv.member(),),
     )
@@ -418,9 +405,9 @@ def test_linear_subtract_reverses_its_named_term(
     observed = members.observe(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=mv.routes(
-            mv.route(order, through=(buyer,)),
-            mv.route(line, through=(line_order, buyer)),
+        via=(
+            mv.path(buyer),
+            mv.path(line_order, buyer),
         ),
         by=(mv.member(),),
     )
@@ -724,22 +711,13 @@ shipment_count = ms.count(name='shipment_count', entity=shipments, time=shipment
         .observe(
             expression,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=mv.routes(
-                mv.route(
-                    ms.ref.entity("sales.order_line"),
-                    through=(
-                        ms.ref.relationship("sales.line_order"),
-                        ms.ref.relationship("sales.order_buyer"),
-                    ),
+            via=(
+                mv.path(
+                    ms.ref.relationship("sales.line_order"),
+                    ms.ref.relationship("sales.order_buyer"),
                 ),
-                mv.route(
-                    ms.ref.entity("sales.order"),
-                    through=(ms.ref.relationship("sales.order_buyer"),),
-                ),
-                mv.route(
-                    ms.ref.entity("sales.shipment"),
-                    through=(ms.ref.relationship("sales.shipment_buyer"),),
-                ),
+                mv.path(ms.ref.relationship("sales.order_buyer")),
+                mv.path(ms.ref.relationship("sales.shipment_buyer")),
             ),
             by=(mv.member(),),
         )
@@ -959,12 +937,12 @@ def test_observation_rejects_wrong_or_extra_root_routes(
     buyer = ms.ref.relationship("sales.order_buyer")
     line_order = ms.ref.relationship("sales.line_order")
     routes = (
-        mv.routes(
-            mv.route(ms.ref.entity("sales.order"), through=(buyer,)),
-            mv.route(ms.ref.entity("sales.order_line"), through=(line_order, buyer)),
+        (
+            mv.path(buyer),
+            mv.path(line_order, buyer),
         )
         if extra
-        else mv.routes(mv.route(ms.ref.entity("sales.order_line"), through=(buyer,)))
+        else (mv.path(line_order, buyer),)
     )
     with pytest.raises(AnalysisError, match=r"route|root"):
         case.session.members(ms.ref.entity("sales.customer")).observe(

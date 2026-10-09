@@ -1090,14 +1090,11 @@ def test_reference_preparation_captures_independent_source_origins(
         members.observe(
             ms.ref.metric("sales.line_revenue"),
             during=scope,
-            via=mv.routes(
-                mv.route(
-                    ms.ref.entity("sales.order_line"),
-                    through=(
-                        ms.ref.relationship("sales.line_order"),
-                        ms.ref.relationship("sales.order_buyer"),
-                    ),
-                )
+            via=(
+                mv.path(
+                    ms.ref.relationship("sales.line_order"),
+                    ms.ref.relationship("sales.order_buyer"),
+                ),
             ),
             by=(mv.member(),),
         )
@@ -1117,21 +1114,15 @@ def test_reference_preparation_captures_independent_source_origins(
         "stratum_values",
         "strata",
     }
-    routes = mv.routes(
-        mv.route(ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)),
-        mv.route(
-            ms.ref.entity("sales.order_line"),
-            through=(
-                ms.ref.relationship("sales.line_order"),
-                ms.ref.relationship("sales.order_buyer"),
-            ),
-        ),
+    routes = (
+        mv.path(ms.ref.relationship("sales.order_buyer")),
+        mv.path(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
     )
     average = (
         members.observe(
             ms.ref.metric(f"sales.{case.names.aov}"),
             during=scope,
-            via=mv.routes(*reversed(routes.routes)),
+            via=(*reversed(routes),),
             by=(mv.member(),),
         )
         .group_by(categories)

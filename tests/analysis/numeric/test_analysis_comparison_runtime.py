@@ -622,7 +622,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
     right = case.session.members(ms.ref.entity("sales.account")).observe(
         metric,
         during=scope,
-        via=mv.routes(mv.route(ms.ref.entity("sales.order"), through=(buyer, relationship))),
+        via=(mv.path(buyer, relationship),),
         by=(mv.member(),),
     )
     for first, second in ((left, right), (left.execute(), right.execute())):

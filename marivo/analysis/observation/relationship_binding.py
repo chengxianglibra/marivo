@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
-from marivo.analysis.observation.route_inputs import RootRoutesValue, RootRouteValue
+from marivo.analysis.observation.route_inputs import RelationshipPath, RouteInput
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import EntityKind, Ref, RelationshipKind, ref
 from marivo.semantic.ir import TargetRelationshipContract
+from marivo.semantic.metric_graph import TargetMetricContract
 from marivo.semantic.validator import Registry, normalize_target_relationship
 
-RouteInput = Ref[RelationshipKind] | RootRouteValue | RootRoutesValue | None
 Path = tuple[Ref[RelationshipKind], ...]
 
 
@@ -40,11 +40,9 @@ def binding_error(
             candidates=choices,
             snippet="choices = (\n"
             + "\n".join(
-                "    mv.route(ms.ref.entity("
-                + repr(root)
-                + "), through=("
+                "    mv.path("
                 + ", ".join("ms.ref.relationship(" + repr(item.path) + ")" for item in path)
-                + ",)),"
+                + "),"
                 for path in candidates
             )
             + "\n)"
@@ -166,31 +164,63 @@ class RelationshipResolver:
             )
         return paths[0]
 
+    def metric_paths(
+        self,
+        metric: TargetMetricContract,
+        member: str,
+        overrides: dict[str, Path],
+        *,
+        target: str = "dsl.LogicalAnalysisDomain.observe",
+    ) -> tuple[Path, ...]:
+        """Resolve canonical root bindings while preserving each declared time role."""
+        paths: list[Path] = []
+        for root in metric.computation_roots:
+            prefixes = tuple(
+                tuple(ref.relationship(item.path) for item in component.event_time_path)
+                for component in metric.components
+                if component.computation_root.path == root.path
+            )
+            prefix = max(prefixes, key=len, default=())
+            if any(prefix[: len(item)] != item for item in prefixes):
+                raise binding_error(
+                    "compatible declared component roles",
+                    root.path,
+                    target=target,
+                )
+            paths.append(
+                self.resolve(
+                    root.path,
+                    member,
+                    explicit=overrides.get(root.path),
+                    prefix=prefix,
+                    target=target,
+                )
+            )
+        return tuple(paths)
+
     def overrides(
         self, via: RouteInput, *, roots: tuple[Ref[EntityKind], ...], target: str
     ) -> dict[str, Path]:
-        declared = (
-            via.routes if isinstance(via, RootRoutesValue) else (via,) if via is not None else ()
-        )
+        declared = via if isinstance(via, tuple) else (via,) if via is not None else ()
+        if isinstance(via, tuple) and not via:
+            raise binding_error("a nonempty tuple of paths", "empty tuple", target=target)
         result: dict[str, Path] = {}
         allowed = {root.path for root in roots}
         for item in declared:
-            if isinstance(item, RootRouteValue):
-                root, path = item.root.path, item.through
+            if isinstance(item, RelationshipPath):
+                path = item.through
             elif isinstance(item, Ref) and item.kind == "relationship":
-                if item.path not in self.registry.relationships:
-                    raise binding_error("a loaded Relationship Ref", item.path, target=target)
-                mapping = self.by_ref[item.path]
-                root, path = mapping.from_entity_ref.path, (item,)
+                path = (item,)
             else:
                 raise binding_error(
-                    "a Relationship Ref, RootRoute or RootRoutes",
-                    repr(item),
-                    target=target,
+                    "a Relationship Ref or RelationshipPath", repr(item), target=target
                 )
+            if path[0].path not in self.by_ref:
+                raise binding_error("a loaded Relationship Ref", path[0].path, target=target)
+            root = self.by_ref[path[0].path].from_entity_ref.path
             if root not in allowed or root in result:
                 raise binding_error(
-                    "one override per distinct contribution root", root, target=target
+                    "one override for each of the distinct contribution roots", root, target=target
                 )
             result[root] = path
         return result

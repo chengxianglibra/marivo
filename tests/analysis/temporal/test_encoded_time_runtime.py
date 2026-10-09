@@ -345,14 +345,8 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
     case = analysis_dsl_case_factory("j3")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
     population = case.session.members(ms.ref.entity("sales.customer"))
-    routes = mv.routes(
-        mv.route(
-            ms.ref.entity("sales.order_line"),
-            through=(
-                ms.ref.relationship("sales.line_order"),
-                ms.ref.relationship("sales.order_buyer"),
-            ),
-        )
+    routes = (
+        mv.path(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
     )
 
     def execute() -> pd.DataFrame:

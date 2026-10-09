@@ -56,7 +56,6 @@ amounts = orders.read(ms.ref.measure("commerce.order.amount"))
 regions = orders.read(
     ms.ref.dimension("commerce.customer.region"),
     via=ms.ref.relationship("commerce.order_customer"),
-    match_verification="assume",
 )
 quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
 change = current.compare(
@@ -66,10 +65,13 @@ quotient.contract().show()
 ```
 
 Select Defined values before numeric predicates. Complete typed key tuples,
-Session ownership and units must match. `verification="assume"` and
-`match_verification="assume"` are explicit caller premises, not successful
-validation; use them only with an actual independent basis. Failed checked
-premises require fixing the input or alignment, not changing the claim to assume.
+Session ownership and units must match. Relationship matching trusts the consuming
+contract and retains unverified assumptions; it has no automatic verification query.
+A present owner's Null field remains `Null(source_null)`; an absent owner operand
+fails when the field is consumed. Downstream filtering or reduction cannot hide
+that failure: the lookup is consumed once and its result is reused. This creates
+no matching proof or missing-value policy. Pairing `verification="assume"` remains an explicit caller
+premise, not a successful check. Repair failed pairing inputs or alignment.
 
 ## Repair recovery and output
 

@@ -15,6 +15,7 @@ import marivo
 import marivo.analysis as mv
 from marivo.analysis.anchors import deadline
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from tests.analysis.journey.anchors_fixtures import (
     build_anchors,
     event_anchors,
@@ -293,16 +294,18 @@ def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
             during_start=(datetime(2027, 1, 1, tzinfo=UTC)).isoformat(),
             during_end=(datetime(2027, 2, 1, tzinfo=UTC)).isoformat(),
         )
-        contract = replace(
-            contract,
-            signature=replace(
-                contract.signature,
-                parts=tuple(
-                    replace(part, domain=domain) if part is declaration else part
-                    for part in contract.signature.parts
+        with pytest.raises(AnalysisError, match="frozen exchange differs"):
+            contract = replace(
+                contract,
+                signature=replace(
+                    contract.signature,
+                    parts=tuple(
+                        replace(part, domain=domain) if part is declaration else part
+                        for part in contract.signature.parts
+                    ),
                 ),
-            ),
-        )
+            )
+        return
     else:
         role, field = {
             "deadline": ("anchor", "anchor__deadline"),
@@ -467,7 +470,7 @@ def test_every_disclosed_fixed_K_in_three_processes(tmp_path):
         assert run.returncode == 0, run.stdout + run.stderr
         receipts.append(json.loads(run.stdout.splitlines()[-1]))
     assert receipts[1]["executed_K"] == receipts[2]["executed_K"]
-    assert receipts[2]["fixed_K"] == 152
+    assert receipts[2]["fixed_K"] == 160
     evidence = os.getenv("MARIVO_R77_EVIDENCE_DIR")
     if evidence:
         path = Path(evidence) / "all-K.json"
@@ -522,10 +525,21 @@ def test_numeric_overflow_is_atomic(tmp_path, calendar, field, value, index):
 @pytest.mark.parametrize("calendar", [False, True])
 def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, calendar, monkeypatch):
     import marivo.semantic as ms
+    from marivo.analysis.compiler.graph_lowering import SemanticCheck
+    from marivo.analysis.materialization import graph_source_execution
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.journey.anchors_fixtures import with_history_route
     from tests.analysis.journey.anchors_worker import forbidden
 
+    checked = []
+    original_check = graph_source_execution._check
+
+    def record_check(source, lowered, requirement, replacements):
+        if isinstance(requirement, SemanticCheck):
+            checked.append(requirement.requirement.obligation.fact)
+        return original_check(source, lowered, requirement, replacements)
+
+    monkeypatch.setattr(graph_source_execution, "_check", record_check)
     rows = [(0, "started", 0, 1), (1, "started", 0, 1), (0, "pulse", 5, 2), (0, "pulse", 86405, 3)]
     session, _, during, _, _ = build_anchors(tmp_path, rows=rows, form=form)
     session, members = with_history_route(tmp_path, session, kind=kind, form=form)
@@ -534,16 +548,21 @@ def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, cale
     fixed = anchors.observe(
         ms.ref.metric("commerce.fact_count"),
         within=window,
-        via=mv.routes(
-            mv.route(
-                ms.ref.entity("commerce.facts"),
-                through=(
-                    ms.ref.relationship("commerce.facts_history"),
-                    ms.ref.relationship("commerce.history_subject"),
-                ),
-            )
+        via=(
+            mv.path(
+                ms.ref.relationship("commerce.facts_history"),
+                ms.ref.relationship("commerce.history_subject"),
+            ),
         ),
     ).execute()
+    assumptions = {e.fact for e in fixed._node.root.signature.evidence if e.basis == "assumption"}
+    assert any(fact.kind == "mapping_total" for fact in assumptions)
+    assert not assumptions.intersection(checked)
+    assert fixed._dataset is not None
+    assert not assumptions.intersection(
+        record.fact for record in fixed._dataset.artifact.descriptor.completed_checks
+    )
+    assert "trusted contract, not checked" in dict(fixed.contract()._facts)["premise_assumptions"]
     assert sorted(fixed.to_pandas()["value"].tolist()) == [1, 1]
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     assert fixed.where(fixed.value.is_defined()).execute().to_pandas()["value"].tolist() == [1, 1]
@@ -669,7 +688,7 @@ def test_null_contributions_and_empty_policies(tmp_path, calendar):
         primary = operations[index].execute()._dataset.verified().primary
         values = primary["value"].cast(pa.int64()) if index == 4 else primary["value"]
         assert values.to_pylist() == [expected_value]
-        assert primary["cell_tag"].to_pylist() == ["defined"]
+        assert cell_column(primary, "cell_tag").to_pylist() == ["defined"]
     path = tmp_path / "models/semantic/commerce/objects.py"
     path.write_text(path.read_text().replace("empty=ms.empty.zero()", "empty=ms.empty.null()"))
     ms.load(workspace_dir=tmp_path)
@@ -678,7 +697,7 @@ def test_null_contributions_and_empty_policies(tmp_path, calendar):
     result = observations(event_anchors(session, members, window), calendar=calendar)[1].execute()
     primary = result._dataset.verified().primary
     assert primary["value"].to_pylist() == [None]
-    assert primary["cell_reason"].to_pylist() == ["empty_contribution"]
+    assert cell_column(primary, "cell_reason").to_pylist() == ["empty_contribution"]
 
 
 @pytest.mark.runtime
@@ -792,11 +811,9 @@ def test_anchor_root_routes_keep_declared_root_authority(tmp_path, monkeypatch):
         anchors.observe(
             ms.ref.metric("commerce.fact_count"),
             within=mv.elapsed(mv.duration(seconds=10)),
-            via=mv.routes(
-                mv.route(
-                    ms.ref.entity("commerce.other"),
-                    through=(ms.ref.relationship("commerce.participant"),),
-                )
+            via=(
+                mv.path(ms.ref.relationship("commerce.participant")),
+                mv.path(ms.ref.relationship("commerce.participant")),
             ),
         )
     assert session.runs().items == before

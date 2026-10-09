@@ -294,12 +294,7 @@ Catalog 条目携带确切 typed `.ref`。构造不会发布结果。
 {/* example: long-metric-routes */}
 
 ```python
-long_routes = mv.routes(
-    mv.route(
-        ms.ref.entity("sales.facts"),
-        through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4)),
-    )
-)
+long_routes = (mv.path(*tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(4))),)
 long_count = population.observe(
     ms.ref.metric("sales.number"),
     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),

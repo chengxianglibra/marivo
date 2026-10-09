@@ -88,7 +88,7 @@ from marivo.analysis.methods.physical import (
     ScalarType,
 )
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
-from marivo.analysis.observation.route_inputs import RootRoutesValue, RootRouteValue
+from marivo.analysis.observation.route_inputs import RelationshipPath
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
@@ -777,8 +777,7 @@ class Relation:
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridPoint | None = None,
-        via: Ref[RelationshipKind] | RootRouteValue | RootRoutesValue | None = None,
-        match_verification: Literal["check", "assume"] = "check",
+        via: Ref[RelationshipKind] | RelationshipPath | None = None,
         resolver: RelationshipResolver | None = None,
     ) -> Relation:
         live = self._live()
@@ -788,7 +787,6 @@ class Relation:
             via=via,
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
-            match_verification=match_verification,
             resolver=resolver,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))

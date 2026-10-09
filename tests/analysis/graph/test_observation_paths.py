@@ -191,12 +191,7 @@ def test_long_path_sum_and_count(
         )
         session = mv.session.get_or_create("long-path", report_timezone="UTC")
         population = session.members(ms.ref.entity("sales.subjects"))
-        routes = mv.routes(
-            mv.route(
-                ms.ref.entity("sales.facts"),
-                through=tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(depth)),
-            )
-        )
+        routes = (mv.path(*tuple(ms.ref.relationship(f"sales.hop{i}") for i in range(depth))),)
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
             logical = population.observe(
                 ms.ref.metric("sales." + metric),

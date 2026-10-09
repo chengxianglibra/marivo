@@ -146,13 +146,9 @@ def test_native_independent_multiroot_fixed_and_cold(
         )
         session = mv.session.get_or_create("r94-multiroot", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        routes = mv.routes(
-            mv.route(
-                ms.ref.entity("sales.left"), through=(ms.ref.relationship("sales.left_subject"),)
-            ),
-            mv.route(
-                ms.ref.entity("sales.right"), through=(ms.ref.relationship("sales.right_subject"),)
-            ),
+        routes = (
+            mv.path(ms.ref.relationship("sales.left_subject")),
+            mv.path(ms.ref.relationship("sales.right_subject")),
         )
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
@@ -211,10 +207,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             )
             explicit_read = session.members(ms.ref.entity("sales.left")).read(
                 ms.ref.dimension("sales.subjects.owner"),
-                via=mv.route(
-                    ms.ref.entity("sales.left"),
-                    through=(ms.ref.relationship("sales.left_subject"),),
-                ),
+                via=mv.path(ms.ref.relationship("sales.left_subject")),
             )
             assert (
                 auto_read._node.classification_coordinate()

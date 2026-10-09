@@ -5,6 +5,7 @@ from fractions import Fraction
 
 import pyarrow as pa
 
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from tests.analysis.lifecycle.lifecycle_fixtures import START, keys
 
 
@@ -60,7 +61,7 @@ def assert_result(result, values, subject, occurrence, index, *, calendar=False,
         primary = primary.set_column(
             primary.schema.get_field_index("value"), "value", primary["value"].cast(pa.int64())
         )
-    rows = {tuple(row[k] for k in verified.contract.key_fields): row for row in primary.to_pylist()}
+    rows = {tuple(row[k] for k in verified.contract.key_fields): row for row in cell_rows(primary)}
     oracle = expected(values, subject, occurrence, calendar=calendar, first=first)
     assert rows.keys() == {key for key, _ in oracle}
     for key, amounts in oracle:

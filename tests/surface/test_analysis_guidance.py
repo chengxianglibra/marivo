@@ -145,7 +145,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     observed = render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
     assert "governed Metric" in observed
     assert "Fixed TimeScope, a TimeGrid selecting each bucket's window" in observed
-    assert "dsl.route" in observed and "dsl.routes" in observed
+    assert "dsl.path" in observed
     assert "coordinates=coordinates" not in observed
 
     rollup = render(REGISTRY, "dsl.MaterializedRatioRelation.rollup")

@@ -60,7 +60,10 @@ def test_observation_help_discloses_grain_and_automatic_roles() -> None:
     focused, _, _ = render_help_text("analysis.dsl.LogicalAnalysisDomain.observe")
 
     assert text == focused
-    assert "via: 'Ref[RelationshipKind] | RootRoute | RootRoutes | None' = None" in text
+    assert (
+        "via: 'Ref[RelationshipKind] | RelationshipPath | tuple[Ref[RelationshipKind] | RelationshipPath, ...] | None' = None"
+        in text
+    )
     assert "Omit or pass None to infer unique directed to-one paths" in text
     assert "by" in text and "Singleton" in text and "time" in text
     assert "result = relation.observe(metric," in text
@@ -72,7 +75,11 @@ def test_observation_help_discloses_grain_and_automatic_roles() -> None:
     ):
         focused, _, _ = render_help_text(target)
         assert focused
-        assert "RootRoute" in focused if target.endswith(".read") else "classifications" in focused
+        assert (
+            "RelationshipPath" in focused
+            if target.endswith(".read")
+            else "classifications" in focused
+        )
 
 
 def test_history_interpretation_help_uses_producer_contract() -> None:

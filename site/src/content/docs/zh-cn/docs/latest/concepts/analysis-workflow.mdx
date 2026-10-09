@@ -149,12 +149,14 @@ channel_revenue.show()
 
 `read` 和普通成员域的 `observe` 会自动推导唯一的、有完整键的正向单值路径。
 省略 `via` 与传入 `None` 含义相同。存在多个合法关系角色时，用 Relationship Ref
-或 `mv.route(root, through=(...))` 明确选择。`mv.routes(...)` 按根身份绑定，
+或 `mv.path(first, *rest)` 明确选择。`via=(path_a, path_b)` 按根身份绑定，
 参数顺序无关，也可以只填写需要消歧的根。read 只接受一条成员到字段 owner 的路径。
+`mv.path(a, b)` 表示连续两跳；`via=(a, b)` 表示两个来源的路径选择。
+关系完整匹配信任消费契约，未静态证明的部分记录为未验证前提，不执行匹配预检查。
 
 贡献归属与维度取值可以使用不同路径。下例模型声明了订单行、订单行经订单到买家的路径，
 以及独立的订单行到商品路径。商品类别按订单行完整键在收入聚合前附着；绑定唯一时，
-裸 `by=(product_category,)` 得到相同结果。分类缺失或被过滤不能隐式过滤收入。
+裸 `by=(product_category,)` 得到相同结果。分类必须覆盖所消费的完整贡献键；该要求是信任前提，不承诺自动检测声明违约。
 版本化字段仍需独立的 `read(..., at=...)`，观察窗口不会自动选择字段版本。
 
 {/* example: contribution-classification */}

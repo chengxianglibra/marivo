@@ -157,15 +157,19 @@ channel_revenue.show()
 
 `read` and ordinary member `observe` infer a unique directed keyed to-one path.
 Omitting `via` and passing `None` have the same meaning. If several relationship
-roles are legal, select a Relationship Ref or `mv.route(root, through=(...))`.
-`mv.routes(...)` binds roots by identity in any order; it can specify only roots
+roles are legal, select a Relationship Ref or `mv.path(first, *rest)`.
+`via=(path_a, path_b)` binds roots by identity in any order; it can specify only roots
 that need disambiguation. A read accepts one member-to-owner route.
+`mv.path(a, b)` composes two hops; `via=(a, b)` selects two independent root paths.
+Required matching trusts the consuming contract. Unknown matching is retained
+as an unverified premise without a matching precheck.
 
 Contribution attribution and dimension lookup can use different paths. The model
 in this next example declares order lines, a line-to-order-to-buyer path, and a
 separate line-to-product path. Product categories attach to full line keys before
 revenue aggregation. Bare `by=(product_category,)` gives the same result when its
-binding is unique. A missing or filtered classification does not filter revenue.
+binding is unique. Classifications must cover the complete consumed contribution keys. This is a
+trusted premise; violations are not promised automatic detection.
 Versioned fields require their own `read(..., at=...)`; an observation window
 does not choose an attribute version.
 

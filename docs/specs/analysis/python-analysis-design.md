@@ -165,7 +165,7 @@ legacy resolver or successful old route grants new admission.
 | FixedLeaf | Exact same-Session Artifact, retained Signature, value type and fixed time shape |
 | MethodNode | Versioned rule parameters, ordered role-bearing inputs, derivation and explicit additional source/retained references |
 
-Frozen graph v6 pools Binding, DomainSignature, Fact and Evidence by exact
+Frozen graph v7 pools Binding, DomainSignature, Fact and Evidence by exact
 canonical content. Typed references share immutable contract values while
 preserving ordered inputs, full derivations and definition fingerprints. Graph
 records remain the same typed logical authority after decoding; pooling does not
@@ -259,14 +259,25 @@ cardinality alone does not prove every target has a match. Equal Entity refs,
 DomainSignatures or row counts do not prove equal realized input key sets.
 
 `ExactKeys(verification="check")` checks unknown pairing equality.
-`verification="assume"` records an exact call assumption. Field reads similarly
-use `match_verification="check"` or `"assume"` for unknown owner/path/version
-matching. Assumptions omit only their corresponding checks; they do not create
+`verification="assume"` records an exact call assumption. Field and relationship
+matching trust the exact consuming contract and retain unknown owner/path/version
+matching as unverified assumptions. Analysis exposes no matching-verification
+option or explicit verification entry point. Assumptions omit only their
+corresponding checks; they do not create
 an intersection, missing-value policy or completed source proof. Materialized
 contracts disclose retained assumptions as not checked.
 
-Unknown field/captured-path pairing and actual method consumption requirements
-remain typed obligations. Checks retain the originating ordered input nodes,
+Field Cells are constructed on the owner side of a lookup. A present owner's
+Null field is `Null(source_null)`; an absent owner supplies no operand and rejects
+at consumption. An unknown field lookup is consumed once before downstream SQL
+can discard rows, with later operations using its owned staged result. This is
+operand consumption, not a relationship matching query or completed proof.
+Observation partition and completeness facts depend on the exact matching
+assumptions used to construct them; removing a premise invalidates those facts.
+
+Unknown field/captured-path matching remains a scoped assumption. Independent
+key pairing and actual method consumption requirements remain typed obligations.
+Checks retain the originating ordered input nodes,
 scope and consume/publish deadline. A check may bind a subset of a method's
 direct inputs; lowering resolves each exact domain, quantity and node identity
 in the recorded order, including repeated operands. Local cohort consumption
@@ -294,9 +305,13 @@ occurrences sharing a root keep independent filters/state. Identity binds the sa
 directed keyed to-one path from normalized semantic facts, preserving declared
 Metric time-path prefixes. No shortest-path, declaration-order or physical-cost
 choice selects a business role. Ambiguity rejects with real bounded candidates.
-`via=None` and omission both infer; a Relationship Ref, `RootRoute`, or `RootRoutes`
-selects explicit roles. RootRoutes bind by root identity in any order and may
-cover only ambiguous roots; duplicate, extra and incorrect endpoints reject.
+`via=None` and omission both infer; a Relationship Ref, `mv.path(first, *rest)`,
+or a nonempty tuple of paths selects explicit roles. `mv.path` is the sole
+constructor of immutable `RelationshipPath`: it stores only nonempty ordered
+Relationship Refs, with the source determined by the first hop's declaration.
+`mv.path(a, b)` composes hops; `via=(a, b)` selects independent root paths.
+Path tuples bind by root identity in any order and may cover only ambiguous
+roots; duplicate, extra and incorrect endpoints reject.
 A read accepts exactly one path from its current member to the field owner.
 Physical schema/type/version/admission failures never try another semantic path.
 
