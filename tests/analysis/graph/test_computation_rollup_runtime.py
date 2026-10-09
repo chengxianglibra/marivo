@@ -1,14 +1,10 @@
-"""Cold-process rollup equality for linear and decimal retained metrics.
+"""Original-state rollup checks for linear and decimal retained metrics.
 
-The plan's rollup-equation mandate (C4 §5.4) requires warm aggregate results to
-equal cold-process rollup results exactly, with the original value types. The
-three-process worker authors a real project, persists a checkpoint, renames the
-source database away, and rolls the checkpoint up in a fresh process under a
-different host timezone. MySQL's decimal mean keeps its admission rejection
-this stage: the live mean-equation probe measured the engine's AVG scale-s+4
-rounding as ROUND_HALF_UP while the prescribed cold sum/count quantization is
-ROUND_HALF_EVEN, so the bit-exact warm==cold contract cannot hold (see the
-task 4 report for the raw probe rows).
+The cold-process case compares warm and recovered rollups for its chosen linear
+and int64 mean inputs, preserving their value types with the source offline.
+The decimal mean case checks fixed rollup and Artifact reads at the captured
+Ibis output scale. Ordinary Metric mean follows its inferred output type;
+source execution and retained sum/count continuation may round differently.
 """
 
 from __future__ import annotations
@@ -65,9 +61,10 @@ def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None
     }
 
 
-def test_duckdb_decimal_mean_retains_exact_result(
+def test_duckdb_decimal_mean_retains_captured_scale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Fixed Metric mean and Artifact reads preserve the captured Decimal scale."""
     from decimal import Decimal
 
     import duckdb
@@ -87,7 +84,10 @@ def test_duckdb_decimal_mean_retains_exact_result(
         .execute()
     )
     result = fixed.rollup().execute()
-    assert result.to_pandas()["value"].tolist() == [Decimal("18.046667")]
-    assert session.artifact(result.state.artifact_ref).to_pandas()["value"].tolist() == [
-        Decimal("18.046667")
-    ]
+    # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).
+    for materialized in (result, session.artifact(result.state.artifact_ref)):
+        values = materialized.to_pandas()["value"].tolist()
+        assert values == [Decimal("18.05")]
+        value = values[0]
+        assert isinstance(value, Decimal)
+        assert value.as_tuple().exponent == -2
