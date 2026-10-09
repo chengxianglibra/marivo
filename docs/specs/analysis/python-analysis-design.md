@@ -165,6 +165,12 @@ legacy resolver or successful old route grants new admission.
 | FixedLeaf | Exact same-Session Artifact, retained Signature, value type and fixed time shape |
 | MethodNode | Versioned rule parameters, ordered role-bearing inputs, derivation and explicit additional source/retained references |
 
+Frozen graph v6 pools Binding, DomainSignature, Fact and Evidence by exact
+canonical content. Typed references share immutable contract values while
+preserving ordered inputs, full derivations and definition fingerprints. Graph
+records remain the same typed logical authority after decoding; pooling does not
+merge independent node captures or remove retained history.
+
 Historical Artifact lineage is a reference, not a live data-dependency edge.
 An explicit FixedLeaf stops source classification. Additional field, predicate,
 comparison, grouping and domain-method dependencies are real graph edges;

@@ -89,10 +89,7 @@ def test_native_attribution_independent_fixed_and_cold(
                 if axis_kind == "joint":
                     axes += (ms.ref.dimension("sales.facts.region"),)
                 members = session.members(ms.ref.entity("sales.facts"))
-                # A joint cold continuation must stay within the frozen graph budget.
-                # The fact Entity's composite keys are still checked by membership;
-                # endpoint aggregation only needs the captured classification tuple.
-                by = axes if axis_kind == "joint" else (ms.ref.entity("sales.facts"), *axes)
+                by = (ms.ref.entity("sales.facts"), *axes)
                 current = members.observe(
                     ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),

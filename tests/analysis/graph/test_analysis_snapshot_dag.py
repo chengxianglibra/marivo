@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import base64
+import json
 import zlib
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 
 import pytest
+from pydantic import TypeAdapter
 
 from marivo.analysis.core.graph import (
     Edge,
@@ -22,10 +24,13 @@ from marivo.analysis.core.model import (
     Binding,
     Coordinate,
     DomainSignature,
+    Evidence,
+    Fact,
     ObservedQuantity,
     Signature,
 )
 from marivo.analysis.core.rules import CellDerive, PartsTransport, RowState
+from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.graph_protocol import encode, freeze_graph, thaw_graph
 from marivo.analysis.materialization.graph_snapshot import (
@@ -34,11 +39,14 @@ from marivo.analysis.materialization.graph_snapshot import (
     GraphDocument,
     InputReference,
     MethodRecord,
+    document_json,
     graph_document,
+    read_graph_document,
 )
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import ref
+from tests.support.json import Json, arr, checked, obj
 
 
 def _observation() -> MethodNode:
@@ -90,11 +98,152 @@ def _pair(left: MethodNode, right: MethodNode) -> MethodNode:
 
 
 def _wire(document: GraphDocument) -> str:
-    return _compress(encode(document, GRAPH))
+    return _compress(document_json(document))
 
 
 def _compress(body: str) -> str:
     return PREFIX + base64.b64encode(zlib.compress(body.encode(), level=9)).decode("ascii")
+
+
+def test_value_tables_preserve_exact_records_and_share_contract_objects() -> None:
+    original = _observation()
+    document = graph_document(_pair(original, original))
+    body = document_json(document)
+    restored = read_graph_document(_compress(body))
+    assert encode(restored, GRAPH) == encode(document, GRAPH)
+    assert document_json(restored) == body
+    tables = obj(obj(checked(json.loads(body)))["tables"])
+    assert set(tables) == {"bindings", "domains", "facts", "evidence"}
+    assert all(arr(entries) for entries in tables.values())
+    for entries in tables.values():
+        keys = [canonical_json(entry) for entry in arr(entries)]
+        assert len(set(keys)) == len(keys)
+
+    seen: dict[tuple[type[object], str], object] = {}
+    repeated: set[type[object]] = set()
+
+    def visit(value: object) -> None:
+        if isinstance(value, (Binding, DomainSignature, Fact, Evidence)):
+            key = (
+                type(value),
+                canonical_json(TypeAdapter(type(value)).dump_python(value, mode="json")),
+            )
+            if key in seen:
+                assert seen[key] is value
+                repeated.add(type(value))
+            seen[key] = value
+        if is_dataclass(value) and not isinstance(value, type):
+            for field in fields(value):
+                visit(getattr(value, field.name))
+        elif isinstance(value, tuple):
+            for item in value:
+                visit(item)
+
+    visit(restored)
+    assert repeated == {Binding, DomainSignature, Fact, Evidence}
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["kind", "negative", "bool", "missing", "cycle", "duplicate", "unused", "inline", "extra"],
+)
+def test_invalid_value_tables_reject_before_method_restore(
+    damage: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.materialization import graph_snapshot as snapshot
+
+    document = obj(checked(json.loads(document_json(graph_document(_observation())))))
+    tables = obj(document["tables"])
+    bindings, domains = arr(tables["bindings"]), arr(tables["domains"])
+    binding = obj(domains[0])["binding"]
+    reference = obj(obj(binding)["$ref"])
+    if damage == "kind":
+        reference["kind"] = "domain"
+    elif damage == "negative":
+        reference["index"] = -1
+    elif damage == "bool":
+        reference["index"] = False
+    elif damage == "missing":
+        reference["index"] = len(bindings)
+    elif damage == "cycle":
+        bindings[0] = {"$ref": {"kind": "binding", "index": 0}}
+    elif damage == "duplicate":
+        bindings.append(dict(obj(bindings[0])))
+    elif damage == "unused":
+        bindings.append({**obj(bindings[0]), "session_id": "unused-session"})
+    elif damage == "inline":
+        obj(domains[0])["binding"] = dict(obj(bindings[0]))
+    else:
+        reference["extra"] = "unexpected"
+
+    def forbid_restore(*args: object, **kwargs: object) -> None:
+        pytest.fail("Invalid value tables reached method restoration")
+
+    monkeypatch.setattr(snapshot, "_restore", forbid_restore)
+    with pytest.raises(IntegrityError):
+        thaw_graph(_compress(canonical_json(document)))
+
+
+def test_value_budgets_accept_the_boundary_and_reject_one_less(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization import graph_value_tables as tables
+
+    root = _observation()
+    frozen = freeze_graph(root)
+    document = obj(checked(json.loads(document_json(graph_document(root)))))
+    records = sum(len(arr(entries)) for entries in obj(document["tables"]).values())
+
+    def count(value: Json) -> int:
+        if isinstance(value, dict):
+            return int("$ref" in value) + sum(count(item) for item in value.values())
+        if isinstance(value, list):
+            return sum(count(item) for item in value)
+        return 0
+
+    for name, maximum in (
+        ("MAX_VALUE_RECORDS", records),
+        ("MAX_VALUE_REFERENCES", count(document)),
+    ):
+        with monkeypatch.context() as patch:
+            patch.setattr(tables, name, maximum)
+            assert freeze_graph(root) == frozen
+            assert thaw_graph(frozen).fingerprint == root.fingerprint
+            patch.setattr(tables, name, maximum - 1)
+            with pytest.raises(IntegrityError, match=r"value .* budget"):
+                freeze_graph(root)
+            with pytest.raises(IntegrityError, match=r"value .* budget"):
+                thaw_graph(frozen)
+
+
+def test_changed_table_fact_still_requires_the_registered_derivation() -> None:
+    document = obj(checked(json.loads(document_json(graph_document(_observation())))))
+    facts = arr(obj(document["tables"])["facts"])
+    obj(facts[0])["subject_id"] = "altered-fact-subject"
+    with pytest.raises(IntegrityError, match="derivation differs"):
+        thaw_graph(_compress(canonical_json(document)))
+
+
+def test_byte_budgets_accept_the_boundary_and_reject_one_less(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization import graph_snapshot as snapshot
+
+    root = _observation()
+    frozen = freeze_graph(root)
+    for name, maximum in (
+        ("MAX_EXPANDED_BYTES", len(document_json(graph_document(root)).encode())),
+        ("MAX_ENCODED_BYTES", len(frozen.encode())),
+    ):
+        with monkeypatch.context() as patch:
+            patch.setattr(snapshot, name, maximum)
+            assert freeze_graph(root) == frozen
+            assert thaw_graph(frozen).fingerprint == root.fingerprint
+            patch.setattr(snapshot, name, maximum - 1)
+            with pytest.raises(IntegrityError):
+                freeze_graph(root)
+            with pytest.raises(IntegrityError):
+                thaw_graph(frozen)
 
 
 def test_shared_graph_has_one_record_and_one_restored_object_per_capture() -> None:
@@ -283,7 +432,7 @@ def test_invalid_envelopes_reject_before_restore(damage: str) -> None:
     ],
 )
 def test_malformed_and_noncanonical_encodings(damage: str) -> None:
-    body = encode(graph_document(_pair(_observation(), _observation())), GRAPH)
+    body = document_json(graph_document(_pair(_observation(), _observation())))
     if damage == "extra":
         body = body[:-1] + ',"extra":true}'
     elif damage == "missing":
@@ -295,9 +444,9 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v5", "graph_dag/v999")
+        body = body.replace("graph_dag/v6", "graph_dag/v999")
     elif damage == "previous_version":
-        body = body.replace("graph_dag/v5", "graph_dag/v4")
+        body = body.replace("graph_dag/v6", "graph_dag/v5")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)
@@ -407,7 +556,8 @@ def test_duplicate_identity_cannot_hide_equal_but_differently_typed_literals() -
 
 
 @pytest.mark.parametrize(
-    "old_prefix", ("graph-dag-v1:", "graph-dag-v2:", "graph-dag-v3:", "graph-dag-v4:")
+    "old_prefix",
+    ("graph-dag-v1:", "graph-dag-v2:", "graph-dag-v3:", "graph-dag-v4:", "graph-dag-v5:"),
 )
 def test_obsolete_graph_dag_is_preserved_and_requires_reexecution(old_prefix: str) -> None:
     current = freeze_graph(_observation())

@@ -1290,7 +1290,7 @@ def test_invalid_dag_cannot_hit_or_admit(case, target):
     import zlib
 
     from marivo.analysis.materialization.graph_protocol import SNAPSHOT
-    from marivo.analysis.materialization.graph_snapshot import GRAPH, PREFIX, graph_document
+    from marivo.analysis.materialization.graph_snapshot import PREFIX, document_json, graph_document
 
     saved = _capture(case)
     runtime = case[0]
@@ -1300,7 +1300,7 @@ def test_invalid_dag_cannot_hit_or_admit(case, target):
     snapshot = decode(victim.descriptor.continuation_snapshot, SNAPSHOT)
     document = replace(graph_document(thaw_graph(snapshot.root)), root="missing-root")
     root = (
-        PREFIX + base64.b64encode(zlib.compress(encode(document, GRAPH).encode(), level=9)).decode()
+        PREFIX + base64.b64encode(zlib.compress(document_json(document).encode(), level=9)).decode()
     )
     text = encode(replace(snapshot, root=root), SNAPSHOT)
     descriptor = replace(
@@ -1323,11 +1323,14 @@ def test_invalid_dag_cannot_hit_or_admit(case, target):
     assert case[4] == opens
 
 
-@pytest.mark.parametrize("budget", ["MAX_NODES", "MAX_DEPTH"])
+@pytest.mark.parametrize(
+    "budget", ["MAX_NODES", "MAX_DEPTH", "MAX_VALUE_RECORDS", "MAX_VALUE_REFERENCES"]
+)
 def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch, budget):
-    from marivo.analysis.materialization import graph_snapshot
+    from marivo.analysis.materialization import graph_snapshot, graph_value_tables
 
-    monkeypatch.setattr(graph_snapshot, budget, 1)
+    owner = graph_value_tables if budget.startswith("MAX_VALUE_") else graph_snapshot
+    monkeypatch.setattr(owner, budget, 1)
     with pytest.raises(IntegrityError, match="budget"):
         _execute(case)
     assert case[4] == []

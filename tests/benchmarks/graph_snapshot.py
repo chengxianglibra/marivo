@@ -6,6 +6,7 @@ import json
 import os
 import statistics
 import time
+import tracemalloc
 from collections.abc import Callable
 from pathlib import Path
 from typing import TypeVar
@@ -18,6 +19,7 @@ import marivo.semantic as ms
 from marivo.analysis.core.graph import topology
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_protocol as protocol
+from marivo.analysis.materialization.graph_snapshot import document_json
 from tests.shared_fixtures import DslCaseFactory
 
 T = TypeVar("T")
@@ -31,6 +33,15 @@ def _median(call: Callable[[], T]) -> tuple[T, float]:
         result = call()
         elapsed.append((time.perf_counter() - start) * 1000)
     return result, statistics.median(elapsed)
+
+
+def _peak(call: Callable[[], object]) -> int:
+    tracemalloc.start()
+    try:
+        call()
+        return tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
 
 
 @pytest.mark.runtime
@@ -70,7 +81,7 @@ def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
         restored, decoding = _median(lambda: protocol.thaw_graph(frozen))
         _, validation = _median(lambda: topology(restored))
         document = protocol.graph_document(root)
-        raw = protocol.encode(document, protocol.GRAPH)
+        raw = document_json(document)
         unique = len(document.nodes)
         edges = sum(
             len(n.inputs) + len(n.sources) + len(n.retained_endpoints)
@@ -113,6 +124,8 @@ def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
                 "construction_ms": construction,
                 "encode_ms": encoding,
                 "decode_ms": decoding,
+                "encode_peak_bytes": _peak(lambda: protocol.freeze_graph(root)),
+                "decode_peak_bytes": _peak(lambda: protocol.thaw_graph(frozen)),
                 "validation_ms": validation,
             }
         )

@@ -672,22 +672,22 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
             "source",
             "82816f07666e8eb1cf366830b6266f48fd14253bf0bd41ee95a48a64dd0b2a12",
             "d1ed60a0a26f1417da8df85d9a013eb4c6e41c880f511d8623d007bd8c84532a",
-            "de0e8065f3dd7fb0dac5c863e62d22be9bfbb9cd6a3bee05f62a35ebe2b75011",
+            "8f574ca1de6065b3e9bd427a0a96051b54b25cc03f6edd60e3c39d3773acf414",
         ),
         (
             "fixed",
             "8cf118f0b71fdfd4d14f5278f0cfe660f6e22acef6daf93ca300ecc8b4e9c609",
             "7c98a8ad6bfaf046afce13cbc2cf749592f9cfbab8baa8ce489f010bfd2da1c8",
-            "2b4d8b08eb3b0d6630199287c942ab9f19b6fd618fdbc2ba4c982781ceb9f3bb",
+            "26b6bf4ebe56cbdf90a2a55fe6c6dc22db46043370e25940a9bace301a59aecc",
         ),
     ],
 )
-def test_persisted_identity_pins_v5_coordinate_contract(
+def test_persisted_identity_pins_v6_snapshot_without_semantic_changes(
     kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 
-    # Pin the v5 coordinate contract and snapshot with deterministic capture identities.
+    # Definition and plan pins stay unchanged; v6 changes only frozen wire bytes.
     root = _source() if kind == "source" else _fixed()
     root = replace(root, identity="leaf")
     routes = []
