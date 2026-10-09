@@ -398,6 +398,5 @@ retained facts, not causal or business judgments.
 
 Current specs, public signatures and qualification evidence are separate.
 Focused tests and native backend witnesses do not establish complete backend,
-installed-wheel, real-Agent or release acceptance. Historical phase evidence is
-available through [archived records](../../history/analysis/README.md) and Git
-history; it does not expand the current route.
+installed-wheel, real-Agent or release acceptance. Historical designs and phase
+evidence remain in Git history; they do not expand the current route.

@@ -2,7 +2,7 @@
 
 Date: 2026-10-07
 
-Status: A1 implementation and bounded acceptance are recorded in [A1 acceptance](2026-10-07-analysis-a1-acceptance.md). A2 fixed selection implementation and bounded acceptance are recorded in [A2 acceptance](2026-10-07-analysis-a2-acceptance.md). A3 state-kernel convergence and bounded direct-key L8 implementation are recorded in [A3 acceptance](2026-10-07-analysis-a3-acceptance.md). Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
+Status: A1 implementation, A2 fixed selection and A3 state-kernel convergence with bounded direct-key L8 have revision-specific acceptance records in Git history. Those records do not qualify the current checkout. Trusting explicit semantic declarations and handling numerical overflow at execution are the user-selected directions.
 
 Research baseline: `panda@6801154111811bd94cd17343d52056e72306103a` plus the working tree inspected on 2026-10-07. Concurrent numeric and documentation changes exist; the SHA does not describe all inspected files.
 
