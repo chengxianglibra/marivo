@@ -570,6 +570,9 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     )
     coefficient = association.coefficient
     selected = coefficient.where(coefficient.value.lt(0)).execute()
+    boolean_view = association.where(association.selected.value.eq(False)).selected.execute()
+    assert isinstance(boolean_view, mv.MaterializedBooleanRelation)
+    boolean_rows = boolean_view.to_pandas()
 
     assert association.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association.to_pandas().iloc[0]["complete_pair_count"] == 4
@@ -591,6 +594,9 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     assert restored.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     restored_selected = restored.coefficient.where(restored.coefficient.value.lt(0)).execute()
     assert restored_selected.state.artifact_ref == selected.state.artifact_ref
+    restored_boolean_view = cold_session.artifact(boolean_view.state.artifact_ref)
+    assert isinstance(restored_boolean_view, mv.MaterializedBooleanRelation)
+    assert restored_boolean_view.to_pandas().equals(boolean_rows)
 
 
 @pytest.mark.runtime

@@ -2,10 +2,14 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from ibis.backends.duckdb import Backend
 
 import marivo.datasource as md
 from marivo.datasource import runtime, store
+from marivo.datasource.adapters import SourceSubmission
+from marivo.datasource.authoring import _ir_from_spec
 from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 
 
 class FakeBackend:
@@ -14,6 +18,13 @@ class FakeBackend:
 
     def disconnect(self) -> None:
         self.disconnect_calls += 1
+
+
+def _warehouse_datasource() -> DatasourceIR:
+    return _ir_from_spec(
+        md.duckdb(name="warehouse"),
+        location=DatasourceSourceLocation(file="<test>", line=1),
+    )
 
 
 def test_use_backend_disconnects_after_success(
@@ -99,6 +110,107 @@ def test_session_backend_is_reused_until_close(
     assert len(created) == 1
     service.close_all()
     assert created[0].disconnect_calls == 1
+
+
+@pytest.mark.parametrize("route", ["backend_for", "override", "factory", "build"])
+def test_each_cached_backend_has_one_matching_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str
+) -> None:
+    backend = FakeBackend()
+    built = BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
+    monkeypatch.setattr(runtime, "open_backend", lambda *_args, **_kwargs: built)
+    monkeypatch.setattr(runtime, "_build_backend_from_store", lambda *_args, **_kwargs: built)
+    service = runtime.DatasourceConnectionService(
+        project_root=tmp_path,
+        backends={"warehouse": lambda: backend} if route == "override" else None,
+        backend_factory=(lambda _name: backend) if route == "factory" else None,
+    )
+    datasource = _warehouse_datasource()
+
+    first = (
+        service.backend_for(datasource)
+        if route == "backend_for"
+        else service.session_backend("warehouse")
+    )
+    second = (
+        service.backend_for(datasource)
+        if route == "backend_for"
+        else service.session_backend("warehouse")
+    )
+
+    assert first is second is backend
+    assert tuple(service._session_backends) == tuple(service._leases) == ("warehouse",)
+    lease = service._leases["warehouse"]
+    assert lease.backend is backend
+    assert lease.closed is False
+    service.close_all()
+    service.close_all()
+    assert backend.disconnect_calls == 1
+    assert lease.closed is True
+    assert service._session_backends == service._leases == {}
+
+
+@pytest.mark.parametrize("route", ["backend_for", "override", "factory", "build"])
+def test_failed_backend_build_leaves_no_cache_or_lease(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> BuiltDatasourceBackend:
+        raise RuntimeError("backend build failed")
+
+    monkeypatch.setattr(runtime, "open_backend", fail)
+    monkeypatch.setattr(runtime, "_build_backend_from_store", fail)
+    service = runtime.DatasourceConnectionService(
+        project_root=tmp_path,
+        backends={"warehouse": fail} if route == "override" else None,
+        backend_factory=fail if route == "factory" else None,
+    )
+    with pytest.raises(RuntimeError, match="backend build failed"):
+        if route == "backend_for":
+            service.backend_for(_warehouse_datasource())
+        else:
+            service.session_backend("warehouse")
+
+    assert service._session_backends == service._leases == {}
+    service.close_all()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_cached_backend_release_records_only_successful_disconnect(
+    tmp_path: Path, fails: bool
+) -> None:
+    class ObservedBackend(Backend):
+        def __init__(self) -> None:
+            super().__init__()
+            self.disconnect_calls = 0
+
+        def disconnect(self) -> None:
+            self.disconnect_calls += 1
+            if fails:
+                raise RuntimeError("connection release failed")
+
+    backend = ObservedBackend()
+    service = runtime.DatasourceConnectionService(
+        project_root=tmp_path, backends={"warehouse": lambda: backend}
+    )
+    source = service.source_session("warehouse", _warehouse_datasource())
+    submission = SourceSubmission(
+        purpose="preview",
+        source_identity="warehouse.orders",
+        expression_identity=1,
+        sql="SELECT 1",
+        state="succeeded",
+        cursor_state="closed",
+    )
+    source.submissions.append(submission)
+    lease = service._leases["warehouse"]
+
+    service.close_all()
+    service.close_all()
+
+    assert backend.disconnect_calls == 1
+    assert lease.closed is True
+    assert submission.connection_disconnected is not fails
+    assert service._session_backends == service._leases == service._source_sessions == {}
 
 
 def test_py_file_datasource_visible_via_list(
@@ -217,5 +329,56 @@ def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
     assert created[1].disconnect_calls == 1
     assert created[0].disconnect_calls == 0
     assert service.session_backend("warehouse") is original
+    service.close_all()
+    assert created[0].disconnect_calls == 1
+
+
+@pytest.mark.parametrize("failure_scope", [None, "inner", "outer"])
+def test_nested_terminal_scopes_restore_each_matching_lease_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure_scope: str | None
+) -> None:
+    created: list[FakeBackend] = []
+
+    def build(*_args: object, **_kwargs: object) -> BuiltDatasourceBackend:
+        backend = FakeBackend()
+        created.append(backend)
+        return BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
+
+    monkeypatch.setattr(runtime, "_build_backend_from_store", build)
+    service = runtime.DatasourceConnectionService(project_root=tmp_path)
+    original = service.session_backend("warehouse")
+    original_leases = service._leases
+    original_backends = service._session_backends
+    try:
+        with service.terminal_scope(17):
+            outer = service.session_backend("warehouse")
+            outer_leases = service._leases
+            outer_backends = service._session_backends
+            try:
+                with service.terminal_scope(9):
+                    inner = service.session_backend("warehouse")
+                    assert inner is not outer
+                    assert service._leases["warehouse"].backend is inner
+                    if failure_scope == "inner":
+                        raise ValueError("inner failed")
+            except ValueError as exc:
+                assert failure_scope == "inner" and str(exc) == "inner failed"
+            assert service._leases is outer_leases
+            assert service._session_backends is outer_backends
+            assert service.session_backend("warehouse") is outer
+            assert service._leases["warehouse"].backend is outer
+            assert created[2].disconnect_calls == 1
+            assert created[1].disconnect_calls == 0
+            if failure_scope == "outer":
+                raise ValueError("outer failed")
+    except ValueError as exc:
+        assert failure_scope == "outer" and str(exc) == "outer failed"
+
+    assert service._leases is original_leases
+    assert service._session_backends is original_backends
+    assert service.session_backend("warehouse") is original
+    assert service._leases["warehouse"].backend is original
+    assert created[1].disconnect_calls == 1
+    assert created[0].disconnect_calls == 0
     service.close_all()
     assert created[0].disconnect_calls == 1

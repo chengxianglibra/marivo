@@ -8,7 +8,7 @@ from dataclasses import fields
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from types import UnionType
-from typing import Literal, Union, get_args, get_origin, get_type_hints
+from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.evidence import _dataset_types as t
@@ -26,6 +26,7 @@ from marivo.analysis.refs import ArtifactRef
 from marivo.refs import RefPayloadV1, SemanticKind
 
 _BODY_FIELDS = "finding_type epistemic_kind subject coordinates canonical_item_key value derivation"
+_ValueType = TypeVar("_ValueType", bound=t._Value)
 _VALUES = frozenset(
     {
         t.FindingCoordinateV1,
@@ -49,6 +50,10 @@ _VALUES = frozenset(
         t.FunnelDeltaFindingValueV1,
     }
 )
+
+
+def _construct(constructor: type[_ValueType], values: dict[str, object]) -> _ValueType:
+    return constructor(**values)
 
 
 def _encode(value: object) -> object:
@@ -166,10 +171,9 @@ def _decode(value: object, annotation: object) -> object:
     if isinstance(annotation, type) and annotation in _VALUES:
         obj = _obj(value, " ".join(field.name for field in fields(annotation)))
         hints = get_type_hints(annotation)
-        decoded: object = annotation(
-            **{name: _decode(item, hints[name]) for name, item in obj.items()}
+        return _construct(
+            annotation, {name: _decode(item, hints[name]) for name, item in obj.items()}
         )
-        return decoded
     raise invalid("unsupported Finding codec annotation")
 
 
@@ -192,20 +196,16 @@ def decode_finding_body(
     obj = _obj(parse_json(payload), _BODY_FIELDS)
     hints = get_type_hints(t.Finding)
     decoded = {name: _decode(item, hints[name]) for name, item in obj.items()}
-    # The selected constructor is fixed; runtime annotation checks reject coercion.
-    constructor: type[t._Value] = t.Finding
-    value: object = constructor(
-        **{
+    return _construct(
+        t.Finding,
+        {
             **decoded,
             "finding_id": finding_id,
             "artifact_ref": ArtifactRef(ref=artifact_ref),
             "session_id": session_id,
             "committed_at": committed_at,
-        }
+        },
     )
-    if not isinstance(value, t.Finding):
-        raise invalid("invalid Finding body constructor")
-    return value
 
 
 def finding_identity(finding: t.Finding) -> str:

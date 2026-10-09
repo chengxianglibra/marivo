@@ -117,6 +117,82 @@ def test_missing_store_history_validates_arguments_without_creating_state(
     assert _project_state(tmp_path) == before
 
 
+@pytest.mark.parametrize("entry", ["recent", "inspect", "runs"])
+def test_history_cursor_is_decoded_once_per_public_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    from marivo.analysis.materialization.graph_protocol import SourceRunInput
+    from marivo.analysis.materialization.graph_store import admit
+    from marivo.analysis.session import _lazy_runtime_reads
+
+    monkeypatch.chdir(tmp_path)
+    mv.session.get_or_create("first", report_timezone="UTC")
+    session = mv.session.get_or_create("second", report_timezone="UTC")
+    for run_id in ("run_first", "run_second"):
+        admit(
+            session._runtime.store,
+            session.id,
+            run_id,
+            SourceRunInput("marivo.analysis.run_input/v1", "source", "definition", "plan", ()),
+            run_id,
+        )
+        mv.session.abandon_run(session_id=session.id, run_id=run_id)
+    if entry == "recent":
+        cursor = mv.session.recent(limit=1).next_cursor
+    elif entry == "inspect":
+        cursor = mv.session.inspect(session.name, run_limit=1).runs.next_cursor
+    else:
+        cursor = session.runs(limit=1).next_cursor
+    assert cursor is not None
+    decode = _lazy_runtime_reads.decode_keyset_cursor
+    calls = 0
+
+    def counted(value: str) -> tuple[str | int, str]:
+        nonlocal calls
+        calls += 1
+        return decode(value)
+
+    monkeypatch.setattr(_lazy_runtime_reads, "decode_keyset_cursor", counted)
+    if entry == "recent":
+        page = mv.session.recent(limit=1, cursor=cursor)
+        assert [item.name for item in page.items] == ["first"]
+    elif entry == "inspect":
+        runs = mv.session.inspect(session.name, run_limit=1, run_cursor=cursor).runs
+        assert len(runs.items) == 1 and runs.has_more is False
+    else:
+        runs = session.runs(limit=1, cursor=cursor)
+        assert len(runs.items) == 1 and runs.has_more is False
+    assert calls == 1
+
+
+@pytest.mark.parametrize("entry", ["recent", "inspect"])
+def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+) -> None:
+    from marivo.analysis.materialization.store import SessionStore
+
+    monkeypatch.chdir(tmp_path)
+    before = _project_state(tmp_path)
+    monkeypatch.setattr(
+        mv.session, "_existing_store", lambda _root: pytest.fail("history opened a Store")
+    )
+    monkeypatch.setattr(
+        SessionStore, "open_existing", lambda _root: pytest.fail("inspect opened a Store")
+    )
+    with pytest.raises(mv.errors.SessionStateError) as caught:
+        if entry == "recent":
+            mv.session.recent(cursor="invalid")
+        else:
+            mv.session.inspect("missing", run_cursor="invalid")
+    error = caught.value
+    parameter = "cursor" if entry == "recent" else "run_cursor"
+    assert error.location == f"session.{entry}.{parameter}"
+    assert error.received == "cursor is not a supported keyset encoding"
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == f"session.{entry}"
+    assert _project_state(tmp_path) == before
+
+
 @pytest.mark.parametrize("entry", ["current", "recent"])
 @pytest.mark.parametrize(
     "state", ["directory", "dangling_symlink", "invalid_bytes", "incomplete_schema", "non_wal"]

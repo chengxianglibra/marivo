@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re as _re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, TypeAlias, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -1056,16 +1056,6 @@ def composition_components(composition: Composition) -> dict[str, str]:
     if isinstance(composition, CumulativeComposition):
         return {"base": composition.base}
     return {f"term{i}": term.metric for i, term in enumerate(composition.terms)}
-
-
-# Temporary compat alias — removed when authoring.py's metric/derived_metric
-# are removed (Task 12).
-@dataclass(frozen=True)
-class DecompositionIR:
-    """Decomposition semantics for a metric (DEPRECATED: use Composition)."""
-
-    kind: Literal["sum", "ratio"]
-    components: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

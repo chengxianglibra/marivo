@@ -10,6 +10,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.datasource.authoring as authoring_module
+import marivo.datasource.catalog as catalog_module
 import marivo.semantic as ms
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -491,6 +492,35 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     out = capsys.readouterr().out
     assert "warehouse" in out
     assert "super-secret-token" not in out
+
+
+def test_catalog_show_uses_one_current_declaration_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[Path] = []
+    initial = {name: _ir(DuckDBSpec(name=name)) for name in ("zeta", "alpha")}
+    changed = {"current": _ir(DuckDBSpec(name="current"))}
+
+    def load_all(project_root: Path) -> dict[str, DatasourceIR]:
+        calls.append(project_root)
+        return initial if len(calls) == 1 else changed
+
+    monkeypatch.setattr(catalog_module._store, "load_all", load_all)
+    catalog = catalog_module.DatasourceCatalog(workspace_dir=tmp_path)
+
+    assert catalog.show() is None
+    first = capsys.readouterr().out
+    assert calls == [tmp_path]
+    assert "DatasourceCatalog datasources=2" in first
+    assert first.index("alpha:") < first.index("zeta:")
+    assert "current:" not in first
+
+    assert catalog.show() is None
+    second = capsys.readouterr().out
+    assert calls == [tmp_path, tmp_path]
+    assert "DatasourceCatalog datasources=1" in second
+    assert "current:" in second
+    assert "alpha:" not in second and "zeta:" not in second
 
 
 # -- Public spec field visibility --

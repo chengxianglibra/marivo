@@ -95,10 +95,12 @@ from marivo.semantic.ir import (
     TargetValidityVersion,
 )
 from marivo.semantic.metric_graph import (
+    AggregateNodeV1,
     CatalogMetricIdentity,
     MetricExpressionGraphV1,
     SliceOperatorV1,
     TargetMetricContract,
+    WeightedMeanAggregateNodeV1,
 )
 from marivo.semantic.runtime_metric import RuntimeMetricExpr, SliceValue
 
@@ -1476,12 +1478,14 @@ def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDer
     )
 
 
-def _declared_slice(aggregate: object) -> tuple[tuple[str, str, object], ...]:
+def _declared_slice(
+    aggregate: AggregateNodeV1 | WeightedMeanAggregateNodeV1,
+) -> tuple[tuple[str, str, object], ...]:
     """Read one component's canonical slice predicates as comparable facts."""
     from marivo.semantic.metric_graph import component_predicate
 
     facts: list[tuple[str, str, object]] = []
-    for condition in getattr(aggregate, "filter", ()):
+    for condition in aggregate.filter:
         operator, value = component_predicate(condition.value)
         facts.append((condition.dimension_ref.path, operator, value))
     return tuple(facts)
@@ -1498,11 +1502,7 @@ def _observe_metric(
     prepared = prepared or (
         isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions
     )
-    from marivo.semantic.metric_graph import (
-        AggregateNodeV1,
-        WeightedMeanAggregateNodeV1,
-        component_node,
-    )
+    from marivo.semantic.metric_graph import component_node
 
     if (
         len(inputs) != (2 if params.classification_coordinates else 1)

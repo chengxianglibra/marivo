@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Literal
+
 import pytest
 
 from marivo.refs import ref as ref_factory
-from marivo.semantic import authoring, ir
+from marivo.semantic import authoring, ir, loader
+from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
+from marivo.semantic.validator import Registry, assembly_validate
 from tests.shared_fixtures import load_inline_semantic
 
 # ---------------------------------------------------------------------------
@@ -74,6 +79,105 @@ def test_resolution_fills_additivity() -> None:
         assert reg.metrics["test.aov"].additivity == "non_additive"
         assert reg.metrics["test.gross_plus"].additivity == "additive"
         assert reg.metrics["test.weighted_price"].additivity == "non_additive"
+
+
+_INLINE_TARGET_RESOLUTION = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+region = ms.dimension_column(name="region", entity=orders, column="region")
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"
+)
+revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+candidate = ms.aggregate(name="candidate", measure=amount, agg="sum")
+mixed = ms.linear(name="mixed", add=[candidate, revenue])
+"""
+
+
+@pytest.mark.parametrize("is_dimension", [True, False], ids=["dimension", "unknown"])
+@pytest.mark.parametrize("aggregation", ["count", "sum"])
+def test_direct_ir_invalid_measure_target_preserves_ordered_errors(
+    is_dimension: bool, aggregation: Literal["count", "sum"]
+) -> None:
+    with load_inline_semantic(_INLINE_TARGET_RESOLUTION) as result:
+        assert result.registry is not None
+        registry = Registry(
+            domains=dict(result.registry.domains),
+            datasources=dict(result.registry.datasources),
+            entities=dict(result.registry.entities),
+            dimensions=dict(result.registry.dimensions),
+            measures=dict(result.registry.measures),
+            metrics=dict(result.registry.metrics),
+        )
+    target = "test.orders.region" if is_dimension else "test.orders.missing"
+    registry.metrics["test.candidate"] = replace(
+        registry.metrics["test.candidate"],
+        measure=target,
+        aggregation_target=target,
+        aggregation=aggregation,
+        additivity=None,
+        dsl_additivity=None,
+        unit=None,
+    )
+    registry.metrics["test.mixed"] = replace(
+        registry.metrics["test.mixed"], additivity=None, unit=None
+    )
+
+    loader._resolve_metric_additivity(registry)
+    loader._resolve_metric_unit(registry)
+    errors, warnings = assembly_validate(registry)
+
+    assert registry.metrics["test.candidate"].additivity is None
+    expected_kind = (
+        ErrorKind.MISSING_MEASURE_ADDITIVITY if is_dimension else ErrorKind.UNKNOWN_MEASURE
+    )
+    unit_conflict = is_dimension and aggregation == "count"
+    assert registry.metrics["test.candidate"].unit == ("1" if unit_conflict else None)
+    assert [error.kind for error in errors] == (
+        [expected_kind, ErrorKind.INCOMMENSURABLE_LINEAR_UNITS]
+        if unit_conflict
+        else [expected_kind]
+    )
+    error = errors[0]
+    assert error.semantic_refs == ("test.candidate", target)
+    assert error.expected is None
+    assert error.received is None
+    assert error.repair is None
+    if is_dimension:
+        assert error.message == (
+            "Measure 'test.orders.region' used by 'test.candidate' must declare additivity."
+        )
+        assert error.constraint_id == ConstraintId.MEASURE_ADDITIVITY_REQUIRED
+        assert error.hint == (
+            "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive()."
+        )
+        assert error.details == {"metric": "test.candidate", "measure": target}
+    else:
+        assert error.message == (
+            "Metric 'test.candidate' references unknown measure 'test.orders.missing'."
+        )
+        assert error.constraint_id is None
+        assert error.hint is None
+        assert error.details == {
+            "metric": "test.candidate",
+            "measure": target,
+            "did_you_mean": ["test.orders.amount", "test.orders.region"],
+        }
+    if unit_conflict:
+        conflict = errors[1]
+        assert conflict.message == (
+            "Metric 'test.mixed' adds incommensurable units ['1', 'CNY']; "
+            "linear terms must share one unit."
+        )
+        assert conflict.semantic_refs == ("test.mixed",)
+        assert conflict.constraint_id == ConstraintId.LINEAR_UNIT_COMMENSURABLE
+        assert conflict.details == {
+            "metric": "test.mixed",
+            "units": {"test.candidate": "1", "test.revenue": "CNY"},
+        }
+    assert not warnings
 
 
 @pytest.mark.parametrize(

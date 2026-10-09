@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Generator, Iterator
 from pathlib import Path
 from typing import Literal
@@ -92,11 +91,10 @@ def _payload_batches(
     audit: bool = False,
 ) -> Iterator[pa.RecordBatch]:
     """Read only this payload. Complete exhaustion includes content verification."""
-    time.monotonic()
-    count = decoded = 0
+    count = 0
 
     def checked(incoming: Iterator[pa.RecordBatch]) -> Iterator[pa.RecordBatch]:
-        nonlocal count, decoded
+        nonlocal count
         seen = False
         for batch in incoming:
             seen = True
@@ -104,7 +102,6 @@ def _payload_batches(
             if preview:
                 batch = batch.slice(0, max(0, policy.preview_rows - count))
             count += batch.num_rows
-            decoded += batch.nbytes
             yield batch
             if preview and count >= policy.preview_rows:
                 return

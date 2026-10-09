@@ -1897,4 +1897,3 @@ def require_part(signature: Signature, role: PartRole) -> Part:
         "Rebuild from an input retaining this part.",
         "core.parts",
     )
-    raise AssertionError("unreachable")

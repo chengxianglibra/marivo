@@ -194,7 +194,6 @@ def deadline(anchor: datetime, window: ElapsedWindow | CalendarWindow) -> dateti
             repr(window),
             "Use a shorter window within the captured instant range.",
         )
-    raise AssertionError("unreachable window deadline")
 
 
 @dataclass(frozen=True, slots=True, repr=False)

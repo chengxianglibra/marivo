@@ -61,6 +61,7 @@ class BlockingSelectBackend:
         self._block_event = block_event
         self.queries: list[str] = []
         self.disconnect_calls = 0
+        self.disconnect_threads: list[int] = []
         self.con = self
 
     def cursor(self) -> object:
@@ -84,6 +85,7 @@ class BlockingSelectBackend:
 
     def disconnect(self) -> None:
         self.disconnect_calls += 1
+        self.disconnect_threads.append(threading.get_ident())
 
 
 def _patch_blocking_select_backend(
@@ -201,6 +203,58 @@ def test_test_no_persist_returns_roundtrip_timeout_when_select_1_blocks(
     # Caller disconnect races with the abandoned worker's `finally` disconnect;
     # at least one is guaranteed by the timeout path.
     assert backend.disconnect_calls >= 1
+
+
+@pytest.mark.parametrize("phase", ["connection", "roundtrip"])
+@pytest.mark.parametrize("thread_affine", [False, True])
+def test_timed_out_roundtrip_releases_late_connections_once_without_persisting(
+    monkeypatch: pytest.MonkeyPatch, phase: str, thread_affine: bool
+) -> None:
+    _patch_load_one(monkeypatch)
+    release = threading.Event()
+    worker_finished = threading.Event()
+    select_gate = release if phase == "roundtrip" else threading.Event()
+    if phase == "connection":
+        select_gate.set()
+    backend = BlockingSelectBackend(select_gate)
+    owner_threads: list[int] = []
+    persisted: list[manage_mod._DatasourceConnection] = []
+
+    def build(_datasource: DatasourceIR, **_kwargs: object) -> BuiltDatasourceBackend:
+        owner_threads.append(threading.get_ident())
+        if phase == "connection":
+            assert release.wait(5)
+        return BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=(), thread_affine=thread_affine
+        )
+
+    original_release = manage_mod._release_connection
+
+    def track_release(connection: manage_mod._DatasourceConnection | None) -> None:
+        original_release(connection)
+        if owner_threads and threading.get_ident() == owner_threads[0]:
+            worker_finished.set()
+
+    monkeypatch.setattr(backends, "build_backend_with_secrets", build)
+    monkeypatch.setattr(manage_mod, "_release_connection", track_release)
+    monkeypatch.setattr(manage_mod._secrets, "try_persist_backend_env_sourced", persisted.append)
+    try:
+        result = md.test("warehouse", timeout_seconds=1)
+        assert result.ok is False
+        assert result.failure is not None
+        assert result.failure.code == (
+            "connection_timeout" if phase == "connection" else "connection_roundtrip_timeout"
+        )
+        if thread_affine:
+            assert backend.disconnect_calls == 0
+    finally:
+        release.set()
+        assert worker_finished.wait(5)
+
+    assert backend.disconnect_calls == 1
+    if thread_affine:
+        assert backend.disconnect_threads == owner_threads
+    assert persisted == []
 
 
 def test_test_reports_normal_backend_error_as_open_failed(

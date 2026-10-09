@@ -558,9 +558,7 @@ def _format_mapping(mapping: Mapping[str, object]) -> str:
 
 
 def _source_text(source: DatasetSource) -> str:
-    if hasattr(source, "to_dict"):
-        return str(source.to_dict())
-    return repr(source)
+    return str(source.to_dict())
 
 
 def _entity_source_sections(source: DatasetSource) -> tuple[Section, ...]:

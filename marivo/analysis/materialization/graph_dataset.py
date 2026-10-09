@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -500,7 +500,7 @@ class GraphDataset:
 
     def evidence_digest(self) -> t.ArtifactDigest:
         with self.runtime.store._read() as connection:
-            current = graph_store.artifact(
+            current = graph_store.artifact_metadata(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
             if current is None:
@@ -519,7 +519,7 @@ class GraphDataset:
         from marivo.analysis.materialization.graph_findings import collection, page
 
         with self.runtime.store._read() as connection:
-            current = graph_store.artifact(
+            current = graph_store.artifact_metadata(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
             if current is None:
@@ -537,7 +537,7 @@ class GraphDataset:
         from marivo.analysis.materialization.graph_findings import collection
 
         with self.runtime.store._read() as connection:
-            current = graph_store.artifact(
+            current = graph_store.artifact_metadata(
                 self.runtime.store, connection, self.artifact.artifact_ref
             )
             if current is None:
@@ -567,6 +567,9 @@ class GraphDataset:
         )
 
     def verified(self) -> ExchangeResult:
+        return self._read_verified()[1]
+
+    def _read_verified(self) -> tuple[GraphArtifact, ExchangeResult]:
         store = self.runtime.store
         if self.artifact.session_ref != self.runtime.session_ref:
             raise invalid("Artifact belongs to another Session")
@@ -584,7 +587,7 @@ class GraphDataset:
                     execute as execute_statistical,
                 )
 
-                relation = Relation.restore(replace(self, projection=None))
+                relation = Relation._from_verified_artifact(self.runtime, current)
                 node = (
                     relation.association_field(self.projection)
                     if self.projection in ("coefficient", "selected")
@@ -603,7 +606,9 @@ class GraphDataset:
                 from marivo.analysis.materialization.runs_execution import execute
 
                 node = (
-                    Relation.restore(replace(self, projection=None)).run_field(self.projection).root
+                    Relation._from_verified_artifact(self.runtime, current)
+                    .run_field(self.projection)
+                    .root
                 )
                 assert isinstance(node, MethodNode)
                 result = execute(node, (result,), current.artifact_ref)
@@ -613,7 +618,7 @@ class GraphDataset:
                 )
                 from marivo.analysis.materialization.graph_relation import Relation
 
-                relation = Relation.restore(replace(self, projection=None))
+                relation = Relation._from_verified_artifact(self.runtime, current)
                 node = relation.deviation_field(self.projection).root
 
                 assert isinstance(node, MethodNode)
@@ -629,7 +634,7 @@ class GraphDataset:
             else:
                 assert self.projection in ("values", "ranks")
                 result = project(result, self.projection)
-        return result
+        return current, result
 
     @property
     def state(self) -> MaterializedDatasetState:

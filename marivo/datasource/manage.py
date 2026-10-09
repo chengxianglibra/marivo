@@ -7,7 +7,6 @@ import copy
 import threading
 import time
 from collections.abc import Callable, Iterator
-from contextlib import suppress
 from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
@@ -567,14 +566,9 @@ def _failure_code_for_phase(phase: str) -> DatasourceFailureCode:
     return "connection_open_failed"
 
 
-def _release_connection(connection: object) -> None:
-    if isinstance(connection, _DatasourceConnection):
+def _release_connection(connection: _DatasourceConnection | None) -> None:
+    if connection is not None:
         connection._disconnect(suppress_errors=True)
-        return
-    disconnect = getattr(connection, "disconnect", None)
-    if callable(disconnect):
-        with suppress(Exception):
-            disconnect()
 
 
 def _run_roundtrip_with_deadline(
@@ -754,22 +748,23 @@ def _test_in_project(
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
-        state["backend"] = (
+        connection = (
             _connect(datasource_name, timeout_seconds=timeout_seconds)
             if project_root is None
             else _connect_internal(
                 datasource_name, project_root=project_root, timeout_seconds=timeout_seconds
             )
         )
+        state["backend"] = connection
         state["phase"] = "roundtrip"
         from marivo.datasource.adapters import provider_for
 
-        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        selected_backend = connection.backend
         provider_for(selected_backend.name).probe(selected_backend)
         with cr.operation_context() as operation:
             if operation.cancelled:
                 raise TimeoutError("Datasource round-trip was cancelled before persistence.")
-        _secrets.try_persist_backend_env_sourced(state["backend"])
+        _secrets.try_persist_backend_env_sourced(connection)
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -824,15 +819,16 @@ def test_no_persist(
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
-        state["backend"] = _connect_internal(
+        connection = _connect_internal(
             datasource_name,
             project_root=project_root,
             timeout_seconds=timeout_seconds,
         )
+        state["backend"] = connection
         state["phase"] = "roundtrip"
         from marivo.datasource.adapters import provider_for
 
-        selected_backend = getattr(state["backend"], "backend", state["backend"])
+        selected_backend = connection.backend
         provider_for(selected_backend.name).probe(selected_backend)
         latency_ms = int((time.perf_counter() - state["started"]) * 1000)
         return DatasourceTestResult(

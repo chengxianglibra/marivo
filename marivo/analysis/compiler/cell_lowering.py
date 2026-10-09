@@ -200,7 +200,6 @@ def lower_cells(
                 invalid(
                     f"generated Cell literal has invalid tag/reason {tag_value!r}/{reason_value!r}"
                 )
-                raise AssertionError("unreachable")
             book = CellBook.from_reasons(((tag_value, (reason_value,)),))
             code = book.code(tag_value, reason_value)
             return _Value(ibis.literal(code, type="int16"), book, (code,))
@@ -260,7 +259,6 @@ def lower_cells(
                 result = ops.IfElse(condition, value, result)
             return encode_pair(tag, result)
         invalid(f"unbound generated Cell expressions {type(tag).__name__}/{type(reason).__name__}")
-        raise AssertionError("unreachable")
 
     def rewrite(node: ops.Node, changed: Mapping[str, object] | None) -> ops.Node:
         kwargs = {} if changed is None else dict(changed)

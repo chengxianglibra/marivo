@@ -590,17 +590,10 @@ def _resolve_tier1_additivity(metric: MetricIR, registry: Registry) -> Additivit
         if target_id not in registry.entities:
             return None
         return "additive" if agg_name == "count" else None
-    measure = registry.dimensions.get(target_id)
-    measure_ir = registry.measures.get(target_id) if hasattr(registry, "measures") else None
-    if measure is None and measure_ir is None:
+    measure_ir = registry.measures.get(target_id)
+    if measure_ir is None:
         return None  # validator: UNKNOWN_MEASURE / MISSING_MEASURE_ADDITIVITY
-    if measure_ir is None and getattr(measure, "additivity", None) is None:
-        return None  # validator: MISSING_MEASURE_ADDITIVITY
-    nature = (
-        measure_ir.additivity if measure_ir is not None else getattr(measure, "additivity", None)
-    )
-    assert nature is not None
-    return resolve_measure_aggregate_additivity(agg, nature)
+    return resolve_measure_aggregate_additivity(agg, measure_ir.additivity)
 
 
 def _resolve_derived_additivity(metric: MetricIR, registry: Registry) -> Additivity | None:

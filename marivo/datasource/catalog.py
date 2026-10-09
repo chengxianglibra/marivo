@@ -195,7 +195,7 @@ class DatasourceCatalog(RenderableResult):
             key=lambda item: item.name,
         )
         card = Card(
-            identity=self._repr_identity(),
+            identity=f"DatasourceCatalog datasources={len(datasources)}",
             available=(
                 ".list()",
                 ".get(name)",

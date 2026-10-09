@@ -194,7 +194,7 @@ def _manifest() -> Manifest:
     )
     add(
         "analysis/materialization/graph_dataset",
-        ("GraphDataset.verified",),
+        ("GraphDataset._read_verified",),
         (
             "marivo.analysis.materialization.runs_execution.execute",
             "marivo.analysis.materialization.statistical_execution.execute",

@@ -44,7 +44,9 @@ from marivo.analysis.materialization.execution_key import SourceKeyBinding
 from marivo.analysis.materialization.graph_exchange import ExchangeContract, from_arrow
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
+    Descriptor,
     SourceRunInput,
+    ValidatedDescriptor,
     decode,
     digest,
     encode,
@@ -1491,6 +1493,99 @@ def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
             case[0].store, connection, output.descriptor, output.artifact_ref
         )
     assert evidence.finding_count == len(findings)
+
+
+@pytest.mark.parametrize("operation", ("digest", "page", "finding"))
+def test_evidence_read_decodes_collection_once(case, monkeypatch, operation):
+    from marivo.analysis.errors import FindingNotFoundError
+    from marivo.analysis.evidence import _dataset_types as t
+    from marivo.analysis.materialization import graph_findings
+    from marivo.analysis.materialization.graph_dataset import GraphDataset
+
+    output = _execute(case)
+    dataset = GraphDataset(case[0], output)
+    collection = graph_findings.collection
+    calls: list[sqlite3.Connection] = []
+
+    def counted(
+        store: SessionStore,
+        connection: sqlite3.Connection,
+        descriptor: Descriptor,
+        artifact_ref: str,
+        *,
+        _validated: ValidatedDescriptor | None = None,
+    ) -> tuple[tuple[t.Finding, ...], t.ArtifactDigest]:
+        calls.append(connection)
+        return collection(store, connection, descriptor, artifact_ref, _validated=_validated)
+
+    monkeypatch.setattr(graph_findings, "collection", counted)
+    if operation == "digest":
+        assert dataset.evidence_digest().finding_count == 0
+    elif operation == "page":
+        page = dataset.findings()
+        assert page.items == () and not page.has_more and page.next_cursor is None
+    else:
+        with pytest.raises(FindingNotFoundError):
+            dataset.finding("missing-finding")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("operation", ("digest", "page", "finding"))
+@pytest.mark.parametrize("fault", ("missing", "invalid_count"))
+def test_evidence_read_still_rejects_incomplete_collection(case, operation, fault):
+    from marivo.analysis.materialization.graph_dataset import GraphDataset
+
+    output = _execute(case)
+    dataset = GraphDataset(case[0], output)
+    with case[0].store._write() as connection:
+        if fault == "missing":
+            connection.execute(
+                "DELETE FROM dataset_evidence WHERE artifact_ref=?", (output.artifact_ref,)
+            )
+        else:
+            connection.execute(
+                "UPDATE dataset_evidence SET finding_count=1 WHERE artifact_ref=?",
+                (output.artifact_ref,),
+            )
+    with pytest.raises(IntegrityError) as caught:
+        if operation == "digest":
+            dataset.evidence_digest()
+        elif operation == "page":
+            dataset.findings(cursor="invalid")
+        else:
+            dataset.finding("missing-finding")
+    assert caught.value.received == (
+        "Artifact lacks atomic Evidence"
+        if fault == "missing"
+        else "Finding collection count or frozen extractor authority differs"
+    )
+
+
+def test_relation_restore_uses_current_validated_artifact(case, monkeypatch):
+    from marivo.analysis.materialization import graph_store
+    from marivo.analysis.materialization.graph_dataset import GraphDataset
+    from marivo.analysis.materialization.graph_relation import FrozenBinding, Relation
+    from marivo.analysis.materialization.graph_store import GraphArtifact
+
+    output = _execute(case)
+    dataset = GraphDataset(case[0], output)
+    artifact = graph_store.artifact
+    selected: list[GraphArtifact | None] = []
+
+    def tracked(
+        store: SessionStore, connection: sqlite3.Connection, artifact_ref: str
+    ) -> GraphArtifact | None:
+        current = artifact(store, connection, artifact_ref)
+        selected.append(current)
+        return current
+
+    monkeypatch.setattr(graph_store, "artifact", tracked)
+    relation = Relation.restore(dataset)
+    assert len(selected) == 1
+    current = selected[0]
+    assert current is not None and current is not output
+    assert isinstance(relation.binding, FrozenBinding)
+    assert relation.binding.definition is current.validated
 
 
 @pytest.mark.parametrize(

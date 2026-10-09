@@ -169,18 +169,6 @@ def open_backend(
         )
 
 
-def _disconnect(backend: Any) -> bool:
-    """Disconnect a backend, silently ignoring errors or missing method."""
-    disconnect = getattr(backend, "disconnect", None)
-    if callable(disconnect):
-        try:
-            disconnect()
-        except Exception:
-            return False
-        return True
-    return False
-
-
 def load_datasource(name: str, project_root: Path | None) -> DatasourceIR:
     """Load one declaration through the unified project/layer store."""
     datasource_ir = store.load_one(name, project_root=project_root)
@@ -491,9 +479,8 @@ class DatasourceConnectionService:
         """Disconnect all cached session backends and clear the cache."""
         for session in self._source_sessions.values():
             session.close()
-        for name, backend in self._session_backends.items():
-            lease = self._leases.get(name)
-            if lease.close() if lease is not None else _disconnect(backend):
+        for name in self._session_backends:
+            if self._leases[name].close():
                 bound_session = self._source_sessions.get(name)
                 if bound_session is not None:
                     bound_session.mark_backend_disconnected()

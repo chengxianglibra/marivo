@@ -1803,3 +1803,4 @@ def test_metric_callable_name_error_adds_import_hint(
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert exc_info.value.received == "NameError"
     assert "Import every name used by the body" in exc_info.value.message
+    assert isinstance(exc_info.value.__cause__, NameError)

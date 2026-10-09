@@ -78,6 +78,7 @@ from marivo.analysis.materialization.graph_protocol import (
     thaw_graph,
 )
 from marivo.analysis.materialization.graph_snapshot import MethodRecord, same_node_definition
+from marivo.analysis.materialization.graph_store import GraphArtifact
 from marivo.analysis.methods.comparison import output_type
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -252,19 +253,23 @@ class Relation:
 
     @classmethod
     def restore(cls, dataset: GraphDataset) -> Relation:
-        dataset.verified()
-        descriptor = dataset.artifact.descriptor
-        checked = dataset.artifact.validated
+        current, _ = dataset._read_verified()
+        return cls._from_verified_artifact(dataset.runtime, current)
+
+    @classmethod
+    def _from_verified_artifact(cls, runtime: DatasetRuntime, artifact: GraphArtifact) -> Relation:
+        descriptor = artifact.descriptor
+        checked = artifact.validated
         definition = checked.root
         captured_time = descriptor.time_shape
         root = FixedLeaf(
-            ArtifactRef(ref=dataset.artifact.artifact_ref),
+            ArtifactRef(ref=artifact.artifact_ref),
             descriptor.definition_fingerprint,
             fixed_signature(descriptor, _validated=checked),
             definition.value_type,
             FixedShape(captured_time),
         )
-        return cls(dataset.runtime, root, FrozenBinding(checked))
+        return cls(runtime, root, FrozenBinding(checked))
 
     @property
     def definition(self) -> MethodNode:
