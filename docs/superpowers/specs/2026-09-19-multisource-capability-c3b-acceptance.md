@@ -1,6 +1,6 @@
 # C3b：既有解析声明与多单位桶验收
 
-日期：2026-09-19。状态：C3b 已完成（Trino 未验收项见 §5）。依据 [实施计划](2026-09-18-multisource-capability-c3b-implementation-plan.md)、[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C3a 验收](2026-09-18-multisource-capability-c3a-acceptance.md)。
+日期：2026-09-19。状态：C3b 已完成（Trino 未验收项见 §5）。依据 [实施计划](archive/2026-09-18-multisource-capability-c3b-implementation-plan.md)、[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](archive/2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C3a 验收](2026-09-18-multisource-capability-c3a-acceptance.md)。
 
 实施基线 `facd67b0f`，验收代码 `6fb4052e6`。本记录仅覆盖 C3b，不表示 C4、C5、C6–C9 或 C10 完成。C3b 不计入第一批。
 

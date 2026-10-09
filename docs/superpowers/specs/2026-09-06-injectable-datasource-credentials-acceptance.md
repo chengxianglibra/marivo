@@ -4,7 +4,7 @@ Date: 2026-09-06
 
 Status: accepted in the local checkout.
 
-Design: [injectable datasource credentials](../specs/2026-09-05-injectable-datasource-credentials-design.md).
+Design: [injectable datasource credentials](archive/2026-09-05-injectable-datasource-credentials-design.md).
 Base revision: `f93493f32bfa881f40b3a41b5cfbf0962f378f40` plus the local implementation.
 This is local checkout evidence, not a release or host-plugin deployment.
 

@@ -6,7 +6,7 @@ The registered statement and bounded owned-control path are implemented with
 development evidence. Bounded native graph atomicity and guarded control-resource
 recovery now have development evidence. Full product qualification remains open; no formal scenario is granted.
 
-The [R9 implementation plan](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)
+The [R9 implementation plan](archive/2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)
 does not authorize new internal SQL exceptions. Its SQL governance section
 requires counterexamples, alternatives and a minimal operation/backend/purpose
 list before a specific authorization decision.

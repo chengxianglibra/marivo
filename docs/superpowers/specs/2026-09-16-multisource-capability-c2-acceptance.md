@@ -2,7 +2,7 @@
 
 日期：2026-09-18。状态：C2 已实现，独立审查、六后端专项及最终门禁通过。
 
-依据 [C2 计划](2026-09-16-multisource-capability-c2-implementation-plan.md) 和 [总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)。代码基线为 `2602989af1680ddf54790e7664ebc03ca912d621`，实现保留于工作区，未提交、推送或发布。
+依据 [C2 计划](archive/2026-09-16-multisource-capability-c2-implementation-plan.md) 和 [总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)。代码基线为 `2602989af1680ddf54790e7664ebc03ca912d621`，实现保留于工作区，未提交、推送或发布。
 
 ## 1. 实现与边界
 

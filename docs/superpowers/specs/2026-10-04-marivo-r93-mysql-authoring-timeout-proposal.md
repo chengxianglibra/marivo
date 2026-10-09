@@ -9,7 +9,7 @@ by the user on 2026-10-05; this setting does not prove fetch/cancellation covera
 
 ## Governing boundary and observed failure
 
-[R9 implementation plan section 5.2](2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)
+[R9 implementation plan section 5.2](archive/2026-10-04-marivo-full-algebra-dsl-r9-implementation-plan.md)
 explicitly does not approve new internal SQL exceptions. It requires reproducible
 counterexamples, alternatives and the exact operation/backend/purpose boundary.
 The native calendar development (historical record in Git history)

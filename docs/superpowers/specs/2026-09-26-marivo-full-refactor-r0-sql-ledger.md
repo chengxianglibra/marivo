@@ -4,7 +4,7 @@ Date: 2026-09-26
 
 Status: R0.5 静态目标与调用链保留，R1.5/R1.6 当前状态覆盖见下节。`md.raw_sql` 是唯一公共终端 SQL 通道；内部 SQL 例外除用户 2026-09-28 明确批准的 provider 固定语句通道（六后端 metadata 事实与 DuckDB scoped HTTP 凭据，范围见 R1.6 覆盖节）外仍为空。六后端基础来源已有分格证据，完整资格和资源终止仍未验证。
 
-依据：[主计划 §2、§5、§9](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 R0.5](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)。本文记录当前生产构造/提交的迁移责任，**不**批准将手写 SQL 搬进 Analysis adapter。`I`=由 typed Ibis 表达式构造及原样编译提交，`D`=经驱动公开配置/metadata API，`P`=执行前准入的 Ibis 准备→Python，`T`=唯一公共终端 `md.raw_sql`，`X`=删除，`S`=仅 Store SQLite 事务，`V`=经用户 2026-09-28 明确批准的 provider 固定语句通道（datasource.capabilities 注册表 + 快照测试钉住文本，见 R1.6 覆盖节）。每行状态均为“当前定位；目标路线未实证”；表中“证明”是以后阶段必须取得的真实证据，不是本轮通过。
+依据：[主计划 §2、§5、§9](archive/2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md)、[R0 实施文档 R0.5](archive/2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)、[能力台账 §6](2026-09-26-marivo-full-refactor-r0-capability-ledger.md#6-r04-六类元算子规则冻结)。本文记录当前生产构造/提交的迁移责任，**不**批准将手写 SQL 搬进 Analysis adapter。`I`=由 typed Ibis 表达式构造及原样编译提交，`D`=经驱动公开配置/metadata API，`P`=执行前准入的 Ibis 准备→Python，`T`=唯一公共终端 `md.raw_sql`，`X`=删除，`S`=仅 Store SQLite 事务，`V`=经用户 2026-09-28 明确批准的 provider 固定语句通道（datasource.capabilities 注册表 + 快照测试钉住文本，见 R1.6 覆盖节）。每行状态均为“当前定位；目标路线未实证”；表中“证明”是以后阶段必须取得的真实证据，不是本轮通过。
 
 ## R1.5 当前状态覆盖（2026-09-27）
 
@@ -173,7 +173,7 @@ Store 白名单仅覆盖 `materialization/store.py` 的 schema/PRAGMA/BEGIN/COMM
 此展开规则定义必需验证集合，不预判所有格可实现。若 R1/R7/R8 无法为某必需方法/形状注册 I 或 P，精确格标 **阻塞** 并报告用户所需的具体内部 SQL 例外决定；不能用 DS02 的终端结果代替该格，也不得把未实现格改写为目标“不支持”。
 
 2026-10-02 经用户接受的 R8 设计修订将旧 C14.a 五方法目标替换为 C14.a1/a2，详见
-[接口设计 §8.4.1](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)。
+[接口设计 §8.4.1](archive/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md#841-从指标变化定位可继续分析的坐标)。
 这是主动范围替换，不是把后端未通过格改成“不支持”，也不声称新方法与旧滑窗/排轴算法
 等价。旧 Candidate、period_shifts 与 driver_axes 专属格退出；新三种方法版本各自重新
 展开六后端的 P/F 资格，当前均为目标未验收。C14.b/c 相关与预测的资格要求不变。

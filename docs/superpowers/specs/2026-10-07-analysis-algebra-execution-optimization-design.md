@@ -356,7 +356,7 @@ A2/A3 的物理安排不改逻辑定义与原结果契约。若参数、Evidence
 | [Python Analysis design](../../specs/analysis/python-analysis-design.md) | 前提获取、检查调度、物理分组和 source 独立读取边界 |
 | [Operators and frames](../../specs/analysis/operators-and-frames.md) | 数值/Cell、原始状态、parts 与拟议配对参数 |
 | [Session state and runtime](../../specs/analysis/session-state-and-runtime.md) | 实际完成记录、执行键、保存与失败发布；继续遵守 Store 8 本地信任 |
-| [Analysis algebra theory](2026-09-23-analysis-algebra-theory.md) | 信任声明、检查义务与数值执行边界的表述一致 |
+| [Analysis algebra theory](archive/2026-09-23-analysis-algebra-theory.md) | 信任声明、检查义务与数值执行边界的表述一致 |
 | [Analysis/Semantic simplification](2026-10-07-analysis-semantic-simplification-design.md) | 对来源性质及检查责任的旧表述按本设计的分类修订，保留历史实施记录 |
 
 改变公共参数时同时更新 native Help、动态 contract/show、结构化修复、快照与预算测试、

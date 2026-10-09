@@ -2,7 +2,7 @@
 
 日期：2026-09-16。状态：**C0 完成；C1–C10 未开始**。
 
-对应[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)与 [C0 实施计划及后续清单](2026-09-16-multisource-capability-c0-implementation-plan.md)。本记录是提交时的基线快照，不是运行时能力注册表。
+对应[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)与 [C0 实施计划及后续清单](archive/2026-09-16-multisource-capability-c0-implementation-plan.md)。本记录是提交时的基线快照，不是运行时能力注册表。
 
 ## 1. 身份、范围与证据口径
 
@@ -78,7 +78,7 @@ PostgreSQL 的 `get_schema()` 通过 `to_regclass` 定位关系并读取 `pg_att
 - Runtime 预记 profile 时区 SQL，而 Trino/ClickHouse adapter 提交另写的 SQL；探针确认实际文本与记录文本不同（当前为大小写和别名差异）。C3a 在实际提交边界统一记录，C10 独立核对；并未据此声称已有查询错算。
 - `_validate_source_schema()` 对必要列缺失和类型错误返回相同的 expected/received/repair，不提供具体关系/列/实际类型。C1 纳入统一结构化诊断与可区分的原因。
 
-复核命令 `make test TESTS='tests/test_lazy_statement_statistics.py tests/test_lazy_scalar_transport.py tests/test_lazy_backend_dispatch.py'` 为 **39 passed in 4.16s**，属于 C0 后续只读复核，独立于原始 33 个静态检查。探针没有连接数据库；这些证据确认当前差异，不表示优化已经实现。方案与后续验收统一见 [C0 实施计划](2026-09-16-multisource-capability-c0-implementation-plan.md)的统一诊断、时间与回执约束。
+复核命令 `make test TESTS='tests/test_lazy_statement_statistics.py tests/test_lazy_scalar_transport.py tests/test_lazy_backend_dispatch.py'` 为 **39 passed in 4.16s**，属于 C0 后续只读复核，独立于原始 33 个静态检查。探针没有连接数据库；这些证据确认当前差异，不表示优化已经实现。方案与后续验收统一见 [C0 实施计划](archive/2026-09-16-multisource-capability-c0-implementation-plan.md)的统一诊断、时间与回执约束。
 
 ## 3. 第一批目标 / 后续 / 排除矩阵
 

@@ -1,6 +1,6 @@
 # C6：完整时间状态（日历、累计、status-time fold、剩余 validity）验收
 
-日期：2026-09-21（实际验收日；计划落盘于 2026-09-20）。状态：C6 已完成（逐后端逐单元矩阵见 §2；剩余拒绝项见 §4，均附引擎事实与用户口径边界）。依据 [实施计划](2026-09-20-multisource-capability-c6-implementation-plan.md)、[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C5 验收](2026-09-21-multisource-capability-c5-acceptance.md)。
+日期：2026-09-21（实际验收日；计划落盘于 2026-09-20）。状态：C6 已完成（逐后端逐单元矩阵见 §2；剩余拒绝项见 §4，均附引擎事实与用户口径边界）。依据 [实施计划](archive/2026-09-20-multisource-capability-c6-implementation-plan.md)、[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](archive/2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C5 验收](2026-09-21-multisource-capability-c5-acceptance.md)。
 
 计划落盘基线 `79a9aaffd`（C5 验收链末位，工作区干净），验收代码至 `8946cd711`（本验收日 HEAD）。提交链 `e402aad7c..8946cd711` 共 10 个提交（计划 1、剩余 validity 1、日历桶 1、累计 2（含测试钉修正）、status-time fold 4（含边界守护修正）、披露 1）；本文档自身为链外纯文档提交，不计入该链。DuckDB 全程未改动，作为独立对照 oracle。本记录仅覆盖 C6，不表示 C7–C10 或 C10 完成。
 
