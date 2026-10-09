@@ -16,13 +16,23 @@ The maintained documentation describes the Python-native Marivo library only.
   introspection.
 - [`specs/analysis/README.md`](specs/analysis/README.md) -
   current Analysis architecture and reading order: algebra, method registration,
-  typed definition graph, compiler, Runtime and Store 8. The focused
+  typed definition graph, compiler, Runtime and Store 9. The focused
   [Python Analysis design](specs/analysis/python-analysis-design.md) owns the DSL
   model and execution path; the index routes to method, temporal and recovery contracts.
 - [`specs/temporal-semantics.md`](specs/temporal-semantics.md) -
   current cross-layer contract for built-in and fiscal periods, certified
   calendar authority, named scopes, event intervals, work schedules, and
   alignment policy.
+
+## Testing
+
+- [Test goals and execution gates](testing/runtime-coverage.md) - behavior
+  ownership, coverage selection and daily, Runtime and package validation.
+- [Analysis disclosure context budget](testing/analysis-help-context.md) -
+  measurement boundaries and reproducible Help context-budget checks.
+
+Current architecture contracts live in `specs/`. Historical proposals and
+revision-specific acceptance records remain in Git history.
 
 ## Agent Guidance
 

@@ -42,16 +42,11 @@ which state, evidence and input bindings a successor needs. It does not replace
 specialized matching, replay or statistical algorithms, and its local laws do
 not authorize arbitrary graph rewriting.
 
-## Current and historical material
+## Contract and qualification boundaries
 
-These documents describe one current path. The former Population/Metric Dataset
-APIs, HTTP intent architecture, scenario executors and old Store generations are
-not alternative entry points.
-
-The [historical records](../../history/analysis/README.md) retain the bounded
-S0/S1 implementation evidence and the former auditability proposal. Their paths,
-commands and acceptance claims refer to their recorded revisions. They do not
-define the current DSL, continuations or execution qualification.
+These documents describe the current implementation contracts. Historical
+designs and revision-specific acceptance records remain in Git history; they
+do not qualify current execution.
 
 Exact call signatures, examples, errors and admitted result actions are exposed
 by `marivo.help("analysis")` and each receiver's `contract()`. A semantic method,

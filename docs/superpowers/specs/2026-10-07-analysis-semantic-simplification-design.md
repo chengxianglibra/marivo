@@ -714,4 +714,4 @@ was performed. Existing staged work was preserved.
 声明、构造推导、调用假设和实际检查四种依据。`ExactKeys.verification` 与
 `read.match_verification` 只影响其具名前提。冻结图使用 graph DAG v2；Store 8、descriptor
 v3 和 continuation v4 不变。此实现不增加 nullable/finite/total 的通用声明框架，
-也不实施 A2 或 A3。范围和资格以 [A1 验收记录](2026-10-07-analysis-a1-acceptance.md) 为准。
+也不实施 A2 或 A3。范围和资格以 Git 历史中的 A1 验收记录为准。
