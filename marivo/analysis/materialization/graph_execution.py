@@ -9,16 +9,13 @@ from marivo.analysis.compiler.graph_plan import (
     ArtifactReadStage,
     CheckRequirement,
     GraphPlan,
-    LocalMethodStage,
     RouteChoice,
     SourceInputStage,
-    SourceMethodStage,
     Stage,
     _plan_captured,
 )
 from marivo.analysis.core.graph import Node, _CapturedGraph, capture_graph
 from marivo.analysis.core.model import reject
-from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 
 
@@ -87,33 +84,13 @@ def prepare_graph(
 def _prepare_captured_graph(
     captured: _CapturedGraph, *, session_ref: str, routes: tuple[RouteChoice, ...]
 ) -> PreparedGraph:
-    for node in captured.nodes:
-        if node.signature.domain.binding.session_id != session_ref:
-            reject(
-                f"a graph owned by Session {session_ref}",
-                node.signature.domain.binding.session_id,
-                "Rebuild the graph from this Session's exact inputs.",
-                "analysis.graph_execution.session",
-            )
+    binding = captured.root.signature.domain.binding
+    if binding.session_id != session_ref:
+        reject(
+            f"a graph owned by Session {session_ref}",
+            binding.session_id,
+            "Rebuild the graph from this Session's exact inputs.",
+            "analysis.graph_execution.session",
+        )
     admitted = _plan_captured(captured, routes=routes)
-    stage_owners = {
-        stage.output: stage.node.identity
-        for stage in admitted.stages
-        if isinstance(stage, (SourceMethodStage, LocalMethodStage))
-    }
-    for requirement in admitted.checks:
-        if stage_owners.get(requirement.stage_output) != requirement.node_id:
-            reject(
-                "a check attached to its exact producing method stage",
-                requirement.stage_output,
-                "Rebuild the plan from the unchanged graph and method registration.",
-                "analysis.graph_execution.check",
-            )
-    methods = {
-        stage.node.identity: stage.node
-        for stage in admitted.stages
-        if isinstance(stage, (SourceMethodStage, LocalMethodStage))
-    }
-    for physical in admitted.physical_requirements:
-        admit(physical.implementation, methods[physical.node_id].parameters)
     return PreparedGraph(admitted)

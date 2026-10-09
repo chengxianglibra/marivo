@@ -246,6 +246,17 @@ def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
             stage, (ArtifactReadStage, SourceInputStage, SourceMethodStage, LocalMethodStage)
         )
     }
+    fixed_slots: dict[str, set[str]] = {}
+    for stage in admitted.stages:
+        if isinstance(stage, ArtifactReadStage):
+            fixed_slots.setdefault(stage.leaf.artifact.ref, set()).add(
+                identities[stage.leaf.identity]
+            )
+    for retained in admitted.captured.retained:
+        if isinstance(retained, FixedLeaf):
+            slots = fixed_slots.get(retained.artifact.ref, set())
+            if len(slots) == 1:
+                identities.setdefault(retained.identity, next(iter(slots)))
     ordered: list[_CanonicalValue] = []
     for requirement in admitted.physical_requirements:
         qualified = requirement.implementation.qualification

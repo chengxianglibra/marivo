@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Literal
+from unittest.mock import patch
 
 import ibis
 import pyarrow as pa
@@ -60,6 +61,8 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.methods import builtin
+from marivo.analysis.methods import registry as registry_module
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     Backend,
@@ -68,7 +71,7 @@ from marivo.analysis.methods.physical import (
     SourceShape,
     TimeShape,
 )
-from marivo.analysis.methods.registry import REGISTRY
+from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.refs import RefPayloadV1, ref
@@ -428,7 +431,17 @@ def test_classified_count_native_compilation_and_admission(
                 _lower(rolled, (binding,))
             roots = (root,)
         for terminal_root in roots:
-            terminal = _primary(_lower(terminal_root, (binding,)))
+            nodes = topology(terminal_root)
+            signature = leaf.signature
+            with (
+                patch.object(
+                    MethodRegistry, "derive", side_effect=AssertionError("rederived semantics")
+                ),
+                patch.object(registry_module, "admit", wraps=builtin.admit) as admissions,
+            ):
+                terminal = _primary(_lower(terminal_root, (binding,)))
+            assert admissions.call_count == sum(isinstance(node, MethodNode) for node in nodes)
+            assert leaf.signature is signature
             expression = (
                 terminal.transport if terminal.transport is not None else terminal.expression
             )

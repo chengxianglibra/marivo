@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from typing import Literal, NoReturn, TypeAlias
-from weakref import ReferenceType, ref
 
 from marivo.analysis.core.graph import (
     FixedLeaf,
@@ -88,9 +87,9 @@ class InputClassification:
     artifacts: tuple[FixedLeaf, ...]
 
 
-def classify_inputs(root: Node, *, registry: MethodRegistry = REGISTRY) -> InputClassification:
+def classify_inputs(root: Node) -> InputClassification:
     """Traverse actual dependencies only; fixed origin history has no graph edge."""
-    return _classify(topology(root, registry=registry))
+    return _classify(topology(root))
 
 
 def _classify(nodes: tuple[Node, ...]) -> InputClassification:
@@ -169,38 +168,18 @@ class GraphPlan:
     checks: tuple[CheckRequirement, ...]
     physical_requirements: tuple[PhysicalRequirement, ...]
     primary_output: str
-    _handoff: _PlanHandoff | None = field(default=None, init=False, repr=False, compare=False)
-
-
-@dataclass(frozen=True, slots=True)
-class _PlanHandoff:
-    plan: ReferenceType[GraphPlan]
-    captured: _CapturedGraph
+    captured: _CapturedGraph = field(repr=False, compare=False)
 
 
 def admitted_capture(admitted: GraphPlan, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
-    """Check the exact compiler handoff without selecting or deriving again."""
-    if type(admitted) is not GraphPlan:
+    """Preserve the selected registry interpretation without re-admitting the plan."""
+    if admitted.captured.registry is not registry:
         _refuse(
             "an unchanged admitted plan",
-            type(admitted).__name__,
-            "Build through the graph planner.",
-        )
-    try:
-        handoff = admitted._handoff
-    except AttributeError:
-        _refuse("an unchanged admitted plan", "missing handoff", "Build through the graph planner.")
-    if (
-        type(handoff) is not _PlanHandoff
-        or handoff.plan() is not admitted
-        or handoff.captured.registry is not registry
-    ):
-        _refuse(
-            "an unchanged admitted plan",
-            "altered plan, definition or registry interpretation",
+            "different registry interpretation",
             "Rebuild the plan from the exact definition and registry.",
         )
-    return handoff.captured
+    return admitted.captured
 
 
 def _refuse(expected: str, received: str, repair: str) -> NoReturn:
@@ -645,12 +624,12 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
             *(stage for stage in stages if isinstance(stage, LocalMethodStage)),
         ]
-    admitted = GraphPlan(
-        root, classification, tuple(stages), tuple(checks), tuple(physical), outputs[root.identity]
+    return GraphPlan(
+        root,
+        classification,
+        tuple(stages),
+        tuple(checks),
+        tuple(physical),
+        outputs[root.identity],
+        captured,
     )
-    object.__setattr__(
-        admitted,
-        "_handoff",
-        _PlanHandoff(ref(admitted), captured),
-    )
-    return admitted

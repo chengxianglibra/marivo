@@ -10,6 +10,8 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis.core.graph as graph
+import marivo.analysis.methods.builtin as builtin
+import marivo.analysis.methods.registry as registry_module
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_lowering import (
     CellColumns,
@@ -1362,4 +1364,41 @@ def test_handoff_is_bound_to_registry_instance(source_case) -> None:
     other = MethodRegistry(REGISTRY.registrations)
     with pytest.raises(CoreRuleError, match="unchanged admitted plan"):
         lower(admitted, bindings=(_bind(source_case, leaf),), registry=other)
+    assert source_case[0].submissions == []
+
+
+@pytest.mark.parametrize("route", ["ibis", "ibis_python", "artifact_python"])
+def test_method_parameter_admission_is_reused_through_lowering_and_consumption(
+    source_case, route: str
+) -> None:
+    from marivo.analysis.materialization.graph_execution import prepare_graph
+
+    leaf = _leaf(source_case[1])
+    if route == "artifact_python":
+        root = _count(
+            FixedLeaf(
+                ArtifactRef("admission-fixed"),
+                leaf.fingerprint,
+                leaf.signature,
+                leaf.value_type,
+                FixedShape(NoTime()),
+            )
+        )
+        bindings = ()
+    else:
+        root = _spearman(leaf, leaf) if route == "ibis_python" else _count(leaf)
+        bindings = (_bind(source_case, leaf),)
+    with patch.object(registry_module, "admit", wraps=builtin.admit) as admissions:
+        prepared = prepare_graph(
+            root,
+            session_ref=leaf.signature.domain.binding.session_id,
+            routes=(RouteChoice(root.identity, route),),
+        )
+        lowered = lower(prepared.admitted, bindings=bindings)
+        if route == "artifact_python":
+            stage = next(stage.stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
+            assert count(stage, (Defined(1), Null("source_null"))).count == 2
+    assert admissions.call_count == 1
+    if route == "ibis_python":
+        assert len(prepared.admitted.stages) == 3
     assert source_case[0].submissions == []

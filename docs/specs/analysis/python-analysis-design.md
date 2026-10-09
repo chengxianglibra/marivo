@@ -188,6 +188,17 @@ Compiler handoff reuses captured static graph/registry facts. Private in-process
 compiler objects are trusted; this path does not maintain deep anti-mutation
 snapshots or audit local objects as hostile data.
 
+Construction validates each new MethodNode and derives its semantics once.
+`topology()` only traverses execution dependencies. Invocation capture fingerprints
+the constructed definitions and checks the complete structural closure, ownership
+and retained endpoint correspondence without reinitializing leaves or rederiving
+methods. GraphPlan holds this capture directly and lowering preserves
+its selected registry interpretation. Exact implementation selection owns one
+parameter admission per method, including methods with preparation and local
+stages; preparation, lowering and local consumption do not repeat that admission.
+Restoring a serialized continuation still constructs nodes through their semantic
+owners and checks the saved derivations before entering a new invocation.
+
 Logical lowered layouts retain complete typed keys, Cell slots and declared
 part schemas. Before a source read is issued, `compiler/cell_lowering.py` lowers
 those slots to their closed physical carriers. Known Cells carry only their value

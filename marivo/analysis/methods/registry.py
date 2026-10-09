@@ -315,6 +315,12 @@ class MethodRegistry:
         """Select exactly the requested route; static evidence never discharges Pre."""
         if type(key) is not QualificationKey:
             reject("an exact qualification key", repr(key), "Bind the complete physical shape.")
+        if tuple(item.domain.kind for item in inputs) != key.input_domains:
+            reject(
+                "qualification for these ordered input domains",
+                repr(key.input_domains),
+                "Request the exact invocation shape.",
+            )
         derivation = self.derive(inputs, params)
         return self._select_derived(key, inputs, params, derivation)
 
@@ -327,12 +333,6 @@ class MethodRegistry:
     ) -> SelectedImplementation:
         """Select for the graph owner's already-validated semantic derivation."""
         registration = self.lookup(key.method)
-        if tuple(item.domain.kind for item in inputs) != key.input_domains:
-            reject(
-                "qualification for these ordered input domains",
-                repr(key.input_domains),
-                "Request the exact invocation shape.",
-            )
         for implementation in registration.implementations:
             implementation = specialize_numeric(specialize_arity(implementation, len(inputs)), key)
             if implementation.key != key:
@@ -356,8 +356,7 @@ class MethodRegistry:
                     repr((implementation.checks, implementation.parts)),
                     "Qualify every obligation and part for this exact invocation.",
                 )
-            if status.consumer_id in ("analysis.compiler.graph_lowering", "analysis.methods.local"):
-                admit(implementation, params)
+            admit(implementation, params)
             return SelectedImplementation(implementation, derivation)
         gap = registration.missing
         reject(

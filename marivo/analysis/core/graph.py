@@ -194,7 +194,7 @@ class MethodNode:
     registry: InitVar[MethodRegistry] = field(default=REGISTRY, kw_only=True)
 
     def __post_init__(self, registry: MethodRegistry) -> None:
-        _validate_method(self, registry, constructing=True)
+        _validate_method(self, registry)
 
     @property
     def signature(self) -> Signature:
@@ -334,13 +334,7 @@ def _retained_inclusion(receiver: Node, dependency: Node) -> bool:
     return False
 
 
-def _validate_method(
-    node: MethodNode,
-    registry: MethodRegistry,
-    *,
-    constructing: bool = False,
-    fingerprints: Mapping[str, str] | None = None,
-) -> None:
+def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     _identifier(node.identity)
     _value_type(node.value_type)
     if (
@@ -355,16 +349,15 @@ def _validate_method(
         prior = direct.setdefault(edge.node.identity, edge.node)
         if prior is not edge.node:
             _fail("one object per explicit node identity", edge.node.identity)
-    if constructing:
-        object.__setattr__(
-            node,
-            "derivation",
-            registry.derive(
-                tuple(edge.node.signature for edge in node.inputs),
-                node.parameters,
-                output_node_id=node.identity,
-            ),
-        )
+    object.__setattr__(
+        node,
+        "derivation",
+        registry.derive(
+            tuple(edge.node.signature for edge in node.inputs),
+            node.parameters,
+            output_node_id=node.identity,
+        ),
+    )
     if isinstance(node.parameters, (PartsTransport, TimeRuns)):
         from marivo.analysis.core.predicates import leaves
         from marivo.analysis.methods.predicates import validate_operand
@@ -568,14 +561,6 @@ def _validate_method(
     registry.lookup(node.method).semantics.validate_output_type(
         tuple(edge.node.value_type for edge in node.inputs), node.value_type, node.parameters
     )
-    if not constructing and node.derivation != registry.derive(
-        signatures, node.parameters, output_node_id=node.identity
-    ):
-        _fail("the registered semantic derivation without promoted Post", node.identity)
-    if node.retained_endpoints and not constructing:
-        _validate_endpoints(
-            node, definition_fingerprints(node) if fingerprints is None else fingerprints
-        )
 
 
 def _validate_endpoints(node: MethodNode, fingerprints: Mapping[str, str]) -> None:
@@ -716,34 +701,19 @@ class _CapturedGraph:
         return tuple(node for node in self.nodes if node.identity in reached)
 
 
-def _validated_closure(
-    root: Node, registry: MethodRegistry, *, summaries: bool = False
-) -> tuple[tuple[Node, ...], dict[str, str]]:
+def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
+    """Capture constructed definitions and validate their complete structural closure."""
     retained = _ordered_nodes(root, retained=True)
-    for node in retained:
-        if not isinstance(node, MethodNode):
-            node.__post_init__()
-    fingerprints = (
-        _fingerprints(retained)
-        if summaries
-        or any(isinstance(node, MethodNode) and node.retained_endpoints for node in retained)
-        else {}
-    )
+    fingerprints = _fingerprints(retained)
     for node in retained:
         if isinstance(node, MethodNode):
-            _validate_method(node, registry, fingerprints=fingerprints)
+            _validate_endpoints(node, fingerprints)
     owners = {
         (node.signature.domain.binding.session_id, node.signature.domain.binding.owner_id)
         for node in retained
     }
     if len(owners) != 1:
         _fail("one graph Session and owner", repr(owners))
-    return retained, fingerprints
-
-
-def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _CapturedGraph:
-    """Validate data and retained definitions once for this compiler invocation."""
-    retained, fingerprints = _validated_closure(root, registry, summaries=True)
     nodes = _ordered_nodes(root, retained=False)
     index = {node.identity: node for node in retained}
     index.update((node.identity, node) for node in nodes)
@@ -757,9 +727,8 @@ def capture_graph(root: Node, *, registry: MethodRegistry = REGISTRY) -> _Captur
     )
 
 
-def topology(root: Node, *, registry: MethodRegistry = REGISTRY) -> tuple[Node, ...]:
-    """Validate the complete definition closure and return execution dependencies."""
-    _validated_closure(root, registry)
+def topology(root: Node) -> tuple[Node, ...]:
+    """Return ordered execution dependencies without rederiving constructed semantics."""
     return _ordered_nodes(root, retained=False)
 
 

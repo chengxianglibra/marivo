@@ -87,7 +87,7 @@ def selection_fusion_issue(
 
 def fuse_selection(node: MethodNode, *, registry: MethodRegistry = REGISTRY) -> MethodNode:
     """L1 for closed total int64 comparisons, preserving the exact output contract."""
-    topology(node, registry=registry)
+    topology(node)
     issue = selection_fusion_issue(node, registry=registry)
     if issue is not None:
         _fail(*issue)

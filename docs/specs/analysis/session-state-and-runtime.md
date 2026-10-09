@@ -39,8 +39,9 @@ one scan, transaction or stable source version.
 
 The Runtime orders admission as follows:
 
-1. Capture/validate the graph, classify dependencies and select the exact
-   qualified plan, source bindings and fixed schedule.
+1. Capture the constructed graph's structural closure and ownership, classify
+   dependencies and select the exact qualified plan with one parameter admission
+   per method. Bind source inputs or lower and validate the fixed schedule once.
 2. Acquire the Session writer guard and reconcile unfinished Run/resource state.
 3. Resolve a fixed-only exact key and return an existing committed result if found.
 4. On a producer miss, determine the key and allocate/admit its Run.
@@ -52,6 +53,18 @@ The fixed key binds exact ordered Artifact inputs and method/protocol/plan
 identity without a new random value. Store uniqueness remains
 `(Session, execution_key)`. Source evaluations can publish different immutable
 Artifacts for one definition; one fixed key has at most one successful output.
+
+Source admission uses the leaves of the current executable graph, including
+temporal shapes unified while composing dependencies. When preparation captures
+new physical relations, their Entity output expressions are rebound to those
+captured relations before lowering; the original source bindings remain the
+execution key authority.
+
+Plan identity normalizes retained references to an Artifact already occupying
+one unambiguous execution slot to that slot's identity. Fresh-process rebinding
+therefore preserves the same plan and fixed key when frozen cohort evidence
+mentions its original member input. Multiple independent slots for one Artifact
+remain distinct.
 
 Exact Artifact references recover their own producing Run, never the latest
 result for a definition. A failed later evaluation does not replace an earlier
@@ -426,6 +439,11 @@ replaying historical lineage.
 ## Fixed execution groups
 
 A validated fixed schedule may group adjacent admitted local stages.
+Publication checks pending original-rollup obligations and fixed consumer domain
+constraints before reading Artifacts or allocating a Run. The executor consumes
+that same lowered schedule without repeating its validation or method admission;
+actual Artifact input bindings, data consumption, deadlines and checks retain
+their execution-time owners.
 Groups are invocation-local arrangements of the original DAG; they do not
 replace definition fingerprints, selected method records, plan digests,
 execution keys or saved graph/continuation versions. Public semantics and
@@ -504,6 +522,9 @@ propagates without retry; Runtime publication remains atomic.
 Evidence and Findings are deterministic committed facts about one Artifact.
 Producer extraction/publication occur with the Artifact transaction.
 Recovery reads saved typed records without regeneration.
+Reads check the stored collection count and frozen extractor version, including
+the empty collection required by a zero-Finding producer, without re-extraction
+or comparing content hashes.
 
 | Producer | Extractor / policy | Eligibility and deterministic order |
 | --- | --- | --- |

@@ -2346,24 +2346,12 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
 
 
 def admit(implementation: Implementation, params: RuleParameters) -> None:
-    """Resolve a real consumer and reject parameter variants outside its evidence."""
+    """Admit a registry-selected consumer's exact parameter and physical restrictions."""
     if isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions:
         reject(
             "relative observation through anchor.observe",
             "a capture template submitted as an executable Metric node",
             "Use AnchorDomain.observe so bounded version resolution owns the candidate input.",
-        )
-    if not any(
-        implementation
-        == specialize_numeric(
-            specialize_arity(candidate, len(implementation.key.input_types)), implementation.key
-        )
-        for candidate in implementations(implementation.key.method)
-    ):
-        reject(
-            "an implemented R3.4 consumer",
-            repr(implementation.key),
-            "Qualify a real lowerer and all required checkers for this exact key.",
         )
     from marivo.analysis.methods.anchor_physical import admit_observation
     from marivo.analysis.methods.funnel_physical import admit_axes

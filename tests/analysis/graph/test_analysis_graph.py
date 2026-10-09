@@ -9,6 +9,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.analysis.core.graph as graph
 import marivo.semantic as ms
+from marivo.analysis.compiler.graph_lowering import lower
 from marivo.analysis.compiler.graph_plan import (
     ArtifactReadStage,
     LocalMethodStage,
@@ -313,9 +314,6 @@ def test_child_obligations_survive_and_post_is_not_evidence():
     assert child.derivation.post
     assert not set(child.derivation.pre) <= available_facts(child.signature)
     assert not set(parent.derivation.pre) <= available_facts(parent.signature)
-    object.__setattr__(parent, "derivation", replace(parent.derivation, obligations=()))
-    with pytest.raises(CoreRuleError, match="registered semantic derivation"):
-        topology(parent)
 
 
 def test_route_choices_must_cover_exact_reachable_methods():
@@ -576,8 +574,11 @@ def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
 
 
 @pytest.mark.parametrize("depth", [10, 20, 40])
-def test_chain_construction_derives_and_checks_only_new_nodes(depth: int) -> None:
-    root = _source()
+@pytest.mark.parametrize("fixed", [False, True])
+def test_chain_construction_derives_and_checks_only_new_nodes(depth: int, fixed: bool) -> None:
+    leaf = _fixed() if fixed else _source()
+    root = leaf
+    leaf_signature = leaf.signature
     with (
         patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
         patch.object(
@@ -592,7 +593,7 @@ def test_chain_construction_derives_and_checks_only_new_nodes(depth: int) -> Non
             )
     assert checks.call_count == derivations.call_count == depth
     routes = tuple(
-        RouteChoice(node.identity, "ibis")
+        RouteChoice(node.identity, "artifact_python" if fixed else "ibis")
         for node in graph.retained_nodes(root)
         if isinstance(node, graph.MethodNode)
     )
@@ -602,12 +603,17 @@ def test_chain_construction_derives_and_checks_only_new_nodes(depth: int) -> Non
             MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
         ) as derivations,
     ):
+        assert len(topology(root)) == depth + 1
+        capture_graph(root)
         admitted = plan(root, routes=routes)
-    assert checks.call_count == derivations.call_count == depth
+        if fixed:
+            lower(admitted, bindings=())
+    assert checks.call_count == derivations.call_count == 0
+    assert leaf.signature is leaf_signature
     assert len(admitted.stages) == depth + 1
 
 
-def test_complete_entry_validates_shared_nodes_once() -> None:
+def test_complete_entry_captures_shared_nodes_without_rederivation() -> None:
     child = _mean(_source())
     root = _difference(child, child)
     with (
@@ -618,7 +624,7 @@ def test_complete_entry_validates_shared_nodes_once() -> None:
     ):
         captured = capture_graph(root)
     assert len(captured.nodes) == 3
-    assert checks.call_count == derivations.call_count == 2
+    assert checks.call_count == derivations.call_count == 0
     assert captured.fingerprints[root.identity] == root.fingerprint
 
 
@@ -626,18 +632,6 @@ def test_deep_identity_collision_is_rejected_at_complete_entry() -> None:
     leaf = _source()
     root = _difference(_mean(leaf), _mean(replace(leaf)))
     with pytest.raises(CoreRuleError, match="one object per explicit node identity"):
-        capture_graph(root)
-
-
-def test_forged_ancestor_is_rejected_at_complete_entry() -> None:
-    child = _mean(_source())
-    object.__setattr__(child, "derivation", replace(child.derivation, obligations=()))
-    root = method_node(
-        (Edge("quantity", child),),
-        PartsTransport("view", child.signature.domain, (), True),
-        value_type=child.value_type,
-    )
-    with pytest.raises(CoreRuleError, match="registered semantic derivation"):
         capture_graph(root)
 
 

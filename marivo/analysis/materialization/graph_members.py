@@ -437,9 +437,9 @@ class MemberGraph:
         datasource = self.registry.datasources[contract.datasource_ref.path]
         service = self.runtime.connection_service()
         entries = self.sources or ((self.entity_schema, self.leaf),)
-        by_identity = {leaf.identity: (schema, leaf) for schema, leaf in entries}
+        schemas = {leaf.identity: schema for schema, leaf in entries}
         ordered = tuple(
-            by_identity[node.identity]
+            (schemas[node.identity], node)
             for node in topology(self.root)
             if isinstance(node, SourceLeaf)
         )
