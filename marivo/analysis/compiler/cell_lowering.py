@@ -24,7 +24,7 @@ _TAGS = ("defined", "null", "undefined", "unknown")
 
 def state_value(table: ir.Table, cell: CellEncoding) -> ir.Value:
     if isinstance(cell, KnownCell):
-        return (table[cell.fields.value].isnull().cast("int16") * 0 + cell.code).cast("int16")
+        return table[cell.fields.value].isnull().ifelse(cell.code, cell.code).cast("int16")
     if isinstance(cell, ValidityCell):
         return table[cell.fields.value].notnull().ifelse(0, cell.missing_code).cast("int16")
     return table[cell.state]

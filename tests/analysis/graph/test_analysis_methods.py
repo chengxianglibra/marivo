@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import FrozenInstanceError, replace
+from typing import Literal
 
 import duckdb
 import pytest
@@ -12,6 +13,7 @@ import marivo.semantic as ms
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
+    CoordinateStatePart,
     CoreRuleError,
     CoveragePart,
     Defined,
@@ -34,6 +36,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
+    Backend,
     DecimalType,
     FixedShape,
     Implementation,
@@ -376,6 +379,161 @@ def test_physical_shapes_never_borrow_a_qualification(shape: SourceShape) -> Non
     source = _input()
     with pytest.raises(MethodRegistrationError, match="qualified exact key"):
         _registry(candidate).select(replace(candidate.key, shape=shape), (source,), _params(source))
+
+
+def _count_reduction(
+    kind: Literal["entity", "group", "singleton"],
+) -> tuple[Signature, OriginalReduce]:
+    source = _input(original=True)
+    assert isinstance(source.quantity, ObservedQuantity)
+    state, coverage = source.parts
+    assert isinstance(state, OriginalStatePart)
+    keys = () if kind == "singleton" else source.domain.instance_key
+    domain = replace(source.domain, kind=kind, instance_key=keys, target_key=keys)
+    source = replace(
+        source,
+        domain=domain,
+        quantity=replace(source.quantity, method_version="count@v1", unit="1"),
+        parts=(replace(state, method_version="count@v1", components=("count",)), coverage),
+    )
+    target = replace(domain, kind="singleton", instance_key=(), target_key=())
+    return source, OriginalReduce(
+        target,
+        method="count",
+        partition_check_id="source.contribution_partition@v1",
+        coverage_check_id="source.complete_coverage@v1",
+    )
+
+
+@pytest.mark.parametrize("backend", ["postgres", "mysql", "trino", "clickhouse"])
+@pytest.mark.parametrize("kind", ["entity", "group", "singleton"])
+def test_remote_count_rollup_selects_each_exact_domain(
+    backend: Literal["postgres", "mysql", "trino", "clickhouse"],
+    kind: Literal["entity", "group", "singleton"],
+) -> None:
+    source, params = _count_reduction(kind)
+    key = QualificationKey(
+        MethodKey("state_rollup.count"),
+        (ScalarType("int64"),),
+        (kind,),
+        SourceShape(backend, "table", "native", TimeShape("instant", "us", "UTC")),
+        "ibis",
+    )
+    selected = REGISTRY.select(key, (source,), params)
+    assert selected.implementation.key == key
+    assert isinstance(selected.implementation.qualification, Qualified)
+    assert selected.implementation.qualification.consumer_id == "analysis.compiler.graph_lowering"
+    assert selected.implementation.precision == "checked_int64"
+    assert {"original_state", "coverage"} <= set(selected.implementation.parts)
+
+
+@pytest.mark.parametrize("change", ["time", "form", "kind", "route", "type"])
+def test_remote_count_rollup_does_not_borrow_other_physical_keys(change: str) -> None:
+    source, params = _count_reduction("entity")
+    shape = SourceShape("trino", "table", "native", TimeShape("instant", "us", "UTC"))
+    key = QualificationKey(
+        MethodKey("state_rollup.count"), (ScalarType("int64"),), ("entity",), shape, "ibis"
+    )
+    if change == "time":
+        key = replace(key, shape=replace(shape, time=TimeShape("instant", "ms", "UTC")))
+    elif change == "form":
+        key = replace(key, shape=replace(shape, form="parquet", table_kind="parquet"))
+    elif change == "kind":
+        key = replace(key, shape=replace(shape, table_kind="view"))
+    elif change == "route":
+        key = replace(key, route="ibis_python")
+    else:
+        key = replace(key, input_types=(ScalarType("float64"),))
+    with pytest.raises(MethodRegistrationError):
+        REGISTRY.select(key, (source,), params)
+
+
+def test_postgres_count_rollup_rejects_retained_categorical_state() -> None:
+    source, params = _count_reduction("group")
+    assert isinstance(source.quantity, ObservedQuantity)
+    coordinate = CoordinateStatePart(
+        source.domain.binding,
+        source.quantity.definition_id,
+        ms.ref.dimension("sales.customer.region"),
+        ms.ref.entity("sales.customer"),
+        ("count",),
+        "int64",
+        "v1",
+    )
+    source = replace(source, parts=(*source.parts, coordinate))
+    key = QualificationKey(
+        MethodKey("state_rollup.count"),
+        (ScalarType("int64"),),
+        ("group",),
+        SourceShape("postgres", "table", "native", TimeShape("instant", "us", "UTC")),
+        "ibis",
+    )
+    with pytest.raises(MethodRegistrationError, match="nested contribution-coordinate") as caught:
+        REGISTRY.select(key, (source,), params)
+    assert caught.value.repair is not None
+    assert caught.value.repair.kind == "environment"
+    assert "omit categorical axes" in caught.value.repair.action
+
+
+def test_missing_key_repair_uses_bounded_admitted_profiles() -> None:
+    source = _input()
+    template = _implementation()
+    shape = template.key.shape
+    assert isinstance(shape, SourceShape)
+    backends: tuple[Backend, ...] = ("duckdb", "mysql", "postgres", "sqlite")
+    items = tuple(
+        replace(template, key=replace(template.key, shape=replace(shape, backend=name)))
+        for name in backends
+    )
+    key = replace(template.key, shape=replace(shape, backend="trino"))
+    for ordered in (items, tuple(reversed(items))):
+        with pytest.raises(MethodRegistrationError) as caught:
+            _registry(*ordered).select(key, (source,), _params(source))
+        error = caught.value
+        assert error.received is not None and error.repair is not None
+        assert repr(key) in error.received
+        assert error.repair.kind == "user_choice"
+        assert error.repair.help_target.canonical_id == "methods"
+        expected = tuple(sorted(f"{item.key.shape!r}; route='ibis'" for item in items)[:3])
+        assert error.repair.candidates == expected
+        assert "report the requested exact key" in error.repair.action
+        assert "R3.3" not in str(error) and "R4-R8" not in str(error)
+
+
+def test_missing_key_without_an_admitted_profile_does_not_suggest_retry() -> None:
+    source = _input()
+    item = _implementation()
+    key = replace(
+        item.key,
+        shape=replace(item.key.shape, time=TimeShape("instant", "us", "UTC")),
+    )
+    with pytest.raises(MethodRegistrationError) as caught:
+        _registry(item).select(key, (source,), _params(source))
+    assert caught.value.repair is not None
+    assert caught.value.repair.kind == "environment"
+    assert caught.value.repair.candidates == ()
+    assert "missing library support" in caught.value.repair.action
+
+
+def test_missing_key_repair_excludes_unavailable_and_mismatched_profiles() -> None:
+    source = _input()
+    item = _implementation()
+    shape = item.key.shape
+    assert isinstance(shape, SourceShape)
+    unavailable = replace(
+        item,
+        key=replace(item.key, shape=replace(shape, backend="postgres")),
+        qualification=Unavailable("blocked", "consumer missing", "Keep the source unchanged."),
+    )
+    mismatched = replace(
+        item,
+        key=replace(item.key, shape=replace(shape, backend="mysql"), input_domains=("singleton",)),
+    )
+    key = replace(item.key, shape=replace(shape, backend="trino"))
+    with pytest.raises(MethodRegistrationError) as caught:
+        _registry(unavailable, mismatched, item).select(key, (source,), _params(source))
+    assert caught.value.repair is not None
+    assert caught.value.repair.candidates == (f"{shape!r}; route='ibis'",)
 
 
 def test_decimal_precision_and_scale_are_part_of_the_key() -> None:

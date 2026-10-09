@@ -2446,6 +2446,9 @@ class _OriginalContinuation(_NumericComparison):
         Returns: A logical original numeric or ratio total.
         Example: ``total = relation.rollup().execute()``.
         Constraints: Requires complete original state and coverage; no finished-value averaging.
+        Count merges retained occurrence counts. Missing physical support reports the exact key
+        and admitted physical profile candidates; execution never changes routes automatically.
+        PostgreSQL Count rejects nested categorical state; overall, Entity and time-only groups remain supported.
         Execute a prepared observation after local Subject selection before rolling it up.
         """
         node = self._node.rollup()
@@ -3757,6 +3760,9 @@ class LogicalNumericRelation(_NumericComparison):
         Returns: A LogicalRolledNumericRelation bound to this exact relation.
         Example: ``result = relation.rollup()``.
         Constraints: Requires original retained components; subgroup values are not averaged.
+        Count merges retained occurrence counts. Missing physical support reports the exact key
+        and admitted physical profile candidates; execution never changes routes automatically.
+        PostgreSQL Count rejects nested categorical state; overall, Entity and time-only groups remain supported.
         """
         return LogicalRolledNumericRelation(
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)

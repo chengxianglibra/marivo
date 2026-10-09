@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from marivo.analysis.core.model import (
+    CoordinateStatePart,
     CoveragePart,
     ObservedQuantity,
     OriginalStatePart,
@@ -18,13 +19,14 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import RuleDerivation, RuleParameters
+from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.methods.builtin import (
     admit,
     implementations,
     specialize_arity,
     specialize_numeric,
 )
-from marivo.analysis.methods.errors import reject
+from marivo.analysis.methods.errors import MethodRegistrationError, reject
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -32,7 +34,9 @@ from marivo.analysis.methods.physical import (
     Implementation,
     NoTime,
     QualificationKey,
+    Qualified,
     ScalarType,
+    SourceShape,
     Unavailable,
 )
 from marivo.analysis.methods.semantics import (
@@ -42,6 +46,7 @@ from marivo.analysis.methods.semantics import (
     MethodSemantics,
     key_for_parameters,
 )
+from marivo.introspection.live.model import LiveHelpTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,13 +359,75 @@ class MethodRegistry:
                     "Qualify every obligation and part for this exact invocation.",
                 )
             if status.consumer_id in ("analysis.compiler.graph_lowering", "analysis.methods.local"):
+                if (
+                    key.method.name in ("metric.count", "state_rollup.count")
+                    and isinstance(key.shape, SourceShape)
+                    and key.shape.backend == "postgres"
+                    and key.route == "ibis"
+                    and any(
+                        isinstance(part, CoordinateStatePart)
+                        for signature in (*inputs, derivation.output)
+                        for part in signature.parts
+                    )
+                ):
+                    reject(
+                        "PostgreSQL Count without nested contribution-coordinate state",
+                        repr(key),
+                        AnalysisRepair(
+                            kind="environment",
+                            action="For an overall Count, omit categorical axes from observe(by=...). "
+                            "PostgreSQL nested categorical Count state is not supported; "
+                            "report this exact key if those axes must be retained. Retrying "
+                            "or restoring the source will not enable this state shape.",
+                            help_target=LiveHelpTarget(surface="analysis", canonical_id="methods"),
+                        ),
+                    )
                 admit(implementation, params)
             return SelectedImplementation(implementation, derivation)
         gap = registration.missing
         reject(
             f"qualified exact key for {key.method}",
             f"{gap.status}: {key!r}; {gap.reason}",
-            gap.recovery,
+            self._missing_repair(key, inputs, params, derivation),
+        )
+
+    def _missing_repair(
+        self,
+        key: QualificationKey,
+        inputs: tuple[Signature, ...],
+        params: RuleParameters,
+        derivation: RuleDerivation,
+    ) -> AnalysisRepair:
+        profiles: set[str] = set()
+        for item in self.lookup(key.method).implementations:
+            if (
+                not isinstance(item.qualification, Qualified)
+                or type(item.key.shape) is not type(key.shape)
+                or item.key.shape.time != key.shape.time
+            ):
+                continue
+            candidate = replace(key, shape=item.key.shape, route=item.key.route)
+            specialized = specialize_numeric(specialize_arity(item, len(inputs)), candidate)
+            if specialized.key != candidate:
+                continue
+            try:
+                self._select_derived(candidate, inputs, params, derivation)
+            except MethodRegistrationError:
+                continue
+            profiles.add(f"{candidate.shape!r}; route={candidate.route!r}")
+        candidates = tuple(sorted(profiles)[:3])
+        return AnalysisRepair(
+            kind="user_choice" if candidates else "environment",
+            action=(
+                "Rebuild the call with one of these qualified physical profiles for the same "
+                "method, input types, domains and time. If the source must stay unchanged, "
+                "report the requested exact key as missing library support."
+                if candidates
+                else "No qualified physical profile matches these inputs and time. Report the "
+                "requested exact key as missing library support before retrying."
+            ),
+            help_target=LiveHelpTarget(surface="analysis", canonical_id="methods"),
+            candidates=candidates,
         )
 
     def continuations(self, output: Signature) -> tuple[ContinuationRequirement, ...]:
@@ -435,7 +502,7 @@ REGISTRY = MethodRegistry(
             Unavailable(
                 "blocked",
                 "No connected consumer is qualified for this exact method/type/shape/route key.",
-                "Connect R3.3/R3.4 and the owning R4-R8 consumer, then qualify this exact physical key.",
+                "Report this exact method/type/shape/route key as missing library support.",
             ),
         )
         for method in CONNECTED_METHODS

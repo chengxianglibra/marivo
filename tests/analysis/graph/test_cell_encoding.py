@@ -1,10 +1,11 @@
 """Independent examples for the physical Cell carrier and public decoding."""
 
 import ibis
+import ibis.expr.operations as ops
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.compiler.cell_lowering import lower_cells
+from marivo.analysis.compiler.cell_lowering import lower_cells, state_value
 from marivo.analysis.core.cell_encoding import (
     CellBook,
     CellFields,
@@ -52,6 +53,22 @@ def test_validity_and_known_encodings_need_no_state_column() -> None:
     known = KnownCell(fields, CellBook(()), 0)
     empty = pa.table({"value": pa.array([], type=pa.int64())})
     assert expand(empty, (known,)).schema.names == ["value", "cell_tag", "cell_reason"]
+
+
+@pytest.mark.parametrize("code", [0, 6])
+def test_known_state_preserves_rows_and_nulls_without_boolean_cast(code: int) -> None:
+    fields = CellFields("value", "cell_tag", "cell_reason")
+    book = CellBook.from_reasons((("undefined", ("empty_mean",)),))
+    cell = KnownCell(fields, book, code)
+    backend = ibis.duckdb.connect()
+    try:
+        source = backend.create_table("known_cells", pa.table({"value": [0, None, 2]}))
+        expression = source.select(state=state_value(source, cell))
+        assert backend.to_pyarrow(expression)["state"].to_pylist() == [code, code, code]
+        assert backend.to_pyarrow(expression.limit(0)).num_rows == 0
+        assert not any(cast.arg.dtype.is_boolean() for cast in expression.op().find(ops.Cast))
+    finally:
+        backend.disconnect()
 
 
 def test_reason_dictionaries_are_rebound_without_changing_meaning() -> None:

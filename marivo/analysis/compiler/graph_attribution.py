@@ -12,6 +12,7 @@ from marivo.analysis.compiler.graph_lowering import (
     _pair_violations,
     canonical_layout,
     consumption_check,
+    unnest_coordinate_state,
 )
 from marivo.analysis.compiler.graph_plan import SourceMethodStage
 from marivo.analysis.core.model import AttributionPart
@@ -102,9 +103,8 @@ def retain_partition(
     from marivo.analysis.core.model import part_role
 
     raw = source.expression
-    exploded = raw.select(
-        *(k.column for k in source.layout.keys),
-        group=raw[part_role(original) + "__groups"].unnest(),
+    exploded = unnest_coordinate_state(
+        stage, raw, tuple(k.column for k in source.layout.keys), part_role(original) + "__groups"
     )
     source_keys = source.node.signature.domain.instance_key
     if params.time_mapping:

@@ -122,3 +122,7 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     rollup = render(REGISTRY, "dsl.MaterializedRatioRelation.rollup")
     assert "retained" in rollup
     assert "subgroup values are not averaged" in rollup
+
+    count_rollup = render(REGISTRY, "dsl.LogicalNumericRelation.rollup")
+    assert "Count merges retained occurrence counts" in count_rollup
+    assert "admitted physical profile candidates" in count_rollup
