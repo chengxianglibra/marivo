@@ -22,8 +22,8 @@ METRIC_NAMES = ("gmv", "net_amount", "net_qty", "amount_mean")
 # gmv = 10.05 + 20.10 + 23.99 = 54.14; cost_total = 2.50 + 1.25 + 0.10 = 3.85;
 # net_amount = gmv + cost_total - gmv = 3.85; net_qty = qty_total + qty_count
 # - qty_total = 5 + 3 - 5 = 3; amount_mean = quantity mean = 5 / 3 (one float
-# division). The mean runs over the int64 measure because a mean over the
-# decimal measure declares a decimal logical type that every backend rejects.
+# division). The mean runs over the int64 measure to cover float64 finishing;
+# the separate Decimal mean case checks finishing at the captured output scale.
 MONTH_EXPECTED = {
     "gmv": "54.14",
     "net_amount": "3.85",
@@ -79,10 +79,9 @@ def _author(project: Path, *, with_mean: bool = False, mean_measure: str = "quan
 def author_decimal_mean_project(project: Path) -> Path:
     """Author the same project plus a decimal-rooted mean Metric; no source rows.
 
-    Returns the project directory so a caller can load a Session against it and
-    observe the admission-rejected mean Metric without executing the source.
-    The declared warehouse file exists with the declared schema so compilation
-    can open it read-only before the structured rejection fires.
+    Returns the project directory with an empty warehouse and its declared
+    schema. A caller inserts source rows before observing the Decimal mean
+    Metric and testing fixed rollup at its captured output scale.
     """
     import duckdb
 
@@ -100,6 +99,7 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
 
     import marivo.analysis as mv
     import marivo.semantic as ms
+    from marivo.analysis.public_dsl import MetricInputValue
 
     # Session and authoring resolution anchor on the current working directory,
     # exactly as an agent's write-run-read loop does.
@@ -118,7 +118,7 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         cost_total = ms.ref.metric("sales.cost_total")
         qty_total = ms.ref.metric("sales.qty_total")
         qty_count = ms.ref.metric("sales.qty_count")
-        metrics = (
+        metrics: tuple[MetricInputValue, ...] = (
             gmv,
             rm.linear(add=[gmv, cost_total], subtract=[gmv], label="net_amount"),
             rm.linear(add=[qty_total, qty_count], subtract=[qty_total], label="net_qty"),
@@ -144,6 +144,7 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
     values, dtypes = {}, {}
     for name in METRIC_NAMES:
         checkpoint = session.artifact(artifacts[name])
+        assert isinstance(checkpoint, mv.MaterializedNumericRelation)
         cold = checkpoint.rollup().execute()
         frame = cold.to_pandas()
         values[name] = str(frame["value"].iloc[0])
