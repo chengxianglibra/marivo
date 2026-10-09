@@ -5082,8 +5082,6 @@ def wrap_materialized(
             return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
         if node.root.signature.quantity is None:
             scalar = node.root.value_type
-            if scalar == ScalarType("boolean"):
-                return MaterializedSelectedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
             if scalar in (ScalarType("date"), ScalarType("timestamp")):
                 return MaterializedSelectedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
             params = node.captured_definition.parameters

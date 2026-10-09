@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
-from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -21,16 +18,12 @@ from marivo.analysis.datasets.descriptors import (
     _CORE_TOKEN,
     DatasetField,
     DatasetRowContract,
-    DatasetRowSetContract,
     DatasetSchema,
     _bool_tuple_arity,
-    _bool_tuple_value,
     _DeferredPhysicalType,
     _EntityFieldIdentity,
     _make_schema,
-    _OrderedOrdering,
     _ResolvedPhysicalType,
-    _StaticRowBound,
 )
 from marivo.analysis.materialization.contracts import (
     FileEntry,
@@ -40,10 +33,6 @@ from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
     StorageAccessError,
-)
-
-_Value: TypeAlias = (
-    None | bool | int | float | str | date | datetime | Decimal | tuple["_Value", ...]
 )
 
 
@@ -206,12 +195,7 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
         _fail("the exact ordered primary column names", "primary columns differ")
     columns: list[DatasetField] = []
     for expected, field in zip(logical.columns, actual, strict=True):
-        fragment = False
-        if not (
-            pa.types.is_float64(field.type)
-            if fragment
-            else _matches_type(expected.logical_type_id, field.type)
-        ):
+        if not _matches_type(expected.logical_type_id, field.type):
             _fail("an Arrow type admitted by each logical field", "logical type mismatch")
         identity = expected.identity
         if isinstance(identity, _EntityFieldIdentity):
@@ -222,10 +206,8 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
             ):
                 _fail("the exact ordered typed identity struct", "identity schema mismatch")
         physical = expected.physical_type_state
-        if isinstance(physical, _ResolvedPhysicalType) and not (
-            physical.physical_type_id == "duration" and pa.types.is_float64(field.type)
-            if fragment
-            else _matches_type(physical.physical_type_id, field.type)
+        if isinstance(physical, _ResolvedPhysicalType) and not _matches_type(
+            physical.physical_type_id, field.type
         ):
             _fail("the exact already resolved physical field type", "physical type mismatch")
         physical_id = (
@@ -280,142 +262,6 @@ def _realized_schema(row: DatasetRowContract, actual: pa.Schema) -> DatasetSchem
     return _make_schema(tuple(columns))
 
 
-def _value(scalar: pa.Scalar) -> _Value:
-    if not scalar.is_valid:
-        return None
-    if pa.types.is_struct(scalar.type):
-        return tuple(_value(scalar[index]) for index in range(len(scalar.type)))
-    if pa.types.is_list(scalar.type) or pa.types.is_fixed_size_list(scalar.type):
-        values: object = scalar.as_py()
-        mask = _bool_tuple_value(values) if isinstance(values, list) else None
-        if mask is not None:
-            return mask
-        _fail("non-null boolean mask members", "invalid partition mask")
-    value: object = scalar.as_py()
-    if isinstance(value, (bool, int, float, str, date, datetime, Decimal)):
-        if isinstance(value, float) and not math.isfinite(value):
-            _fail("finite totally ordered key values", "non-finite row key")
-        if isinstance(value, Decimal) and not value.is_finite():
-            _fail("finite totally ordered key values", "non-finite decimal row key")
-        return value
-    _fail("registered scalar or identity key values", "unsupported key value")
-
-
-def _compare(left: _Value, right: _Value, *, nulls: str = "last") -> int:
-    if left is None or right is None:
-        if left is right:
-            return 0
-        return (-1 if nulls == "first" else 1) if left is None else (1 if nulls == "first" else -1)
-    if isinstance(left, tuple) and isinstance(right, tuple):
-        for first, second in zip(left, right, strict=True):
-            result = _compare(first, second, nulls=nulls)
-            if result:
-                return result
-        return 0
-    if type(left) is not type(right):
-        _fail("one exact physical type for an ordered key", "mixed key types")
-    if isinstance(left, (bool, int, float, Decimal)) and isinstance(
-        right, (bool, int, float, Decimal)
-    ):
-        return (left > right) - (left < right)
-    if isinstance(left, str) and isinstance(right, str):
-        return (left > right) - (left < right)
-    if isinstance(left, datetime) and isinstance(right, datetime):
-        return (left > right) - (left < right)
-    if isinstance(left, date) and isinstance(right, date):
-        return (left > right) - (left < right)
-    _fail("comparable exact key values", "unsupported ordering")
-
-
-class _RowValidator:
-    def __init__(
-        self,
-        contract: DatasetRowContract,
-        rows: DatasetRowSetContract,
-        *,
-        source_key_validation: bool = False,
-    ) -> None:
-        by_id = {field.field_id: field.name for field in contract.schema.columns}
-        self.keys = tuple(by_id[key] for key in contract.key_field_ids)
-        self.terms = tuple((name, "ascending", "last") for name in self.keys)
-        if isinstance(rows.ordering, _OrderedOrdering):
-            ordered_ids = tuple(term.field_id for term in rows.ordering.terms)
-            if not set(contract.key_field_ids).issubset(ordered_ids):
-                _fail(
-                    "a total stream order containing the complete row key",
-                    "missing unique ordering tie-breaker",
-                    stage="storage_selection",
-                )
-            if ordered_ids != contract.key_field_ids and not source_key_validation:
-                _fail(
-                    "separate final source row-key uniqueness validation",
-                    "ordering alone does not prove row-key uniqueness",
-                    stage="storage_selection",
-                )
-            self.terms = tuple(
-                (by_id[term.field_id], term.direction, term.nulls) for term in rows.ordering.terms
-            )
-
-        self.contract = contract
-        self.rows = rows
-        self.previous: tuple[_Value, ...] | None = None
-        self.count = 0
-
-    def accept(self, batch: pa.RecordBatch) -> None:
-        for field in self.contract.schema.columns:
-            column = batch.column(batch.schema.get_field_index(field.name))
-            if not field.nullable and column.null_count:
-                _fail("non-null values for required fields", "unexpected nulls")
-            if isinstance(field.identity, _EntityFieldIdentity) and (
-                column.null_count
-                or any(column.field(index).null_count for index in range(column.type.num_fields))
-            ):
-                _fail("complete non-null identity tuples", "null identity component")
-            arity = _bool_tuple_arity(field.logical_type_id)
-            if arity is not None and (
-                not _matches_type(field.logical_type_id, column.type)
-                or any(
-                    not isinstance(value, list) or _bool_tuple_value(value, arity=arity) is None
-                    for value in column.to_pylist()
-                )
-            ):
-                _fail("the exact fixed-length boolean partition mask", "invalid mask values")
-        for offset in range(batch.num_rows):
-            ordered = tuple(
-                _value(batch.column(batch.schema.get_field_index(name))[offset])
-                for name, _, _ in self.terms
-            )
-            if self.previous is not None:
-                comparison = 0
-                for left, right, (_name, direction, nulls) in zip(
-                    self.previous,
-                    ordered,
-                    self.terms,
-                    strict=True,
-                ):
-                    comparison = _compare(left, right, nulls=nulls)
-                    if direction == "descending" and left is not None and right is not None:
-                        comparison = -comparison
-                    if comparison:
-                        break
-                if comparison >= 0:
-                    _fail(
-                        "strictly increasing governed total stream order",
-                        "duplicate or unordered ordering tuple",
-                    )
-            self.previous = ordered
-            self.count += 1
-        if self.rows.cardinality.kind == "singleton" and self.count > 1:
-            _fail("one singleton row", "multiple singleton rows")
-        bound = getattr(self.rows.cardinality, "row_bound", None)
-        if isinstance(bound, _StaticRowBound) and self.count > bound.max_rows:
-            _fail("rows within the declared bound", "static row bound exceeded")
-
-    def finish(self) -> None:
-        if self.rows.cardinality.kind == "singleton" and self.count != 1:
-            _fail("exactly one singleton row", "empty singleton")
-
-
 def _manifest_bytes(entries: tuple[FileEntry, ...]) -> bytes:
     return json.dumps(
         [
@@ -445,22 +291,15 @@ def _open_payload(
     if entry.relative_path != "data.parquet":
         _integrity("the exact registered data filename", "invalid manifest entry")
     data = _checked_path(project_root, root / entry.relative_path)
-    parquet: pq.ParquetFile | None = None
     failure: Literal["missing", "unauthorized", "mutated", "unknown"] = "unknown"
     try:
         parquet = pq.ParquetFile(data)
         return parquet, data
     except IntegrityError:
-        if parquet is not None:
-            parquet.close()
         raise
     except MaterializationError:
-        if parquet is not None:
-            parquet.close()
         _integrity("the exact retained logical and physical schema", "invalid primary schema")
     except (OSError, pa.ArrowException) as error:
-        if parquet is not None:
-            parquet.close()
         if isinstance(error, FileNotFoundError):
             failure = "missing"
         elif isinstance(error, PermissionError):

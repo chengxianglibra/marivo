@@ -192,6 +192,43 @@ def test_observe_sliced_runtime_component_selects_its_own_branch(
 
 
 @pytest.mark.runtime
+def test_sliced_weighted_mean_filters_pairs_before_reduction(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    import marivo.analysis as mv
+    import marivo.semantic as ms
+
+    case = analysis_dsl_case_factory("j1")
+    models = case.root / "models/semantic/sales/models.py"
+    models.write_text(
+        models.read_text().replace(
+            "granularity='second',", "granularity='second', is_default=True,"
+        )
+    )
+    ms.load(workspace_dir=case.root)
+    amount = ms.ref.measure("sales.order.amount")
+    expression = mv.runtime_metric.weighted_mean(
+        amount,
+        amount,
+        slice_by={ms.ref.dimension("sales.order.channel"): "web"},
+        label="web_weighted",
+    )
+    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+        expression,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(ms.ref.entity("sales.customer"),),
+    )
+    fixed = observed.execute()
+    rows = fixed.to_pandas().set_index("member")
+    assert rows.loc[["A", "C"], "value"].tolist() == [450, 400]
+    assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
+    expected = (450**2 + 400**2) / (450 + 400)
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
+    assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
+
+
+@pytest.mark.runtime
 def test_unsliced_observation_keeps_every_member_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

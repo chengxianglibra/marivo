@@ -146,7 +146,11 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     backend = _FakeBackend()
     import marivo.datasource.manage as registry_mod
 
-    monkeypatch.setattr(registry_mod, "_connect", lambda _name, **kwargs: backend)
+    monkeypatch.setattr(
+        registry_mod,
+        "_connect",
+        lambda _name, **kwargs: registry_mod._DatasourceConnection(backend),
+    )
 
     result = md.test("wh")
 
@@ -423,7 +427,11 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
         def disconnect(self) -> None:
             return None
 
-    monkeypatch.setattr(manage_mod, "_connect", lambda _name, **kwargs: _FakeBackend())
+    monkeypatch.setattr(
+        manage_mod,
+        "_connect",
+        lambda _name, **kwargs: manage_mod._DatasourceConnection(_FakeBackend()),
+    )
     monkeypatch.setattr(
         manage_mod._secrets,
         "persist_backend_env_sourced",

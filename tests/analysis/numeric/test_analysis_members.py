@@ -203,6 +203,13 @@ def test_computed_boolean_dimension(
         raise AssertionError("Fixed Boolean continuation read its source")
 
     monkeypatch.setattr(SourceSession, "batches", forbidden)
+    restored = session.artifact(saved.state.artifact_ref)
+    assert isinstance(restored, mv.MaterializedBooleanRelation)
+    selected = restored.where(restored.value.eq(True)).execute()
+    assert isinstance(selected, mv.MaterializedSelectedBooleanRelation)
+    restored_selection = session.artifact(selected.state.artifact_ref)
+    assert isinstance(restored_selection, mv.MaterializedSelectedBooleanRelation)
+    assert restored_selection.to_pandas()["value"].tolist() == [True]
     assert saved.where(saved.value.eq(True)).members().execute().to_pandas()[
         "coord_0"
     ].tolist() == ["B"]

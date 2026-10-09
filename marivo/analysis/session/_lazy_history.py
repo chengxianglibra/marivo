@@ -16,7 +16,6 @@ from marivo.analysis.session._lazy_read_model import (
 from marivo.analysis.session._lazy_runtime_reads import (
     aware_datetime,
     count,
-    page_after,
     runs_in_snapshot,
 )
 from marivo.introspection.live.model import LiveHelpTarget
@@ -44,9 +43,8 @@ def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) ->
 
 
 def recent(
-    store: SessionStore, *, limit: int = 20, cursor: str | None = None
+    store: SessionStore, *, limit: int = 20, after: tuple[str, str] | None
 ) -> SessionSummaryPage:
-    after = page_after(limit, cursor, operation="recent")
     with store._read() as conn:
         rows = _rows(
             conn,
@@ -80,9 +78,8 @@ def recent(
 
 
 def inspect(
-    store: SessionStore, name: str, *, run_limit: int = 5, run_cursor: str | None = None
+    store: SessionStore, name: str, *, run_limit: int = 5, after: tuple[str, str] | None
 ) -> SessionInspection:
-    page_after(run_limit, run_cursor, operation="inspect")
     with store._read() as conn:
         row = _one(conn, "SELECT * FROM sessions WHERE name=?", (name,))
         if row is None:
@@ -104,7 +101,7 @@ def inspect(
         summary = _summary(store, conn, row)
         return SessionInspection(
             summary=summary,
-            runs=runs_in_snapshot(store, conn, summary.id, limit=run_limit, cursor=run_cursor),
+            runs=runs_in_snapshot(store, conn, summary.id, limit=run_limit, after=after),
         )
 
 

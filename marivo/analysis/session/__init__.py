@@ -243,14 +243,14 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     from marivo.analysis.session import _lazy_history
     from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    page_after(limit, cursor, operation="recent")
+    after = page_after(limit, cursor, operation="recent")
     store = _existing_store(resolve_project_root())
     if store is None:
         return SessionSummaryPage(items=(), limit=limit, has_more=False, next_cursor=None)
     return _lazy_history.recent(
         store,
         limit=limit,
-        cursor=cursor,
+        after=after,
     )
 
 
@@ -268,12 +268,12 @@ def inspect(name: str, *, run_limit: int = 5, run_cursor: str | None = None) -> 
     from marivo.analysis.session import _lazy_history
     from marivo.analysis.session._lazy_runtime_reads import page_after
 
-    page_after(run_limit, run_cursor, operation="inspect")
+    after = page_after(run_limit, run_cursor, operation="inspect")
     return _lazy_history.inspect(
         SessionStore.open_existing(resolve_project_root()),
         name,
         run_limit=run_limit,
-        run_cursor=run_cursor,
+        after=after,
     )
 
 

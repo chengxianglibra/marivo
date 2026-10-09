@@ -559,7 +559,7 @@ def _clickhouse_projectable_columns(
         canonical_types = {
             str(dtype.copy(nullable=True)) for dtype in parsed if hasattr(dtype, "copy")
         }
-        if len(canonical_types) != 1 or len(parsed) != len(raw_types):
+        if len(canonical_types) != 1:
             warnings.append(
                 _Warning(
                     kind="projectable_column_type_conflict",

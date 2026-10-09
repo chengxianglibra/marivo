@@ -1053,43 +1053,6 @@ PeriodBindingV1 = BuiltinPeriodBindingV1 | SemanticPeriodBindingV1
 TemporalAuthorityBindingV1 = PeriodBindingV1 | TemporalSetBindingV1 | WorkScheduleBindingV1
 
 
-def period_binding_for_grain(
-    grain: Grain | Any,
-    *,
-    snapshot: PeriodCalendarSnapshotV1 | None,
-    boundary_timezone: str,
-) -> PeriodBindingV1:
-    """Resolve a unified Grain to its closed persisted authority binding."""
-    # The public analysis window still carries its dependency-local Pydantic
-    # ``analysis.windows.grain.Grain`` for builtin inputs.  Keep this
-    # dependency-neutral helper as the single authority by accepting that
-    # shape at the boundary and lowering it to the same builtin binding.
-    if not isinstance(grain, Grain):
-        unit = getattr(grain, "unit", None)
-        count = getattr(grain, "count", None)
-        if not isinstance(unit, str) or not isinstance(count, int):
-            raise TypeError("period binding requires a Grain value")
-        return BuiltinPeriodBindingV1(
-            level_name=unit if count == 1 else f"{count}{unit}",
-            boundary_timezone=boundary_timezone,
-        )
-    if grain.kind == "builtin":
-        return BuiltinPeriodBindingV1(
-            level_name=grain.to_token(),
-            boundary_timezone=boundary_timezone,
-        )
-    semantic_grain = cast("Any", grain)
-    if snapshot is None or semantic_grain.calendar is None or semantic_grain.level is None:
-        raise ValueError("semantic Grain requires its certified snapshot for a period binding")
-    if snapshot.calendar_ref != semantic_grain.calendar:
-        raise ValueError("semantic Grain and snapshot calendar refs do not match")
-    return SemanticPeriodBindingV1(
-        calendar_ref=semantic_grain.calendar.path,
-        snapshot_digest=snapshot.snapshot_digest,
-        level_name=semantic_grain.level,
-    )
-
-
 def _scope_bound_text(value: date | datetime) -> str:
     return value.isoformat()
 

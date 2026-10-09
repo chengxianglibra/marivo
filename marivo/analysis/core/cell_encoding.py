@@ -19,7 +19,6 @@ def invalid(received: str) -> NoReturn:
         "Re-execute the producing method with its complete Cell binding.",
         "analysis.cell_encoding",
     )
-    raise AssertionError("unreachable")
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -54,7 +53,6 @@ class CellBook:
                 native = "unknown"
             else:
                 invalid("invalid method-owned reason tag")
-                continue
             pairs.update(CellReason(native, value) for value in values)
         return cls(tuple(sorted(pairs, key=lambda p: (_TAGS.index(p.tag), p.reason))))
 
@@ -65,7 +63,6 @@ class CellBook:
             if (pair.tag, pair.reason) == (tag, reason):
                 return index * 4 + _TAGS.index(pair.tag)
         invalid(f"undeclared Cell ({tag!r}, {reason!r})")
-        raise AssertionError("unreachable")
 
     def decode(self, code: int) -> tuple[CellTag, str | None]:
         if type(code) is not int or code < 0 or code > 32767:

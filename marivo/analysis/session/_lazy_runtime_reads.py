@@ -263,9 +263,8 @@ def runs_in_snapshot(
     *,
     status: RunLifecycle | None = None,
     limit: int = 20,
-    cursor: str | None = None,
+    after: tuple[str, str] | None,
 ) -> RunPage:
-    after = page_after(limit, cursor)
     _validate_status(status)
     predicates = ["a.session_ref=?"]
     parameters: list[object] = [session_ref]
@@ -311,11 +310,11 @@ def runs(
     limit: int = 20,
     cursor: str | None = None,
 ) -> RunPage:
-    page_after(limit, cursor)
+    after = page_after(limit, cursor)
     _validate_status(status)
     with store._read() as conn:
         require_session(store, conn, session_ref)
-        return runs_in_snapshot(store, conn, session_ref, status=status, limit=limit, cursor=cursor)
+        return runs_in_snapshot(store, conn, session_ref, status=status, limit=limit, after=after)
 
 
 def get_run(store: SessionStore, session_ref: str, run_id: str) -> RunRecord:

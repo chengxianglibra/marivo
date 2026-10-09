@@ -780,45 +780,6 @@ class Materializer:
             (table,),
         )
 
-    def _call_field_callable(
-        self,
-        semantic_id: str,
-        column_name: str,
-        callable_: Callable[[ibis.Table], Any],
-        table: ibis.Table,
-    ) -> ir.Value:
-        try:
-            value = callable_(table)
-        except NameError as exc:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dimension {semantic_id!r} callable raised NameError: {exc}. "
-                f"Ensure 'import ibis' is in the module where the decorator body is defined.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-        except Exception as exc:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dimension {semantic_id!r} callable raised: {exc}",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        if not isinstance(value, (ir.Value, ibis.Table)):
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Dimension {semantic_id!r} callable returned "
-                f"{type(value).__name__!r} instead of an ibis expression. "
-                f"This usually happens when a dimension name shadows an ibis "
-                f"Table method. Use bracket notation: "
-                f'table["{column_name}"] instead of table.{column_name}.',
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        return value
-
     # -- metric ---------------------------------------------------------------
 
     def metric(self, semantic_id: str) -> ir.Value:
@@ -1137,45 +1098,6 @@ class Materializer:
             tuple(ref_factory.entity(entity_id) for entity_id in metric_ir.entities),
             tuple(tables),
         )
-
-    def _call_metric_callable(
-        self,
-        semantic_id: str,
-        callable_: Callable[..., Any],
-        tables: tuple[ibis.Table, ...],
-    ) -> ir.Value:
-        try:
-            value = callable_(*tables)
-        except NameError as exc:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Metric {semantic_id!r} callable raised NameError: {exc}. "
-                f"Ensure 'import ibis' is in the module where the decorator body is defined.",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-        except Exception as exc:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Metric {semantic_id!r} callable raised: {exc}",
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        if not isinstance(value, (ir.Value, ibis.Table)):
-            col_name = semantic_id.rsplit(".", 1)[-1]
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Metric {semantic_id!r} callable returned "
-                f"{type(value).__name__!r} instead of an ibis expression. "
-                f"This usually happens when a column name shadows an ibis "
-                f"Table method. Use bracket notation: "
-                f'table["{col_name}"] instead of table.{col_name}.',
-                cls=SemanticRuntimeError,
-                refs=(semantic_id,),
-            )
-
-        return value
 
     def _materialize_derived_metric(
         self,
