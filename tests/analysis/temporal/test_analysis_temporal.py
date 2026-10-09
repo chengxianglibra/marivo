@@ -411,15 +411,15 @@ def test_grid_required_state_damage_revokes_continuation(
         case.session.artifact(fixed.state.artifact_ref)
 
 
-def test_time_product_codec_does_not_capture_complete_group_parameters() -> None:
+def test_time_product_codec_round_trips_closed_parameters() -> None:
     from marivo.analysis.core.model import Binding, DomainSignature
-    from marivo.analysis.core.rules import CompleteGroups, RuleParameters, TimeProduct
+    from marivo.analysis.core.rules import RuleParameters, TimeProduct
 
     domain = DomainSignature(
         Binding("session", "owner", "input", "scope"), "singleton", (), (), "all"
     )
     adapter: TypeAdapter[RuleParameters] = TypeAdapter(RuleParameters)
-    for value in (CompleteGroups(domain), TimeProduct(domain, "time_product")):
+    for value in (TimeProduct(domain, "time_product"),):
         recovered = adapter.validate_json(adapter.dump_json(value), strict=True)
         assert type(recovered) is type(value)
         assert recovered == value
@@ -965,7 +965,7 @@ def test_empty_fold_keeps_typed_state_for_fixed_continuation(
 
 
 @pytest.mark.runtime
-def test_explicit_empty_groups_keep_fold_state_in_source_and_fixed_execution(
+def test_selected_groups_keep_fold_state_in_source_and_fixed_execution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -976,21 +976,17 @@ def test_explicit_empty_groups_keep_fold_state_in_source_and_fixed_execution(
     category = members.read(region)
     assert isinstance(category, mv.LogicalCategoryRelation)
     selected = category.where(category.value.eq("east")).members()
-    groups = category.group_by()
     window = mv.time_scope(start="2026-08-01", end="2026-09-01")
     observed = selected.observe(
         ms.ref.metric("sales.folded"),
         during=window,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(region,),
-        groups=groups,
     ).execute()
     expected = observed.to_pandas()
     assert expected.set_index("group").value.dropna().to_dict() == {"east": 450}
     assert expected.set_index("group").cell_reason.to_dict() == {
         "east": None,
-        "south": "empty_contribution",
-        "west": "empty_contribution",
     }
     sparse = selected.observe(
         ms.ref.metric("sales.folded"),
@@ -998,9 +994,8 @@ def test_explicit_empty_groups_keep_fold_state_in_source_and_fixed_execution(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(region,),
     ).execute()
-    targets = groups.execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    completed = sparse.group_by(region, groups=targets).rollup().execute()
+    completed = sparse.group_by(region).rollup().execute()
     assert completed.to_pandas().equals(expected)
     restored = case.session.artifact(observed.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedNumericRelation)

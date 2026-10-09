@@ -186,8 +186,9 @@ def test_analysis_axis_inputs_reject_loaded_measure_objects(
     catalog = _catalog(semantic_project_factory)
 
     with pytest.raises(DatasetConstructionError) as exc_info:
-        analysis_dsl_case_factory("j2").session.members(ms.ref.entity("sales.customer")).group_by(
-            catalog.require(ms.ref.measure("sales.orders.amount"))
+        analysis_dsl_case_factory("j2").session.members(ms.ref.entity("sales.customer")).observe(
+            ms.ref.metric("sales.revenue"),
+            by=(catalog.require(ms.ref.measure("sales.orders.amount")),),
         )
 
     message = str(exc_info.value)

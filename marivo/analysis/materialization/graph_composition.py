@@ -30,7 +30,6 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     BindProject,
     CellDerive,
-    CompleteGroups,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -250,15 +249,6 @@ def _comparison_template(
         params = params.observation
     if isinstance(params, PartsTransport) and params.keep_quantity:
         return visit(comparison_endpoints(node)[0])
-    if isinstance(params, CompleteGroups):
-        return (
-            "complete_groups",
-            tuple(
-                replace(key, field="time") if period and key.role == "anchor" else key
-                for key in params.output_domain.instance_key
-            ),
-            visit(comparison_endpoints(node)[0]),
-        )
     if isinstance(params, ReferenceDerive):
         return (
             "reference",
@@ -426,7 +416,7 @@ def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tupl
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):
             target = target.inputs[0].node
         return ((target.identity, params.attribute_time),)
-    if isinstance(params, (AttachCategory, CompleteGroups)):
+    if isinstance(params, AttachCategory):
         return comparison_bindings(comparison_endpoints(node)[0], period=period)
     if isinstance(
         params, (CellDerive, OriginalReduce, RowState, OriginalRatio, OccurrenceCombine)

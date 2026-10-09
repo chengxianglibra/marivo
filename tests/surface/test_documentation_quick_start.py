@@ -41,7 +41,7 @@ def test_complete_local_tutorial_and_source_offline_process_recovery(
     for name, value in expected.items():
         result = namespace[name]
         assert isinstance(
-            result, (mv.MaterializedRolledNumericRelation, mv.MaterializedDifferenceRelation)
+            result, (mv.MaterializedNumericRelation, mv.MaterializedDifferenceRelation)
         )
         assert result.to_pandas()["value"].tolist() == [value]
     regional = namespace["regional_change"]

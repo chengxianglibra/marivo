@@ -18,7 +18,6 @@ from marivo.analysis.core.rules import (
     AttributionDerive,
     BindProject,
     CellDerive,
-    CompleteGroups,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -364,7 +363,6 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     declarations = (*declarations, *c04_numeric, *c04_runtime)
     if method.name in (
         "group.attach",
-        "group.complete",
         "metric.mean",
         "metric.linear",
         "state_rollup.mean",
@@ -421,16 +419,6 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "group.attach",
                         (ScalarType("string"), ScalarType("string")),
                         ("entity", "entity"),
-                    ),
-                    (
-                        "group.complete",
-                        (ScalarType("int64"), ScalarType("string")),
-                        ("group", "group"),
-                    ),
-                    (
-                        "group.complete",
-                        (ScalarType("float64"), ScalarType("string")),
-                        ("group", "group"),
                     ),
                     ("row.count", (ScalarType("int64"),), ("entity",)),
                     ("row.count", (ScalarType("float64"),), ("entity",)),
@@ -647,7 +635,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for temporal in (NoTime(), TimeShape("instant", "us", "UTC"))
             for shape in (SourceShape("duckdb", form, source_kind, temporal),)
         )
-    if method.name in ("group.attach", "group.complete"):
+    if method.name == "group.attach":
         classification_forms: tuple[tuple[Literal["table", "parquet"], str], ...] = (
             ("table", "native"),
             ("parquet", "parquet"),
@@ -686,14 +674,8 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             )
             for value in ("int64", "float64", "string", "boolean", "date", "timestamp")
             for category_type in ("string", "int64")
-            for domain in (
-                ("entity", "group", "singleton")
-                if method.name == "group.complete"
-                else ("entity", "group")
-            )
-            for target_domain in (
-                ("entity", "group", "singleton") if method.name == "group.complete" else ("entity",)
-            )
+            for domain in ("entity", "group")
+            for target_domain in ("entity",)
             for shape in classification_shapes
         )
     if method.name in (
@@ -1551,7 +1533,6 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "cell.difference",
         "time.product",
         "group.attach",
-        "group.complete",
         "metric.observe",
         "metric.sum_zero",
         "metric.count",
@@ -2448,7 +2429,6 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         (
             AttributionDerive,
             AttachCategory,
-            CompleteGroups,
             TimeProduct,
             ReferenceDerive,
             DisplayRank,

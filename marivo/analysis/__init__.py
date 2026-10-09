@@ -76,7 +76,6 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import AnalysisContract as AnalysisContract
     from marivo.analysis.public_dsl import CountMethod as CountMethod
     from marivo.analysis.public_dsl import GridEndpoint as GridEndpoint
-    from marivo.analysis.public_dsl import GroupedAnalysisDomain as GroupedAnalysisDomain
     from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericRelation
     from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
     from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation

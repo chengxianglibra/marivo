@@ -126,3 +126,45 @@ def test_first_round_help_has_receiver_specific_constraints() -> None:
     count_rollup = render(REGISTRY, "dsl.LogicalNumericRelation.rollup")
     assert "Count merges retained occurrence counts" in count_rollup
     assert "admitted physical profile candidates" in count_rollup
+
+
+def test_grouping_surface_has_no_explicit_target_domains() -> None:
+    import marivo.analysis as mv
+
+    assert "GroupedAnalysisDomain" not in mv.__all__
+    assert not hasattr(mv, "GroupedAnalysisDomain")
+    members = (
+        mv.LogicalAnalysisDomain,
+        mv.MaterializedAnalysisDomain,
+        mv.LogicalFixedAnalysisDomain,
+    )
+    scalars = (
+        mv.LogicalCategoryRelation,
+        mv.MaterializedCategoryRelation,
+        mv.LogicalSelectedCategoryRelation,
+        mv.MaterializedSelectedCategoryRelation,
+        mv.LogicalBooleanRelation,
+        mv.MaterializedBooleanRelation,
+        mv.LogicalSelectedBooleanRelation,
+        mv.MaterializedSelectedBooleanRelation,
+        mv.LogicalTemporalRelation,
+        mv.MaterializedTemporalRelation,
+        mv.LogicalSelectedTemporalRelation,
+        mv.MaterializedSelectedTemporalRelation,
+    )
+    for owner in (*members, *scalars):
+        assert not hasattr(owner, "group_by"), owner.__name__
+        assert f"dsl.{owner.__name__}.group_by" not in REGISTRY.canonical_ids()
+    for owner in members:
+        assert not hasattr(owner, "count")
+    for owner in scalars:
+        assert hasattr(owner, "summarize")
+    for name in mv.__all__:
+        owner = getattr(mv, name)
+        if not inspect.isclass(owner):
+            continue
+        for method in ("observe", "group_by"):
+            if hasattr(owner, method):
+                assert "groups" not in inspect.signature(getattr(owner, method)).parameters
+    assert not any("GroupedAnalysisDomain" in target for target in REGISTRY.canonical_ids())
+    assert "groups:" not in render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")

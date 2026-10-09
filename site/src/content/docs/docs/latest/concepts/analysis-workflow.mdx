@@ -106,7 +106,7 @@ alternatives; keep the source unchanged and report that key when none is suitabl
 PostgreSQL Count currently rejects nested categorical grouping before execution.
 Omit categorical axes for an overall Count; per-entity and time-only grouping remain supported.
 
-Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. `groups` retains an explicit logical target domain, including empty groups. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. The former `coordinates` parameter and grouped-domain observation are removed.
+Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `summarize(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
 
 ## Group the same Entity
 

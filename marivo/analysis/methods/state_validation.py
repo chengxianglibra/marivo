@@ -8,13 +8,6 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal
 
-from marivo.analysis.core.model import (
-    ObservedQuantity,
-    OriginalStatePart,
-    RowStatisticQuantity,
-    Signature,
-)
-
 
 def _numeric(value: object) -> bool:
     return (
@@ -683,38 +676,3 @@ def coordinate_state_matches(
                 if total != expected:
                     return False
     return True
-
-
-def empty_reduction_cell(signature: Signature) -> tuple[int | None, str, str | None]:
-    """Finish a lawful empty group from its frozen method and component policies."""
-    quantity = signature.quantity
-    if isinstance(quantity, RowStatisticQuantity):
-        method = quantity.method_version
-        if method in ("row.count@v1", "row.count_defined@v1", "row.sum@v1"):
-            return 0, "defined", None
-        if method in ("row.mean@v1", "row.min@v1", "row.max@v1"):
-            return None, "undefined", "empty_" + method.removeprefix("row.").removesuffix("@v1")
-    original = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
-    if isinstance(quantity, ObservedQuantity) and original is None:
-        if quantity.method_version in ("count_distinct@v1", "approx_count_distinct@v1"):
-            return 0, "defined", None
-        if quantity.method_version in (
-            "median@v1",
-            "percentile@v1",
-            "approx_median@v1",
-            "approx_percentile@v1",
-        ):
-            return None, "null", "empty_contribution"
-    if original is not None:
-        if original.method_version in ("sum_zero@v1", "count@v1"):
-            return 0, "defined", None
-        if original.method_version == "linear@v1" and all(
-            rule == "zero" for rule in original.empty_rules
-        ):
-            return 0, "defined", None
-        if original.method_version == "ratio@v1" and all(
-            rule == "zero" for rule in original.empty_rules
-        ):
-            return None, "undefined", "zero_denominator"
-        return None, "null", "empty_contribution"
-    raise ValueError("no registered empty reduction state")

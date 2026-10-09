@@ -150,14 +150,13 @@ def test_explicit_classification_rollup_and_current_rows(
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-def test_explicit_targets_preserve_empty_row_groups(
+def test_selected_row_groups_preserve_count_mean_state(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     n = case.names
     members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
     region = members.read(ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}"))
-    targets = region.group_by()
     selected = region.where(region.value.eq("east")).members()
     categories = selected.read(ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}"))
     observed = selected.observe(
@@ -169,28 +168,19 @@ def test_explicit_targets_preserve_empty_row_groups(
     assert isinstance(observed, mv.LogicalNumericRelation)
     current = observed.execute() if fixed else observed
     category = categories.execute() if fixed else categories
-    target = targets.execute() if fixed else targets
-    grouped = current.group_by(category, groups=target)
+    grouped = current.group_by(category)
     counts = grouped.summarize(mv.count()).execute().to_pandas().set_index("group")
-    assert counts["value"].to_dict() == {"east": 2, "south": 0, "west": 0}
+    assert counts["value"].to_dict() == {"east": 2}
     mean = grouped.summarize(mv.mean()).execute()
     frame = mean.to_pandas().set_index("group")
     assert frame.loc["east", "value"] == 300
-    assert frame.loc["west", "cell_reason"] == "empty_mean"
     state = next(
         p.table.to_pylist() for p in mean._dataset.verified().parts if p.role == "row_state"
     )
     assert state == [
         {"key_0": "east", "row_state__sum": 600, "row_state__count": 2},
-        {"key_0": "south", "row_state__sum": 0, "row_state__count": 0},
-        {"key_0": "west", "row_state__sum": 0, "row_state__count": 0},
     ]
-    fixed_target = targets.execute()
-    merged = (
-        mean.group_by(ms.ref.dimension("sales.customer.region"), groups=fixed_target)
-        .rollup()
-        .execute()
-    )
+    merged = mean.group_by(ms.ref.dimension("sales.customer.region")).rollup().execute()
     assert merged.to_pandas().equals(mean.to_pandas())
     assert merged._node.root.signature.quantity == mean._node.root.signature.quantity
     assert (
@@ -215,7 +205,13 @@ def test_original_mean_merges_support_not_finished_values(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.mean_amount"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=(ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")),
+        via=mv.route(
+            ms.ref.entity("sales.order_line"),
+            through=(
+                ms.ref.relationship("sales.line_order"),
+                ms.ref.relationship("sales.order_buyer"),
+            ),
+        ),
         by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
@@ -348,10 +344,6 @@ assert fixed.rollup().execute().to_pandas().iloc[0]['value'] == 49
 @pytest.mark.runtime
 def test_no_key_grouping_is_singleton(retained_coordinates_case):
     case = retained_coordinates_case
-    grouped = case.session.members(ms.ref.entity("sales.customer")).group_by()
-    fixed = grouped.execute()
-    assert fixed._node.root.signature.domain.kind == "singleton"
-    assert len(fixed.to_pandas()) == 1
     result = (
         case.session.members(ms.ref.entity("sales.customer"))
         .observe(
@@ -368,14 +360,14 @@ def test_no_key_grouping_is_singleton(retained_coordinates_case):
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-def test_category_grouped_count_uses_current_rows(retained_coordinates_case, fixed):
+def test_category_count_uses_current_rows(retained_coordinates_case, fixed):
     case = retained_coordinates_case
     category = case.session.members(ms.ref.entity("sales.customer")).read(
         ms.ref.dimension("sales.customer.region")
     )
     current = category.execute() if fixed else category
-    result = current.group_by().summarize(mv.count()).execute()
-    assert result.to_pandas().set_index("group")["value"].to_dict() == {"east": 2, "south": 1}
+    result = current.summarize(mv.count()).execute()
+    assert result.to_pandas()["value"].tolist() == [3]
     assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
 
 
@@ -544,7 +536,7 @@ def test_combined_member_classifications_do_not_expand_facts(
             cohort,
         ),
     )
-    fixed = grouped.rollup().execute()
+    fixed = grouped.execute()
     assert len(fixed.to_pandas()) == 4
     assert fixed.to_pandas()["value"].dropna().tolist() == [450, 150, 400]
     assert fixed.group_by(region).rollup().execute().rollup().execute().to_pandas()[
@@ -569,7 +561,7 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
 @pytest.mark.runtime
 @pytest.mark.parametrize("violation", ["null", "outside", "duplicate"])
 @pytest.mark.parametrize("fixed", [False, True])
-def test_invalid_classification_or_target_rejects(retained_coordinates_case, violation, fixed):
+def test_invalid_classification_rejects(retained_coordinates_case, violation, fixed):
     from marivo.analysis.errors import AnalysisError
 
     case = retained_coordinates_case
@@ -584,20 +576,13 @@ def test_invalid_classification_or_target_rejects(retained_coordinates_case, vio
         via=ms.ref.relationship("sales.order_buyer"),
         by=(ms.ref.entity("sales.customer"),),
     )
-    target = (
-        region.where(region.value.eq("east"))
-        .members()
-        .read(ms.ref.dimension("sales.customer.region"))
-        .group_by()
-        if violation == "outside"
-        else None
-    )
+    if violation == "outside":
+        region = region.where(region.value.eq("east"))
     values = observed.execute() if fixed else observed
     category = region.execute() if fixed else region
-    groups = target.execute() if fixed and target is not None else target
     with pytest.raises(AnalysisError):
         values.group_by(
-            category, *([category] if violation == "duplicate" else []), groups=groups
+            category, *([category] if violation == "duplicate" else [])
         ).rollup().execute()
 
 
@@ -640,7 +625,7 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-def test_typed_integer_classification_and_explicit_singleton(retained_coordinates_case, fixed):
+def test_typed_integer_classification_and_singleton(retained_coordinates_case, fixed):
     case = retained_coordinates_case
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("ALTER TABLE customer ADD COLUMN band BIGINT DEFAULT 2")
@@ -659,21 +644,17 @@ def test_typed_integer_classification_and_explicit_singleton(retained_coordinate
         via=ms.ref.relationship("sales.order_buyer"),
         by=(ms.ref.entity("sales.customer"),),
     )
-    target = members.group_by()
     current = values.execute() if fixed else values
     category = band.execute() if fixed else band
-    singleton = target.execute() if fixed else target
     assert current.group_by(category).rollup().execute().to_pandas().set_index("group")[
         "value"
     ].to_dict() == {1: 120, 2: 27}
-    assert current.group_by(groups=singleton).rollup().execute().to_pandas()["value"].tolist() == [
-        147
-    ]
+    assert current.group_by().rollup().execute().to_pandas()["value"].tolist() == [147]
 
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-def test_explicit_entity_targets_keep_complete_subject_mapping(
+def test_selected_entities_keep_complete_subject_mapping(
     analysis_dsl_case_factory: DslCaseFactory, fixed
 ):
     case = analysis_dsl_case_factory("j1")
@@ -688,13 +669,12 @@ def test_explicit_entity_targets_keep_complete_subject_mapping(
         by=(customer,),
     )
     current = observed.execute() if fixed else observed
-    targets = members.execute() if fixed else members
-    result = current.group_by(customer, groups=targets).rollup().execute()
+    result = current.group_by(customer).rollup().execute()
     subject = next(
         p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "subject"
     )
-    assert subject == [{"key_0": key, "subject__key_0": key} for key in ("A", "B", "C", "D")]
-    assert result.to_pandas()["cell_tag"].tolist() == ["defined", "defined", "null", "null"]
+    assert subject == [{"key_0": key, "subject__key_0": key} for key in ("A", "B")]
+    assert result.to_pandas()["cell_tag"].tolist() == ["defined", "defined"]
     assert result.rollup().execute().to_pandas()["value"].tolist() == [600]
 
 
@@ -712,80 +692,16 @@ def test_review_selected_category_retains_classification(
     category = members.read(ms.ref.dimension("sales.customer.region"))
     selected = category.where(category.value.eq("east"))
     current = selected.execute() if fixed else selected
-    targets = category.group_by().execute() if fixed else category.group_by()
-    statistic = current.group_by(groups=targets).summarize(mv.count()).execute()
-    assert statistic.to_pandas().set_index("group")["value"].to_dict() == {
-        "east": 2,
-        "south": 0,
-        "west": 0,
-    }
-    assert statistic._node.root.signature.domain.instance_key[0].field == "sales.customer.region"
+    statistic = current.summarize(mv.count()).execute()
+    assert statistic.to_pandas()["value"].tolist() == [2]
+    assert current._node.classification_coordinate().field == "sales.customer.region"
     assert statistic.rollup().execute().to_pandas()["value"].tolist() == [2]
     state = next(
         p.table.to_pylist() for p in statistic._dataset.verified().parts if p.role == "row_state"
     )
     assert state == [
-        {"key_0": "east", "row_state__count": 2},
-        {"key_0": "south", "row_state__count": 0},
-        {"key_0": "west", "row_state__count": 0},
+        {"row_state__count": 2},
     ]
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("parquet", [False, True])
-def test_review_explicit_group_domain_survives_execution(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool, parquet: bool
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    case = analysis_dsl_case_factory("j1")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = ms.ref.dimension("sales.customer.region")
-    category = members.read(region)
-    selected = category.where(category.value.eq("east"))
-    current = selected.execute() if fixed else selected
-    targets = category.group_by().execute() if fixed else category.group_by()
-    grouped = current.group_by(groups=targets)
-    retained = grouped.execute()
-    assert retained.to_pandas()["group"].tolist() == ["east", "south", "west"]
-    restored = case.session.artifact(retained.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedAnalysisDomain)
-    assert restored._node.root.signature.quantity is None
-    assert restored._node.root.signature.parts == ()
-    expected = {"east": 2, "south": 0, "west": 0}
-    direct = grouped.summarize(mv.count()).execute()
-    fixed_rows = selected.execute()
-    continued = fixed_rows.group_by(groups=restored).summarize(mv.count()).execute()
-    assert direct.to_pandas().set_index("group")["value"].to_dict() == expected
-    assert continued.to_pandas().set_index("group")["value"].to_dict() == expected
-    assert direct._node.root.signature.quantity is not None
-    assert continued._node.root.signature.quantity is not None
-    assert (
-        direct._node.root.signature.quantity.method_version
-        == continued._node.root.signature.quantity.method_version
-    )
-    assert (
-        direct._node.root.signature.domain.instance_key
-        == continued._node.root.signature.domain.instance_key
-    )
-    assert next(
-        p.table.to_pylist() for p in direct._dataset.verified().parts if p.role == "row_state"
-    ) == next(
-        p.table.to_pylist() for p in continued._dataset.verified().parts if p.role == "row_state"
-    )
-    assert any(a.call == "relation.rollup()" for a in continued.contract().actions)
-    if not fixed:
-        assert selected.members().group_by(region, groups=targets).execute().to_pandas()[
-            "group"
-        ].tolist() == ["east", "south", "west"]
-    narrow = current.group_by().execute() if fixed else current.group_by()
-    all_rows = category.execute() if fixed else category
-    with pytest.raises(AnalysisError):
-        all_rows.group_by(groups=narrow).execute()
 
 
 @pytest.mark.runtime
@@ -833,7 +749,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
 
 
 @pytest.mark.runtime
-def test_review_cold_selected_category_and_target_domain(
+def test_review_cold_selected_category_count(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import os
@@ -847,7 +763,6 @@ def test_review_cold_selected_category_and_target_domain(
     fixed_category = category.execute()
     selected = fixed_category.where(fixed_category.value.eq("east"))
     fixed_selected = selected.execute()
-    targets = selected.group_by(groups=category.group_by().execute()).execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     script = """
@@ -865,13 +780,13 @@ duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
-selected, targets = (session.artifact(ref) for ref in sys.argv[2:])
+selected = session.artifact(sys.argv[2])
 assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
-assert isinstance(targets, mv.MaterializedAnalysisDomain)
-assert targets.to_pandas()['group'].tolist() == ['east', 'south', 'west']
-assert any(a.call.startswith('relation.group_by(') for a in selected.contract().actions)
-result = selected.group_by(groups=targets).summarize(mv.count()).execute()
-assert result.to_pandas().set_index('group')['value'].to_dict() == {'east': 2, 'south': 0, 'west': 0}
+assert not hasattr(selected, 'group_by')
+assert any(a.call == 'relation.summarize(method)' for a in selected.contract().actions)
+assert selected._node.classification_coordinate().field == 'sales.customer.region'
+result = selected.summarize(mv.count()).execute()
+assert result.to_pandas()['value'].tolist() == [2]
 assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
 """
     completed = subprocess.run(
@@ -881,7 +796,6 @@ assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
             script,
             case.session.id,
             fixed_selected.state.artifact_ref.ref,
-            targets.state.artifact_ref.ref,
         ],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
@@ -919,7 +833,7 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
         by=(ms.ref.entity("sales.customer"),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    grouped = observed.group_by(category, groups=category.group_by())
+    grouped = observed.group_by(category)
     logical = grouped.summarize(method).execute()
     assert logical.to_pandas()["value"].tolist() == logical_expected
     fixed = grouped.execute()

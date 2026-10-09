@@ -57,7 +57,6 @@ MethodName: TypeAlias = Literal[
     "attribution.component_mix",
     "time.product",
     "group.attach",
-    "group.complete",
     "bind_project",
     "metric.distinct",
     "metric.approx_distinct",
@@ -274,8 +273,6 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("reference.standardize")
     if type(params) is rules.TimeProduct:
         return MethodKey("time.product")
-    if type(params) is rules.CompleteGroups:
-        return MethodKey("group.complete")
     if type(params) is rules.AttachCategory:
         return MethodKey("group.attach")
     if type(params) is rules.OriginalRatio:
@@ -425,7 +422,6 @@ class MethodSemantics:
             "display.table": "table",
             "time.product": "none",
             "group.attach": "none",
-            "group.complete": "none",
             "bind_project": "none",
             "metric.distinct": "none",
             "metric.approx_distinct": "none",
@@ -691,7 +687,7 @@ class MethodSemantics:
             if len(inputs) != 1 or inputs[0] != output:
                 reject("unchanged member type", repr(output), "Preserve the member identity type.")
             return
-        if name in ("group.attach", "group.complete"):
+        if name == "group.attach":
             if len(inputs) != 2 or inputs[0] != output:
                 reject(
                     "the receiver's unchanged value type",
@@ -1380,8 +1376,6 @@ class MethodSemantics:
             return rules._observe_metric(inputs, params)
         if type(params) is rules.TimeProduct:
             return rules._time_product(inputs, params)
-        if type(params) is rules.CompleteGroups:
-            return rules._complete_groups(inputs, params)
         if type(params) is rules.AttachCategory:
             return rules._attach_category(inputs, params)
         if type(params) is rules.BindProject:
@@ -1482,7 +1476,6 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("state_rollup.fold"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.mean"), "analysis.core.rules"),
     MethodSemantics(MethodKey("state_rollup.mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("group.complete"), "analysis.core.rules"),
     MethodSemantics(MethodKey("time.product"), "analysis.core.rules"),
     MethodSemantics(MethodKey("group.attach"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.sum_zero"), "analysis.core.rules"),

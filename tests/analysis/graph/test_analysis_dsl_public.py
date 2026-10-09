@@ -232,7 +232,6 @@ def test_public_member_read_and_category_selection(
     assert tuple(action.call for action in actions) == (
         "relation.where(predicate)",
         "relation.members()",
-        "relation.group_by(*keys)",
         "relation.summarize(method)",
     )
     assert all(action.help_target.startswith("analysis.") for action in actions)
@@ -262,7 +261,6 @@ def test_public_grouped_same_entity_observation_allows_omitted_route(
     channel = ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}")
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    grouped = orders.group_by(channel)
 
     observed = (
         orders.observe(revenue, during=august, via=None, by=(channel,))
@@ -291,30 +289,21 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
 
 
 @pytest.mark.runtime
-def test_public_grouped_foreign_entity_observation_requires_route(
+def test_public_grouped_foreign_entity_observation_infers_unique_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
     customers = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    grouped = customers.group_by(
-        ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}")
-    )
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     before = case.session.runs().items
 
-    with pytest.raises(AnalysisError, match="distinct contribution root") as missing:
-        customers.observe(
-            revenue,
-            during=august,
-            by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
-        )
-
-    assert missing.value.expected
-    assert missing.value.received
-    assert missing.value.repair is not None
-    assert missing.value.repair.action
+    inferred = customers.observe(
+        revenue,
+        during=august,
+        by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
+    )
     assert case.session.runs().items == before
     rows = (
         customers.observe(
@@ -326,13 +315,14 @@ def test_public_grouped_foreign_entity_observation_requires_route(
         .execute()
         .to_pandas()
     )
+    assert inferred.execute().to_pandas().equals(rows)
     values = rows.set_index("group")["value"]
     assert values.dropna().to_dict() == {"east": 600, "south": 400}
     assert values.loc[["west"]].isna().all()
 
 
 @pytest.mark.runtime
-def test_public_target_only_groups_cannot_observe_without_members(
+def test_public_category_does_not_expose_grouping(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -340,10 +330,9 @@ def test_public_target_only_groups_cannot_observe_without_members(
     orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
     category = orders.read(ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}"))
     assert isinstance(category, mv.LogicalCategoryRelation)
-    targets = category.group_by()
     before = case.session.runs().items
 
-    assert not hasattr(targets, "observe")
+    assert not hasattr(category, "group_by")
 
     assert case.session.runs().items == before
 
@@ -783,3 +772,37 @@ assert saved.rollup().execute().to_pandas().iloc[0]["value"] == 1000
     finally:
         offline.rename(case.database_path)
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.runtime
+def test_retired_grouping_calls_reject_before_execution(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    category = members.read(ms.ref.dimension("sales.customer.region"))
+    selected = category.where(category.value.eq("east"))
+    fixed_category = category.execute()
+    fixed_selected = selected.execute()
+    for current in (category, selected, fixed_category, fixed_selected):
+        assert not hasattr(current, "group_by")
+        assert not any("group_by" in action.call for action in current.contract().actions)
+    for current in (members, members.execute(), fixed_selected.members()):
+        assert not hasattr(current, "group_by")
+        assert not hasattr(current, "count")
+        assert not any("group_by" in action.call for action in current.contract().actions)
+    metric = ms.ref.metric("sales.revenue")
+    values = members.observe(metric, by=(ms.ref.entity("sales.customer"),))
+    namespace = {"members": members, "metric": metric, "values": values}
+    before = case.session.runs().items
+    statements = tuple(case.session._runtime.statistics.statements)
+    for call in (
+        "members.observe(metric, groups=members)",
+        "values.group_by(groups=members)",
+    ):
+        with pytest.raises(TypeError, match="groups"):
+            exec(call, namespace)
+    assert case.session.runs().items == before
+    assert tuple(case.session._runtime.statistics.statements) == statements
+    assert selected.summarize(mv.count()).execute().to_pandas().value.tolist() == [2]
+    assert fixed_selected.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [2]

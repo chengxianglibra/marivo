@@ -40,7 +40,6 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     BindProject,
     CellDerive,
-    CompleteGroups,
     FunnelAxesPrepare,
     JourneyRead,
     MapCorrespond,
@@ -1571,23 +1570,6 @@ class Relation:
             value_type=self.root.value_type,
         )
         return self._with(node)._with_sources(category)
-
-    def complete_groups(self, target: Relation) -> Relation:
-        source_domain = self.root.signature.domain
-        definition_id = digest("target:" + self.root.fingerprint + target.root.fingerprint)
-        domain = replace(
-            source_domain,
-            definition_id=definition_id,
-            correspondence=replace(source_domain.correspondence, target_definition_id=definition_id)
-            if source_domain.correspondence is not None
-            else None,
-        )
-        node = method_node(
-            (self._edge(), Edge(target._edge().role, _shared_root(self.root, target.root))),
-            CompleteGroups(domain),
-            value_type=self.root.value_type,
-        )
-        return self._with(node)._with_sources(target)
 
     def group_domain(self, coordinates: tuple[Coordinate, ...]) -> Relation:
         source = self.root.signature.domain

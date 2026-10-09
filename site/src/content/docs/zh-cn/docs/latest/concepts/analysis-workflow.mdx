@@ -102,7 +102,7 @@ merged_count.show()
 缺少物理支持时，错误保留精确键并给出有界的已注册候选；候选不适用时，保留现有数据源并报告该键。
 PostgreSQL Count 当前会在执行前拒绝分类嵌套分组。计算总体 Count 时省略分类轴；逐实体和仅按时间分组仍受支持。
 
-普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`groups` 指定逻辑目标域并保留空组。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。原有 `coordinates` 参数和分组域的 `observe` 入口已移除。
+普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。数值、比率和统计结果保留 `group_by`；成员域与分类、布尔、时间结果不提供该方法。非数值标量结果仍支持整体 `summarize(mv.count()/mv.count_defined())`。预设报表行在 `to_pandas()` 导出后由外部补齐，外部结果不能重新进入类型化分析。
 
 ## 按同一实体分组
 

@@ -416,3 +416,35 @@ def test_obsolete_graph_dag_is_preserved_and_requires_reexecution(old_prefix: st
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         thaw_graph(old)
     assert old.encode() == retained_bytes
+
+
+def test_removed_completion_snapshot_requires_reexecution_and_preserves_bytes() -> None:
+    # Frozen before the removal; current builders cannot construct the retired node.
+    saved = (
+        "graph-dag-v5:eNrtWMlu4zgQ/Red3W7LcWw5pwb6PvfBICAoqiSzI5EKSTkwAv/7FBdtduIWMpkgjfiUiC7W8mrncyRkBjq"
+        "6++c5ykDxPTVciujuOYI9LQnPortIySeiDTUwZ7IR5sc+jmaRTEteOGJ7+R4PGlM3xt7MZEW545FykXFR2H+5wF89P9ZoIyt"
+        "Q2rJ5EqD8saYl2CPNZA3+iJalPQCtUU6gErTWO2m+hdPoOIuYVAp0LUUGgkF0J5qynKE5ORfcdDc9My7QFKQiD3Dwij+gkpY"
+        "xKlqCQY6zyFBVgOlJDK+AFMqy8bz3qL1lrKEE5hGzP6AusOdBC0Q0pZojPFHa8BLRjaxSNTg1OQTccsrMB2LleOuR5Y3gj40"
+        "HBBk06S80acgzGIvf6HlkoWWjGLwaG8fZn2K4U5y08k9sd/a8wXrLHg7EJ4En26Zsk9wkyWKxZKucrtNkzeBmkyRxlmwSWKI"
+        "Um4WTic9yr6bK+Bz+sIyrMN1AOKkBqvuA8cj0oeQKzE5mpAcU4RuWlMeGCsPN4RL+9z2ZKzUnOd5euqzIABkFexANRF1MtC7"
+        "l2nA2QWlXGhyAHXqYT2ZoAC0xu2pZcnZoj4mnfAJe7IzzVwRoV0n8SXQ8eqcSo6jQuVSVtZYpwFjLLORd5FnYFVRy787dh0G"
+        "j/ZflIrX5yMh4nzSzMa2gNeix4Qoy0ka5PWtKGOZf8IUFq5bKBNttJfaRMiWrOs2fXTZalyzjbRwnWZ4ulqt8lW032zRHPpt"
+        "4wW7YOsNLSjpFupg89mb7yOlCyAIvaAXDEBraHXuXI4Wx7rgQ3OiuAtnktNTQc+9+Fg0ScEbYDtgD6XuWb9DkS3dnnxwElJK"
+        "qQ/BNCdonGsG+Vksu2tj0DSJ8eN7mYMtD53+kXa9sjr8+cxVKNvXcllm0GuZQ1VgXXajr6/x1nb+u89efb/1/cXtFa9Jn3dx"
+        "VC8tJfx0IflMhX5rDWRyzFSzTlKXJapOwBDbbeL2N82y9zeh2M5rDJxBf5/CvPodfGL6HI3o/h18cbE+mej/juh9JN9qeT7r"
+        "XNndtc1+yzZ2seBMK9vmKN2EvPFvxZt3tbLHO4+XidkXz5Wq7zJLlAoUtVoytltltuulvB8On7Yfj1nZ5Sbxudf/3KnYxCD/"
+        "3IvYcVU1peI0tz+eIUz5yPajiukUmxGj7Y8jAs54+0DY46yV3H6+b32eojefT74Ri1U+/E4hfnX5Hs2FwzhuHqKmTUz8ujWH"
+        "57bvgBDs/7l1wrPvlun/6uld51fowiK4vfu/ZG1rdXV2nhvrr9ivoOzi0vjI7e5Y6/HZQUedebDByrvELg4IRBfl3n9fIvAB"
+        "VK5TY70LfXOwi0UAI+l+5dSgIcD6a98vTBFl6R72VKWUP4FVv2INT1ecmwp2W4GDHvySIFpjqewibFt632HbxGbJ8kFgTcqR"
+        "1dAua5gUKaRR84kfM8fo6Ct1O01BBsUAxO9mH0xBpHiAydmtA7cStraypMQSl5cUH5afzx6D8dLJGSfXZlX/bHPBCF5wQl30"
+        "XnEA8rQtivZYCUzdt+lCSKvNxdBpjfToXitY7cqE6BBfIVIOy/fOFdxLdVL4L+tpB3r2gvP7y8vOvv8/fXbQV6F9WLlZdN5d"
+        "KM22xO1WTCloecAKcewQzWnzf30bHfwFRnwJK"
+    )
+    original = saved.encode()
+    with pytest.raises(IntegrityError) as caught:
+        thaw_graph(saved)
+    assert caught.value.stage == "graph_protocol"
+    assert caught.value.repair is not None
+    assert "re-execute the source analysis" in caught.value.repair.action.lower()
+    assert "Preserve" in caught.value.repair.action
+    assert saved.encode() == original

@@ -236,18 +236,14 @@ def test_coordinate_row_statistic_workflow_example(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     namespace: dict[str, object] = {"session": case.session, "mv": mv, "ms": ms}
-    block = _example("en", "complete-target-groups")
+    block = _example("en", "current-row-statistics")
     exec(compile(block, "coordinate-example", "exec"), namespace)
-    counts = namespace["category_counts"]
-    targets = namespace["fixed_targets"]
+    counts = namespace["row_counts"]
+    category_count = namespace["category_count"]
     assert isinstance(counts, mv.MaterializedStatisticRelation)
-    assert isinstance(targets, mv.MaterializedAnalysisDomain)
-    assert counts.to_pandas().set_index("group")["value"].to_dict() == {
-        "east": 2,
-        "south": 0,
-        "west": 0,
-    }
-    assert targets.to_pandas()["group"].tolist() == ["east", "south", "west"]
+    assert isinstance(category_count, mv.MaterializedStatisticRelation)
+    assert counts.to_pandas().set_index("group")["value"].to_dict() == {"east": 2}
+    assert category_count.to_pandas()["value"].tolist() == [2]
     total = namespace["total_row_mean"]
     assert isinstance(total, mv.MaterializedStatisticRelation)
     assert total.to_pandas()["value"].tolist() == [300]

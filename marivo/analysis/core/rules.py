@@ -311,13 +311,6 @@ class MapCorrespond:
 
 
 @dataclass(frozen=True, slots=True)
-class CompleteGroups:
-    """Complete an explicitly bound target using qualified empty reduction states."""
-
-    output_domain: DomainSignature
-
-
-@dataclass(frozen=True, slots=True)
 class TimeProduct:
     output_domain: DomainSignature
     kind: Literal["time_product"]
@@ -724,7 +717,6 @@ RuleParameters: TypeAlias = (
     | MapCorrespond
     | AttachCategory
     | TimeProduct
-    | CompleteGroups
     | CellDerive
     | RowState
     | OriginalReduce
@@ -3689,104 +3681,13 @@ def _attach_category(inputs: tuple[Signature, ...], params: AttachCategory) -> R
 
 
 def group_consumption_facts(
-    inputs: tuple[Signature, ...], params: AttachCategory | CompleteGroups
+    inputs: tuple[Signature, ...], params: AttachCategory
 ) -> tuple[Fact, ...]:
-    """Own classification coverage/policy and explicit-target inclusion separately."""
+    """Own classification coverage and Defined-value policy."""
     scope = sha256(repr(params).encode()).hexdigest()
     binding = inputs[0].domain.binding
     match = _fact("mapping_total", binding, "group_match:" + scope, inputs)
-    return (
-        (match, _fact("cell_policy", binding, "classification_defined:" + scope, inputs))
-        if isinstance(params, AttachCategory)
-        else (match,)
-    )
-
-
-def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> RuleDerivation:
-    binding = _binding(inputs, "core.group.target")
-    if len(inputs) != 2:
-        reject(
-            "one reduced relation and one explicit target",
-            str(len(inputs)),
-            "Bind groups explicitly.",
-            "core.group.target",
-        )
-    source, target = inputs
-    pre = group_consumption_facts(inputs, params) if source.domain.instance_key else ()
-    obligations = tuple(Obligation(fact, "source.group_mapping@v1", "consume") for fact in pre)
-    if (
-        (
-            len(source.domain.instance_key) != len(target.domain.instance_key)
-            or any(
-                retained != requested
-                and not (
-                    retained.entity_ref == requested.entity_ref
-                    and retained.field == requested.field
-                    and retained.role == requested.role
-                    and requested.binding_id in retained.bindings
-                )
-                for retained, requested in zip(
-                    source.domain.instance_key, target.domain.instance_key, strict=True
-                )
-            )
-        )
-        or target.quantity is not None
-        or params.output_domain.binding != binding
-        or params.output_domain.instance_key != source.domain.instance_key
-    ):
-        reject(
-            "identical complete typed group coordinates",
-            repr(target.domain),
-            "Use the exact target group domain.",
-            "core.group.target",
-        )
-    if source.quantity is None:
-        if source.parts or source.domain.kind not in ("group", "singleton"):
-            reject(
-                "a projected group domain without value or state parts",
-                repr(source),
-                "Project complete group keys before binding a target domain.",
-                "core.group.target",
-            )
-        return _result(
-            "parts_transport@v1",
-            inputs,
-            params.output_domain,
-            None,
-            (),
-            pre=pre,
-            required=(),
-            created=(),
-            post=(),
-            obligations=obligations,
-            eval_id="group.complete.empty_states@v1",
-        )
-    state_role: PartRole = (
-        "row_state" if isinstance(source.quantity, RowStatisticQuantity) else "original_state"
-    )
-    direct = (
-        isinstance(source.quantity, ObservedQuantity)
-        and source.quantity.method_version.removesuffix("@v1") in DIRECT_ONLY_AGGREGATES
-    )
-    if not direct:
-        require_part(source, state_role)
-    required: tuple[PartRole, ...] = () if direct else (state_role,)
-    if state_role == "original_state":
-        require_part(source, "coverage")
-        required = (*required, "coverage")
-    return _result(
-        "parts_transport@v1",
-        inputs,
-        params.output_domain,
-        source.quantity,
-        source.parts,
-        pre=pre,
-        required=required,
-        created=(),
-        post=(),
-        obligations=obligations,
-        eval_id="group.complete.empty_states@v1",
-    )
+    return (match, _fact("cell_policy", binding, "classification_defined:" + scope, inputs))
 
 
 def _time_product(inputs: tuple[Signature, ...], params: TimeProduct) -> RuleDerivation:

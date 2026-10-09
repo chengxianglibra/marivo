@@ -321,13 +321,10 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         (ratio, {"book": 700 / 850, "game": 2.0}),
         (linear, {"book": -150, "game": 150}),
     ):
-        result = members.observe(
-            metric, during=WINDOW, by=(category,), groups=lines.group_by(category)
-        ).execute()
+        result = members.observe(metric, during=WINDOW, by=(category,)).execute()
         frame = result.to_pandas().set_index("group")
         assert frame.loc[list(expected), "value"].to_dict() == pytest.approx(expected)
-        assert set(frame.index) == {"book", "game", "spare"}
-        assert frame.loc["spare", "cell_tag"] != "defined"
+        assert set(frame.index) == {"book", "game"}
         assert result.rollup().execute().to_pandas()["value"].tolist() == [
             1.0 if metric is ratio else 0
         ]

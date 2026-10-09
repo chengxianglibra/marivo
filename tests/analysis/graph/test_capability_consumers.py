@@ -261,7 +261,7 @@ def test_source_coordinates_statistics_and_original_state(
         assert isinstance(categories, mv.LogicalCategoryRelation)
         values = selected.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
         assert isinstance(values, mv.LogicalNumericRelation)
-        grouped = values.group_by(categories, groups=bucket.group_by())
+        grouped = values.group_by(categories)
         counted = grouped.summarize(mv.count()).execute()
         assert counted._dataset is not None
         assert any(
@@ -272,34 +272,28 @@ def test_source_coordinates_statistics_and_original_state(
             ).physical_requirements
         )
         counts = counted.to_pandas().set_index("group")
-        assert counts.value.to_dict() == {"a": 2, "b": 0}
+        assert counts.value.to_dict() == {"a": 2}
         if numeric_type == "int64":
             revision = members.read(ms.ref.dimension("sales.facts.revision"))
             selected_revision = selected.read(ms.ref.dimension("sales.facts.revision"))
             assert isinstance(revision, mv.LogicalCategoryRelation)
             assert isinstance(selected_revision, mv.LogicalCategoryRelation)
             tuple_result = (
-                values.group_by(
-                    categories, selected_revision, groups=members.group_by(bucket, revision)
-                )
-                .summarize(mv.count())
-                .execute()
+                values.group_by(categories, selected_revision).summarize(mv.count()).execute()
             )
             tuples = tuple_result.to_pandas()
             assert tuples.set_index(["group", "coord_0"]).value.to_dict() == {
                 ("a", 1): 1,
                 ("a", 2): 1,
-                ("b", 1): 0,
             }
             source_trace.record(tuple_result)
         summed = grouped.summarize(mv.sum()).execute()
-        assert summed.to_pandas().set_index("group").value.to_dict() == {"a": 2, "b": 0}
+        assert summed.to_pandas().set_index("group").value.to_dict() == {"a": 2}
         defined = grouped.summarize(mv.count_defined()).execute()
-        assert defined.to_pandas().set_index("group").value.to_dict() == {"a": 2, "b": 0}
+        assert defined.to_pandas().set_index("group").value.to_dict() == {"a": 2}
         mean = grouped.summarize(mv.mean()).execute()
         means = mean.to_pandas().set_index("group")
         assert means.loc["a", "value"] == 1.0
-        assert means.loc["b", "cell_reason"] == "empty_mean"
         assert mean.rollup().execute().to_pandas().value.tolist() == [1.0]
         original = values.group_by(categories).rollup().execute()
         assert original.to_pandas().value.tolist() == [2]
@@ -364,7 +358,7 @@ def test_source_coordinates_statistics_and_original_state(
             {**case.environment, "profile": profile},
             {"columns": data.columns, "values": data.values},
             {
-                "counts": {"a": 2, "b": 0},
+                "counts": {"a": 2},
                 "mean_a": 1.0,
                 "mean_b_reason": "empty_mean",
                 "original_a": 2,
@@ -400,7 +394,7 @@ def test_source_coordinates_statistics_and_original_state(
                         "source_profile": profile,
                         "remote_table_writes_forbidden": remote,
                         "oracle": {
-                            "counts": {"a": 2, "b": 0},
+                            "counts": {"a": 2},
                             "mean_a": 1.0,
                             "mean_b_reason": "empty_mean",
                             "original_a": 2,

@@ -118,6 +118,22 @@ Entity-domain values
 .. autoclass:: RowMethod
    :members:
 
+Grouping and current rows
+-------------------------
+
+First Metric grouping uses ``members.observe(metric, by=(...))``. Numeric, ratio
+and statistic results retain their admitted ``group_by`` and reductions. Member
+domains and Category, Boolean and Temporal results have no ``group_by``; scalar
+nonnumeric results support overall ``summarize(mv.count())`` and
+``summarize(mv.count_defined())``. Member domains have no direct count operation.
+
+No observation or grouping accepts ``groups`` or an explicit target domain.
+For prescribed report rows, export with ``to_pandas()`` and complete the display
+externally. External results cannot re-enter typed analysis. Complete member
+domains, empty time buckets and Metric empty-set rules remain part of observations.
+Saved completion or standalone group-domain Artifacts require source re-execution;
+recovery errors preserve their files. Other current Artifacts remain recoverable.
+
 Member versions and scalar attributes
 -------------------------------------
 

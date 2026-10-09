@@ -299,8 +299,11 @@ Its read path may differ from observe's path. Every component binds every axis;
 missing mapping cannot discard a component or allocate its overall value.
 Classification matching and Defined-value checks cover actual consumed keys;
 a filtered classification cannot implicitly filter contributions. The consumed contribution/member-time keys are fixed before classification is attached; missing classifications retain those keys until coverage validation rejects them. Duplicate or unbound axes and mismatched classifications
-reject. `groups` binds an exact same-Session logical target domain and retains
-empty groups. Public `coordinates` and grouped-domain observation are removed.
+reject. There is no explicit target-domain completion. Member domains and
+Category, Boolean and Temporal reads have no `group_by`; nonnumeric reads retain
+overall `summarize(count()/count_defined())`. Numeric, ratio and statistic results
+retain grouping and their admitted original or current-row reductions. Public
+`coordinates` and standalone grouped-domain observation are removed.
 Only retained full Subject identity permits a subsequent `members()`.
 Coordinate identity retains the original Dimension Ref, classification origin,
 role path, version/time grid and a distinct binding identifier, never a fabricated
@@ -309,14 +312,15 @@ the same binding rejects. Raw Refs select only one retained binding; correspondi
 classification objects disambiguate grouping, statistic rollup and retained-axis
 attribution without source reads. Attribution preserves the complete ordered
 endpoint axes; it does not choose another relationship role or recover removed axes.
-Explicit targets may select a captured component binding of a common multi-root
-axis. Field, owner, role and full key positions must agree; runtime target coverage
-still rejects any unrepresented consumed group.
-
 Multiple member classifications align on the complete member/time key before
-their group axes are attached. Explicit target completion preserves comparison
-continuations and initializes empty temporal-fold samples with the retained fold
-kind in both source and fixed execution.
+their group axes are attached. Comparisons and temporal-fold samples retain their
+original state in source and fixed execution. Complete member domains, contribution
+windows, empty time buckets and Metric empty-set rules remain independent of
+explicit report rows. Reports with prescribed rows may complete their exported
+`to_pandas()` result externally; external results cannot re-enter typed analysis.
+Saved Artifacts containing removed completion nodes or standalone group domains
+raise structured recovery errors requiring source re-execution, preserving the
+saved files. Other Artifacts keep the current recovery format.
 
 Time grain is expressed by `observe(..., during=time_grid(..., grain=grain("day")))`.
 Endpoint attribute reads use `members.read(field, at=grid.start/end/before_end)`;
@@ -329,7 +333,7 @@ observation's exact grid and complete member/time keys. The public `each`,
 Existing result grouping and original `rollup` express time coarsening. Relative
 Anchor observation keeps its per-Anchor window contract.
 
-`group_by` on existing results binds classification; `rollup` merges sufficient original state;
+`group_by` on numeric, ratio and statistic results binds classification; `rollup` merges sufficient original state;
 `summarize` creates a new current-row statistic. Means retain sum/count, ratios
 retain all original components, and linear expressions retain signed ordered
 occurrences. Averaging finished means/ratios is not original rollup. Direct

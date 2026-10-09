@@ -72,7 +72,6 @@ from marivo.analysis.core.rules import (
     AssociationScore,
     BindProject,
     CellDerive,
-    CompleteGroups,
     DeviationRead,
     DisplayRank,
     DisplayTable,
@@ -466,21 +465,6 @@ def _kind(node: Relation) -> str:
         return "table"
     if isinstance(params, TimeProduct):
         return "members"
-    if isinstance(params, CompleteGroups):
-        quantity = node.root.signature.quantity
-        return (
-            "group"
-            if quantity is None
-            else "summarize"
-            if isinstance(quantity, RowStatisticQuantity)
-            else "ratio_observe"
-            if isinstance(quantity, ObservedQuantity) and quantity.method_version == "ratio@v1"
-            else "observe"
-            if isinstance(quantity, ObservedQuantity)
-            else "ratio_rollup"
-            if quantity is not None and quantity.method_version == "ratio@v1"
-            else "rollup"
-        )
     if isinstance(params, ReferenceDerive):
         return "relation_ratio"
     if isinstance(params, RowState):
@@ -716,9 +700,9 @@ class _Value:
                 if fixed
                 else (("cohort", "execute") if signature.domain.time_grid is None else ("execute",))
                 if self._has_fixed()
-                else ("read", "group_by", "observe", "execute")
+                else ("read", "observe", "execute")
                 if signature.domain.time_grid is not None
-                else ("cohort", "read", "group_by", "observe", "execute")
+                else ("cohort", "read", "observe", "execute")
             )
         elif kind == "read":
             names = (
@@ -774,7 +758,8 @@ class _Value:
         ):
             names = tuple(name for name in names if name not in ("rollup", "group_by"))
         if isinstance(self, _CountRelation):
-            names = tuple(dict.fromkeys((*names, "group_by", "summarize")))
+            names = tuple(dict.fromkeys((*names, "summarize")))
+            names = tuple(name for name in names if name != "group_by")
         if (
             signature.quantity is not None
             and signature.quantity.method_version == "history.read@v1"
@@ -2393,23 +2378,16 @@ class _OriginalContinuation(_NumericComparison):
         | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
-        groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
     ) -> GroupedNumericRelation | GroupedRatioRelation:
         """Retain selected coordinates for another original-state reduction.
 
         Args:
             dimensions: Retained complete axes or explicit corresponding classifications.
-            groups: Optional explicit target retaining empty groups.
         Returns: A grouped original numeric or ratio relation.
         Example: ``result = relation.group_by(dimension).rollup().execute()``.
         Constraints: Removed axes cannot be recovered and grouping never reloads attributes.
         """
         grouped, rows = self._group_nodes(dimensions)
-        if groups is not None:
-            grouped = grouped.complete_groups(groups._node)
         quantity = self._node.root.signature.quantity
         cls = (
             GroupedRatioRelation
@@ -2422,7 +2400,6 @@ class _OriginalContinuation(_NumericComparison):
             self._runtime,
             inputs=(self,),
             row_node=rows,
-            target_node=None if groups is None else groups._node,
         )
 
     def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
@@ -2462,104 +2439,6 @@ class _OriginalContinuation(_NumericComparison):
 
 
 class _CountRelation(_Value):
-    def group_by(
-        self,
-        *keys: Ref[DimensionKind]
-        | Ref[EntityKind]
-        | LogicalCategoryRelation
-        | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
-        | TimeGrid,
-        groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
-    ) -> GroupedAnalysisDomain:
-        """Bind complete classification keys for current-row counts.
-
-        Args:
-            keys: Retained coordinates or corresponding categorical relations.
-            groups: Optional complete target domain, including empty groups.
-        Returns: A grouped count receiver and target domain.
-        Example: ``result = category.group_by().summarize(mv.count()).execute()``.
-        Constraints: Categories, including selections, group their own Defined values without keys; other scalar kinds form Singleton.
-        """
-        effective = keys or (
-            (self,)
-            if isinstance(
-                self,
-                (
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
-                ),
-            )
-            else ()
-        )
-        node = self._node
-        coordinates: list[Coordinate] = []
-        for key in effective:
-            if isinstance(key, TimeGrid):
-                if key._bound is None or key._bound != node.root.signature.domain.time_grid:
-                    raise _reject(
-                        "the retained grid", "foreign grid", "Use the receiver's time grid."
-                    )
-                coordinates.extend(
-                    c for c in node.root.signature.domain.instance_key if c.role == "anchor"
-                )
-                continue
-            if isinstance(
-                key,
-                (
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
-                ),
-            ):
-                coordinate = self._classification_key(key)
-                retained_matches = tuple(
-                    c
-                    for c in node.root.signature.domain.instance_key
-                    if c == coordinate
-                    or (c.field == coordinate.field and coordinate.binding_id in c.bindings)
-                )
-                if len(retained_matches) > 1:
-                    raise _reject(
-                        "one retained classification binding",
-                        coordinate.field,
-                        "Select an unambiguous classification role.",
-                    )
-                if retained_matches:
-                    coordinates.append(retained_matches[0])
-                else:
-                    node = node.attach_category(key._node)
-                    coordinates.append(node.root.signature.domain.instance_key[-1])
-            else:
-                matches = [
-                    c
-                    for c in node.root.signature.domain.instance_key
-                    if (
-                        c.entity_ref == key and c.role == "identity"
-                        if key.kind == "entity"
-                        else c.field == key.path
-                    )
-                ]
-                if not matches or (key.kind == "dimension" and len(matches) != 1):
-                    raise _reject(
-                        "retained grouping coordinates",
-                        key.path,
-                        "Pass a retained coordinate or corresponding categorical read.",
-                    )
-                coordinates.extend(matches)
-        return GroupedAnalysisDomain(
-            _TOKEN,
-            node.group_domain(tuple(coordinates)),
-            self._runtime,
-            inputs=(self,),
-            row_node=node,
-            target_groups=groups,
-        )
-
     def summarize(self, method: CountMethod) -> LogicalStatisticRelation:
         """Count current scalar rows under the selected Cell policy.
 
@@ -2873,44 +2752,6 @@ class LogicalAnalysisDomain(_CohortDomain):
             return LogicalBooleanRelation(_TOKEN, node, self._runtime, inputs=(self,))
         return LogicalCategoryRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
-    def group_by(
-        self,
-        *keys: Ref[DimensionKind] | LogicalCategoryRelation | LogicalSelectedCategoryRelation,
-        groups: LogicalAnalysisDomain | GroupedAnalysisDomain | None = None,
-    ) -> GroupedAnalysisDomain:
-        """Bind a complete combination of member classifications.
-
-        Args:
-            keys: Own Dimension Refs or explicitly corresponding categorical reads.
-            groups: Optional explicit target domain, including empty groups.
-        Returns: A lazy grouped member domain; no keys denotes Singleton.
-        Example: ``targets = members.group_by(region).execute()``.
-        Constraints: Classifications must be Defined on consumed members and align by full keys.
-        """
-        node = self._node
-        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
-        coordinates: list[Coordinate] = []
-        for key in keys:
-            category = self.read(key) if isinstance(key, Ref) else key
-            if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
-                raise _reject(
-                    "a categorical Dimension",
-                    type(category).__name__,
-                    "Use a qualified categorical classification.",
-                )
-            node = node.attach_category(category._node)
-            categories.append(category)
-            coordinates.append(node.root.signature.domain.instance_key[-1])
-        target = node.group_domain(tuple(coordinates))
-        return GroupedAnalysisDomain(
-            _TOKEN,
-            target,
-            self._runtime,
-            inputs=(self, *categories),
-            row_node=node,
-            target_groups=groups,
-        )
-
     def observe(
         self,
         metric: MetricInputValue,
@@ -2925,7 +2766,6 @@ class LogicalAnalysisDomain(_CohortDomain):
             | LogicalSelectedCategoryRelation,
             ...,
         ] = (),
-        groups: LogicalAnalysisDomain | GroupedAnalysisDomain | None = None,
         complete_during: tuple[TimeScope, ...] | None = None,
     ) -> LogicalNumericRelation | LogicalRatioRelation:
         """Compute a governed Metric directly at the requested output grain.
@@ -2938,7 +2778,6 @@ class LogicalAnalysisDomain(_CohortDomain):
             by: Ordered tuple of the receiver's member Entity, categorical Dimensions, or
                 same-Session logical member or contribution-root classifications. Independent scalar Dimension branches are allowed. The Entity retains its full primary key.
                 Empty means Singleton on ordinary members, or one overall value per time bucket.
-            groups: Optional same-Session logical target domain retaining explicit empty groups.
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: An original LogicalNumericRelation | LogicalRatioRelation at the selected grain.
@@ -2968,14 +2807,6 @@ class LogicalAnalysisDomain(_CohortDomain):
                 "an ordered tuple of typed observation axes",
                 type(by).__name__,
                 "Pass by=(axis, ...).",
-            )
-        if groups is not None and not isinstance(
-            groups, (LogicalAnalysisDomain, GroupedAnalysisDomain)
-        ):
-            raise _reject(
-                "a same-Session logical target domain",
-                type(groups).__name__,
-                "Use a logical complete target domain for groups.",
             )
         subject = next(p for p in node.root.signature.parts if isinstance(p, SubjectPart))
         live = node._live()
@@ -3182,8 +3013,6 @@ class LogicalAnalysisDomain(_CohortDomain):
                 resolver=resolver,
                 target_keys=tuple(keys),
             )
-            if groups is not None:
-                observed = observed.complete_groups(groups._node)
             if (
                 observed.root.signature.quantity is not None
                 and observed.root.signature.quantity.method_version == "linear@v1"
@@ -3210,8 +3039,6 @@ class LogicalAnalysisDomain(_CohortDomain):
             resolver=resolver,
             target_keys=tuple(keys),
         )
-        if groups is not None:
-            observed = observed.complete_groups(groups._node)
         if complete_during is not None:
             observed = observed.business_coverage(complete_during)
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self, *categories))
@@ -3238,7 +3065,7 @@ class LogicalFixedAnalysisDomain(_CohortDomain):
     if not TYPE_CHECKING:
         # Static callers see only execute(); dynamic callers still receive a repair.
         def __getattr__(self, name: str) -> NoReturn:
-            if name in ("read", "group_by", "observe"):
+            if name in ("read", "observe"):
                 fit = next(
                     (
                         part
@@ -3268,73 +3095,6 @@ class LogicalFixedAnalysisDomain(_CohortDomain):
                     "Construct the selection from logical source members before execution.",
                 )
             raise AttributeError(name)
-
-
-class GroupedAnalysisDomain(_Value):
-    """Logical grouping descriptor for one member Dimension."""
-
-    def __init__(
-        self,
-        token: object,
-        node: Relation,
-        runtime: DatasetRuntime,
-        *,
-        inputs: tuple[_Value, ...],
-        target_groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
-        row_node: Relation | None = None,
-    ) -> None:
-        if target_groups is not None:
-            node = node.complete_groups(target_groups._node)
-        super().__init__(token, node, runtime, inputs=inputs)
-        self._target_groups = target_groups
-        self._row_node = row_node
-
-    def contract(self) -> AnalysisContract:
-        """Disclose only continuations bound by this grouping descriptor.
-
-        Args: None.
-        Returns: The bounded current grouping contract.
-        Example: ``groups.contract().show()``.
-        Constraints: Target-only groups do not create observations or row state.
-        """
-        names: tuple[str, ...] = ("execute",)
-        if self._row_node is not None:
-            names = (*names, "summarize")
-        return replace(super().contract(), actions=self._action_contract(names))
-
-    def summarize(self, method: CountMethod) -> LogicalStatisticRelation:
-        """Count current rows within these complete groups.
-
-        Args: method: mv.count() or mv.count_defined().
-        Returns: A new grouped row-count statistic.
-        Example: ``result = category.group_by().summarize(mv.count()).execute()``.
-        Constraints: Requires a scalar row receiver; target-only domains cannot invent rows.
-        """
-        if not isinstance(method, CountMethod) or self._row_node is None:
-            raise _reject(
-                "a scalar count receiver and CountMethod",
-                type(method).__name__,
-                "Group a scalar relation and choose a count factory.",
-            )
-        node = self._row_node.summarize(
-            method.kind, coordinates=self._node.root.signature.domain.instance_key
-        )
-        if self._target_groups is not None:
-            node = node.complete_groups(self._target_groups._node)
-        return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
-
-    def execute(self) -> MaterializedAnalysisDomain:
-        """Retain the complete explicit target-group domain.
-
-        Args: None.
-        Returns: A fixed group domain usable as groups in fixed continuations.
-        Example: ``targets = category.group_by().execute()``.
-        Constraints: Validate consumed keys against explicit targets and retain all target groups.
-        """
-        return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
 class LogicalCategoryRelation(_CountRelation):
@@ -3536,11 +3296,9 @@ class GroupedNumericRelation(_Value):
         *,
         inputs: tuple[_Value, ...],
         row_node: Relation | None = None,
-        target_node: Relation | None = None,
     ) -> None:
         super().__init__(token, grouped, runtime, inputs=inputs)
         self._row_node = inputs[0]._node if row_node is None else row_node
-        self._target_node = target_node
 
     def contract(self) -> AnalysisContract:
         """Report the grouped observation's one admitted continuation.
@@ -3592,8 +3350,6 @@ class GroupedNumericRelation(_Value):
         node = self._row_node.summarize(
             method.kind, coordinates=self._node.root.signature.domain.instance_key
         )
-        if self._target_node is not None:
-            node = node.complete_groups(self._target_node)
         return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -3616,10 +3372,7 @@ class GroupedNumericRelation(_Value):
 class GroupedRatioRelation(_Value):
     """Grouped original ratio components awaiting a target-domain rollup."""
 
-    __slots__ = (
-        "_row_node",
-        "_target_node",
-    )
+    __slots__ = ("_row_node",)
 
     def __init__(
         self,
@@ -3629,11 +3382,9 @@ class GroupedRatioRelation(_Value):
         *,
         inputs: tuple[_Value, ...],
         row_node: Relation | None = None,
-        target_node: Relation | None = None,
     ) -> None:
         super().__init__(token, grouped, runtime, inputs=inputs)
         self._row_node = inputs[0]._node if row_node is None else row_node
-        self._target_node = target_node
 
     def contract(self) -> AnalysisContract:
         """Report the ratio group's one admitted continuation.
@@ -3672,8 +3423,6 @@ class GroupedRatioRelation(_Value):
         node = self._row_node.summarize(
             method.kind, coordinates=self._node.root.signature.domain.instance_key
         )
-        if self._target_node is not None:
-            node = node.complete_groups(self._target_node)
         return LogicalStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
@@ -3726,30 +3475,22 @@ class LogicalNumericRelation(_NumericComparison):
         | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
-        groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
     ) -> GroupedNumericRelation:
         """Select complete retained axes or explicit classifications for reduction.
 
         Args:
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension, groups=targets)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
+        Example: ``result = relation.group_by(dimension)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
         """
         grouped, rows = self._group_nodes(dimensions)
-        if groups is not None:
-            grouped = grouped.complete_groups(groups._node)
         return GroupedNumericRelation(
             _TOKEN,
             grouped,
             self._runtime,
             inputs=(self,),
             row_node=rows,
-            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -3840,30 +3581,22 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
-        groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
     ) -> GroupedNumericRelation:
-        """Group retained fixed axes with fixed classifications and targets.
+        """Group retained fixed axes with fixed classifications.
 
         Args:
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension, groups=targets)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
+        Example: ``result = relation.group_by(dimension)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
         """
         grouped, rows = self._group_nodes(dimensions)
-        if groups is not None:
-            grouped = grouped.complete_groups(groups._node)
         return GroupedNumericRelation(
             _TOKEN,
             grouped,
             self._runtime,
             inputs=(self,),
             row_node=rows,
-            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledNumericRelation:
@@ -3978,30 +3711,22 @@ class LogicalRatioRelation(_NumericComparison):
         | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
-        groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
     ) -> GroupedRatioRelation:
         """Select complete retained axes for original ratio reduction.
 
         Args:
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension, groups=targets)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
+        Example: ``result = relation.group_by(dimension)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
         """
         grouped, rows = self._group_nodes(dimensions)
-        if groups is not None:
-            grouped = grouped.complete_groups(groups._node)
         return GroupedRatioRelation(
             _TOKEN,
             grouped,
             self._runtime,
             inputs=(self,),
             row_node=rows,
-            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -4053,30 +3778,22 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
         | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
-        groups: LogicalAnalysisDomain
-        | GroupedAnalysisDomain
-        | MaterializedAnalysisDomain
-        | None = None,
     ) -> GroupedRatioRelation:
         """Group complete fixed coordinates for original ratio reduction.
 
         Args:
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-            groups: Optional typed target domain preserving empty groups.
         Returns: A GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension, groups=targets)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories and targets.
+        Example: ``result = relation.group_by(dimension)``.
+        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
         """
         grouped, rows = self._group_nodes(dimensions)
-        if groups is not None:
-            grouped = grouped.complete_groups(groups._node)
         return GroupedRatioRelation(
             _TOKEN,
             grouped,
             self._runtime,
             inputs=(self,),
             row_node=rows,
-            target_node=None if groups is None else groups._node,
         )
 
     def rollup(self) -> LogicalRolledRatioRelation:
@@ -4431,13 +4148,11 @@ class _StatisticContinuation(_NumericComparison):
     def group_by(
         self,
         *keys: Ref[DimensionKind] | Ref[EntityKind] | CategoryRelation,
-        groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
     ) -> GroupedStatisticRelation:
         """Select retained axes for a partial row-state merge.
 
         Args:
             keys: Retained complete coordinates or corresponding classifications selecting roles.
-            groups: Optional explicit target including valid empty groups.
         Returns: A grouped statistic awaiting rollup.
         Example: ``result = statistic.group_by(dimension).rollup().execute()``.
         Constraints: Merges this statistic's state; does not summarize finished values.
@@ -4446,8 +4161,6 @@ class _StatisticContinuation(_NumericComparison):
         node = self._node.rollup_statistic(
             *(key if isinstance(key, Ref) else self._classification_key(key) for key in keys)
         )
-        if groups is not None:
-            node = node.complete_groups(groups._node)
         return GroupedStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
 
 
@@ -5323,7 +5036,17 @@ def wrap_materialized(
         return MaterializedRankingResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "table":
         return MaterializedTable(_TOKEN, node, runtime, dataset=dataset)
-    if kind in ("members", "group"):
+    if kind == "group":
+        from marivo.analysis.materialization.errors import IntegrityError
+
+        raise IntegrityError(
+            expected="a current member or quantity Artifact",
+            received="a retired standalone group-domain Artifact",
+            repair="Preserve the saved Artifact and re-execute the source analysis with observe(by=...).",
+            stage="graph_protocol",
+            help_target="dsl.LogicalAnalysisDomain.observe",
+        )
+    if kind == "members":
         return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
     if kind == "read":
         params = node.captured_definition.parameters
