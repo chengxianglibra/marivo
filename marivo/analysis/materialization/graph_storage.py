@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 from pathlib import Path
@@ -38,6 +39,21 @@ from marivo.analysis.materialization.storage import (
     _open_payload,
 )
 from marivo.analysis.methods.semantics import MethodKey
+
+
+def payload_digest(root: Path, directory: Path, receipt: LocalReceipt) -> str:
+    """Bind an immutable part receipt to all its exact persisted file bytes."""
+    from marivo.analysis.materialization.execute_deadline import check
+
+    digest = hashlib.sha256()
+    for entry in receipt.file_manifest:
+        path = _checked_path(root, directory / entry.relative_path)
+        digest.update(entry.relative_path.encode())
+        with path.open("rb") as stream:
+            while block := stream.read(1024 * 1024):
+                check()
+                digest.update(block)
+    return digest.hexdigest()
 
 
 def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> LocalReceipt:
@@ -107,6 +123,13 @@ def read_result(
 ) -> ExchangeResult:
     checked = checked_metadata(descriptor, _validated)
     primary = read_table(root, descriptor.primary_receipt.local)
+    for receipt in descriptor.parts:
+        try:
+            actual = payload_digest(root, root / receipt.local.project_relative_path, receipt.local)
+        except OSError as error:
+            raise invalid("committed part payload cannot be verified") from error
+        if actual != receipt.payload_digest:
+            raise invalid("committed part payload differs from its immutable receipt digest")
     parts = tuple(ExchangePart(p.role, read_table(root, p.local)) for p in descriptor.parts)
     schema = schema_from(descriptor.realized_schema)
     if not primary.schema.equals(storage_schema(schema), check_metadata=True):

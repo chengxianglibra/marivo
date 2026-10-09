@@ -1,4 +1,4 @@
-"""Native Count reduction, nested grouped state and source-free recovery witnesses."""
+"""Native Count reduction, flat grouped state and source-free recovery witnesses."""
 
 from __future__ import annotations
 
@@ -6,15 +6,21 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.methods.errors import MethodRegistrationError
+from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.graph_protocol import validate_metadata
+from marivo.analysis.materialization.graph_storage import read_result
+from marivo.analysis.methods.coordinate_state import KeyedCoordinateLayout
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case
@@ -95,6 +101,9 @@ with patch.object(ms, 'load', forbidden), patch.object(DatasourceConnectionServi
 @pytest.mark.parametrize(
     "backend,profile",
     [
+        ("duckdb", "table"),
+        ("sqlite", "table"),
+        ("sqlite", "view"),
         ("postgres", "table"),
         ("mysql", "innodb-table"),
         ("trino", "iceberg"),
@@ -160,8 +169,6 @@ def test_native_count_rollup_and_group_state(
             scalar.rollup(),
             individual.summarize(mv.sum()),
         )
-        if backend == "trino":
-            reductions += (grouped.rollup(),)
         for logical in reductions:
             offset = len(execution_records(tmp_path))
             result = logical.execute()
@@ -169,29 +176,45 @@ def test_native_count_rollup_and_group_state(
             assert _stage_rows(tmp_path, offset) == [1]
             assert result._dataset is not None
             assert all(part.table.num_rows == 1 for part in result._dataset.verified().parts)
-        saved_groups = None
-        if backend in ("postgres", "mysql", "clickhouse"):
-            for unsupported in (grouped, grouped.rollup()):
-                offset = len(execution_records(tmp_path))
-                with pytest.raises(MethodRegistrationError, match="nested contribution-coordinate"):
-                    unsupported.execute()
-                assert not any(
-                    record.get("event") == "query.submitted"
-                    and str(record.get("purpose", "")).startswith("analysis.graph.")
-                    for record in execution_records(tmp_path)[offset:]
+        offset = len(execution_records(tmp_path))
+        saved_groups = grouped.execute()
+        frame = saved_groups.to_pandas()
+        assert frame.set_index("group")["value"].to_dict() == {"even": 499, "odd": 500}
+        assert _stage_rows(tmp_path, offset) == [2]
+        assert saved_groups._dataset is not None
+        coordinate = next(
+            p for p in saved_groups._dataset.verified().parts if p.role == "coordinate_state"
+        )
+        assert coordinate.table.column_names == ["key_0", "coordinate_state__present"]
+        if backend == "duckdb" and key_type == "int64":
+            descriptor = saved_groups._dataset.artifact.descriptor
+            receipt = next(p for p in descriptor.parts if p.role == "coordinate_state")
+            assert isinstance(receipt.layout, KeyedCoordinateLayout)
+            changed = replace(receipt, layout=replace(receipt.layout, owner="coverage"))
+            with pytest.raises(IntegrityError, match="owning receipt differs"):
+                validate_metadata(
+                    replace(
+                        descriptor,
+                        parts=tuple(changed if p is receipt else p for p in descriptor.parts),
+                    )
                 )
-        elif backend == "trino":
-            offset = len(execution_records(tmp_path))
-            saved_groups = grouped.execute()
-            frame = saved_groups.to_pandas()
-            assert frame.set_index("group")["value"].to_dict() == {"even": 499, "odd": 500}
-            assert _stage_rows(tmp_path, offset) == [2]
-            assert saved_groups._dataset is not None
-            assert {part.role for part in saved_groups._dataset.verified().parts} >= {
-                "coordinate_state",
-                "original_state",
-                "coverage",
-            }
+            path = tmp_path / receipt.local.project_relative_path / "data.parquet"
+            original = path.read_bytes()
+            try:
+                table = pq.read_table(path)
+                table = table.set_column(
+                    1, "coordinate_state__present", pa.array([False] * len(table))
+                )
+                pq.write_table(table, path)
+                corrupted = path.read_bytes()
+                with pytest.raises(IntegrityError, match="immutable receipt digest"):
+                    read_result(tmp_path, descriptor)
+                assert path.read_bytes() == corrupted
+            finally:
+                path.write_bytes(original)
+        offset = len(execution_records(tmp_path))
+        assert grouped.rollup().execute().to_pandas()["value"].tolist() == [999]
+        assert _stage_rows(tmp_path, offset) == [2]
         classification = members.read(category)
         assert isinstance(classification, mv.LogicalCategoryRelation)
         empty = classification.where(classification.value.eq("absent")).members()
@@ -210,7 +233,10 @@ def test_native_count_rollup_and_group_state(
         offset = len(execution_records(tmp_path))
         assert timed.rollup().execute().to_pandas()["value"].tolist() == [1000]
         assert _stage_rows(tmp_path, offset) == [1]
-        if backend == "trino" and profile == "non-iceberg" and key_type == "int64":
+        if key_type == "int64" and (
+            (backend == "trino" and profile == "non-iceberg")
+            or (backend == "sqlite" and profile == "table")
+        ):
             assert saved_groups is not None
             saved_members = individual.execute()
             _cold_rollup(

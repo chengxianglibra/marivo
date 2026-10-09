@@ -210,13 +210,13 @@ CSV/JSON adapters, SQLite, PostgreSQL, MySQL, Trino and ClickHouse do not inheri
 one another's method qualifications. A backend name or successfully compiled
 expression is not blanket support.
 
-Native driver transport recursively preserves the normalized children of list
-and struct carriers before checking the complete Arrow round-trip. This includes
-Trino named rows inside retained coordinate state. Normalization does not relax
-declared field names, nullability, exact integer/Decimal values or scalar precision,
-and does not mutate driver-owned containers.
-Trino retained-state expansion unnests integer positions and indexes the array,
-preserving each complete struct instead of expanding its fields into SQL columns.
+Ordinary contribution coordinates use flat primary/partition relations and one
+terminal transport. Complete result keys select keyed component reuse or a flat
+partition at compilation, shared across backends, exchange, persistence and fixed
+execution. `operators-and-frames.md` owns these layouts and numeric semantics;
+`session-state-and-runtime.md` owns their receipt versions. Native driver recursive
+normalization remains available for other specialized list/struct states; it does
+not relax exact Arrow carrier contracts.
 
 Native relational operations stay in governed Ibis expressions. Matching,
 History replay, exact retained-state reduction and statistical kernels use

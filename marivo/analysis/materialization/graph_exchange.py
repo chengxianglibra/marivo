@@ -48,7 +48,6 @@ from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
-    coordinate_state_matches,
     difference_matches,
     state_matches,
 )
@@ -168,6 +167,10 @@ class ExchangeContract:
                     "entry_axes",
                     "funnel_state",
                     "finding_policy",
+                    "coordinate_state",
+                    "allocation_state",
+                    "current_endpoint_coordinates",
+                    "baseline_endpoint_coordinates",
                 )
                 and not any(
                     isinstance(p, AttributionPart) and p.role == part.role
@@ -523,7 +526,14 @@ def collect(
         if not part.table.schema.equals(declared.schema, check_metadata=False):
             raise _invalid(f"{declared.role} schema differs")
         from marivo.analysis.core.model import ReferenceStatePart
+        from marivo.analysis.methods.coordinate_state import key_fields as coordinate_keys
 
+        retained_keys = coordinate_keys(contract.signature, declared.role)
+        if retained_keys is not None:
+            if declared.key_fields != retained_keys:
+                raise _invalid("contribution part keys differ from its frozen layout")
+            _table_keys(part.table, declared.key_fields)
+            continue
         attribution_part = next(
             (
                 p
@@ -657,28 +667,12 @@ def collect(
                 raise _invalid("ranking scope lacks selected keys")
         elif part_keys != primary_keys:
             raise _invalid(f"{declared.role} complete keys differ")
-    coordinate = next(
-        (part for part in contract.signature.parts if isinstance(part, CoordinateStatePart)), None
-    )
-    if coordinate is not None:
-        by_role = {part.role: part.table for part in parts}
-        if "original_state" not in by_role or part_role(coordinate) not in by_role:
-            raise _invalid("coordinate partition lacks original or coordinate components")
-        original = {
-            tuple(row[name] for name in contract.key_fields): row
-            for row in cell_rows(by_role["original_state"])
-        }
-        for row in cell_rows(by_role[part_role(coordinate)]):
-            key = tuple(row[name] for name in contract.key_fields)
-            if not coordinate_state_matches(
-                coordinate.components,
-                coordinate.value_type,
-                row.get(part_role(coordinate) + "__groups"),
-                original[key],
-                coordinate.columns,
-                coordinate.component_types,
-            ):
-                raise _invalid("coordinate partition differs from its complete original state")
+    from marivo.analysis.methods.coordinate_state import validate as validate_coordinates
+
+    try:
+        validate_coordinates(contract.signature, {part.role: part.table for part in parts})
+    except (ValueError, KeyError, pa.ArrowException) as error:
+        raise _invalid(str(error)) from error
     by_role = {part.role: part.table for part in parts}
     for declaration in contract.signature.parts:
         if (
@@ -1039,6 +1033,15 @@ def _verify_difference_parts(
             value = endpoint[f"{side}_endpoint__value"]
             tag = endpoint[f"{side}_endpoint__cell_tag"]
             reason = endpoint[f"{side}_endpoint__cell_reason"]
+            complete = f"{side}_endpoint__complete"
+            if complete in endpoint and endpoint[complete] is not present:
+                raise _invalid("comparison endpoint coverage differs from correspondence presence")
+            if not present and any(
+                value is not None
+                for name, value in endpoint.items()
+                if name.startswith(f"{side}_endpoint__state__")
+            ):
+                raise _invalid("absent comparison endpoint cannot retain original components")
             if present:
                 valid = (
                     tag == "defined"

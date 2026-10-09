@@ -446,7 +446,7 @@ def test_remote_count_rollup_does_not_borrow_other_physical_keys(change: str) ->
         REGISTRY.select(key, (source,), params)
 
 
-def test_postgres_count_rollup_rejects_retained_categorical_state() -> None:
+def test_postgres_count_rollup_admits_flat_categorical_state() -> None:
     source, params = _count_reduction("group")
     assert isinstance(source.quantity, ObservedQuantity)
     coordinate = CoordinateStatePart(
@@ -466,11 +466,9 @@ def test_postgres_count_rollup_rejects_retained_categorical_state() -> None:
         SourceShape("postgres", "table", "native", TimeShape("instant", "us", "UTC")),
         "ibis",
     )
-    with pytest.raises(MethodRegistrationError, match="nested contribution-coordinate") as caught:
-        REGISTRY.select(key, (source,), params)
-    assert caught.value.repair is not None
-    assert caught.value.repair.kind == "environment"
-    assert "omit categorical axes" in caught.value.repair.action
+    selected = REGISTRY.select(key, (source,), params)
+    assert selected.implementation.key == key
+    assert coordinate in source.parts
 
 
 def test_missing_key_repair_uses_bounded_admitted_profiles() -> None:

@@ -1006,6 +1006,8 @@ PartRole: TypeAlias = Literal[
     "subject",
     "current_endpoint",
     "baseline_endpoint",
+    "current_endpoint_coordinates",
+    "baseline_endpoint_coordinates",
     "original_state",
     "allocation_state",
     "coordinate_state",

@@ -66,11 +66,42 @@ the requested key and disclose at most three admitted physical profiles for the
 same types, domains and time. These are explicit reconstruction choices, not
 automatic retries; an empty candidate list directs the caller to report missing
 library support. Other physical shapes still require their own registration.
-PostgreSQL Count observation and rollup reject nested categorical coordinate
-state before source execution. Overall, Entity and time-only Group Count paths
-remain admitted; Group qualification does not authorize every retained state shape.
+Contribution coordinates use the same flat retained layouts on all six backends,
+including categorical Count on PostgreSQL. This removes only the former array
+state restriction; every method, carrier, time and physical profile still needs
+its exact registered qualification.
 Count observations explicitly preserve the signed int64 carrier before further
 aggregation, including backends whose native count and literal sums are unsigned.
+
+## Physical contribution coordinates
+
+The complete result key statically selects one private layout. When every
+contribution coordinate is in that key, the coordinate part stores only the
+complete key and a non-null boolean presence marker; original components remain
+in `original_state`. Otherwise a flat partition is uniquely keyed by the complete
+result key plus each coordinate absent from it. Every component keeps its own
+exact numeric carrier. Logical coordinate identities, roles, versions and time
+bindings still own recomposition and attribution authority.
+
+Presence records actual aggregate groups, independently of component values,
+non-null support counts and coordinate nullability. Empty targets have no
+contribution entries; all-Null real contributions still have entries. Missing
+classification rejects. Full coordinate tuples are preserved, without Cartesian
+expansion of correlated axes. Endpoint scalar state keeps its complete endpoint
+key; its coordinate receipt names that endpoint receipt as owner.
+Endpoint presence is a non-null boolean. In partition layouts it must equal
+whether that complete endpoint key owns any contribution rows, including real
+all-Null groups; numeric support does not determine presence.
+
+Every lowered source node has a unique-key primary relation and separate
+contribution relations. Current-row statistics, filtering and display consume the
+primary relation. Observations and rollups finish complete target windows over
+one partition aggregation, with a left join preserving empty targets. Other
+independent relations use a closed row-kind, typed `UNION ALL` transport with
+explicit typed Null slots. Neither path packs contribution `list<struct>` values.
+Only the terminal result is read on the pure Ibis route. Checks remain independent
+reads, without a shared-snapshot claim. Fixed execution indexes the retained flat
+parts and uses the existing component merge and finish rules.
 
 ## Evidence and field matching
 
@@ -78,8 +109,9 @@ Entity identity/version grain and source parsing are trusted declarations.
 Constructor guarantees, call assumptions and completed invocation checks remain
 distinct. Selection preserves unique keys; grouping constructs unique targets.
 To-one structure proves single-valuedness, not total matching.
-SQLite, MySQL and ClickHouse observations reject nested contribution-coordinate state;
-relationship inference does not change backend admission or substitute a path.
+Contribution coordinates are independent flat relations. SQLite, MySQL and
+ClickHouse do not require arrays or structs for this state. Relationship inference
+does not change backend admission or substitute a path.
 
 `LogicalAnalysisDomain.read(field, *, at=None, via=None,
 match_verification="check")` and its governed variants use declared field owner,

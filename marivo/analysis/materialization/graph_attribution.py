@@ -41,6 +41,7 @@ from marivo.analysis.materialization.graph_exchange import (
     numeric_primary,
 )
 from marivo.analysis.materialization.graph_protocol import digest
+from marivo.analysis.materialization.graph_reference import part_keys as retained_part_keys
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
 from marivo.analysis.methods.attribution import (
     Basis,
@@ -55,6 +56,12 @@ from marivo.analysis.methods.attribution import (
 from marivo.analysis.methods.attribution import columns as columns
 from marivo.analysis.methods.attribution import part_keys as part_keys
 from marivo.analysis.methods.comparison import _finish
+from marivo.analysis.methods.coordinate_state import (
+    entries as coordinate_entries,
+)
+from marivo.analysis.methods.coordinate_state import (
+    retain as retain_coordinates,
+)
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -63,7 +70,7 @@ from marivo.analysis.methods.physical import (
     arrow_scalar_type,
 )
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.methods.state_validation import coordinate_state_matches, state_matches
+from marivo.analysis.methods.state_validation import state_matches
 from marivo.refs import DimensionKind, Ref, SemanticKind
 from marivo.semantic.validator import normalize_target_dimension
 
@@ -291,14 +298,17 @@ def retain_endpoint_states(
             tuple(r[k] for k in keys): r
             for r in next(p.table for p in source.parts if p.role == "original_state").to_pylist()
         }
-        coordinate = next(
-            (p.table for p in source.parts if p.role in ("coordinate_state", "allocation_state")),
-            None,
-        )
-        groups = (
-            {tuple(r[k] for k in keys): r for r in coordinate.to_pylist()}
-            if coordinate is not None
-            else {}
+        coordinate = declaration.coordinate_state
+        full = (
+            coordinate_entries(
+                source.contract.signature,
+                {item.role: item.table for item in source.parts},
+                "allocation_state"
+                if coordinate and coordinate.attribution_only
+                else "coordinate_state",
+            )
+            if coordinate
+            else None
         )
         coverage = {
             tuple(r[k] for k in keys): r
@@ -313,36 +323,44 @@ def retain_endpoint_states(
             table = table.append_column(
                 p.role + "__state__" + c,
                 pa.array(
-                    [originals[k]["original_state__" + c] for k in identities],
+                    [
+                        originals[k]["original_state__" + c] if k in originals else None
+                        for k in identities
+                    ],
                     type=original.schema.field("original_state__" + c).type,
                 ),
             )
-        if coordinate is not None:
+        child: ExchangePart | None = None
+        if full is not None:
+            present = {tuple(row[k] for k in keys) for row in full.select(keys).to_pylist()}
             table = table.append_column(
-                p.role + "__groups",
-                pa.array(
-                    [
-                        groups[k][
-                            "allocation_state__groups"
-                            if declaration.coordinate_state
-                            and declaration.coordinate_state.attribution_only
-                            else "coordinate_state__groups"
-                        ]
-                        for k in identities
-                    ],
-                    type=coordinate.schema.field(
-                        "allocation_state__groups"
-                        if declaration.coordinate_state
-                        and declaration.coordinate_state.attribution_only
-                        else "coordinate_state__groups"
-                    ).type,
-                ),
+                p.role + "__contribution_present",
+                pa.array([identity in present for identity in identities], type=pa.bool_()),
+            )
+            mapping = {
+                identity: tuple(row[k] for k in keys)
+                for identity, row in zip(identities, p.table.to_pylist(), strict=True)
+            }
+            selected = [
+                dict(row, **dict(zip(keys, mapping[tuple(row[k] for k in keys)], strict=True)))
+                for row in full.to_pylist()
+                if tuple(row[k] for k in keys) in mapping
+            ]
+            remapped = pa.Table.from_pylist(selected, schema=full.schema)
+            child = ExchangePart(
+                p.role + "_coordinates",
+                retain_coordinates(signature, p.role + "_coordinates", remapped, table),
             )
         table = table.append_column(
             p.role + "__complete",
-            pa.array([coverage[k]["coverage__complete"] for k in identities], type=pa.bool_()),
+            pa.array(
+                [coverage[k]["coverage__complete"] if k in coverage else False for k in identities],
+                type=pa.bool_(),
+            ),
         )
         output.append(ExchangePart(p.role, table))
+        if child is not None:
+            output.append(child)
     return tuple(output)
 
 
@@ -362,6 +380,13 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
     for row in cell_rows(table):
         original = {"original_state__" + c: row[prefix + "state__" + c] for c in state.components}
         cell = {c: row[prefix + c] for c in ("value", "cell_tag", "cell_reason")}
+        if (
+            not complete
+            and row[prefix + "complete"] is False
+            and all(value is None for value in original.values())
+        ):
+            # Missing-side Cells are owned by correspondence and its finish policy.
+            continue
         if (complete and row[prefix + "complete"] is not True) or not state_matches(
             "original_" + state.method_version.removesuffix("@v1"),
             cell,
@@ -369,16 +394,6 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
             empty_rules=state.empty_rules,
         ):
             raise invalid("endpoint Cell, original sufficient state or coverage disagrees")
-        coord = declaration.coordinate_state
-        if coord is not None and not coordinate_state_matches(
-            coord.components,
-            coord.value_type,
-            row[prefix + "groups"],
-            original,
-            coord.columns,
-            coord.component_types,
-        ):
-            raise invalid("endpoint coordinate partition does not reproduce its original state")
 
 
 def validate_endpoints(
@@ -399,6 +414,8 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         assert isinstance(p, AttributionPart)
         if p.role in ("current_endpoint", "baseline_endpoint"):
             parts.append(next(x for x in inputs[1].parts if x.role == p.role))
+            if p.endpoint is not None and p.endpoint.coordinate_state is not None:
+                parts.append(next(x for x in inputs[1].parts if x.role == p.role + "_coordinates"))
         elif p.role == "basis":
             table = cell_project(
                 numeric_primary(inputs[0].primary), (*inputs[0].contract.key_fields, "value")
@@ -467,6 +484,12 @@ def result(
     )
     if any(set(side) != {tuple(r[k] for k in scope_keys) for r in basis_rows} for side in sides):
         raise invalid("basis and ordered endpoint key sets differ")
+    coordinate_rows: dict[str, dict[tuple[object, ...], list[dict[str, object]]]] = {}
+    for role in ("current_endpoint", "baseline_endpoint"):
+        coordinate_index: dict[tuple[object, ...], list[dict[str, object]]] = {}
+        for entry in coordinate_entries(signature, by_role, role + "_coordinates").to_pylist():
+            coordinate_index.setdefault(tuple(entry[k] for k in scope_keys), []).append(entry)
+        coordinate_rows[role] = coordinate_index
     output_rows: list[dict[str, object]] = []
     allocation_rows: list[dict[str, object]] = []
     reconciliation_rows: list[dict[str, object]] = []
@@ -502,19 +525,23 @@ def result(
             if endpoint_values[-1] != numeric(data[prefix + "value"]):
                 raise invalid("endpoint is not reproduced by its complete original components")
             totals.append(w)
-            groups = data[prefix + "groups"]
-            if not isinstance(groups, list):
-                raise invalid("missing typed coordinate component partition")
+            groups = coordinate_rows[role].get(scope, [])
             basis: Basis = {}
             errors: Errors = {}
             for group in groups:
-                coordinate = tuple(group[c] for c in endpoint.coordinate_state.columns)
-                if any(v is not None and not isinstance(v, str) for v in coordinate):
-                    raise invalid("only qualified string contribution coordinates are accepted")
-                if coordinate in basis:
+                axis_values: list[str | None] = []
+                for column in endpoint.coordinate_state.columns:
+                    value = group[column]
+                    if value is not None and not isinstance(value, str):
+                        raise invalid("only qualified string contribution coordinates are accepted")
+                    axis_values.append(value)
+                contribution_tuple = tuple(axis_values)
+                if contribution_tuple in basis:
                     raise invalid("duplicate complete axis tuples")
-                basis[coordinate] = components(group, endpoint.original_state.method_version)
-                errors[coordinate] = (
+                basis[contribution_tuple] = components(
+                    group, endpoint.original_state.method_version
+                )
+                errors[contribution_tuple] = (
                     component_errors(group, endpoint.original_state.method_version)[0]
                     if physical == ScalarType("float64")
                     else 0.0
@@ -673,7 +700,10 @@ def result(
         binding,
         primary.schema,
         output_keys,
-        tuple(PartContract(p.role, p.table.schema, part_keys(declarations[p.role])) for p in parts),
+        tuple(
+            PartContract(p.role, p.table.schema, retained_part_keys(signature, p.role))
+            for p in parts
+        ),
         (),
         "attribution_component_mix" if mix else "attribution_additive",
         state.schema,
@@ -716,7 +746,12 @@ def validate(
     full = result(
         replace(contract.signature, parts=tuple(declarations.values())),
         physical_type(primary.schema.field("value").type),
-        tuple(p for p in parts if p.role in ROLES[:3]),
+        tuple(
+            p
+            for p in parts
+            if p.role
+            in (*ROLES[:3], "current_endpoint_coordinates", "baseline_endpoint_coordinates")
+        ),
         contract.input_binding,
         verify=False,
     )
@@ -799,6 +834,7 @@ def pack(result: ExchangeResult, schema: pa.Schema) -> pa.Table:
             tuple(r[k] for k in part_keys(declarations[p.role])): r for r in p.table.to_pylist()
         }
         for p in result.parts
+        if p.role in declarations
     }
     rows = []
     for primary in result.primary.to_pylist():
@@ -899,19 +935,21 @@ def project(
 def retain_partition(
     node: MethodNode, source: ExchangeResult, primary: pa.Table, parts: tuple[ExchangePart, ...]
 ) -> tuple[ExchangePart, ...]:
-    """Transport sufficient coordinate partitions, without restoring removed axes."""
-    coordinate = next((p for p in node.signature.parts if isinstance(p, CoordinateStatePart)), None)
-    if coordinate is None:
-        return parts
+    """Retain flat sufficient partitions without restoring removed axes."""
     from marivo.analysis.core.model import part_role
     from marivo.analysis.methods.numeric_state import merge_components
 
+    coordinate = next((p for p in node.signature.parts if isinstance(p, CoordinateStatePart)), None)
+    if coordinate is None:
+        return parts
     params = node.parameters
     assert isinstance(params, OriginalReduce)
     original = next(
         p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
     )
-    state = next(p.table for p in source.parts if p.role == part_role(original))
+    state = coordinate_entries(
+        source.contract.signature, {p.role: p.table for p in source.parts}, part_role(original)
+    )
     source_keys = source.contract.signature.domain.instance_key
     if params.time_mapping:
         grid = params.output_domain.time_grid
@@ -928,38 +966,33 @@ def retain_partition(
             replace(c, field="time:" + grid.identity) if c.role == "anchor" else c
             for c in source_keys
         )
-    grouped: dict[tuple[object, ...], dict[tuple[object, ...], list[dict[str, object]]]] = {}
-    for row in state.to_pylist():
-        for group in row[part_role(original) + "__groups"]:
-            target = tuple(
-                row[f"key_{source_keys.index(c)}"]
-                if c in source_keys
-                else group[original.columns[original.coordinates.index(c)]]
-                for c in params.coordinates
-            )
-            axis = tuple(group[c] for c in original.columns)
-            grouped.setdefault(target, {}).setdefault(axis, []).append(group)
-    merged = {}
-    schema = next(p.table.schema for p in source.parts if p.role == "original_state")
-    for identity, coordinates in grouped.items():
-        values = []
-        for axis, rows in sorted(
-            coordinates.items(),
-            key=lambda item: tuple((0, "") if v is None else (1, str(v)) for v in item[0]),
-        ):
-            totals = merge_components(
-                rows,
-                schema,
-                original.components,
-            )
-            values.append({**dict(zip(original.columns, axis, strict=True)), **totals})
-        merged[identity] = values
     keys = tuple(f"key_{i}" for i in range(len(params.coordinates)))
-    table = cell_project(primary, keys).append_column(
-        "allocation_state__groups",
-        pa.array(
-            [merged.get(tuple(r[k] for k in keys), []) for r in primary.to_pylist()],
-            type=state.schema.field(part_role(original) + "__groups").type,
+    grouped: dict[tuple[object, ...], list[dict[str, object]]] = {}
+    for row in state.to_pylist():
+        target = tuple(
+            row[f"key_{source_keys.index(c)}"]
+            if c in source_keys
+            else row[original.columns[original.coordinates.index(c)]]
+            for c in params.coordinates
+        )
+        axis = tuple(row[c] for c in original.columns)
+        grouped.setdefault((*target, *axis), []).append(row)
+    schema = next(p.table.schema for p in source.parts if p.role == "original_state")
+    rows = []
+    for identity, values in grouped.items():
+        totals = merge_components(values, schema, original.components)
+        rows.append({**dict(zip((*keys, *original.columns), identity, strict=True)), **totals})
+    full_schema = pa.schema(
+        [
+            *(primary.schema.field(k) for k in keys),
+            *(state.schema.field(c) for c in (*original.columns, *original.components)),
+        ]
+    )
+    full = pa.Table.from_pylist(rows, schema=full_schema)
+    return (
+        *parts,
+        ExchangePart(
+            part_role(coordinate),
+            retain_coordinates(node.signature, part_role(coordinate), full, primary),
         ),
     )
-    return (*parts, ExchangePart("allocation_state", table))

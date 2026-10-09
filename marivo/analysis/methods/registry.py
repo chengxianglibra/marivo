@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from marivo.analysis.core.model import (
-    CoordinateStatePart,
     CoveragePart,
     ObservedQuantity,
     OriginalStatePart,
@@ -36,7 +35,6 @@ from marivo.analysis.methods.physical import (
     QualificationKey,
     Qualified,
     ScalarType,
-    SourceShape,
     Unavailable,
 )
 from marivo.analysis.methods.semantics import (
@@ -359,29 +357,6 @@ class MethodRegistry:
                     "Qualify every obligation and part for this exact invocation.",
                 )
             if status.consumer_id in ("analysis.compiler.graph_lowering", "analysis.methods.local"):
-                if (
-                    key.method.name in ("metric.count", "state_rollup.count")
-                    and isinstance(key.shape, SourceShape)
-                    and key.shape.backend == "postgres"
-                    and key.route == "ibis"
-                    and any(
-                        isinstance(part, CoordinateStatePart)
-                        for signature in (*inputs, derivation.output)
-                        for part in signature.parts
-                    )
-                ):
-                    reject(
-                        "PostgreSQL Count without nested contribution-coordinate state",
-                        repr(key),
-                        AnalysisRepair(
-                            kind="environment",
-                            action="For an overall Count, omit categorical axes from observe(by=...). "
-                            "PostgreSQL nested categorical Count state is not supported; "
-                            "report this exact key if those axes must be retained. Retrying "
-                            "or restoring the source will not enable this state shape.",
-                            help_target=LiveHelpTarget(surface="analysis", canonical_id="methods"),
-                        ),
-                    )
                 admit(implementation, params)
             return SelectedImplementation(implementation, derivation)
         gap = registration.missing

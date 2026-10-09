@@ -86,6 +86,8 @@ def check_allocation(result: mv.MaterializedAttributionResult, kind: str) -> Non
     assert {part.role for part in verified.parts} == {
         "current_endpoint",
         "baseline_endpoint",
+        "current_endpoint_coordinates",
+        "baseline_endpoint_coordinates",
         "basis",
         "allocation",
         "reconciliation",

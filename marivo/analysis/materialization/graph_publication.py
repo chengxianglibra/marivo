@@ -476,7 +476,7 @@ def _execute(
                 "marivo.analysis.method_state/v2",
                 state_kind,
                 f"marivo.analysis.state.{result.contract.state_kind}",
-                3,
+                4,
                 root.method.name,
                 1,
                 result.contract.input_binding,
@@ -508,27 +508,33 @@ def _execute(
                 event("graph_primary_written")
                 parts: list[PartReceipt] = []
                 from marivo.analysis.materialization.cell_arrow import binding
+                from marivo.analysis.methods.coordinate_state import layout as coordinate_layout
 
                 for part in result.parts:
+                    from marivo.analysis.materialization.graph_storage import payload_digest
+
+                    local = write_table(
+                        store.project_root,
+                        staging / part.role,
+                        final / part.role,
+                        part.table,
+                    )
                     parts.append(
                         PartReceipt(
-                            "marivo.analysis.receipt/v1",
+                            "marivo.analysis.receipt/v2",
                             "part",
                             state.input_binding,
                             tuple(
                                 (name, str(part.table.schema.field(name).type))
                                 for name in result.contract.parts[len(parts)].key_fields
                             ),
-                            write_table(
-                                store.project_root,
-                                staging / part.role,
-                                final / part.role,
-                                part.table,
-                            ),
+                            local,
                             part.role,
                             f"marivo.analysis.part.{state.kind}.{part.role}",
                             state.contract_version,
                             state.contract_version,
+                            payload_digest(store.project_root, staging / part.role, local),
+                            coordinate_layout(result.contract.signature, part.role),
                             binding(part.table.schema),
                         )
                     )
@@ -560,7 +566,7 @@ def _execute(
             )
             frozen = encode(snapshot, SNAPSHOT)
             descriptor = Descriptor(
-                "marivo.analysis.artifact_descriptor/v5",
+                "marivo.analysis.artifact_descriptor/v6",
                 root.fingerprint,
                 run_ref,
                 key,

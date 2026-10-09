@@ -299,7 +299,7 @@ def test_registry_preserves_specialized_selection_identity_and_exact_route(
     assert selected.key == key
     assert isinstance(selected.qualification, Qualified)
     assert selected.qualification.implementation_id == "r34.ibis.row.count@v1"
-    assert selected.contract_version == 6
+    assert selected.contract_version == 7
     assert selected.precision == "checked_int64"
     if isinstance(value, DecimalType):
         unqualified = replace(

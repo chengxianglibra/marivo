@@ -276,7 +276,7 @@ def test_preparation_reuses_selected_rows_and_exact_subject_grid(
             return datetime.fromisoformat(value)
 
     monkeypatch.setattr(preparation, "datetime", DateParser)
-    output = preparation._observation(case.stage, case.candidates, case.selected, case.original)
+    output, _ = preparation._observation(case.stage, case.candidates, case.selected, case.original)
     rows = output.to_pylist()
     assert [row["value"] for row in rows] == [5, 0, 5, 7, 0]
     assert case.primary.conversions == 1
@@ -293,10 +293,10 @@ def test_preparation_reuses_selected_rows_and_exact_subject_grid(
 
 def test_preparation_does_not_cache_across_calls() -> None:
     case = _case()
-    first = preparation._observation(case.stage, case.candidates, case.selected, case.original)
+    first, _ = preparation._observation(case.stage, case.candidates, case.selected, case.original)
     assert first["value"].to_pylist() == [5, 0, 5, 7, 0]
     assert first["original_state__sum"].to_pylist() == first["value"].to_pylist()
-    empty = preparation._observation(
+    empty, _ = preparation._observation(
         case.stage, case.candidates.slice(0, 0), case.selected, case.original
     )
     assert empty["value"].to_pylist() == [0] * 5
@@ -369,7 +369,7 @@ def test_preparation_empty_selection_does_not_eagerly_parse_or_require_grid(
             raise AssertionError(f"Empty selection must not resolve unused bounds {value}")
 
     monkeypatch.setattr(preparation, "datetime", DateParser)
-    output = preparation._observation(case.stage, case.candidates, selected, case.original)
+    output, _ = preparation._observation(case.stage, case.candidates, selected, case.original)
     assert output.num_rows == 0
     assert output.column_names == list(case.stage.output_layout.columns)
 

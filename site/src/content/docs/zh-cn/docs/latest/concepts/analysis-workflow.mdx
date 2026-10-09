@@ -100,7 +100,7 @@ merged_count.show()
 对于 Count，`rollup()` 合并原始贡献次数；`summarize(mv.count())` 统计当前结果行数。
 原生表的 Count rollup 支持 PostgreSQL、MySQL、Trino、ClickHouse 已注册的 UTC 微秒 Ibis 形态。
 缺少物理支持时，错误保留精确键并给出有界的已注册候选；候选不适用时，保留现有数据源并报告该键。
-PostgreSQL Count 当前会在执行前拒绝分类嵌套分组。计算总体 Count 时省略分类轴；逐实体和仅按时间分组仍受支持。
+分类 Count 保留平面坐标状态，PostgreSQL 也采用同一布局。方法、类型、时间和物理 profile 仍须满足精确准入。
 
 普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。数值、比率和统计结果保留 `group_by`；成员域与分类、布尔、时间结果不提供该方法。非数值标量结果仍支持整体 `summarize(mv.count()/mv.count_defined())`。预设报表行在 `to_pandas()` 导出后由外部补齐，外部结果不能重新进入类型化分析。
 
@@ -151,7 +151,7 @@ category_revenue.show()
 同一 Dimension 经不同明确角色读取会保留不同坐标绑定。后续分组、统计 rollup 或保留轴归因中若裸
 Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用端点的完整有序坐标轴。fixed 后续操作直接使用保存的绑定
 和完整键，不重新推导路径。
-SQLite、MySQL 和 ClickHouse 拒绝需要嵌套贡献坐标状态的观察；自动关系推导仍遵守现有后端准入边界。
+六种后端均使用平面贡献坐标状态，包括 SQLite、MySQL 和 ClickHouse。结果键中已有的坐标复用原始分量；其余坐标保留完整的平面分区。真实的全 Null 贡献与空目标仍有区别。自动关系推导仍遵守精确后端准入边界。物化比较保留已绑定的端点分区，以便脱离源执行归因；旧格式状态需要重新执行。
 
 ## 明确来源与已保存结果边界
 

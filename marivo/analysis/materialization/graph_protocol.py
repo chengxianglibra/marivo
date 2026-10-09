@@ -56,6 +56,17 @@ from marivo.analysis.materialization.graph_snapshot import (
 from marivo.analysis.materialization.graph_snapshot import (
     thaw_graph as thaw_graph,
 )
+from marivo.analysis.methods.coordinate_state import (
+    PartLayout,
+    TablePartLayout,
+)
+from marivo.analysis.methods.coordinate_state import (
+    declarations as coordinate_declarations,
+)
+from marivo.analysis.methods.coordinate_state import (
+    key_fields as coordinate_keys,
+)
+from marivo.analysis.methods.coordinate_state import layout as coordinate_layout
 from marivo.analysis.methods.physical import NoTime, Qualified, TimeShape
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey, MethodName, PersistentStateKind
@@ -93,11 +104,22 @@ def decode(text: str, adapter: TypeAdapter[T]) -> T:
             raise invalid("noncanonical, missing or extra metadata fields")
         return value
     except ValidationError as error:
-        if adapter in (GRAPH, SNAPSHOT, DESCRIPTOR, STATE) and any(
-            item["loc"] in (("schema",), ("method_state", "schema")) for item in error.errors()
+        if adapter in (GRAPH, SNAPSHOT, DESCRIPTOR, STATE, RECEIPT) and any(
+            item["loc"]
+            in (("schema",), ("method_state", "schema"), ("method_state", "contract_version"))
+            or (
+                "parts" in item["loc"]
+                and item["loc"][-1] in ("schema", "contract_version", "method_state_version")
+            )
+            or (adapter is STATE and item["loc"] == ("contract_version",))
+            or (
+                adapter is RECEIPT
+                and item["loc"][-1] in ("schema", "contract_version", "method_state_version")
+            )
+            for item in error.errors()
         ):
             raise IntegrityError(
-                expected="graph DAG v5, descriptor v5, method state v2 and continuation v5 schema versions",
+                expected="graph DAG v5, descriptor v6, part receipt v2, state contract 4 and continuation v5 schema versions",
                 received="obsolete, absent or unknown frozen metadata schema version",
                 repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
                 stage="graph_protocol",
@@ -168,16 +190,24 @@ class PrimaryReceipt:
 
 @dataclass(frozen=True, slots=True)
 class PartReceipt:
-    schema: Literal["marivo.analysis.receipt/v1"]
+    schema: Literal["marivo.analysis.receipt/v2"]
     kind: Literal["part"]
     input_binding: str
     key_fields: tuple[tuple[str, str], ...]
     local: PhysicalReceipt
     role: str
     contract_id: str
-    contract_version: Literal[3]
-    method_state_version: Literal[3]
+    contract_version: Literal[4]
+    method_state_version: Literal[4]
+    payload_digest: str
+    layout: PartLayout = field(default_factory=TablePartLayout)
     cell_table: CellTable = field(default_factory=lambda: CellTable((), ()))
+
+    def __post_init__(self) -> None:
+        if len(self.payload_digest) != 64 or any(
+            c not in "0123456789abcdef" for c in self.payload_digest
+        ):
+            raise invalid("part receipt requires one exact payload SHA-256 digest")
 
 
 RECEIPT: TypeAdapter[PrimaryReceipt | PartReceipt] = TypeAdapter(PrimaryReceipt | PartReceipt)
@@ -188,7 +218,7 @@ class MethodState:
     schema: Literal["marivo.analysis.method_state/v2"]
     kind: PersistentStateKind
     contract_id: str
-    contract_version: Literal[3]
+    contract_version: Literal[4]
     method_name: MethodName
     method_version: Literal[1]
     input_binding: str
@@ -255,7 +285,7 @@ class MethodState:
             )
             else ("row_state",)
         )
-        allowed_versions = (3,)
+        allowed_versions = (4,)
         if self.contract_version not in allowed_versions:
             raise IntegrityError(
                 expected=f"{self.kind} state and part contract version in {allowed_versions}",
@@ -332,7 +362,7 @@ class MethodBinding:
 
 @dataclass(frozen=True, slots=True)
 class Descriptor:
-    schema: Literal["marivo.analysis.artifact_descriptor/v5"]
+    schema: Literal["marivo.analysis.artifact_descriptor/v6"]
     definition_fingerprint: str
     producing_run_ref: str
     execution_key_digest: str
@@ -479,6 +509,20 @@ def validate_metadata(value: Descriptor) -> ValidatedDescriptor:
     root = next(record for record in nodes if record.identity == document.root)
     if not isinstance(root, MethodRecord):
         raise invalid("Artifact has no frozen method result")
+    for part in value.parts:
+        if part.layout != coordinate_layout(value.signature, part.role):
+            raise invalid("contribution receipt layout or owning receipt differs")
+    receipts = {part.role: part for part in value.parts}
+    if len(receipts) != len(value.parts):
+        raise invalid("duplicate part receipt roles")
+    for role, _, _, owner in coordinate_declarations(value.signature):
+        if role not in receipts or owner not in receipts:
+            raise invalid("contribution receipt or its explicit owning receipt is absent")
+        keys = coordinate_keys(value.signature, role)
+        if tuple(name for name, _ in receipts[role].key_fields) != keys:
+            raise invalid("contribution receipt does not retain its complete physical key")
+        if receipts[role].input_binding != receipts[owner].input_binding:
+            raise invalid("contribution receipt differs from its owning receipt binding")
     checked = ValidatedDescriptor(value, snapshot, document, root, nodes)
     return checked
 

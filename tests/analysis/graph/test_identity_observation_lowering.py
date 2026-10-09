@@ -53,6 +53,7 @@ from marivo.analysis.core.rules import (
     ObserveCount,
     ObserveMetric,
     OccurrenceFilter,
+    OriginalReduce,
     PartsTransport,
     TimeProduct,
     entity_members,
@@ -60,7 +61,13 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods.errors import MethodRegistrationError
-from marivo.analysis.methods.physical import QualificationKey, ScalarType, SourceShape, TimeShape
+from marivo.analysis.methods.physical import (
+    Backend,
+    QualificationKey,
+    ScalarType,
+    SourceShape,
+    TimeShape,
+)
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
@@ -187,7 +194,7 @@ def _observation(
     members: Node,
     leaf: SourceLeaf,
     *,
-    method: Literal["sum", "mean", "count"] = "sum",
+    method: Literal["sum", "mean", "count", "min", "max"] = "sum",
     empty: Literal["null", "zero"] = "null",
     grouped: bool = False,
     grid_window: bool = False,
@@ -336,10 +343,19 @@ def _primary(lowered: LoweredPlan) -> LoweredRelation:
     "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
 )
 @pytest.mark.parametrize("contribution", (False, True))
+@pytest.mark.parametrize("method", ("count", "sum", "mean", "min", "max"))
 def test_classified_count_native_compilation_and_admission(
-    backend: str, contribution: bool
+    backend: Backend, contribution: bool, method: Literal["count", "sum", "mean", "min", "max"]
 ) -> None:
     with _source(native_time=True) as (_, leaf, binding):
+        if method not in ("min", "max"):
+            leaf = replace(
+                leaf,
+                definition=replace(
+                    leaf.definition, shape=replace(leaf.definition.shape, backend=backend)
+                ),
+            )
+            binding = replace(binding, leaf=leaf)
         members = _members(leaf)
         coordinate = Coordinate(ENTITY, _cluster().ref.path, "group")
         domain = members.signature.domain
@@ -363,7 +379,10 @@ def test_classified_count_native_compilation_and_admission(
             timezone="UTC",
             parse=TimestampParse("UTC"),
         )
-        original = _observation(members, leaf, method="count", empty="zero", event=event)
+        original = _observation(
+            members, leaf, method=method, empty="zero" if method == "count" else "null", event=event
+        )
+        assert isinstance(original.parameters, (ObserveMetric, ObserveCount))
         params = replace(original.parameters, classification_coordinates=(coordinate,))
         root = method_node(
             (Edge("subject", members), Edge("subject", classified)),
@@ -375,8 +394,8 @@ def test_classified_count_native_compilation_and_admission(
             root = _observation(
                 _read_cluster(members),
                 leaf,
-                method="count",
-                empty="zero",
+                method=method,
+                empty="zero" if method == "count" else "null",
                 event=event,
                 grouped=True,
             )
@@ -388,18 +407,39 @@ def test_classified_count_native_compilation_and_admission(
             SourceShape(backend, "table", "native", leaf.definition.shape.time),
             "ibis",
         )
-        if backend in ("sqlite", "postgres", "mysql", "clickhouse"):
-            with pytest.raises(
-                MethodRegistrationError, match="nested contribution-coordinate state"
-            ):
+        if method in ("min", "max") and backend not in ("duckdb", "sqlite"):
+            with pytest.raises(MethodRegistrationError, match="qualified exact key"):
                 REGISTRY.select(key, inputs, root.parameters)
-            return
-        REGISTRY.select(key, inputs, root.parameters)
-        expression = _primary(_lower(root, (binding,))).expression
-        dialect = "postgres" if backend == "postgres" else backend
-        sql = ibis.to_sql(expression, dialect=dialect)
-        assert "SELECT" in sql
-        sqlglot.parse_one(sql, read=dialect)
+        else:
+            REGISTRY.select(key, inputs, root.parameters)
+        rolled = method_node(
+            (Edge("quantity", root),),
+            OriginalReduce(
+                replace(root.signature.domain, kind="singleton", instance_key=(), target_key=()),
+                method=method,
+                partition_check_id="source.contribution_partition@v1",
+                coverage_check_id="source.complete_coverage@v1",
+            ),
+            value_type=root.value_type,
+        )
+        roots: tuple[MethodNode, ...] = (root, rolled)
+        if method == "sum" and not contribution and backend not in ("duckdb", "sqlite"):
+            with pytest.raises(MethodRegistrationError, match="qualified exact key"):
+                _lower(rolled, (binding,))
+            roots = (root,)
+        for terminal_root in roots:
+            terminal = _primary(_lower(terminal_root, (binding,)))
+            expression = (
+                terminal.transport if terminal.transport is not None else terminal.expression
+            )
+            dialect = "postgres" if backend == "postgres" else backend
+            sql = ibis.to_sql(expression, dialect=dialect)
+            assert "SELECT" in sql
+            ast = sqlglot.parse_one(sql, read=dialect)
+            assert not list(ast.find_all(sge.ArrayAgg))
+            assert not any(
+                dtype.is_array() or dtype.is_struct() for dtype in expression.schema().types
+            )
 
 
 @pytest.mark.parametrize(
