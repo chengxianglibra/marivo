@@ -38,7 +38,7 @@ def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.LogicalRat
             ),
         ),
         by=(
-            ms.ref.entity(f"{n.domain}.{n.customer}"),
+            mv.member(),
             *tuple(ms.ref.dimension(f"{n.domain}.{n.order}.{name}") for name in coordinates),
         ),
     )
@@ -54,13 +54,13 @@ def _observations(case: DslCase) -> tuple[mv.LogicalNumericRelation, mv.LogicalN
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         ),
         members.observe(
             metric,
             during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         ),
     )
 
@@ -243,13 +243,13 @@ def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
             ms.ref.metric(f"{n.domain}.{n.revenue}"),
             during=window,
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         )
         count = members.observe(
             ms.ref.metric(f"{n.domain}.{n.order_count}"),
             during=window,
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         )
         saved = revenue.correlate(count, method="spearman").execute()
     reference = saved.state.artifact_ref.ref
@@ -317,12 +317,8 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
         mv.time_scope(start="2026-08-01", end="2026-09-01"),
         mv.time_scope(start="2026-07-01", end="2026-08-01"),
     )
-    first = first_members.observe(
-        metric, during=august, via=via, by=(ms.ref.entity(f"{n.domain}.{n.customer}"),)
-    )
-    second = second_members.observe(
-        metric, during=july, via=via, by=(ms.ref.entity(f"{n.domain}.{n.customer}"),)
-    )
+    first = first_members.observe(metric, during=august, via=via, by=(mv.member(),))
+    second = second_members.observe(metric, during=july, via=via, by=(mv.member(),))
     current, baseline = _observations(case)
     fixed = current.execute()
     second_fixed = second.execute()
@@ -409,13 +405,13 @@ def test_public_parquet_journeys_have_separate_source_evidence(
             ms.ref.metric(f"{n.domain}.{n.revenue}"),
             during=during,
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         )
         count = members.observe(
             ms.ref.metric(f"{n.domain}.{n.order_count}"),
             during=during,
             via=via,
-            by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+            by=(mv.member(),),
         )
         saved = revenue.correlate(count, method="spearman").execute()
         import pandas as pd

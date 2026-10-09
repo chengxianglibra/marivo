@@ -35,7 +35,7 @@ def test_ratio_statistics_require_original_coverage(
             ms.ref.metric("sales.order_count"),
             during=grid,
             via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .group_by(grid)
         .rollup()
@@ -50,7 +50,7 @@ def test_ratio_statistics_require_original_coverage(
                     ms.ref.metric("sales.revenue"),
                     during=grid,
                     via=ms.ref.relationship("sales." + case.names.buyer),
-                    by=(ms.ref.entity("sales.customer"),),
+                    by=(mv.member(),),
                 )
                 .group_by(grid)
                 .rollup()
@@ -150,13 +150,13 @@ def test_statistical_rank_projection_and_tables(
             ms.ref.metric("sales.revenue"),
             during=during,
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         b = members.observe(
             ms.ref.metric("sales.order_count"),
             during=during,
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         logical = a.correlate(b, method="spearman")
         numeric = logical.execute().coefficient if fixed else logical.coefficient
@@ -168,7 +168,7 @@ def test_statistical_rank_projection_and_tables(
             ms.ref.metric("sales.order_count"),
             during=grid,
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         logical = history.forecast(horizon=mv.periods(2))
         numeric = logical.execute().prediction if fixed else logical.prediction

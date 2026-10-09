@@ -26,13 +26,13 @@ current = customers.observe(
     revenue,
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 baseline = customers.observe(
     revenue,
     during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 change = current.compare(baseline).execute()
 change.show()
@@ -87,7 +87,7 @@ revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 august_revenue = customers.observe(
-    revenue, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    revenue, during=august, via=buyer, by=(mv.member(),)
 )
 total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
@@ -100,7 +100,7 @@ recovered_observation = session.artifact(saved_observation.state.artifact_ref)
 recovered_observation.summarize(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
-    order_count, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    order_count, during=august, via=buyer, by=(mv.member(),)
 )
 total_count = customers.observe(order_count, during=august, via=buyer).execute()
 merged_count = per_customer_count.rollup().execute()
@@ -117,7 +117,18 @@ merged_count.show()
 缺少物理支持时，错误保留精确键并给出有界的已注册候选；候选不适用时，保留现有数据源并报告该键。
 分类 Count 保留平面坐标状态，PostgreSQL 也采用同一布局。方法、类型、时间和物理 profile 仍须满足精确准入。
 
-普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(member_entity,)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。数值、比率和统计结果保留 `group_by`；成员域与分类、布尔、时间结果不提供该方法。非数值标量结果仍支持整体 `summarize(mv.count()/mv.count_defined())`。预设报表行在 `to_pandas()` 导出后由外部补齐，外部结果不能重新进入类型化分析。
+普通 `observe` 直接计算总体指标。成员范围决定纳入哪些贡献；`by=(mv.member(),)` 保留成员完整身份，`by=(dimension,)` 直接计算分组指标。`during=grid` 始终保留全部时间桶，`by` 只选择空间粒度；端点读取与累计观测通过 `at=grid.before_end/end` 直接绑定网格。归因需要分区时，先观测分区再做原始归并。数值、比率和统计结果保留 `group_by`；成员域与分类、布尔、时间结果不提供该方法。非数值标量结果仍支持整体 `summarize(mv.count()/mv.count_defined())`。预设报表行在 `to_pandas()` 导出后由外部补齐，外部结果不能重新进入类型化分析。
+
+省略 `by` 与传入 `by=()` 均计算总体指标。
+`by=(mv.member(), channel)` 按客户与渠道计算指标，并保留客户完整、有序的主键，
+以便后续调用 `members()`。标记不接收参数，由 `customers` 提供身份；
+`observe.by` 不再接受 Entity Ref。标记仅用于 `observe.by`，结果的 `group_by`
+继续使用已有的轴选择规则。
+
+分类 `read` 与链式 `.where()` 统一返回 `LogicalCategoryRelation`；执行及 Artifact
+恢复统一返回 `MaterializedCategoryRelation`。物化分类上的筛选生成基于已保存数据的
+逻辑操作。作为 `by` 输入的分类经筛选后仍须覆盖全部消费键；若需限制成员范围，
+先通过其 `.members()` 构建观测接收者。
 
 ## 按同一实体分组
 

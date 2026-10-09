@@ -114,9 +114,6 @@ if TYPE_CHECKING:
         LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
     )
     from marivo.analysis.public_dsl import (
-        LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
-    )
-    from marivo.analysis.public_dsl import (
         LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
     )
     from marivo.analysis.public_dsl import (
@@ -199,9 +196,6 @@ if TYPE_CHECKING:
         MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
     )
     from marivo.analysis.public_dsl import (
-        MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
-    )
-    from marivo.analysis.public_dsl import (
         MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
     )
     from marivo.analysis.public_dsl import (
@@ -233,6 +227,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         MaterializedViolationResult as MaterializedViolationResult,
     )
+    from marivo.analysis.public_dsl import MemberAxis as MemberAxis
     from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
     from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
     from marivo.analysis.public_dsl import RootRoute as RootRoute
@@ -243,6 +238,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import count_defined as count_defined
     from marivo.analysis.public_dsl import max as max
     from marivo.analysis.public_dsl import mean as mean
+    from marivo.analysis.public_dsl import member as member
     from marivo.analysis.public_dsl import min as min
     from marivo.analysis.public_dsl import one_to_one as one_to_one
     from marivo.analysis.public_dsl import reference_weights as reference_weights

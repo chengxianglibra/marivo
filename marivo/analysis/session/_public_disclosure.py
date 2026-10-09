@@ -217,8 +217,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.LogicalCoefficientSelectionRelation,
         dsl.MaterializedCoefficientSelectionRelation,
         dsl.LogicalFixedAnalysisDomain,
-        dsl.LogicalSelectedCategoryRelation,
-        dsl.MaterializedSelectedCategoryRelation,
+        dsl.MemberAxis,
         dsl.RowMethod,
         dsl.CountMethod,
         dsl.RootRoute,
@@ -316,6 +315,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.AnalysisAction
             else "Call relation.contract()."
             if type_value is dsl.AnalysisContract
+            else "Call mv.member() and pass it in observe.by."
+            if type_value is dsl.MemberAxis
             else "Call mv.count() or mv.count_defined()."
             if type_value is dsl.CountMethod
             else "Call mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean()."
@@ -377,6 +378,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.AnalysisContract
             else ("AnalysisContract",)
             if type_value is dsl.AnalysisAction
+            else ("dsl.member",)
+            if type_value is dsl.MemberAxis
             else ("dsl.count", "dsl.count_defined")
             if type_value is dsl.CountMethod
             else ("dsl.sum", "dsl.count", "dsl.count_defined", "dsl.min", "dsl.max", "dsl.mean")
@@ -550,6 +553,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if type_value is dsl.RootRoute
                 else ("dsl.LogicalAnalysisDomain.read", "dsl.LogicalAnalysisDomain.observe")
                 if type_value is dsl.RootRoutes
+                else ("dsl.LogicalAnalysisDomain.observe",)
+                if type_value is dsl.MemberAxis
                 else ("methods.metric",)
                 if type_value in (dsl.RowMethod, dsl.CountMethod)
                 else (
@@ -660,6 +665,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         windows.every_anchor,
         dsl.route,
         dsl.routes,
+        dsl.member,
         dsl.sum,
         dsl.count,
         dsl.count_defined,
@@ -683,7 +689,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 "dsl." + name,
                 "mv." + name,
                 function,
-                summary=f"Construct the admitted {name} argument for the Analysis DSL.",
+                summary=(getdoc(function) or name).splitlines()[0]
+                if name == "member"
+                else f"Construct the admitted {name} argument for the Analysis DSL.",
                 discovery_group="methods.events"
                 if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
                 else None,
@@ -696,6 +704,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "every_anchor": "EveryAnchor",
                 }[name]
                 if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
+                else "MemberAxis"
+                if name == "member"
                 else "CountMethod"
                 if name in ("count", "count_defined")
                 else "RootRoute"
@@ -706,7 +716,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 constraints=(
                     _doc_section(function, "Constraints")
                     if name
-                    in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
+                    in (
+                        "member",
+                        "duration",
+                        "elapsed",
+                        "calendar_days",
+                        "any_anchor",
+                        "every_anchor",
+                    )
                     else "Only qualified typed graph input shapes are admitted.",
                 ),
                 effects="Pure argument construction; no source read or Run.",
@@ -721,6 +738,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     else f"result = mv.{name}()"
                     if name
                     in (
+                        "member",
                         "sum",
                         "count",
                         "count_defined",
@@ -736,6 +754,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     ()
                     if name
                     in (
+                        "member",
                         "sum",
                         "count",
                         "count_defined",
@@ -978,7 +997,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         *(
             value
             for value in types
-            if value not in (dsl.RowMethod, dsl.CountMethod, dsl.RootRoute, dsl.RootRoutes)
+            if value
+            not in (dsl.MemberAxis, dsl.RowMethod, dsl.CountMethod, dsl.RootRoute, dsl.RootRoutes)
         ),
     )
     for owner in owner_methods:
@@ -1017,6 +1037,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "through" and name in ("cohort", "members")
                     else ("dsl.route", "dsl.routes")
                     if key == "via"
+                    else ("dsl.member", "LogicalCategoryRelation")
+                    if key == "by" and owner is dsl.LogicalAnalysisDomain and name == "observe"
                     else ("dsl.elapsed", "dsl.calendar_days")
                     if key == "within" and owner is dsl._AnchorDomain
                     else ("RowMethod",)
@@ -1061,14 +1083,17 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
         "dsl.LogicalAnalysisDomain.observe",
         "dsl.NumericComparison.ratio",
     ),
-    "LogicalCategoryRelation": ("dsl.LogicalAnalysisDomain.read",),
+    "LogicalCategoryRelation": (
+        "dsl.LogicalAnalysisDomain.read",
+        "dsl.LogicalCategoryRelation.where",
+        "dsl.MaterializedCategoryRelation.where",
+    ),
     "LogicalBooleanRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalAssociationResult"),
     "LogicalTemporalRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalTimeRunResult"),
     "LogicalSelectedNumericRelation": (
         "dsl.LogicalNumericRelation.where",
         "dsl.MaterializedNumericRelation.where",
     ),
-    "LogicalSelectedCategoryRelation": ("dsl.LogicalCategoryRelation.where",),
     "LogicalSelectedBooleanRelation": (
         "dsl.LogicalBooleanRelation.where",
         "dsl.Retention.known_true",

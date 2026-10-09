@@ -45,7 +45,7 @@ def test_complete_identity_reference_consumers(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-reference", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        values = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        values = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(values, mv.LogicalNumericRelation)
         fixed_values = values.execute()
         fixed_members = fixed_values.members()
@@ -176,9 +176,7 @@ def test_full_time_opportunities_and_static_target(
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
             grain=mv.grain("day"),
         )
-        values = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
-        )
+        values = members.observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
         assert isinstance(values, mv.LogicalNumericRelation)
         fixed_targets = members.execute()
         fixed_values = values.execute()
@@ -256,7 +254,7 @@ def test_group_reference_weights_preserve_inputs(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-weights", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        values = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        values = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(values, mv.LogicalNumericRelation)
         bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
         assert isinstance(bucket, mv.LogicalCategoryRelation)
@@ -337,7 +335,7 @@ def test_penetration_and_terminal_display(
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-next", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
-        values = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        values = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
         assert isinstance(values, mv.LogicalNumericRelation)
         assert isinstance(bucket, mv.LogicalCategoryRelation)

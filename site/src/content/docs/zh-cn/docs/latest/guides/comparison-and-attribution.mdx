@@ -38,11 +38,11 @@ UnionKeys 显式保留缺失对应。绝对变化保留准入的 Decimal scale �
 ```python
 july = mv.time_scope(start="2026-07-01", end="2026-08-01")
 september = mv.time_scope(start="2026-09-01", end="2026-10-01")
-baseline = customers.observe(revenue, during=july, via=buyer, by=(ms.ref.entity("sales.customer"),))
+baseline = customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
 change = august_revenue.compare(baseline)
 falling = change.where(change.value.lt(0)).members()
 next_month_mean = (
-    falling.observe(revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),))
+    falling.observe(revenue, during=september, via=buyer, by=(mv.member(),))
     .summarize(mv.mean())
     .execute()
 )
@@ -69,7 +69,7 @@ aov = customers.observe(
     ms.ref.metric("sales.aov_from_lines"),
     during=august,
     via=ratio_routes,
-    by=(ms.ref.entity("sales.customer"), channel),
+    by=(mv.member(), channel),
 )
 overall_aov = aov.rollup().execute()
 channel_aov = aov.group_by(channel).rollup().execute()
@@ -92,7 +92,7 @@ counts = members.observe(
     ms.ref.metric("sales.order_count"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 shares = counts.share_of(counts.rollup())
 selected_shares = shares.where(shares.value.gt(0)).execute()

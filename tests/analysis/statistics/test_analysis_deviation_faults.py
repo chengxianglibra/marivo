@@ -201,7 +201,7 @@ def test_each_receipt_rejects_recovery_continuation_and_exact_hit(
             ms.ref.metric("sales.revenue"),
             during=grid,
             via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )

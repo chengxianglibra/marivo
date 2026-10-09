@@ -141,7 +141,7 @@ def test_native_distributions_independent_fixed_and_cold(
                     metric,
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=ms.ref.relationship("sales.facts_subject"),
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 )
                 .execute()
             )

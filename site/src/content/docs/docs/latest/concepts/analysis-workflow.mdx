@@ -27,13 +27,13 @@ current = customers.observe(
     revenue,
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 baseline = customers.observe(
     revenue,
     during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 change = current.compare(baseline).execute()
 change.show()
@@ -90,7 +90,7 @@ revenue = ms.ref.metric("sales.revenue")
 buyer = ms.ref.relationship("sales.order_buyer")
 august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 august_revenue = customers.observe(
-    revenue, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    revenue, during=august, via=buyer, by=(mv.member(),)
 )
 total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
@@ -103,7 +103,7 @@ recovered_observation = session.artifact(saved_observation.state.artifact_ref)
 recovered_observation.summarize(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
-    order_count, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+    order_count, during=august, via=buyer, by=(mv.member(),)
 )
 total_count = customers.observe(order_count, during=august, via=buyer).execute()
 merged_count = per_customer_count.rollup().execute()
@@ -123,7 +123,20 @@ alternatives; keep the source unchanged and report that key when none is suitabl
 Categorical Count retains flat coordinate state, including on PostgreSQL.
 Exact method, type, time and physical profile admission still applies.
 
-Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `summarize(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
+Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(mv.member(),)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `summarize(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
+
+Omitting `by` and passing `by=()` both compute the overall Metric.
+`by=(mv.member(), channel)` computes a value for each customer and channel,
+retaining the customer's full ordered primary key for subsequent `members()`.
+The marker takes no arguments and gets its identity from `customers`; Entity
+Refs are rejected in `observe.by`. Use the marker only in `observe.by`; result
+`group_by` keeps its existing axis selectors.
+
+Category `read` and chained `.where()` calls return `LogicalCategoryRelation`;
+execution and Artifact recovery return `MaterializedCategoryRelation`.
+Filtering a Materialized category builds Logical work over the saved data.
+Filtering a category used in `by` must still cover all consumed keys; select
+its `.members()` before observation to restrict the member scope.
 
 ## Group the same Entity
 

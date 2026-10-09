@@ -13,7 +13,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -27,14 +27,22 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
     via = ms.ref.relationship("sales.order_buyer")
     total = members.observe(metric, during=window, via=via)
     assert total._node.root.signature.domain.kind == "singleton"
-    assert total.execute().to_pandas()["value"].tolist() == [1000]
+    total_rows = total.execute().to_pandas()
+    assert total_rows["value"].tolist() == [1000]
+    explicit_empty = members.observe(metric, during=window, via=via, by=())
+    assert explicit_empty.execute().to_pandas().equals(total_rows)
     assert not any(action.call == "relation.members()" for action in total.contract().actions)
     with pytest.raises(AnalysisError):
         total.members()
-    individual = members.observe(metric, during=window, via=via, by=(entity,))
-    frame = individual.execute().to_pandas()
+    individual = members.observe(metric, during=window, via=via, by=(mv.member(),))
+    fixed = individual.execute()
+    frame = fixed.to_pandas()
     assert frame["value"].dropna().tolist() == [450, 150, 400]
     assert len(frame) == 4
+    assert frame["member"].tolist() == ["A", "B", "C", "D"]
+    assert frame.loc[frame["member"] == "D", "cell_tag"].tolist() == ["null"]
+    for relation in (individual, fixed):
+        assert relation.members().execute().to_pandas()["member"].tolist() == ["A", "B", "C", "D"]
 
 
 @pytest.mark.runtime
@@ -76,6 +84,40 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     restored = case.session.artifact(grouped.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedNumericRelation)
     assert restored.to_pandas().equals(grouped.to_pandas())
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("member_first", [True, False])
+def test_member_channel_axes_keep_identity_and_selected_scope(
+    analysis_dsl_case_factory: DslCaseFactory, member_first: bool
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    channel = ms.ref.dimension("sales.order.channel")
+    axes = (mv.member(), channel) if member_first else (channel, mv.member())
+    observed = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-10-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=axes,
+    )
+    fixed = observed.execute()
+    rows = fixed.to_pandas()
+    expected = {("A", "web"): 450, ("A", "mobile"): 99, ("B", "mobile"): 150, ("C", "web"): 400}
+    if not member_first:
+        expected = {(channel, member): value for (member, channel), value in expected.items()}
+    assert rows.set_index(list(rows.columns[:2]))["value"].to_dict() == expected
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == [1099]
+    assert observed.subject_binding == fixed.subject_binding
+    assert fixed.members().execute().to_pandas()["member"].tolist() == ["A", "B", "C"]
+    region = members.read(ms.ref.dimension("sales.customer.region"))
+    assert isinstance(region, mv.LogicalCategoryRelation)
+    selected = region.where(region.value.eq("east")).members()
+    filtered = selected.observe(ms.ref.metric("sales.revenue"), by=(mv.member(),)).execute()
+    assert filtered.to_pandas()["member"].tolist() == ["A", "B"]
+    assert filtered.to_pandas()["value"].tolist() == [626, 150]
 
 
 @pytest.mark.runtime
@@ -128,7 +170,7 @@ def test_member_classification_survives_rollup_for_fixed_attribution(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(entity, region) if keep_member else (region,),
+            by=(mv.member(), region) if keep_member else (region,),
         ).rollup()
 
     fixed = endpoint(8).compare(endpoint(7)).execute()
@@ -236,9 +278,19 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     members = case.session.members(entity)
     metric = ms.ref.metric("sales.revenue")
     with pytest.raises(AnalysisError):
-        members.observe(metric, by=(entity, entity))
+        members.observe(metric, by=(mv.member(), mv.member()))
+    for axis in (entity, ms.ref.entity("sales.customer")):
+        with pytest.raises(AnalysisError, match=r"by=\(mv.member\(\)"):
+            members.observe(metric, by=(axis,))
+    with pytest.raises(AnalysisError, match="ordered tuple"):
+        members.observe(metric, by=mv.member())
+    observed = members.observe(metric, by=(mv.member(),))
     with pytest.raises(AnalysisError):
-        members.observe(metric, by=(ms.ref.entity("sales.customer"),))
+        observed.group_by(mv.member())
+    statistic = observed.summarize(mv.count())
+    for current in (statistic, statistic.execute()):
+        with pytest.raises(AnalysisError, match=r"Use mv\.member\(\) only in observe\.by"):
+            current.group_by(mv.member())
     assert not hasattr(members, "group_by")
 
 
@@ -290,9 +342,7 @@ def test_direct_aggregate_uses_selected_contributions(
     }[method]
     assert result.to_pandas()["value"].iloc[0] == pytest.approx(expected)
     if method == "count_distinct":
-        individual = members.observe(
-            metric, via=routes, by=(ms.ref.entity("sales.customer"),)
-        ).execute()
+        individual = members.observe(metric, via=routes, by=(mv.member(),)).execute()
         assert individual.to_pandas()["value"].sum() == 2
     if method in ("median", "percentile", "count_distinct"):
         with pytest.raises(AnalysisError):
@@ -328,7 +378,9 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
         mv.route(ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)),
     )
     overall = members.observe(ms.ref.metric("sales.aov_from_lines"), via=routes)
-    individual = members.observe(ms.ref.metric("sales.aov_from_lines"), via=routes, by=(entity,))
+    individual = members.observe(
+        ms.ref.metric("sales.aov_from_lines"), via=routes, by=(mv.member(),)
+    )
     assert overall.execute().to_pandas()["value"].iloc[0] == pytest.approx(200 / 101)
     assert individual.summarize(mv.mean()).execute().to_pandas()["value"].iloc[0] == 50.5
 
@@ -406,7 +458,9 @@ def test_complete_member_entity_keeps_compound_key(
     session = mv.session.get_or_create("compound-grain", report_timezone="UTC")
     entity = ms.ref.entity("sales.customer")
     observed = session.members(entity).observe(
-        ms.ref.metric("sales.revenue"), via=ms.ref.relationship("sales.order_buyer"), by=(entity,)
+        ms.ref.metric("sales.revenue"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(mv.member(),),
     )
     assert len(observed._node.root.signature.domain.instance_key) == 2
     rows = observed.execute().to_pandas()
@@ -461,7 +515,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
             ms.ref.metric("sales.revenue"),
             during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(entity,),
+            by=(mv.member(),),
         ).execute()
         case.database_path.rename(case.database_path.with_suffix(".offline"))
         continued = saved.group_by(saved_regions, saved_identities, grid).rollup().execute()

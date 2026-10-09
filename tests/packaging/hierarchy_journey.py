@@ -52,13 +52,13 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ms.ref.metric("operations.energy_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("operations.reading_device"),
-            by=(ms.ref.entity("operations.device"),),
+            by=(mv.member(),),
         )
         logical_coordinates = members.observe(
             ms.ref.metric("operations.energy_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("operations.reading_device"),
-            by=(ms.ref.entity("operations.device"), ms.ref.dimension("operations.reading.sensor")),
+            by=(mv.member(), ms.ref.dimension("operations.reading.sensor")),
         )
         direct_observation = members.observe(
             ms.ref.metric("operations.energy_total"),

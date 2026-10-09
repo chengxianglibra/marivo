@@ -13,7 +13,7 @@ def test_registered_templates_and_non_scalar_units_keep_their_actions(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert "relation.correlate(*others)" in {action.call for action in values.contract().actions}
     statistic = values.summarize(mv.count())

@@ -106,7 +106,7 @@ def _observe(
     grid = mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("day"))
     result = (
         session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric(metric), at=grid.end, by=(ms.ref.entity("sales.orders"),))
+        .observe(ms.ref.metric(metric), at=grid.end, by=(mv.member(),))
         .group_by(grid)
         .rollup()
         .execute()

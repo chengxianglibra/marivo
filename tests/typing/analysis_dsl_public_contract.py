@@ -35,7 +35,7 @@ if TYPE_CHECKING:
             members.observe(
                 metric,
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             ),
             mv.LogicalNumericRelation | mv.LogicalRatioRelation,
         )
@@ -54,9 +54,7 @@ if TYPE_CHECKING:
         mv.LogicalNumericRelation,
     )
     assert_type(
-        members.observe(
-            ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.customer"),)
-        ),
+        members.observe(ms.ref.metric("sales.running"), at=grid.end, by=(mv.member(),)),
         mv.LogicalNumericRelation | mv.LogicalRatioRelation,
     )
     assert_type(
@@ -76,15 +74,15 @@ if TYPE_CHECKING:
     assert isinstance(category, mv.LogicalCategoryRelation)
     assert_type(members.penetration_in(members), mv.LogicalNumericRelation)
     chosen = category.where(category.value.eq("west"))
-    assert_type(chosen, mv.LogicalSelectedCategoryRelation)
+    assert_type(chosen, mv.LogicalCategoryRelation)
     fixed_chosen = chosen.execute()
-    assert_type(fixed_chosen, mv.MaterializedSelectedCategoryRelation)
+    assert_type(fixed_chosen, mv.MaterializedCategoryRelation)
     assert_type(fixed_chosen.members(), mv.LogicalFixedAnalysisDomain)
     observed = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert_type(observed, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
     assert isinstance(observed, mv.LogicalNumericRelation)
@@ -113,7 +111,7 @@ if TYPE_CHECKING:
                 ms.ref.entity("sales.order"), through=(ms.ref.relationship("sales.order_buyer"),)
             ),
         ),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert_type(ratio, mv.LogicalNumericRelation | mv.LogicalRatioRelation)
     assert isinstance(ratio, mv.LogicalRatioRelation)

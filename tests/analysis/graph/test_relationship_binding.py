@@ -187,7 +187,7 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
     )
     for choice, expected in zip(choices, expected_roles, strict=True):
         assert isinstance(choice, mv.RootRoute)
-        observed = customers.observe(REVENUE, during=WINDOW, via=choice, by=(CUSTOMER,))
+        observed = customers.observe(REVENUE, during=WINDOW, via=choice, by=(mv.member(),))
         frame = observed.execute().to_pandas().set_index("member")
         assert frame.loc[frame["cell_tag"] == "defined", "value"].to_dict() == expected
         assert frame.loc["D", "cell_tag"] == "null"

@@ -133,13 +133,20 @@ Entity-domain values
 .. autoclass:: MaterializedAssociationResult
    :members:
 
+.. autofunction:: member
+
+.. autoclass:: MemberAxis
+   :members:
+
 .. autoclass:: RowMethod
    :members:
 
 Grouping and current rows
 -------------------------
 
-First Metric grouping uses ``members.observe(metric, by=(...))``. Numeric, ratio
+First Metric grouping uses ``members.observe(metric, by=(...))``. Use
+``by=(mv.member(),)`` to retain the receiver's complete member identity.
+Category ``where()`` retains the CategoryRelation family. Numeric, ratio
 and statistic results retain their admitted ``group_by`` and reductions. Member
 domains and Category, Boolean and Temporal results have no ``group_by``; scalar
 nonnumeric results support overall ``summarize(mv.count())`` and

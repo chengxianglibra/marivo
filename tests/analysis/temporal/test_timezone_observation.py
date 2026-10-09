@@ -134,7 +134,7 @@ def _observe(session: Session, scope: TimeScope) -> mv.LogicalNumericRelation:
         ms.ref.metric("sales.average"),
         during=scope,
         via=ms.ref.relationship("sales.buyer"),
-        by=(ms.ref.entity("sales.customers"),),
+        by=(mv.member(),),
     )
     assert isinstance(value, mv.LogicalNumericRelation)
     return value
@@ -175,7 +175,7 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
         ms.ref.metric("sales.total"),
         during=mv.time_scope(start="2026-08-03", end="2026-08-10"),
         via=ms.ref.relationship("sales.buyer"),
-        by=(ms.ref.entity("sales.customers"),),
+        by=(mv.member(),),
     )
     assert following.execute().to_pandas().set_index("member").value.to_dict() == {"A": 100}
 
@@ -283,14 +283,14 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         ms.ref.metric("sales.average"),
         during=grid,
         via=ms.ref.relationship("sales.buyer"),
-        by=(ms.ref.entity("sales.customers"),),
+        by=(mv.member(),),
     )
     assert gridded.execute().to_pandas().set_index("member").value.to_dict() == {"A": 20, "B": 60}
     running = members.observe(
         ms.ref.metric("sales.running"),
         at=grid.end,
         via=ms.ref.relationship("sales.buyer"),
-        by=(ms.ref.entity("sales.customers"),),
+        by=(mv.member(),),
     )
     assert running.execute().to_pandas().set_index("member").value.to_dict() == {"A": 928, "B": 60}
 
@@ -444,7 +444,7 @@ def test_sqlite_system_default_is_frozen_and_declared_timezone_overrides(
         ms.ref.metric("sales.average"),
         during=scope,
         via=ms.ref.relationship("sales.buyer"),
-        by=(ms.ref.entity("sales.customers"),),
+        by=(mv.member(),),
     )
     assert isinstance(values, mv.LogicalNumericRelation)
     params = _parameters(values)

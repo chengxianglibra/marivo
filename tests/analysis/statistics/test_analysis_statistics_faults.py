@@ -26,12 +26,8 @@ def test_unreadable_receipts_reject_value_reads_and_recovery(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    a = members.observe(
-        ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
-    ).execute()
-    b = members.observe(
-        ms.ref.metric("sales.total_1"), during=grid, by=(ms.ref.entity("sales.order"),)
-    ).execute()
+    a = members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),)).execute()
+    b = members.observe(ms.ref.metric("sales.total_1"), during=grid, by=(mv.member(),)).execute()
     logical = a.correlate(b) if kind == "association" else a.forecast(horizon=mv.periods(2))
     fixed = logical.execute()
     assert fixed._dataset is not None
@@ -80,12 +76,8 @@ def test_source_reader_close_failure_keeps_prior_artifact(
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
-    a = members.observe(
-        ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
-    )
-    b = members.observe(
-        ms.ref.metric("sales.total_1"), during=grid, by=(ms.ref.entity("sales.order"),)
-    )
+    a = members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
+    b = members.observe(ms.ref.metric("sales.total_1"), during=grid, by=(mv.member(),))
     previous = a.execute()
     close = SourceBatchStream.close
     closed: list[bool] = []
@@ -125,7 +117,7 @@ def test_three_quantity_search_and_forecast_views(
         members.observe(
             ms.ref.metric(f"sales.total_{i}"),
             during=grid,
-            by=(ms.ref.entity("sales.order"),),
+            by=(mv.member(),),
         )
         .group_by(grid)
         .rollup()
@@ -175,7 +167,7 @@ def test_forecast_findings_cap_and_selection_transport(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     result = history.forecast(horizon=mv.periods(4)).execute()
     assert len(result.prediction.to_pandas()) == 1004

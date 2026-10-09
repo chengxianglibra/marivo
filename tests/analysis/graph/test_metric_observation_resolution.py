@@ -68,7 +68,7 @@ def test_public_observation_resolves_once_and_retains_components(
             metric,
             during=window,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         assert catalog_normalize.call_count + runtime_normalize.call_count == 1
         assert lower.call_count == (0 if shape == "catalog" else 2 if shape == "ratio" else 1)
@@ -76,7 +76,7 @@ def test_public_observation_resolves_once_and_retains_components(
             metric,
             during=window,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         assert catalog_normalize.call_count + runtime_normalize.call_count == 2
         assert again._node.root.signature.quantity == observed._node.root.signature.quantity
@@ -118,7 +118,7 @@ def test_business_completeness_shares_resolution_and_keeps_error_precedence(
             during=grid,
             via=buyer,
             complete_during=(scope,),
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         assert normalize.call_count == 1
         with pytest.raises(AnalysisError, match="business-completeness"):
@@ -126,7 +126,7 @@ def test_business_completeness_shares_resolution_and_keeps_error_precedence(
                 ms.ref.metric("missing.metric"),
                 during=scope,
                 complete_during=(),
-                by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+                by=(mv.member(),),
             )
         assert normalize.call_count == 1
 
@@ -146,12 +146,12 @@ def test_next_observation_rechecks_physical_numeric_type(
         raise AssertionError("observation admission must not read business batches")
 
     monkeypatch.setattr(SourceSession, "batches", forbidden)
-    members.observe(metric, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),))
+    members.observe(metric, via=buyer, by=(mv.member(),))
     runs_before = len(case.session.runs().items)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{names.order}" ALTER "{names.amount}" TYPE VARCHAR')
     with pytest.raises(DatasetConstructionError) as error:
-        members.observe(metric, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),))
+        members.observe(metric, via=buyer, by=(mv.member(),))
     assert error.value.received == "unqualified amount physical type"
     assert error.value.location == "analysis.graph_observation"
     assert len(case.session.runs().items) == runs_before

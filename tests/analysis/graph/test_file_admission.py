@@ -125,14 +125,14 @@ def test_file_construction_and_refusals_never_submit_business_rows(
         members = session.members(ms.ref.entity("sales.facts"))
         received: str | None = None
         if case_kind == "metadata":
-            members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+            members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         else:
             with pytest.raises(AnalysisError) as caught:
                 members.observe(
                     ms.ref.metric(
                         "sales.average" if case_kind == "integer-mean" else "sales.total"
                     ),
-                    by=(ms.ref.entity("sales.facts"),),
+                    by=(mv.member(),),
                 )
             error = caught.value
             assert error.expected == "an ordinary int64 sum-zero observation from local CSV/JSON"

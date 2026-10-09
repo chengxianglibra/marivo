@@ -202,7 +202,7 @@ def test_long_path_sum_and_count(
                 ms.ref.metric("sales." + metric),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                 via=routes,
-                by=(ms.ref.entity("sales.subjects"),),
+                by=(mv.member(),),
             )
             if metric == "number":
                 node = logical._node.root
@@ -270,7 +270,7 @@ def test_long_path_sum_and_count(
                     sliced,
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=routes,
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ).execute()
                 if compound:
                     assert selected._dataset is not None

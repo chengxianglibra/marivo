@@ -56,7 +56,7 @@ def journey(phase: str, project: Path) -> dict[str, object]:
                 ms.ref.metric("operations.reading_count"),
                 during=grid,
                 via=ms.ref.relationship("operations.reading_device"),
-                by=(ms.ref.entity("operations.device"),),
+                by=(mv.member(),),
             ).execute()
             assert isinstance(produced_values, mv.MaterializedNumericRelation)
             values = produced_values

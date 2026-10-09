@@ -148,7 +148,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
     frame = (
         session.members(ms.ref.entity("finance.refunds"))
-        .observe(metric, by=(ms.ref.entity("finance.refunds"),))
+        .observe(metric, by=(mv.member(),))
         .rollup()
         .execute()
     )

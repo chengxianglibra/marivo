@@ -81,13 +81,13 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = targets.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     difference = current.compare(baseline).execute()
     category = targets.read(ms.ref.dimension("sales.customer.region"))
@@ -101,7 +101,7 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=via,
             by=(
-                ms.ref.entity("sales.customer"),
+                mv.member(),
                 axis,
             ),
         ).rollup()
@@ -115,7 +115,7 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=via,
             by=(
-                ms.ref.entity("sales.customer"),
+                mv.member(),
                 axis,
             ),
         ).rollup()

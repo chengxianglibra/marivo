@@ -27,7 +27,7 @@ monthly = (
         ms.ref.metric("sales.revenue"),
         during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
 )
 fixed = monthly.execute()
@@ -41,7 +41,7 @@ to `at`; no separate time-domain construction is required. Coarsening requires
 whole original cells to fit inside target buckets; crossing weeks reject.
 The default grid timezone binds to the consuming Session.
 
-With omitted `by`, observation returns one overall value per month. Use `by=(member_entity,)` for the member/time product; `by` selects spatial grain only.
+With omitted `by`, observation returns one overall value per month. Use `by=(mv.member(),)` for the member/time product; `by` selects spatial grain only.
 
 {/* example: default-time-grain */}
 
@@ -94,7 +94,7 @@ running = (
         ms.ref.metric("sales.running_revenue"),
         at=grid.end,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
 )
 ```
@@ -209,7 +209,7 @@ fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal
 grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
 dataset = (
     session.members(ms.ref.entity("sales.events"))
-    .observe(fiscal_mtd, at=grid.end, by=(ms.ref.entity("sales.events"),))
+    .observe(fiscal_mtd, at=grid.end, by=(mv.member(),))
     .group_by(grid)
     .rollup()
 )
@@ -243,7 +243,7 @@ revenue = members.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 defined = revenue.where(revenue.value.is_defined())
 defined.contract().show()
@@ -260,7 +260,7 @@ activity = members.observe(
     ms.ref.metric("sales.order_count"),
     during=grid,
     via=ms.ref.relationship("sales.order_buyer"),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 cohort = members.cohort(activity.value.gt(0), rule=mv.at_least(2))
 cohort.contract().show()
@@ -289,7 +289,7 @@ daily = members.observe(
     sum_metric,
     during=grid,
     complete_during=(complete,),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 ```
 
@@ -318,7 +318,7 @@ values = members.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 original = members.observe(
     ms.ref.metric("sales.revenue"),

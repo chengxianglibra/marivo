@@ -107,9 +107,6 @@ from marivo.analysis.public_dsl import (
     LogicalSelectedBooleanRelation as LogicalSelectedBooleanRelation,
 )
 from marivo.analysis.public_dsl import (
-    LogicalSelectedCategoryRelation as LogicalSelectedCategoryRelation,
-)
-from marivo.analysis.public_dsl import (
     LogicalSelectedDifferenceRelation as LogicalSelectedDifferenceRelation,
 )
 from marivo.analysis.public_dsl import (
@@ -182,9 +179,6 @@ from marivo.analysis.public_dsl import (
     MaterializedSelectedBooleanRelation as MaterializedSelectedBooleanRelation,
 )
 from marivo.analysis.public_dsl import (
-    MaterializedSelectedCategoryRelation as MaterializedSelectedCategoryRelation,
-)
-from marivo.analysis.public_dsl import (
     MaterializedSelectedDifferenceRelation as MaterializedSelectedDifferenceRelation,
 )
 from marivo.analysis.public_dsl import (
@@ -212,6 +206,7 @@ from marivo.analysis.public_dsl import (
     MaterializedTransitionSummary as MaterializedTransitionSummary,
 )
 from marivo.analysis.public_dsl import MaterializedViolationResult as MaterializedViolationResult
+from marivo.analysis.public_dsl import MemberAxis as MemberAxis
 from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
 from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
 from marivo.analysis.public_dsl import RootRoute as RootRoute
@@ -222,6 +217,7 @@ from marivo.analysis.public_dsl import count as count
 from marivo.analysis.public_dsl import count_defined as count_defined
 from marivo.analysis.public_dsl import max as max
 from marivo.analysis.public_dsl import mean as mean
+from marivo.analysis.public_dsl import member as member
 from marivo.analysis.public_dsl import min as min
 from marivo.analysis.public_dsl import one_to_one as one_to_one
 from marivo.analysis.public_dsl import reference_weights as reference_weights
@@ -372,8 +368,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
     "LogicalFixedAnalysisDomain",
-    "LogicalSelectedCategoryRelation",
-    "MaterializedSelectedCategoryRelation",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
     "LogicalTimeRunResult",
@@ -387,6 +381,8 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedAssociationResult",
     "RootRoute",
     "RootRoutes",
+    "MemberAxis",
+    "member",
     "RowMethod",
     "CountMethod",
     "GroupedStatisticRelation",

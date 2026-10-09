@@ -164,7 +164,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="combined",
                     ),
                     via=routes,
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ),
                 "ratio": members.observe(
                     mv.runtime_metric.ratio(
@@ -173,7 +173,7 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="ratio",
                     ),
                     via=routes,
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ),
                 "weighted": members.observe(
                     mv.runtime_metric.weighted_mean(
@@ -182,14 +182,14 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="weighted",
                     ),
                     via=ms.ref.relationship("sales.left_subject"),
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ),
                 "aggregate": members.observe(
                     mv.runtime_metric.aggregate(
                         ms.ref.measure("sales.left.amount"), agg="sum", label="total"
                     ),
                     via=ms.ref.relationship("sales.left_subject"),
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ),
                 "slice": members.observe(
                     mv.runtime_metric.slice(
@@ -198,15 +198,13 @@ def test_native_independent_multiroot_fixed_and_cold(
                         label="selected",
                     ),
                     via=ms.ref.relationship("sales.right_subject"),
-                    by=(ms.ref.entity("sales.subjects"),),
+                    by=(mv.member(),),
                 ),
             }
             for relation in relations.values():
                 quantity = relation._node.root.signature.quantity
                 assert isinstance(quantity, ObservedQuantity)
-                automatic = members.observe(
-                    quantity.metric_ref, by=(ms.ref.entity("sales.subjects"),)
-                )
+                automatic = members.observe(quantity.metric_ref, by=(mv.member(),))
                 assert automatic._node.root.signature.quantity == quantity
             auto_read = session.members(ms.ref.entity("sales.left")).read(
                 ms.ref.dimension("sales.subjects.owner")
@@ -228,9 +226,7 @@ def test_native_independent_multiroot_fixed_and_cold(
         for kind, relation in relations.items():
             quantity = relation._node.root.signature.quantity
             assert isinstance(quantity, ObservedQuantity)
-            result = members.observe(
-                quantity.metric_ref, by=(ms.ref.entity("sales.subjects"),)
-            ).execute()
+            result = members.observe(quantity.metric_ref, by=(mv.member(),)).execute()
             assert isinstance(
                 result, (mv.MaterializedNumericRelation, mv.MaterializedRatioRelation)
             )

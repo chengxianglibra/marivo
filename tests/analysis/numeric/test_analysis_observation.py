@@ -129,7 +129,7 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
             mv.route(line, through=(line_order, buyer)),
             mv.route(order, through=(buyer,)),
         ),
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -163,7 +163,7 @@ def test_observe_sliced_runtime_component_selects_its_own_branch(
         sliced,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -217,7 +217,7 @@ def test_sliced_weighted_mean_filters_pairs_before_reduction(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -246,7 +246,7 @@ def test_unsliced_observation_keeps_every_member_contribution(
         revenue,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -296,7 +296,7 @@ def test_root_routes_rejects_a_route_per_occurrence_of_one_root(
                 mv.route(line, through=(line_order, buyer)),
                 mv.route(order, through=(buyer,)),
             ),
-            by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
 
 
@@ -326,7 +326,7 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=mv.route(order, through=(buyer,)),
-        by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -379,7 +379,7 @@ def test_observe_linear_over_two_distinct_contribution_roots(
             mv.route(line, through=(line_order, buyer)),
             mv.route(order, through=(buyer,)),
         ),
-        by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -422,7 +422,7 @@ def test_linear_subtract_reverses_its_named_term(
             mv.route(order, through=(buyer,)),
             mv.route(line, through=(line_order, buyer)),
         ),
-        by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     framed = observed.execute().to_pandas()
@@ -439,6 +439,7 @@ def test_observe_without_a_window_keeps_every_admitted_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     """An omitted window drops the time restriction without claiming history."""
+    import marivo.analysis as mv
     import marivo.semantic as ms
 
     case = analysis_dsl_case_factory("j1")
@@ -448,9 +449,7 @@ def test_observe_without_a_window_keeps_every_admitted_contribution(
     revenue = ms.ref.metric(f"{domain}.{names.revenue}")
 
     members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    windowless = members.observe(
-        revenue, during=None, via=buyer, by=(ms.ref.entity(f"{domain}.{names.customer}"),)
-    )
+    windowless = members.observe(revenue, during=None, via=buyer, by=(mv.member(),))
     framed = windowless.execute().to_pandas()
     by_member = dict(zip(framed["member"], framed["value"], strict=True))
 
@@ -488,16 +487,14 @@ def test_windowless_observation_rejects_a_cumulative_metric(
     members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
 
     with pytest.raises(AnalysisError, match="explicit endpoint window"):
-        members.observe(
-            cumulative, during=None, via=buyer, by=(ms.ref.entity(f"{domain}.{names.customer}"),)
-        )
+        members.observe(cumulative, during=None, via=buyer, by=(mv.member(),))
     # A contribution window never supplies an omitted cumulative endpoint.
     with pytest.raises(AnalysisError, match="endpoint"):
         members.observe(
             cumulative,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=buyer,
-            by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
 
 
@@ -526,7 +523,7 @@ def test_opaque_metric_rejects_instead_of_inventing_components(
             opaque,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=buyer,
-            by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
     # The declared Metric over the same rows still observes normally.
     framed = (
@@ -534,7 +531,7 @@ def test_opaque_metric_rejects_instead_of_inventing_components(
             revenue,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=buyer,
-            by=(ms.ref.entity(f"{domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -560,7 +557,7 @@ def test_ratio_uses_each_components_own_state_and_rolls_up(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -594,7 +591,7 @@ def test_linear_executes_more_than_two_occurrences(
             expression,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -633,7 +630,7 @@ def test_linear_preserves_each_empty_branch_policy(
             expression,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -680,7 +677,7 @@ def test_runtime_aggregate_resolves_the_declared_default_axis(
             expression,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -744,7 +741,7 @@ shipment_count = ms.count(name='shipment_count', entity=shipments, time=shipment
                     through=(ms.ref.relationship("sales.shipment_buyer"),),
                 ),
             ),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -776,7 +773,7 @@ def test_ratio_accepts_a_negative_sum_denominator(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -835,7 +832,7 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -909,7 +906,7 @@ def test_observation_preserves_full_member_identity(
         else ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index(["member", "coord_0"])
@@ -938,7 +935,7 @@ def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -971,7 +968,7 @@ def test_observation_rejects_wrong_or_extra_root_routes(
     )
     with pytest.raises(AnalysisError, match=r"route|root"):
         case.session.members(ms.ref.entity("sales.customer")).observe(
-            ms.ref.metric("sales.order_count"), via=routes, by=(ms.ref.entity("sales.customer"),)
+            ms.ref.metric("sales.order_count"), via=routes, by=(mv.member(),)
         )
 
 
@@ -998,7 +995,7 @@ def test_linear_rejects_incommensurable_units(
         case.session.members(ms.ref.entity("sales.customer")).observe(
             expression,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
 
 
@@ -1051,7 +1048,7 @@ def test_composite_slice_reaches_each_leaf_before_reduction(
         expression,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")

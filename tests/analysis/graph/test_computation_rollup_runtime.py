@@ -80,7 +80,7 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     session = mv.session.get_or_create("equation-mean", report_timezone="UTC")
     fixed = (
         session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.amount_mean"), by=(ms.ref.entity("sales.orders"),))
+        .observe(ms.ref.metric("sales.amount_mean"), by=(mv.member(),))
         .execute()
     )
     result = fixed.rollup().execute()

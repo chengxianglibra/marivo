@@ -68,7 +68,7 @@ def producer_recovery(
         session = mv.session.get_or_create("r94-producer", report_timezone="UTC")
         try:
             values = session.members(ms.ref.entity("sales.facts")).observe(
-                ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
+                ms.ref.metric("sales.total"), by=(mv.member(),)
             )
         except AnalysisError as error:
             if profile in ("parquet", "csv", "local-json"):
@@ -255,7 +255,7 @@ def test_http_source_remains_a_datasource_boundary(
         session = mv.session.get_or_create("http-boundary", report_timezone="UTC")
         with pytest.raises(DatasetConstructionError) as failure:
             session.members(ms.ref.entity("sales.facts")).observe(
-                ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
+                ms.ref.metric("sales.total"), by=(mv.member(),)
             )
         error = failure.value
         assert error.expected and error.received

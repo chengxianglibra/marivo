@@ -178,6 +178,25 @@ def _reject(expected: str, received: str, repair: str) -> DatasetConstructionErr
 
 
 @dataclass(frozen=True, slots=True)
+class MemberAxis:
+    """A grouping instruction retaining the observation receiver's complete identity."""
+
+    def __repr__(self) -> str:
+        return "MemberAxis(kind='member'; use marivo.help('analysis.dsl.member'))"
+
+
+def member() -> MemberAxis:
+    """Select the observation receiver's complete member identity as a grouping axis.
+
+    Args: None.
+    Returns: An immutable MemberAxis resolved by the observation receiver.
+    Example: ``values = members.observe(metric, by=(mv.member(), channel))``.
+    Constraints: Only observe.by accepts this axis; use it once per observation. It retains all primary-key components and does not change member scope.
+    """
+    return MemberAxis()
+
+
+@dataclass(frozen=True, slots=True)
 class RowMethod:
     """Closed current-row statistic selected by the caller."""
 
@@ -1830,8 +1849,6 @@ class _Value:
                     Ref,
                     LogicalCategoryRelation,
                     MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
                 ),
             )
             for axis in axes
@@ -1850,8 +1867,6 @@ class _Value:
             | Ref[EntityKind]
             | LogicalCategoryRelation
             | MaterializedCategoryRelation
-            | LogicalSelectedCategoryRelation
-            | MaterializedSelectedCategoryRelation
             | TimeGrid
             | Grain,
             ...,
@@ -1860,6 +1875,12 @@ class _Value:
         node = self._node
         references: list[Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid | Coordinate] = []
         for key in keys:
+            if isinstance(key, MemberAxis):
+                raise _reject(
+                    "a retained Entity, Dimension, classification or time axis",
+                    "MemberAxis",
+                    "Use mv.member() only in observe.by; select the retained Entity Ref in group_by.",
+                )
             if isinstance(key, Grain):
                 from marivo._temporal import time_scope
 
@@ -1890,8 +1911,6 @@ class _Value:
                 (
                     LogicalCategoryRelation,
                     MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
                 ),
             ):
                 coordinate = self._classification_key(key)
@@ -2046,8 +2065,6 @@ def _rank_relation(
             (
                 LogicalCategoryRelation,
                 MaterializedCategoryRelation,
-                LogicalSelectedCategoryRelation,
-                MaterializedSelectedCategoryRelation,
             ),
         )
         for p in partition_by
@@ -2159,10 +2176,7 @@ class _NumericComparison(_Value):
         *,
         method: Literal["zscore", "mad"],
         partition_by: tuple[
-            LogicalCategoryRelation
-            | MaterializedCategoryRelation
-            | LogicalSelectedCategoryRelation
-            | MaterializedSelectedCategoryRelation,
+            LogicalCategoryRelation | MaterializedCategoryRelation,
             ...,
         ] = (),
     ) -> LogicalDeviationResult:
@@ -2181,8 +2195,6 @@ class _NumericComparison(_Value):
                 (
                     LogicalCategoryRelation,
                     MaterializedCategoryRelation,
-                    LogicalSelectedCategoryRelation,
-                    MaterializedSelectedCategoryRelation,
                 ),
             )
             for item in partition_by
@@ -2374,8 +2386,6 @@ class _OriginalContinuation(_NumericComparison):
         | Ref[EntityKind]
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedNumericRelation | GroupedRatioRelation:
@@ -2771,13 +2781,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         during: TimeScope | TimeGrid | None = None,
         at: datetime | GridEndpoint | None = None,
         via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
-        by: tuple[
-            Ref[EntityKind]
-            | Ref[DimensionKind]
-            | LogicalCategoryRelation
-            | LogicalSelectedCategoryRelation,
-            ...,
-        ] = (),
+        by: tuple[MemberAxis | Ref[DimensionKind] | LogicalCategoryRelation, ...] = (),
         complete_during: tuple[TimeScope, ...] | None = None,
     ) -> LogicalNumericRelation | LogicalRatioRelation:
         """Compute a governed Metric directly at the requested output grain.
@@ -2787,8 +2791,8 @@ class LogicalAnalysisDomain(_CohortDomain):
             during: Fixed TimeScope, a TimeGrid selecting each bucket's window, or None for no added restriction.
             at: Explicit cumulative endpoint, grid endpoint binding every time cell, or aware datetime.
             via: Relationship Ref, RootRoute or RootRoutes selecting contribution roles by root identity. Omit or pass None to infer unique directed to-one paths; partial overrides leave other roots automatic.
-            by: Ordered tuple of the receiver's member Entity, categorical Dimensions, or
-                same-Session logical member or contribution-root classifications. Independent scalar Dimension branches are allowed. The Entity retains its full primary key.
+            by: Ordered tuple of mv.member(), categorical Dimensions, or
+                same-Session logical member or contribution-root classifications. Independent scalar Dimension branches are allowed. The member axis retains the receiver's full primary key and Subject identity.
                 Empty means Singleton on ordinary members, or one overall value per time bucket.
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
@@ -2859,7 +2863,7 @@ class LogicalAnalysisDomain(_CohortDomain):
             )
         paths = tuple(paths_list)
         keys: list[Coordinate] = []
-        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
+        categories: list[LogicalCategoryRelation] = []
         contribution_domains: dict[str, Relation] = {}
         contribution_bases: dict[str, Relation] = {}
         classification_coordinates: list[Coordinate] = []
@@ -2873,15 +2877,15 @@ class LogicalAnalysisDomain(_CohortDomain):
 
         for axis in by:
             if isinstance(axis, Ref) and axis.kind == "entity":
-                if axis != subject.entity_ref:
-                    raise _reject(
-                        "the receiver's member Entity",
-                        axis.path,
-                        "Use the complete member Entity ref in by.",
-                    )
+                raise _reject(
+                    "mv.member(), a categorical Dimension or logical classification",
+                    axis.path,
+                    "Use by=(mv.member(), ...) to retain the receiver's member identity.",
+                )
+            if isinstance(axis, MemberAxis):
                 keys.extend(subject.subject_key)
                 continue
-            category: LogicalCategoryRelation | LogicalSelectedCategoryRelation | None = None
+            category: LogicalCategoryRelation | None = None
             if isinstance(axis, Ref) and axis.kind == "dimension":
                 dimension = semantic_ref.dimension(axis.path)
                 field = normalize_target_dimension(live.graph.registry, axis.path)
@@ -2908,7 +2912,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                     node = node.attach_category(member_read)
                     keys.append(member_read.classification_coordinate())
                     continue
-            elif isinstance(axis, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
+            elif isinstance(axis, LogicalCategoryRelation):
                 category = axis
                 categories.append(category)
                 coordinate = category._node.classification_coordinate()
@@ -2939,7 +2943,7 @@ class LogicalAnalysisDomain(_CohortDomain):
                     )
             else:
                 raise _reject(
-                    "a member Entity, categorical Dimension or logical classification",
+                    "mv.member(), a categorical Dimension or logical classification",
                     type(axis).__name__,
                     "Choose a typed axis in by.",
                 )
@@ -3136,16 +3140,16 @@ class LogicalCategoryRelation(_CountRelation):
         """
         return CategoryField(self._node.root, self._node)
 
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalCategoryRelation:
         """Select rows using a predicate bound to this category relation.
 
         Args:
             predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
+        Returns: A LogicalCategoryRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
         Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
-        return LogicalSelectedCategoryRelation(
+        return LogicalCategoryRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
@@ -3188,112 +3192,17 @@ class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
         """
         return CategoryField(self._node.root, self._node)
 
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
+    def where(self, predicate: BoundPredicate) -> LogicalCategoryRelation:
         """Build a fixed-only categorical selection.
 
         Args:
             predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
+        Returns: A LogicalCategoryRelation bound to this exact relation.
         Example: ``result = relation.where(predicate)``.
         Constraints: Every referenced input must cover this complete domain; all children are checked.
         """
-        return LogicalSelectedCategoryRelation(
+        return LogicalCategoryRelation(
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-
-class LogicalSelectedCategoryRelation(_CountRelation):
-    """Unexecuted category selection over one exact read relation."""
-
-    @property
-    def value(self) -> CategoryField:
-        """Return this relation's bound categorical field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return CategoryField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
-        """Select rows using a predicate bound to this category relation.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedCategoryRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
-        """Project complete Subject identities from this relation.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
-        Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return self._members_domain(through)
-
-    def execute(self) -> MaterializedSelectedCategoryRelation:
-        """Evaluate and publish this category selection.
-
-        Args:
-            None.
-        Returns: A MaterializedSelectedCategoryRelation bound to this exact relation.
-        Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
-        """
-        return MaterializedSelectedCategoryRelation(
-            _TOKEN, self._node, self._runtime, dataset=self._run()
-        )
-
-
-class MaterializedSelectedCategoryRelation(_MaterializedValue, _CountRelation):
-    """Fixed categorical selection with an exact retained member projection."""
-
-    @property
-    def value(self) -> CategoryField:
-        """Return this relation's bound categorical field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return CategoryField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedCategoryRelation:
-        """Select rows using a predicate bound to this category relation.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedCategoryRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedCategoryRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project selected fixed member identity without a source read.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
 
@@ -3483,8 +3392,6 @@ class LogicalNumericRelation(_NumericComparison):
         | Ref[EntityKind]
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedNumericRelation:
@@ -3589,8 +3496,6 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
         | Ref[EntityKind]
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedNumericRelation:
@@ -3719,8 +3624,6 @@ class LogicalRatioRelation(_NumericComparison):
         | Ref[EntityKind]
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedRatioRelation:
@@ -3786,8 +3689,6 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
         | Ref[EntityKind]
         | LogicalCategoryRelation
         | MaterializedCategoryRelation
-        | LogicalSelectedCategoryRelation
-        | MaterializedSelectedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedRatioRelation:
@@ -4170,6 +4071,12 @@ class _StatisticContinuation(_NumericComparison):
         Constraints: Merges this statistic's state; does not summarize finished values.
         Execute source Duration statistics before selecting merge axes.
         """
+        if any(isinstance(key, MemberAxis) for key in keys):
+            raise _reject(
+                "a retained Entity, Dimension or classification axis",
+                "MemberAxis",
+                "Use mv.member() only in observe.by; select the retained Entity Ref in group_by.",
+            )
         node = self._node.rollup_statistic(
             *(key if isinstance(key, Ref) else self._classification_key(key) for key in keys)
         )
@@ -5087,7 +4994,7 @@ def wrap_materialized(
             params = node.captured_definition.parameters
             if isinstance(params, PartsTransport) and params.field_kind == "measure":
                 return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-            return MaterializedSelectedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
+            return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
         if (
             isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity))
             or node.root.signature.quantity.method_version == "cell.ratio@v1"
@@ -7570,7 +7477,6 @@ PublicMaterialized: TypeAlias = (
     | MaterializedSelectedNumericRelation
     | MaterializedAnalysisDomain
     | MaterializedCategoryRelation
-    | MaterializedSelectedCategoryRelation
     | MaterializedNumericRelation
     | MaterializedGroupedNumericRelation
     | MaterializedRolledNumericRelation
@@ -7612,12 +7518,7 @@ NumericRelation: TypeAlias = (
 AnalysisDomain: TypeAlias = (
     LogicalAnalysisDomain | MaterializedAnalysisDomain | LogicalFixedAnalysisDomain
 )
-CategoryRelation: TypeAlias = (
-    LogicalCategoryRelation
-    | MaterializedCategoryRelation
-    | LogicalSelectedCategoryRelation
-    | MaterializedSelectedCategoryRelation
-)
+CategoryRelation: TypeAlias = LogicalCategoryRelation | MaterializedCategoryRelation
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -7914,8 +7815,6 @@ def table(
                 MaterializedCoefficientSelectionRelation,
                 LogicalCategoryRelation,
                 MaterializedCategoryRelation,
-                LogicalSelectedCategoryRelation,
-                MaterializedSelectedCategoryRelation,
                 LogicalBooleanRelation,
                 MaterializedBooleanRelation,
                 LogicalSelectedBooleanRelation,

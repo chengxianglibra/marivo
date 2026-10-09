@@ -103,7 +103,7 @@ def test_source_and_retained(
             ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
             by=(
-                ms.ref.entity("sales.facts"),
+                mv.member(),
                 *axes,
             ),
         ).rollup()
@@ -111,7 +111,7 @@ def test_source_and_retained(
             ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
             during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
             by=(
-                ms.ref.entity("sales.facts"),
+                mv.member(),
                 *axes,
             ),
         ).rollup()

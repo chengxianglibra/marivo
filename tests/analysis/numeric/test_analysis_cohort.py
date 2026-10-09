@@ -83,7 +83,7 @@ def test_full_entity_time_cohort(
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
         during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     assert isinstance(values, mv.LogicalNumericRelation)
     facts = analysis_dsl_rows("j2")
@@ -173,7 +173,7 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
         ms.ref.metric("sales.avg_usage_hours"),
         during=mv.time_scope(start="2026-08-03", end="2026-08-10"),
         via=ms.ref.relationship("sales.usage_to_user"),
-        by=(user,),
+        by=(mv.member(),),
     )
     assert isinstance(usage, mv.LogicalNumericRelation)
     eligible = usage.where(usage.value.gt(10)).members()
@@ -183,7 +183,7 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
         ms.ref.metric("sales.spending_amount"),
         during=current_week,
         via=ms.ref.relationship("sales.purchase_to_user"),
-        by=(user,),
+        by=(mv.member(),),
     )
     assert case.session.runs().items == ()
     frame = spending.execute().to_pandas()
@@ -194,7 +194,7 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
             ms.ref.metric("sales.spending_amount"),
             during=weekly,
             via=ms.ref.relationship("sales.purchase_to_user"),
-            by=(user,),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -220,7 +220,7 @@ def test_cold_full_opportunity_continuation(analysis_dsl_case_factory: DslCaseFa
         ms.ref.metric(f"{n.domain}.{n.order_count}"),
         during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     saved_targets, saved_values = targets.execute(), values.execute()
     result = saved_targets.cohort(saved_values.value.gt(0), rule=mv.any_instance()).execute()
@@ -303,7 +303,7 @@ def test_existing_unknown_consumption_and_decision_evidence(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     saved_targets, saved_values = targets.execute(), values.execute()
     assert isinstance(values, mv.LogicalNumericRelation)

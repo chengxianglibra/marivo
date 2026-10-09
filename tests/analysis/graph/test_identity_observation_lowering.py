@@ -620,7 +620,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     observed = members.observe(
         ms.ref.metric(f"{case.names.domain}.{case.names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(ms.ref.entity(f"{case.names.domain}.{case.names.order}"),),
+        by=(mv.member(),),
     )
     result = observed.execute()
     assert result._dataset is not None

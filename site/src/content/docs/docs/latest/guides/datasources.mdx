@@ -232,7 +232,7 @@ with session.source_bindings(
     }
 ):
     dataset = session.members(ms.ref.entity("monitoring.api_events")).observe(
-        ms.ref.metric("monitoring.pending_containers"), by=(ms.ref.entity("monitoring.api_events"),)
+        ms.ref.metric("monitoring.pending_containers"), by=(mv.member(),)
     )
 ```
 

@@ -494,7 +494,7 @@ def test_independent_roots_and_temporal_fold(
 
             before = set(root.rglob("*.parquet"))
             with pytest.raises(DatasetConstructionError) as refused_route:
-                members.observe(expression, via=routes, by=(ms.ref.entity("sales.subjects"),))
+                members.observe(expression, via=routes, by=(mv.member(),))
             assert refused_route.value.received == "Metric roots or relationship endpoints differ"
             assert refused_route.value.location == "analysis.graph_observation"
             assert set(root.rglob("*.parquet")) == before
@@ -520,25 +520,25 @@ def test_independent_roots_and_temporal_fold(
                 )
             return
         values = (
-            members.observe(expression, via=routes, by=(ms.ref.entity("sales.subjects"),))
+            members.observe(expression, via=routes, by=(mv.member(),))
             if linear or ratio
             else members.observe(
                 expression,
                 via=ms.ref.relationship("sales.left_subject"),
-                by=(ms.ref.entity("sales.subjects"),),
+                by=(mv.member(),),
             )
             if mode in ("weighted_mean", "aggregate")
             else members.observe(
                 expression,
                 via=ms.ref.relationship("sales.right_subject"),
-                by=(ms.ref.entity("sales.subjects"),),
+                by=(mv.member(),),
             )
             if mode == "slice"
             else members.observe(
                 ms.ref.metric("sales.left_folded"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
                 via=ms.ref.relationship("sales.left_subject"),
-                by=(ms.ref.entity("sales.subjects"),),
+                by=(mv.member(),),
             )
         )
         assert isinstance(values, (mv.LogicalNumericRelation, mv.LogicalRatioRelation))

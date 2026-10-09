@@ -65,7 +65,7 @@ def test_float_denominator_interval_rejects_before_publication(
         metric,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(
-            ms.ref.entity("sales.customer"),
+            mv.member(),
             *((ms.ref.dimension("sales.order.channel"),) if coordinates else ()),
         ),
     )
@@ -117,7 +117,7 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
         ms.ref.metric("sales.folded"),
         during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     for result in (fixed, logical.rollup().execute(), fixed.rollup().execute()):
@@ -153,7 +153,7 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg=kind, label=kind),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     for result in (logical.rollup().execute(), fixed.rollup().execute()):
@@ -212,7 +212,7 @@ def test_numeric_raw_order_and_exchange_batches(
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg="sum", label="sum"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     exact = sum(Fraction(value) for _, value in facts)
