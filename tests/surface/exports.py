@@ -259,7 +259,6 @@ ANALYSIS_PUBLIC = (
     "LogicalFixedAnalysisDomain",
     "LogicalSelectedCategoryRelation",
     "MaterializedSelectedCategoryRelation",
-    "GroupedAnalysisDomain",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
     "LogicalTimeRunResult",

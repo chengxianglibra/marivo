@@ -67,7 +67,6 @@ _METHOD_GROUPS = {
     ("GroupedRatioRelation", "rollup"): "methods.metric",
     ("_CohortDomain", "cohort"): "methods.rows",
     ("LogicalAnalysisDomain", "read"): "inputs.population",
-    ("LogicalAnalysisDomain", "group_by"): "methods.metric",
     ("LogicalAnalysisDomain", "observe"): "methods.metric",
     ("LogicalNumericRelation", "group_by"): "methods.metric",
     ("LogicalNumericRelation", "rollup"): "methods.metric",
@@ -153,7 +152,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.CohortContrast,
         dsl.AnalysisAction,
         dsl.AnalysisContract,
-        dsl.GroupedAnalysisDomain,
         dsl.GroupedNumericRelation,
         dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
@@ -1095,7 +1093,6 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
         "dsl.LogicalCoefficientRelation.where",
         "dsl.MaterializedCoefficientRelation.where",
     ),
-    "GroupedAnalysisDomain": ("dsl.LogicalAnalysisDomain.group_by",),
     "GroupedNumericRelation": (
         "dsl.LogicalNumericRelation.group_by",
         "dsl.MaterializedNumericRelation.group_by",

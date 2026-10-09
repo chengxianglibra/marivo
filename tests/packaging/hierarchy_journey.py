@@ -1,4 +1,4 @@
-"""Raw-fact hierarchy, explicit empty groups and retained classification."""
+"""Raw-fact hierarchy, current-row counts and retained classification."""
 
 from __future__ import annotations
 
@@ -52,24 +52,25 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ms.ref.metric("operations.energy_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("operations.reading_device"),
+            by=(ms.ref.entity("operations.device"),),
         )
         logical_coordinates = members.observe(
             ms.ref.metric("operations.energy_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("operations.reading_device"),
-            coordinates=(ms.ref.dimension("operations.reading.sensor"),),
+            by=(ms.ref.entity("operations.device"), ms.ref.dimension("operations.reading.sensor")),
         )
-        direct_observation = members.group_by(ms.ref.dimension("operations.device.zone")).observe(
+        direct_observation = members.observe(
             ms.ref.metric("operations.energy_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("operations.reading_device"),
+            by=(ms.ref.dimension("operations.device.zone"),),
         )
-        assert isinstance(direct_observation, mv.GroupedNumericRelation)
+        assert isinstance(direct_observation, mv.LogicalNumericRelation)
         values: dict[str, _MaterializedRead] = {
             "base": logical_base.execute(),
             "category": logical_category.execute(),
             "coordinates": logical_coordinates.execute(),
-            "groups": logical_category.group_by().execute(),
             "direct": direct_observation.execute(),
         }
         direct = values["direct"].to_pandas()
@@ -112,8 +113,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         assert isinstance(base, mv.MaterializedNumericRelation)
         assert isinstance(category, mv.MaterializedCategoryRelation)
         assert isinstance(coordinates, mv.MaterializedNumericRelation)
-        groups = values["groups"]
-        assert isinstance(groups, mv.MaterializedAnalysisDomain)
         operations: dict[str, Continuation] = {
             "regions": base.group_by(category).rollup(),
             "channels": coordinates.group_by(
@@ -121,9 +120,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ).rollup(),
             "total": base.rollup(),
             "coordinate_count": coordinates.summarize(mv.count()),
-            "empty_groups": category.where(category.value.eq("east"))
-            .group_by(groups=groups)
-            .summarize(mv.count()),
+            "selected_count": category.where(category.value.eq("east")).summarize(mv.count()),
         }
         before = run_ids(session)
         outputs = {name: operation.execute() for name, operation in operations.items()}
@@ -134,11 +131,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         assert outputs["channels"].to_pandas().set_index("group").value.to_dict() == channel_oracle
         assert outputs["total"].to_pandas().value.tolist() == [sum(channel_oracle.values())]
         assert outputs["coordinate_count"].to_pandas().value.tolist() == [3]
-        assert outputs["empty_groups"].to_pandas().set_index("group").value.to_dict() == {
-            "east": 2,
-            "south": 0,
-            "west": 0,
-        }
+        assert outputs["selected_count"].to_pandas().value.tolist() == [2]
         snapshots: dict[str, Json] = {name: snapshot(value) for name, value in outputs.items()}
         if phase == "fixed":
             assert len(run_ids(session) - before) == len(operations)

@@ -338,6 +338,7 @@ def produce(root: Path, risk: str) -> dict[str, Json]:
                     ms.ref.metric("commerce." + metric),
                     during=mv.time_scope(start=START.isoformat(), end=END.isoformat()),
                     via=ms.ref.relationship("commerce.event_to_order"),
+                    by=(ms.ref.entity("commerce.orders"),),
                 ).execute()
                 frame = observed.to_pandas()
                 assert frame.member.tolist() == ["o1"]

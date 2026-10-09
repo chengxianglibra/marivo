@@ -73,7 +73,6 @@ from marivo.analysis.core.rules import (
     AttributionDerive,
     BindProject,
     CellDerive,
-    CompleteGroups,
     DeviationFit,
     DisplayRank,
     DisplayTable,
@@ -3829,7 +3828,6 @@ def lower(
                         TimeRunRead,
                         DeviationFit,
                         AttachCategory,
-                        CompleteGroups,
                         AnchorRetention,
                         RetentionBySubject,
                         AnchorBind,
@@ -3865,11 +3863,6 @@ def lower(
                 has_value=not isinstance(stage.node.parameters, PartsTransport)
                 or stage.node.parameters.keep_quantity,
             )
-            if (
-                isinstance(stage.node.parameters, CompleteGroups)
-                and stage.node.signature.quantity is None
-            ):
-                output_layout = canonical_layout(stage.node.signature, has_value=False)
             if isinstance(
                 stage.node.parameters,
                 (
@@ -4194,10 +4187,6 @@ def lower(
             elif isinstance(params, TimeProduct):
                 table, layout = _time_product(stage, inputs[0])
                 cell_reasons = ()
-            elif isinstance(params, CompleteGroups):
-                table, layout = _complete_groups(stage, inputs, checks)
-                cell_reasons = inputs[0].cell_reasons
-                source_ids = _source_ids(*(item.source_ids for item in inputs))
             elif isinstance(params, AttachCategory):
                 table, layout = _attach_category(stage, inputs, checks)
                 cell_reasons = inputs[0].cell_reasons
@@ -4551,84 +4540,6 @@ def _attach_category(
         **{f"key_{len(source.layout.keys)}": right[cell.value]},
     )
     return result.select(*target.columns), target
-
-
-def _complete_groups(
-    stage: SourceMethodStage, inputs: tuple[LoweredRelation, ...], checks: list[LoweredCheck]
-) -> tuple[ir.Table, RelationLayout]:
-    from marivo.analysis.methods.state_validation import empty_reduction_cell
-
-    params = stage.node.parameters
-    assert isinstance(params, CompleteGroups)
-    source, target = inputs
-    keys = tuple(k.column for k in source.layout.keys)
-    if not keys:
-        return source.expression, source.layout
-    left, right = source.expression.view(), target.expression.select(*keys).view()
-    source_ids = _source_ids(source.source_ids, target.source_ids)
-    fact = group_consumption_facts(tuple(item.node.signature for item in inputs), params)[0]
-    obligation = next(item for item in stage.node.derivation.obligations if item.fact == fact)
-    checks.append(
-        SemanticCheck(
-            CheckRequirement(stage.node.identity, stage.output, obligation),
-            left.anti_join(right, keys).select(*keys),
-            source_ids,
-        )
-    )
-    if source.layout.cell is None:
-        return right.select(*keys), canonical_layout(stage.node.signature, has_value=False)
-    value, tag, reason = empty_reduction_cell(source.node.signature)
-    fold = next(
-        (
-            part.fold_kind
-            for part in source.node.signature.parts
-            if isinstance(part, OriginalStatePart)
-        ),
-        None,
-    )
-    marked = left.mutate(__present=ibis.literal(True))
-    joined = right.left_join(marked, keys)
-    missing = marked.__present.isnull()
-    fields: dict[str, ir.Value] = {key: right[key] for key in keys}
-    subject_fields = {
-        f"subject__key_{i}": keys[source.node.signature.domain.instance_key.index(coordinate)]
-        for part in source.node.signature.parts
-        if isinstance(part, SubjectPart)
-        for i, coordinate in enumerate(part.subject_key)
-    }
-    for name in source.layout.columns:
-        if name in keys:
-            continue
-        if name == "coordinate_state__groups":
-            fields[name] = ibis.ifelse(
-                missing, ibis.literal([], type=marked[name].type()), marked[name]
-            )
-            continue
-        if name in subject_fields:
-            fields[name] = ibis.ifelse(missing, right[subject_fields[name]], marked[name])
-            continue
-        empty: int | bool | str | None = (
-            ""
-            if name == "original_state__samples" and fold is not None
-            else fold
-            if name == "original_state__fold_kind" and fold is not None
-            else value
-            if name == "value"
-            else tag
-            if name == "cell_tag"
-            else reason
-            if name == "cell_reason"
-            else True
-            if name == "coverage__complete"
-            else None
-            if name in ("row_state__min", "row_state__max")
-            else 0
-        )
-        fields[name] = ibis.ifelse(
-            missing, ibis.literal(empty).cast(str(marked[name].type())), marked[name]
-        )
-    layout = canonical_layout(stage.node.signature, has_value=True)
-    return joined.select(**fields).select(*layout.columns), layout
 
 
 def _mean_finish(

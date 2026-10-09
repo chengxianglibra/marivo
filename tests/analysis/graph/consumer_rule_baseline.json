@@ -584,26 +584,6 @@
     "subject_indices": [],
     "distribution_indices": []
   },
-  "group.complete@v1": {
-    "count": 4222,
-    "declarations": "c65a74c7b347edcf7aa8dc09f3ca966155487c2f9b0bdcbb7a2e5e8203df5963",
-    "specialization": "e1482f9cc7e27827c1370244d81a46e33668d0a93deb606ce490d8238b5ab0ee",
-    "exact_indices": [
-      648,
-      649,
-      650,
-      651,
-      652,
-      653,
-      654,
-      655,
-      656,
-      657
-    ],
-    "prepared_indices": [],
-    "subject_indices": [],
-    "distribution_indices": []
-  },
   "time.product@v1": {
     "count": 121,
     "declarations": "21aceddff6ac7a8d1138006c362055a4e7c8d995f92e0494bd9cc470f72a8230",

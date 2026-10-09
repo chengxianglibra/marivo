@@ -94,3 +94,40 @@ def test_current_continuation_registry_resolves_to_actual_bound_methods(
             method = action.call.split("(", 1)[0].rsplit(".", 1)[-1]
             if hasattr(value, method):
                 assert REGISTRY.by_callable(getattr(value, method)) is route.descriptor
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("with_key", (False, True))
+def test_retired_standalone_group_artifact_requires_reexecution_without_writes(
+    analysis_dsl_case_factory: DslCaseFactory, with_key: bool
+) -> None:
+    import marivo.semantic as ms
+
+    case = analysis_dsl_case_factory("j1")
+    category = case.session.members(ms.ref.entity("sales.customer")).read(
+        ms.ref.dimension("sales.customer.region")
+    )
+    # Internal key projection remains necessary for numeric grouping. Persist it
+    # directly to model a standalone group Artifact from the removed public API.
+    domain, _ = category._group_nodes((category,))
+    if not with_key:
+        domain = category._node.group_domain(())
+    dataset = domain.execute()
+    reference = dataset.artifact.artifact_ref
+    state = case.root / ".marivo/analysis"
+    before = {
+        p: p.read_bytes()
+        for p in state.rglob("*")
+        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+    }
+    with pytest.raises(IntegrityError) as caught:
+        case.session.artifact(reference)
+    assert caught.value.stage == "graph_protocol"
+    assert "standalone group-domain" in caught.value.received
+    assert caught.value.repair is not None
+    assert "observe(by=...)" in caught.value.repair.action
+    assert {
+        p: p.read_bytes()
+        for p in state.rglob("*")
+        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+    } == before

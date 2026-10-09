@@ -40,7 +40,6 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     AttributionDerive,
     CellDerive,
-    CompleteGroups,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -2220,7 +2219,6 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "cell.ratio",
                 "association.spearman",
                 "group.attach",
-                "group.complete",
             )
             else 1
         )
@@ -2258,7 +2256,6 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 "journey.completed",
                 "journey.read",
                 "occurrence.prepare",
-                "group.complete",
                 "group.attach",
                 "parts_transport",
                 "domain.cohort",
@@ -2315,7 +2312,7 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
         if (
             arity == 2
-            and name not in ("group.attach", "group.complete", "domain.cohort")
+            and name not in ("group.attach", "domain.cohort")
             and not isinstance(
                 stage.stage.node.parameters,
                 (
@@ -2496,8 +2493,6 @@ def execute_verified_fixed(
             result = reference_result(
                 stage.stage.node, fixed_parts(stage.stage.node, values), binding
             )
-        elif name == "group.complete":
-            result = _complete_groups_stage(stage, values[0], values[1], binding)
         elif name == "group.attach":
             result = _attach_category_stage(stage, values[0], values[1], binding)
         elif name == "map_correspond":
@@ -2549,7 +2544,6 @@ def execute_verified_fixed(
             stage.stage.node.parameters,
             (
                 AttachCategory,
-                CompleteGroups,
                 DisplayRank,
                 DisplayTable,
                 AttributionDerive,
@@ -2860,101 +2854,6 @@ def _grouped_row_result(
         completed_checks=template.completed_checks,
         validate=False,
     )
-
-
-def _complete_groups_stage(
-    method: LoweredLocal, source: ExchangeResult, target: ExchangeResult, binding: str
-) -> ExchangeResult:
-    from marivo.analysis.methods.state_validation import empty_reduction_cell
-
-    keys = source.contract.key_fields
-    targets = [
-        tuple(row[k] for k in target.contract.key_fields) for row in cell_rows(target.primary)
-    ]
-    if len(set(targets)) != len(targets) or any(any(v is None for v in key) for key in targets):
-        raise _invalid("explicit target requires unique complete keys")
-    rows = _index_rows(numeric_primary(source.primary), keys)
-    if not rows.keys() <= set(targets):
-        raise _invalid("consumed groups are absent from the explicit target")
-    if source.contract.signature.quantity is None:
-        contract = ExchangeContract(
-            method.stage.node.signature,
-            method.stage.node.method,
-            binding,
-            target.primary.schema,
-            target.contract.key_fields,
-        )
-        return from_arrow(target.primary, contract, validate=False)
-    value, tag, reason = empty_reduction_cell(source.contract.signature)
-    fold = next(
-        (
-            part.fold_kind
-            for part in source.contract.signature.parts
-            if isinstance(part, OriginalStatePart)
-        ),
-        None,
-    )
-    primary_rows = [
-        rows[key]
-        if key in rows
-        else {
-            **dict(zip(keys, key, strict=True)),
-            "value": value,
-            "cell_tag": tag,
-            "cell_reason": reason,
-        }
-        for key in sorted(targets)
-    ]
-    primary = from_rows(
-        primary_rows, compact_schema(source.primary.schema, source.contract.cell_reasons)
-    )
-    subject_fields = {
-        f"subject__key_{i}": source.contract.signature.domain.instance_key.index(coordinate)
-        for declaration in source.contract.signature.parts
-        if isinstance(declaration, SubjectPart)
-        for i, coordinate in enumerate(declaration.subject_key)
-    }
-    parts: list[ExchangePart] = []
-    for part in source.parts:
-        retained = _index_rows(part.table, keys)
-        completed = [
-            retained[key]
-            if key in retained
-            else {
-                **dict(zip(keys, key, strict=True)),
-                **{
-                    name: key[subject_fields[name]]
-                    if name in subject_fields
-                    else True
-                    if name == "coverage__complete"
-                    else None
-                    if name in ("row_state__min", "row_state__max")
-                    else ""
-                    if name == "original_state__samples" and fold is not None
-                    else fold
-                    if name == "original_state__fold_kind" and fold is not None
-                    else 0
-                    for name in part.table.column_names
-                    if name not in keys
-                },
-            }
-            for key in sorted(targets)
-        ]
-        parts.append(
-            ExchangePart(part.role, pa.Table.from_pylist(completed, schema=part.table.schema))
-        )
-    contract = ExchangeContract(
-        method.stage.node.signature,
-        method.stage.node.method,
-        binding,
-        primary.schema,
-        keys,
-        tuple(PartContract(p.role, p.table.schema, keys) for p in parts),
-        source.contract.cell_reasons,
-        "none",
-        None,
-    )
-    return from_arrow(primary, contract, parts=tuple(parts), validate=False)
 
 
 def _group_domain_stage(

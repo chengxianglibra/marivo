@@ -90,7 +90,7 @@ class MethodRegistration:
                     repr(implementation.key),
                     "Bind original target and expanded basis.",
                 )
-            if self.semantics.key.name in ("group.attach", "group.complete"):
+            if self.semantics.key.name in ("group.attach",):
                 if input_count != 2:
                     reject(
                         "two ordered classification inputs",

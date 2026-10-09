@@ -70,11 +70,9 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     logical_groups = members.observe(metric, during=window, via=via, by=(classification,)).execute()
     assert logical_groups.to_pandas().equals(grouped.execute().to_pandas())
     selected = classification.where(classification.value.eq("east")).members()
-    grouped = selected.observe(
-        metric, during=window, via=via, by=(region,), groups=classification.group_by()
-    ).execute()
+    grouped = selected.observe(metric, during=window, via=via, by=(region,)).execute()
     assert grouped.to_pandas().set_index("group")["value"].dropna().to_dict() == {"east": 600}
-    assert len(grouped.to_pandas()) == 3
+    assert len(grouped.to_pandas()) == 1
     restored = case.session.artifact(grouped.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedNumericRelation)
     assert restored.to_pandas().equals(grouped.to_pandas())
@@ -241,7 +239,7 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
         members.observe(metric, by=(entity, entity))
     with pytest.raises(AnalysisError):
         members.observe(metric, by=(ms.ref.entity("sales.customer"),))
-    assert not hasattr(members.group_by(), "observe")
+    assert not hasattr(members, "group_by")
 
 
 @pytest.mark.runtime
@@ -304,15 +302,10 @@ def test_direct_aggregate_uses_selected_contributions(
         classification = members.read(region)
         assert isinstance(classification, mv.LogicalCategoryRelation)
         selected = classification.where(classification.value.eq("east")).members()
-        completed = selected.observe(
-            metric, via=routes, by=(region,), groups=classification.group_by()
-        ).execute()
+        completed = selected.observe(metric, via=routes, by=(region,)).execute()
         rows = completed.to_pandas().set_index("group")
         assert rows.loc["east", "value"] == 1
-        if method == "count_distinct":
-            assert rows.loc["west", "value"] == 0
-        else:
-            assert rows.loc["west", "cell_tag"] == "null"
+        assert rows.index.tolist() == ["east"]
         recovered = session.artifact(completed.state.artifact_ref)
         assert isinstance(recovered, mv.MaterializedNumericRelation)
         with pytest.raises(AnalysisError):
@@ -476,13 +469,12 @@ def test_multiple_member_classifications_keep_complete_time_keys(
 
 
 @pytest.mark.runtime
-def test_explicit_targets_preserve_live_and_fixed_comparisons(
+def test_member_groups_preserve_live_and_fixed_comparisons(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = ms.ref.dimension("sales.customer.region")
-    groups = members.group_by(region)
 
     def endpoint(month: int) -> mv.LogicalNumericRelation:
         observed = members.observe(
@@ -490,7 +482,6 @@ def test_explicit_targets_preserve_live_and_fixed_comparisons(
             during=mv.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
             by=(region,),
-            groups=groups,
         )
         assert isinstance(observed, mv.LogicalNumericRelation)
         return observed

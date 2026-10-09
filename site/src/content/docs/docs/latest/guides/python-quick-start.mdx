@@ -142,7 +142,6 @@ change = current.compare(baseline).execute()
 change.show()
 change.contract().show()
 
-groups = members.group_by(ms.ref.dimension("sales.orders.region"))
 regional_current = members.observe(
     revenue, during=august, by=(ms.ref.dimension("sales.orders.region"),)
 )

@@ -98,8 +98,9 @@ output grid are four distinct bindings. A TimeGrid passed to observe(during=grid
 explicitly binds its output axis and per-cell contribution windows. A
 GridEndpoint passed to read/observe(at=...)
 explicitly binds its output axis and endpoint interpretation. Neither changes
-member version selection or supplies an omitted attribute version. The explicit
-member group_by property shorthand retains its Analysis-owned contract.
+member version selection or supplies an omitted attribute version. Spatial
+classifications enter the first Metric observation through `observe(by=...)`;
+only numeric, ratio and statistic results retain `group_by`.
 
 `mv.time_grid(*, during: TimeScope, grain: Grain, timezone: str | None = None)
 -> TimeGrid` constructs a finite coordinate domain. With no explicit timezone,

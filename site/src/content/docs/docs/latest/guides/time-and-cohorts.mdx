@@ -299,11 +299,15 @@ and no `at`; it cannot original-rollup the covered observation. Empty data is
 not evidence of complete coverage. Count zero, absent state and incomplete
 coverage remain distinct.
 
-## Inspect current rows and complete groups
+## Inspect current rows
 
-Use the customer sales model. The example explicitly supplies target groups, including groups with no selected rows.
+Use `observe(by=...)` for the first Metric grouping. Numeric results can regroup
+and summarize their current rows; Category, Boolean and Temporal results support
+overall `summarize(mv.count())` and `summarize(mv.count_defined())`. Member domains
+do not expose a direct count or grouping operation. The example uses the customer
+sales model and retains only the selected east customers.
 
-{/* example: complete-target-groups */}
+{/* example: current-row-statistics */}
 
 ```python
 all_members = session.members(ms.ref.entity("sales.customer"))
@@ -316,20 +320,24 @@ values = members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(ms.ref.entity("sales.customer"),),
 )
-targets = all_regions.group_by()
 original = members.observe(
     ms.ref.metric("sales.revenue"),
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=ms.ref.relationship("sales.order_buyer"),
     by=(region,),
-    groups=targets,
 ).execute()
-row_mean = values.group_by(region, groups=targets).summarize(mv.mean()).execute()
+row_mean = values.group_by(region).summarize(mv.mean()).execute()
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
-category_counts = selected_regions.group_by(groups=targets).summarize(mv.count()).execute()
-fixed_targets = selected_regions.group_by(groups=targets).execute()
+row_counts = values.group_by(region).summarize(mv.count()).execute()
+category_count = selected_regions.summarize(mv.count()).execute()
 ```
+
+For a report with prescribed rows, export with `to_pandas()` and apply display
+completion there, for example with pandas `reindex`. External results cannot
+re-enter typed Marivo analysis. Complete member domains, empty time buckets and
+Metric empty-set rules still apply within observations.
+
 {/* example: mean-original-rollup */}
 
 ```python

@@ -133,7 +133,6 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "row.max@v1": "row_state@v1",
         "group.attach@v1": "parts_transport@v1",
         "time.product@v1": "parts_transport@v1",
-        "group.complete@v1": "parts_transport@v1",
         "row.count@v1": "row_state@v1",
         "row.count_defined@v1": "row_state@v1",
         "row.weighted_mean@v1": "row_state@v1",
@@ -230,7 +229,6 @@ def test_connected_methods_have_one_owner_per_rule() -> None:
         "cell.ratio",
         "cell.relative_change",
         "group.attach",
-        "group.complete",
         "metric.min",
         "metric.max",
         "metric.distinct",
@@ -816,7 +814,7 @@ def test_registry_and_core_consumer_use_no_io_or_legacy_registry(
         derive((source,), _params(source))
 
 
-@pytest.mark.parametrize("name", ["parts_transport", "group.attach", "group.complete"])
+@pytest.mark.parametrize("name", ["parts_transport", "group.attach"])
 @pytest.mark.parametrize("arity", [1, 2, 3])
 def test_transport_and_group_methods_enforce_ordered_arity(name: str, arity: int) -> None:
     registration = REGISTRY.lookup(MethodKey(name))
