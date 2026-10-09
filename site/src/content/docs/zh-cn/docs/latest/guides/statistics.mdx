@@ -23,7 +23,7 @@ followup = positive.observed.members().observe(
     via=buyer,
     by=(mv.member(),),
 )
-followup.summarize(method=mv.count_defined()).execute().show()
+followup.aggregate(method=mv.count_defined()).execute().show()
 fixed = scored.execute()
 fixed.contract().show()
 ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()

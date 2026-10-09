@@ -208,17 +208,17 @@ def _continue(
     if isinstance(saved, mv.MaterializedNumericRelation):
         outputs["rollup"] = saved.rollup().execute()
         assert outputs["rollup"].to_pandas().iloc[0]["value"] == oracle["rollup"]
-        outputs["count"] = saved.summarize(mv.count()).execute()
+        outputs["count"] = saved.aggregate(mv.count()).execute()
         assert outputs["count"].to_pandas().iloc[0]["value"] == oracle["count"]
     elif isinstance(saved, mv.MaterializedDifferenceRelation):
         outputs["compare"] = extras[0].compare(extras[1]).execute()
         assert outputs["compare"].to_pandas().equals(saved.to_pandas())
-        outputs["sum"] = saved.summarize(mv.sum()).execute()
+        outputs["sum"] = saved.aggregate(mv.sum()).execute()
         assert outputs["sum"].to_pandas().iloc[0]["value"] == oracle["sum"]
         selected = saved.where(saved.value.lt(0)).execute()
         outputs["where"] = selected
         outputs["members"] = selected.members().execute()
-        outputs["selected_sum"] = selected.summarize(mv.sum()).execute()
+        outputs["selected_sum"] = selected.aggregate(mv.sum()).execute()
         assert outputs["selected_sum"].to_pandas().iloc[0]["value"] == oracle["selected_sum"]
         assert len(outputs["members"].to_pandas()) == oracle["selected_count"]
     elif isinstance(saved, mv.MaterializedRatioRelation):
@@ -226,18 +226,18 @@ def _continue(
         outputs["group_by"] = (
             saved.group_by(ms.ref.dimension("operations.reading.sensor")).rollup().execute()
         )
-        outputs["mean"] = saved.summarize(mv.mean()).execute()
+        outputs["mean"] = saved.aggregate(mv.mean()).execute()
         assert outputs["rollup"].to_pandas().iloc[0]["value"] == oracle["rollup"]
         assert outputs["mean"].to_pandas().iloc[0]["value"] == oracle["mean"]
     else:
         assert isinstance(saved, mv.MaterializedAssociationResult)
         coefficient = saved.coefficient
-        outputs["mean"] = coefficient.summarize(mv.mean()).execute()
+        outputs["mean"] = coefficient.aggregate(mv.mean()).execute()
         selected_coefficient = coefficient.where(
             coefficient.value.lt(0) if oracle["coefficient"] < 0 else coefficient.value.gt(0)
         ).execute()
         outputs["where"] = selected_coefficient
-        outputs["selected_mean"] = selected_coefficient.summarize(mv.mean()).execute()
+        outputs["selected_mean"] = selected_coefficient.aggregate(mv.mean()).execute()
         assert outputs["selected_mean"].to_pandas().iloc[0]["value"] == oracle["coefficient"]
         assert saved.to_pandas().iloc[0]["complete_pair_count"] == oracle["pairs"]
     return {

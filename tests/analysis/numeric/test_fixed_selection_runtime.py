@@ -98,7 +98,7 @@ def test_public_selection_parts_contract_members_summary_rollup_and_cache(
     assert parts["original_state"]["original_state__non_null_count"].to_pylist() == [1]
     assert parts["coverage"]["coverage__complete"].to_pylist() == [True]
     assert result.members().execute().to_pandas().member.tolist() == ["A"]
-    assert result.summarize(mv.sum()).execute().to_pandas().value.tolist() == [60]
+    assert result.aggregate(mv.sum()).execute().to_pandas().value.tolist() == [60]
     assert result.rollup().execute().to_pandas().value.tolist() == [60]
     disclosure = asdict(result.contract())
     restored = case.session.artifact(result.state.artifact_ref)

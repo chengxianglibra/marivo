@@ -37,7 +37,7 @@ _METHOD_GROUPS = {
     ("_MaterializedRead", "finding"): "artifacts.reads",
     ("_OriginalContinuation", "group_by"): "methods.metric.reduce",
     ("_OriginalContinuation", "rollup"): "methods.metric.reduce",
-    ("_OriginalContinuation", "summarize"): "methods.metric.summary",
+    ("_OriginalContinuation", "aggregate"): "methods.metric.summary",
     ("_NumericComparison", "rank"): "methods.rows",
     ("_NumericComparison", "runs"): "methods.rows",
     ("_NumericComparison", "deviation"): "methods.rows",
@@ -70,30 +70,30 @@ _METHOD_GROUPS = {
     ("LogicalAnalysisDomain", "observe"): "methods.metric",
     ("LogicalNumericRelation", "group_by"): "methods.metric",
     ("LogicalNumericRelation", "rollup"): "methods.metric",
-    ("LogicalNumericRelation", "summarize"): "methods.metric.summary",
+    ("LogicalNumericRelation", "aggregate"): "methods.metric.summary",
     ("LogicalNumericRelation", "correlate"): "methods.association",
-    ("MaterializedNumericRelation", "summarize"): "methods.metric.summary",
+    ("MaterializedNumericRelation", "aggregate"): "methods.metric.summary",
     ("MaterializedNumericRelation", "group_by"): "methods.metric.reduce",
     ("MaterializedNumericRelation", "rollup"): "methods.metric.reduce",
     ("MaterializedNumericRelation", "correlate"): "methods.association",
     ("MaterializedNumericRelation", "where"): "methods.rows",
     ("LogicalRatioRelation", "group_by"): "methods.metric",
     ("LogicalRatioRelation", "rollup"): "methods.metric",
-    ("LogicalRatioRelation", "summarize"): "methods.metric.summary",
+    ("LogicalRatioRelation", "aggregate"): "methods.metric.summary",
     ("MaterializedRatioRelation", "rollup"): "methods.metric",
     ("LogicalCategoryRelation", "where"): "methods.rows",
     ("LogicalDifferenceRelation", "where"): "methods.rows",
-    ("LogicalDifferenceRelation", "summarize"): "methods.compare",
+    ("LogicalDifferenceRelation", "aggregate"): "methods.compare",
     ("MaterializedSelectedDifferenceRelation", "members"): "methods.rows",
     ("MaterializedCoefficientRelation", "where"): "methods.association",
 }
 
 
 _DISCOVERY_FAMILIES = {
-    ("_OriginalContinuation", "summarize"): "dsl.LogicalNumericRelation.summarize",
-    ("LogicalNumericRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
-    ("MaterializedNumericRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
-    ("LogicalRatioRelation", "summarize"): "dsl.LogicalNumericRelation.summarize",
+    ("_OriginalContinuation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
+    ("LogicalNumericRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
+    ("MaterializedNumericRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
+    ("LogicalRatioRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
     ("LogicalRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
     ("MaterializedRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
 }
@@ -1026,7 +1026,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     else ("dsl.elapsed", "dsl.calendar_days")
                     if key == "within" and owner is dsl._AnchorDomain
                     else ("RowMethod",)
-                    if key == "method" and name == "summarize"
+                    if key == "method" and name == "aggregate"
                     else (),
                 )
                 for key in installed.parameters
@@ -1100,9 +1100,9 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
         "dsl.MaterializedDifferenceRelation.where",
     ),
     "LogicalStatisticRelation": (
-        "dsl.LogicalNumericRelation.summarize",
-        "dsl.MaterializedNumericRelation.summarize",
-        "dsl.CountRelation.summarize",
+        "dsl.LogicalNumericRelation.aggregate",
+        "dsl.MaterializedNumericRelation.aggregate",
+        "dsl.CountRelation.aggregate",
     ),
     "LogicalCoefficientRelation": ("LogicalAssociationResult",),
     "LogicalCoefficientSelectionRelation": (

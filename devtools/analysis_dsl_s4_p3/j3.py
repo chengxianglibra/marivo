@@ -36,7 +36,7 @@ def main(root: Path) -> None:
         ),
     )
     overall = customers.observe(metric, during=august, via=routes).execute()
-    current_mean = observed.summarize(mv.mean()).execute()
+    current_mean = observed.aggregate(mv.mean()).execute()
     by_channel = customers.observe(metric, during=august, via=routes, by=(channel,)).execute()
     fixed = observed.execute()
     emit(

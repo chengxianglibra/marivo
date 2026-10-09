@@ -18,6 +18,39 @@ from tests.shared_fixtures import DslCaseFactory
 
 
 @pytest.mark.parametrize(
+    "target,facts",
+    (
+        (
+            "events.match",
+            ("canonical local matching", "without rematching", "No remote backend qualification."),
+        ),
+        (
+            "lifecycle.replay",
+            (
+                "real inception to exclusive end",
+                "source or current Semantic",
+                "No remote qualification.",
+            ),
+        ),
+    ),
+)
+def test_entry_summaries_preserve_full_focused_constraints(
+    target: str, facts: tuple[str, ...]
+) -> None:
+    descriptor = prepare().by_canonical_id(target)
+    assert isinstance(descriptor, CallableInput)
+    entry = render_help_text("analysis.entry")[0]
+    focused = render_help_text("analysis." + target)[0]
+    assert "marivo.help('analysis." + target + "')" in entry
+    assert descriptor.summary in entry
+    assert descriptor.summary != descriptor.constraints[0]
+    assert descriptor.constraints[0] not in entry
+    assert "Constraint: " + descriptor.constraints[0] in focused
+    assert all(fact in focused for fact in facts)
+    assert focused == render_help_text(descriptor.bindings[0].implementation)[0]
+
+
+@pytest.mark.parametrize(
     "target",
     (
         "analysis.session.members",
@@ -110,8 +143,8 @@ def test_parameter_semantics_and_real_producers() -> None:
     text, _, _ = render_help_text(mv.LogicalNumericRelation.correlate)
     assert "Input method: pearson, spearman, or kendall." in text
     assert "mv.sum" not in text
-    text, _, _ = render_help_text(mv.LogicalNumericRelation.summarize)
-    assert "result = relation.summarize(mv.mean())" in text
+    text, _, _ = render_help_text(mv.LogicalNumericRelation.aggregate)
+    assert "result = relation.aggregate(mv.mean())" in text
     assert "Example inputs: relation" in text
     assert "follow structured repair" not in text
     text, _, _ = render_help_text(mv.LogicalAnalysisDomain.observe)
@@ -125,7 +158,7 @@ def test_parameter_semantics_and_real_producers() -> None:
                 assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
         ("LogicalNumericRelation", "dsl.LogicalAnalysisDomain.observe"),
-        ("LogicalStatisticRelation", "dsl.LogicalNumericRelation.summarize"),
+        ("LogicalStatisticRelation", "dsl.LogicalNumericRelation.aggregate"),
         ("LogicalSelectedNumericRelation", "dsl.LogicalNumericRelation.where"),
     ):
         descriptor = registry.by_canonical_id(target)
@@ -160,11 +193,11 @@ def test_family_projection_preserves_every_canonical_member() -> None:
             families.setdefault(descriptor.discovery_family, []).append(descriptor.canonical_id)
     assert families
     assert {family: set(members) for family, members in families.items()} == {
-        "dsl.LogicalNumericRelation.summarize": {
-            "dsl.OriginalContinuation.summarize",
-            "dsl.LogicalNumericRelation.summarize",
-            "dsl.MaterializedNumericRelation.summarize",
-            "dsl.LogicalRatioRelation.summarize",
+        "dsl.LogicalNumericRelation.aggregate": {
+            "dsl.OriginalContinuation.aggregate",
+            "dsl.LogicalNumericRelation.aggregate",
+            "dsl.MaterializedNumericRelation.aggregate",
+            "dsl.LogicalRatioRelation.aggregate",
         },
         "dsl.LogicalRatioRelation.rollup": {
             "dsl.LogicalRatioRelation.rollup",
@@ -195,7 +228,7 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
     position, descriptor = next(
         (i, d)
         for i, d in enumerate(descriptors)
-        if isinstance(d, CallableInput) and d.canonical_id == "dsl.LogicalNumericRelation.summarize"
+        if isinstance(d, CallableInput) and d.canonical_id == "dsl.LogicalNumericRelation.aggregate"
     )
     if fault == "input":
         broken = replace(descriptor, example=replace(descriptor.example, requires=()))
@@ -206,7 +239,7 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
     elif fault == "family":
         broken = replace(descriptor, discovery_family="dsl.NumericComparison.correlate")
     elif fault == "missing_family":
-        broken = replace(descriptor, discovery_family="dsl.Missing.summarize")
+        broken = replace(descriptor, discovery_family="dsl.Missing.aggregate")
     else:
         broken = replace(descriptor, example=replace(descriptor.example, code="result = ("))
     descriptors[position] = broken
@@ -216,7 +249,7 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("method", ("observe", "where", "summarize", "rank", "correlate", "ratio"))
+@pytest.mark.parametrize("method", ("observe", "where", "aggregate", "rank", "correlate", "ratio"))
 def test_rendered_focused_examples_execute(
     analysis_dsl_case_factory: DslCaseFactory, method: str
 ) -> None:

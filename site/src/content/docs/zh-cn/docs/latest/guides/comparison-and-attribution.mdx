@@ -43,7 +43,7 @@ change = august_revenue.compare(baseline)
 falling = change.where(change.value.lt(0)).members()
 next_month_mean = (
     falling.observe(revenue, during=september, via=buyer, by=(mv.member(),))
-    .summarize(mv.mean())
+    .aggregate(mv.mean())
     .execute()
 )
 ```
@@ -67,7 +67,7 @@ aov = customers.observe(
 )
 overall_aov = aov.rollup().execute()
 channel_aov = aov.group_by(channel).rollup().execute()
-current_row_mean = aov.summarize(mv.mean()).execute()
+current_row_mean = aov.aggregate(mv.mean()).execute()
 current_row_mean.show()
 ```
 

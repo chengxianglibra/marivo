@@ -22,7 +22,7 @@ def transport(history):
 
 def mean(history):
     intervals = history.intervals()
-    return intervals.where(intervals.status.value.eq("completed")).observed_duration.summarize(
+    return intervals.where(intervals.status.value.eq("completed")).observed_duration.aggregate(
         mv.mean()
     )
 

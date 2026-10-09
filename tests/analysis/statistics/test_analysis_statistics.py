@@ -172,7 +172,7 @@ def test_public_source_fixed_forecast(
                 ),
             )
     with pytest.raises(AnalysisError):
-        result.lower.summarize(mv.sum())
+        result.lower.aggregate(mv.sum())
 
 
 @pytest.mark.runtime

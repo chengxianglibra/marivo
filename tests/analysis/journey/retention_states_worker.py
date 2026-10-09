@@ -211,7 +211,7 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
                 assert (
                     len(view.to_pandas()) == counts[label][("true", "false", "unknown").index(name)]
                 )
-                count = save(label + ":" + name + ":count", view.summarize(mv.count()))
+                count = save(label + ":" + name + ":count", view.aggregate(mv.count()))
                 assert count.to_pandas().value.tolist() == [len(view.to_pandas())]
                 if name == "true":
                     image = save(label + ":members", view.members(through=view.subject_binding))

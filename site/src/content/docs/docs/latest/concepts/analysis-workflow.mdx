@@ -100,7 +100,7 @@ for action in restored.contract().actions:
     print(action.call, action.help_target)
 saved_observation = august_revenue.execute()
 recovered_observation = session.artifact(saved_observation.state.artifact_ref)
-recovered_observation.summarize(method=mv.count()).execute().show()
+recovered_observation.aggregate(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
     order_count, during=august, via=buyer, by=(mv.member(),)
@@ -111,11 +111,11 @@ merged_count.show()
 ```
 
 `rollup()` merges sufficient original Metric components and finishes the governed
-equation. `summarize()` creates a new statistic over current represented rows.
+equation. `aggregate()` creates a new statistic over current represented rows.
 A mean of displayed averages is not the original weighted mean. Grouped
 observation over the same Entity root needs no relationship solely for grouping.
 
-For Count, `rollup()` merges the original occurrence counts. `summarize(mv.count())`
+For Count, `rollup()` merges the original occurrence counts. `aggregate(mv.count())`
 counts represented result rows instead. Native-table Count rollup supports
 PostgreSQL, MySQL, Trino and ClickHouse on the registered UTC microsecond Ibis
 profile. Missing physical support reports the exact key and bounded registered
@@ -123,7 +123,7 @@ alternatives; keep the source unchanged and report that key when none is suitabl
 Categorical Count retains flat coordinate state, including on PostgreSQL.
 Exact method, type, time and physical profile admission still applies.
 
-Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(mv.member(),)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `summarize(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
+Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(mv.member(),)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. Numeric, ratio and statistic results retain `group_by`; member domains and Category, Boolean and Temporal results do not. Nonnumeric scalar results retain overall `aggregate(mv.count()/mv.count_defined())`. For prescribed report rows, complete an exported `to_pandas()` result externally; external results cannot re-enter typed analysis.
 
 Omitting `by` and passing `by=()` both compute the overall Metric.
 `by=(mv.member(), channel)` computes a value for each customer and channel,

@@ -119,8 +119,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 ms.ref.dimension("operations.reading.sensor")
             ).rollup(),
             "total": base.rollup(),
-            "coordinate_count": coordinates.summarize(mv.count()),
-            "selected_count": category.where(category.value.eq("east")).summarize(mv.count()),
+            "coordinate_count": coordinates.aggregate(mv.count()),
+            "selected_count": category.where(category.value.eq("east")).aggregate(mv.count()),
         }
         before = run_ids(session)
         outputs = {name: operation.execute() for name, operation in operations.items()}

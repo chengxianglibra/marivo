@@ -60,16 +60,16 @@ def scalar_operations(name, result, consumed):
         consumed.add(name + ":" + call)
         if call == "relation.where(predicate)":
             operations[name + ":where"] = result.where(result.value.is_defined())
-        elif call == "relation.summarize(method)":
+        elif call == "relation.aggregate(method)":
             defined = result.where(result.value.is_defined())
             method = (
                 mv.mean() if isinstance(result._node.root.value_type, DurationType) else mv.count()
             )
-            operations[name + ":summarize"] = defined.summarize(method)
+            operations[name + ":aggregate"] = defined.aggregate(method)
         elif call == "relation.members()":
             operations[name + ":members"] = result.members()
         elif call == "relation.group_by(*keys)":
-            operations[name + ":group_by"] = result.group_by().summarize(mv.count())
+            operations[name + ":group_by"] = result.group_by().aggregate(mv.count())
         elif call == "relation.rank(order=order, ties=ties)":
             operations[name + ":rank"] = result.rank(order="descending", ties="ordinal")
         elif call == "relation.deviation(method=method)":

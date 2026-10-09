@@ -113,7 +113,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 assert list(zip(frame.member, frame.coord_0, strict=True)) == expected
                 if isinstance(selected, mv.MaterializedSelectedNumericRelation):
                     assert selected.to_pandas().value.tolist() == [20, 30]
-                    total = execute(kind + ":numeric:sum", selected.summarize(mv.sum()))
+                    total = execute(kind + ":numeric:sum", selected.aggregate(mv.sum()))
                     assert total.to_pandas().value.tolist() == [50]
         for name, expected_total in obj(state.get("extra_oracles", {})).items():
             extra = restored[name]

@@ -286,8 +286,8 @@ daily = members.observe(
 ## 检查当前行
 
 首次指标分组使用 `observe(by=...)`。数值结果可以重新分组并统计当前行；
-分类、布尔、时间结果支持整体 `summarize(mv.count())` 和
-`summarize(mv.count_defined())`。成员域不提供直接计数或分组操作。
+分类、布尔、时间结果支持整体 `aggregate(mv.count())` 和
+`aggregate(mv.count_defined())`。成员域不提供直接计数或分组操作。
 本例使用 customer 销售模型，只保留选中的 east 客户。
 
 {/* example: current-row-statistics */}
@@ -309,11 +309,11 @@ original = members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(region,),
 ).execute()
-row_mean = values.group_by(region).summarize(mv.mean()).execute()
+row_mean = values.group_by(region).aggregate(mv.mean()).execute()
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
-row_counts = values.group_by(region).summarize(mv.count()).execute()
-category_count = selected_regions.summarize(mv.count()).execute()
+row_counts = values.group_by(region).aggregate(mv.count()).execute()
+category_count = selected_regions.aggregate(mv.count()).execute()
 ```
 
 如果报表要求预设行，先通过 `to_pandas()` 导出，再在外部做展示补齐，例如使用

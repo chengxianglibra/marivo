@@ -134,11 +134,11 @@ def offline(root: Path, cold: bool) -> None:
                 data["fixed"][profile] = artifact(continued)
             executed.append(profile)
             for action in continued.contract().actions if data.get("all_K", False) else ():
-                if "summarize(mv." in action.call:
-                    method = action.call.split("summarize(mv.")[1].split("(")[0]
+                if "aggregate(mv." in action.call:
+                    method = action.call.split("aggregate(mv.")[1].split("(")[0]
                     statistic = (
                         continued.where(continued.value.is_defined())
-                        .summarize(getattr(mv, method)())
+                        .aggregate(getattr(mv, method)())
                         .execute()
                     )
                     name = profile + "/" + method

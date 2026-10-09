@@ -77,7 +77,7 @@ journeys = session.events.match(
     ),
 )
 elapsed = journeys.time_to_event(from_step=start, to_step=finish)
-mean = elapsed.completed().duration.summarize(mv.mean()).execute()
+mean = elapsed.completed().duration.aggregate(mv.mean()).execute()
 dropped = journeys.read(mv.dropped_before(step=finish))
 selected = dropped.where(dropped.value.eq(True)).members(
     through=journeys.subjects(start.participant)

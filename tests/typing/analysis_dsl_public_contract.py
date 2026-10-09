@@ -90,7 +90,7 @@ if TYPE_CHECKING:
         observed.group_by(ms.ref.dimension("sales.order.channel")),
         mv.GroupedNumericRelation,
     )
-    assert_type(observed.summarize(mv.mean()), mv.LogicalStatisticRelation)
+    assert_type(observed.aggregate(mv.mean()), mv.LogicalStatisticRelation)
     difference = observed.compare(observed)
     assert_type(difference, mv.LogicalDifferenceRelation)
     selected = difference.where(difference.value.lt(0))

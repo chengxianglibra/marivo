@@ -213,7 +213,7 @@ def test_f11_complete_source_chain(
 
     monkeypatch.setattr(SourceSession, "batches", batches)
     monkeypatch.setattr(numeric, "fit", fitting)
-    assert followup.summarize(method=mv.count_defined()).execute().to_pandas().value.tolist() == [2]
+    assert followup.aggregate(method=mv.count_defined()).execute().to_pandas().value.tolist() == [2]
     assert trace.count("local") == 1
     assert max(i for i, event in enumerate(trace) if event == "source") < trace.index("local")
     trace.clear()

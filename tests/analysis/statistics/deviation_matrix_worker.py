@@ -118,9 +118,9 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
             category = members.read(ms.ref.dimension("sales.order.channel"))
             assert isinstance(category, mv.LogicalCategoryRelation)
             source = (
-                raw.summarize(mv.max())
+                raw.aggregate(mv.max())
                 if domain == "scalar"
-                else raw.group_by(category).summarize(mv.max())
+                else raw.group_by(category).aggregate(mv.max())
                 if domain == "category"
                 else raw
             )

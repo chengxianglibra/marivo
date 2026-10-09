@@ -123,8 +123,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 assert kind == "ratio"
                 for call, ratio_operation, expected in (
                     ("rollup", value.rollup(), rolled_values[kind]),
-                    ("count", value.summarize(mv.count()), Fraction(4)),
-                    ("count_defined", value.summarize(mv.count_defined()), Fraction(3)),
+                    ("count", value.aggregate(mv.count()), Fraction(4)),
+                    ("count_defined", value.aggregate(mv.count_defined()), Fraction(3)),
                 ):
                     result = execute(kind + ":" + call, ratio_operation)
                     result_rows = result.to_pandas()
@@ -148,8 +148,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ]
             total = sum(numbers, Fraction())
             for call, operation, expected in (
-                ("sum", selected.summarize(mv.sum()), total),
-                ("mean", selected.summarize(mv.mean()), total / len(numbers)),
+                ("sum", selected.aggregate(mv.sum()), total),
+                ("mean", selected.aggregate(mv.mean()), total / len(numbers)),
                 ("rollup", value.rollup(), rolled_values[kind]),
             ):
                 result = execute(kind + ":" + call, operation)

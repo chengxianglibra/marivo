@@ -149,8 +149,8 @@ First Metric grouping uses ``members.observe(metric, by=(...))``. Use
 Category ``where()`` retains the CategoryRelation family. Numeric, ratio
 and statistic results retain their admitted ``group_by`` and reductions. Member
 domains and Category, Boolean and Temporal results have no ``group_by``; scalar
-nonnumeric results support overall ``summarize(mv.count())`` and
-``summarize(mv.count_defined())``. Member domains have no direct count operation.
+nonnumeric results support overall ``aggregate(mv.count())`` and
+``aggregate(mv.count_defined())``. Member domains have no direct count operation.
 
 No observation or grouping accepts ``groups`` or an explicit target domain.
 For prescribed report rows, export with ``to_pandas()`` and complete the display

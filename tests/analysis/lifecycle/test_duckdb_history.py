@@ -96,7 +96,7 @@ def test_native_duckdb_history_preserves_original_trace(
         raise AssertionError("Fixed History continuation opened its source")
 
     monkeypatch.setattr(SourceSession, "batches", forbid)
-    total = history.transitions().count.summarize(mv.sum()).execute()
+    total = history.transitions().count.aggregate(mv.sum()).execute()
     assert total.to_pandas().value.tolist() == [2]
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
     source_trace.save(

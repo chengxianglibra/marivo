@@ -80,7 +80,7 @@ except AnalysisError:
     pass
 else:
     raise AssertionError('quantile must not grant original rollup')
-assert fixed.summarize(mv.count()).execute().to_pandas()['value'].tolist() == [4]
+assert fixed.aggregate(mv.count()).execute().to_pandas()['value'].tolist() == [4]
 """
     result = subprocess.run(
         [sys.executable, "-c", script, case.session.id, output.state.artifact_ref.ref, algorithm],

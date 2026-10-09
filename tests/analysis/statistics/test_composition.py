@@ -319,7 +319,7 @@ def test_score_select_members_followup_one_dag(
         patch.object(SourceBatchStream, "_iterate", read),
         patch.object(deviation_execution, "execute", score),
     ):
-        result = followup.summarize(mv.count_defined()).execute()
+        result = followup.aggregate(mv.count_defined()).execute()
     assert result.to_pandas().value.tolist() == [1]
     assert trace.count("fit") == 1
     assert max(i for i, item in enumerate(trace) if item == "source") < trace.index("fit")

@@ -136,7 +136,7 @@ def test_related_field_null_is_valid_and_distinct_from_missing_owner(
     assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
     if operation == "count":
         purposes.clear()
-        assert values.summarize(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
+        assert values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
         assert purposes == [
             "analysis.graph.check",
             "analysis.graph.stage",
@@ -150,7 +150,7 @@ def test_related_field_null_is_valid_and_distinct_from_missing_owner(
         (
             values.where(values.value.eq("east"))
             if operation == "filter"
-            else values.summarize(mv.count())
+            else values.aggregate(mv.count())
             if operation == "count"
             else values
         ).execute()
@@ -354,7 +354,7 @@ evidence = saved._node.root.signature.evidence
 assumptions = [item.fact for item in evidence if item.basis == "assumption"]
 assert assumptions and all(item.kind == "key_set_equal" for item in assumptions)
 assert not any(item.basis == "check" and item.fact in assumptions for item in evidence)
-result = saved.summarize(mv.sum()).execute()
+result = saved.aggregate(mv.sum()).execute()
 assert result._dataset.verified().primary["value"].to_pylist() == [float(sys.argv[3])]
 """,
                 work.session.id,

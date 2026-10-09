@@ -1370,7 +1370,7 @@ class Relation:
         ):
             raise _reject(
                 "Dwell Duration summaries cannot be averaged or pooled; "
-                "summarize the completed interval observed_duration rows instead"
+                "aggregate the completed interval observed_duration rows instead"
             )
         quantity = self.root.signature.quantity
         if (
@@ -1385,7 +1385,7 @@ class Relation:
                 input_identity=self.root.fingerprint,
                 expected="descriptive rows without interval addition",
                 received="sum of PredictionIntervalBound",
-                repair="Read individual lower/upper bounds or summarize prediction rows; interval bounds cannot be added.",
+                repair="Read individual lower/upper bounds or aggregate prediction rows; interval bounds cannot be added.",
             )
         definition = digest("row." + method + self.root.fingerprint)
         domain = DomainSignature(

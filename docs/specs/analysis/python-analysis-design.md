@@ -340,7 +340,7 @@ Classification matching and Defined-value checks cover actual consumed keys;
 a filtered classification cannot implicitly filter contributions. The consumed contribution/member-time keys are fixed before classification is attached; missing classifications retain those keys until coverage validation rejects them. Duplicate or unbound axes and mismatched classifications
 reject. There is no explicit target-domain completion. Member domains and
 Category, Boolean and Temporal reads have no `group_by`; nonnumeric reads retain
-overall `summarize(count()/count_defined())`. Numeric, ratio and statistic results
+overall `aggregate(count()/count_defined())`. Numeric, ratio and statistic results
 retain grouping and their admitted original or current-row reductions. Public
 `coordinates` and standalone grouped-domain observation are removed.
 Only retained full Subject identity permits a subsequent `members()`.
@@ -382,7 +382,7 @@ Existing result grouping and original `rollup` express time coarsening. Relative
 Anchor observation keeps its per-Anchor window contract.
 
 `group_by` on numeric, ratio and statistic results binds classification; `rollup` merges sufficient original state;
-`summarize` creates a new current-row statistic. Means retain sum/count, ratios
+`aggregate` creates a new current-row statistic. Means retain sum/count, ratios
 retain all original components, and linear expressions retain signed ordered
 occurrences. Averaging finished means/ratios is not original rollup. Direct
 distinct/quantile values retain no set/sketch or distribution rollup authority.

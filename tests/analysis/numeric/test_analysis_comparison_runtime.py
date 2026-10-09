@@ -1175,8 +1175,8 @@ def test_float_row_statistic_comparison_retains_error_state(
         by=(mv.member(),),
     )
     descriptor = mv.sum() if method == "sum" else mv.mean()
-    grouped = observed.group_by(ms.ref.entity("sales.customer")).summarize(descriptor)
-    for statistic in (observed.summarize(descriptor), grouped.rollup(), grouped.execute().rollup()):
+    grouped = observed.group_by(ms.ref.entity("sales.customer")).aggregate(descriptor)
+    for statistic in (observed.aggregate(descriptor), grouped.rollup(), grouped.execute().rollup()):
         fixed = statistic.execute()
         assert fixed._dataset is not None
         state = next(
@@ -1207,7 +1207,7 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
     positive = observed.where(observed.value.gt(0))
     floating = positive.ratio(positive)
     descriptor = {"sum": mv.sum(), "mean": mv.mean(), "min": mv.min(), "max": mv.max()}[method]
-    statistic = floating.summarize(descriptor)
+    statistic = floating.aggregate(descriptor)
     for operand in (statistic, statistic.execute()):
         result = operand.ratio(operand).execute()
         assert result.to_pandas()["value"].tolist() == [1.0]

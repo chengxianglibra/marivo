@@ -34,11 +34,11 @@ def test_row_methods_source_and_fixed(
     descriptor = {"min": mv.min(), "max": mv.max(), "count_defined": mv.count_defined()}[method]
     fixed = observed.execute()
     expected = {"min": 150, "max": 450, "count_defined": 3}[method]
-    direct = observed.summarize(descriptor).execute().to_pandas()
+    direct = observed.aggregate(descriptor).execute().to_pandas()
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
-        local = fixed.summarize(descriptor).execute().to_pandas()
+        local = fixed.aggregate(descriptor).execute().to_pandas()
     finally:
         offline.rename(case.database_path)
     assert direct.iloc[0]["value"] == expected
@@ -90,8 +90,8 @@ def test_category_counts_without_numeric_conversion(
         ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}")
     )
     current = category.execute() if fixed else category
-    assert current.summarize(mv.count()).execute().to_pandas().iloc[0]["value"] == 4
-    assert current.summarize(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
+    assert current.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 4
+    assert current.aggregate(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
 
 
 @pytest.mark.runtime
@@ -112,7 +112,7 @@ def test_empty_numeric_row_state(
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     for current in (observed, observed.execute()):
-        statistic = current.summarize(method).execute()
+        statistic = current.aggregate(method).execute()
         row = statistic.to_pandas().iloc[0]
         merged = statistic.rollup().execute().to_pandas().iloc[0]
         assert merged["cell_tag"] == row["cell_tag"]
@@ -144,7 +144,7 @@ def test_explicit_classification_rollup_and_current_rows(
     total = grouped.rollup().execute().to_pandas().set_index("group")
     assert total.loc["east", "value"] == 600
     assert total.loc["south", "value"] == 400
-    counts = grouped.summarize(mv.count()).execute().to_pandas().set_index("group")
+    counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
     assert counts["value"].to_dict() == {"east": 2, "south": 1, "west": 1}
 
 
@@ -169,9 +169,9 @@ def test_selected_row_groups_preserve_count_mean_state(
     current = observed.execute() if fixed else observed
     category = categories.execute() if fixed else categories
     grouped = current.group_by(category)
-    counts = grouped.summarize(mv.count()).execute().to_pandas().set_index("group")
+    counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
     assert counts["value"].to_dict() == {"east": 2}
-    mean = grouped.summarize(mv.mean()).execute()
+    mean = grouped.aggregate(mv.mean()).execute()
     frame = mean.to_pandas().set_index("group")
     assert frame.loc["east", "value"] == 300
     state = next(
@@ -215,7 +215,7 @@ def test_original_mean_merges_support_not_finished_values(
     assert fixed.to_pandas()["value"].tolist() == [1, 100]
     assert observed.rollup().execute().to_pandas().iloc[0]["value"] == pytest.approx(200 / 101)
     assert fixed.rollup().execute().to_pandas().iloc[0]["value"] == pytest.approx(200 / 101)
-    assert fixed.summarize(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
+    assert fixed.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
 
 
 @pytest.mark.runtime
@@ -277,8 +277,8 @@ def test_row_statistics_grouped_merge_preserves_empty_state_and_identity(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    grouped = values.group_by(region).summarize(method)
-    direct = values.summarize(method).execute()
+    grouped = values.group_by(region).aggregate(method)
+    direct = values.aggregate(method).execute()
     for current in (grouped, grouped.execute()):
         result = current.rollup().execute()
         assert result.to_pandas()["value"].tolist() == direct.to_pandas()["value"].tolist()
@@ -305,7 +305,7 @@ def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(retaine
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    fixed = observed.group_by(region).summarize(mv.mean()).execute()
+    fixed = observed.group_by(region).aggregate(mv.mean()).execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     script = """
@@ -362,7 +362,7 @@ def test_category_count_uses_current_rows(retained_coordinates_case, fixed):
         ms.ref.dimension("sales.customer.region")
     )
     current = category.execute() if fixed else category
-    result = current.summarize(mv.count()).execute()
+    result = current.aggregate(mv.count()).execute()
     assert result.to_pandas()["value"].tolist() == [3]
     assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
 
@@ -414,7 +414,7 @@ def test_required_row_state_damage_revokes_continuation(retained_coordinates_cas
     statistic = (
         case.session.members(ms.ref.entity("sales.customer"))
         .read(ms.ref.dimension("sales.customer.region"))
-        .summarize(mv.count())
+        .aggregate(mv.count())
         .execute()
     )
     store = case.session._runtime.store
@@ -548,8 +548,8 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
     channel = members.read(ms.ref.dimension("sales.order.channel"))
     for values, categories in ((amount, channel), (amount.execute(), channel.execute())):
         grouped = values.group_by(categories)
-        assert [a.call for a in grouped.contract().actions] == ["relation.summarize(method)"]
-        result = grouped.summarize(mv.mean()).execute()
+        assert [a.call for a in grouped.contract().actions] == ["relation.aggregate(method)"]
+        result = grouped.aggregate(mv.mean()).execute()
         assert result.to_pandas()["value"].tolist() == [13.5, 60]
         assert result.rollup().execute().to_pandas()["value"].tolist() == [36.75]
 
@@ -594,7 +594,7 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
     result = (
         case.session.members(ms.ref.entity("sales.customer"))
         .read(ms.ref.dimension("sales.customer.region"))
-        .summarize(mv.count())
+        .aggregate(mv.count())
         .execute()
     )
     exchange = result._dataset.verified()
@@ -692,7 +692,7 @@ def test_review_selected_category_retains_classification(
     assert type(current) is (
         mv.MaterializedCategoryRelation if fixed else mv.LogicalCategoryRelation
     )
-    statistic = current.summarize(mv.count()).execute()
+    statistic = current.aggregate(mv.count()).execute()
     assert statistic.to_pandas()["value"].tolist() == [2]
     assert current._node.classification_coordinate().field == "sales.customer.region"
     assert statistic.rollup().execute().to_pandas()["value"].tolist() == [2]
@@ -784,9 +784,9 @@ selected = chained.execute()
 assert type(selected) is mv.MaterializedCategoryRelation
 assert selected.members().execute().to_pandas()['member'].tolist() == ['A', 'B']
 assert not hasattr(selected, 'group_by')
-assert any(a.call == 'relation.summarize(method)' for a in selected.contract().actions)
+assert any(a.call == 'relation.aggregate(method)' for a in selected.contract().actions)
 assert selected._node.classification_coordinate().field == 'sales.customer.region'
-result = selected.summarize(mv.count()).execute()
+result = selected.aggregate(mv.count()).execute()
 assert result.to_pandas()['value'].tolist() == [2]
 assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
 """
@@ -835,14 +835,16 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     grouped = observed.group_by(category)
-    logical = grouped.summarize(method).execute()
+    logical = grouped.aggregate(method).execute()
+    assert logical.contract().kind == "aggregate"
     assert logical.to_pandas()["value"].tolist() == logical_expected
     fixed = grouped.execute()
     assert fixed.to_pandas()["value"].tolist() == [140, 7]
     restored = case.session.artifact(fixed.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedGroupedNumericRelation)
     for current in (fixed, restored):
-        statistic = current.summarize(method).execute()
+        statistic = current.aggregate(method).execute()
+        assert statistic.contract().kind == "aggregate"
         frame = statistic.to_pandas()
         assert frame["group"].tolist() == ["east", "south"]
         assert frame["value"].tolist() == fixed_expected
@@ -878,7 +880,7 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
         fixed = fixed.where(fixed.value.is_defined()).execute()
     if empty:
         fixed = fixed.where(fixed.value.gt(10000)).execute()
-    result = fixed.group_by(region).summarize(method).execute()
+    result = fixed.group_by(region).aggregate(method).execute()
     frame = result.to_pandas()
     assert list(frame.columns) == ["group", "value", "cell_tag", "cell_reason"]
     expected = (

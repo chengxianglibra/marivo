@@ -85,9 +85,9 @@ def test_ordinary_graph_starts_its_own_expiry_budget(
     previous = values.execute()
     saved = previous.to_pandas()
     logical = (
-        previous.summarize(mv.count())
+        previous.aggregate(mv.count())
         if boundary == "fixed_publication"
-        else values.summarize(mv.count())
+        else values.aggregate(mv.count())
     )
     assert CURRENT.get() is None
     now = [0.0]

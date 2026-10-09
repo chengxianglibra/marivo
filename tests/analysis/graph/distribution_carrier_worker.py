@@ -151,7 +151,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     ("mean", mv.mean(), Decimal("1.023333")),
                 )
             for name, method, expected in reductions:
-                result = execute(kind + ":" + name, selected.summarize(method))
+                result = execute(kind + ":" + name, selected.aggregate(method))
                 assert result._dataset is not None
                 rows = result._dataset.verified().primary.to_pylist()
                 assert len(rows) == 1 and rows[0]["cell_tag"] == "defined"
@@ -181,7 +181,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                 assert isinstance(empty, mv.MaterializedSelectedNumericRelation)
                 assert empty.to_pandas().empty
                 for name, method in (("sum", mv.sum()), ("mean", mv.mean())):
-                    result = execute(kind + ":empty:" + name, empty.summarize(method))
+                    result = execute(kind + ":empty:" + name, empty.aggregate(method))
                     assert isinstance(result, mv.MaterializedStatisticRelation)
                     assert result._dataset is not None
                     verified = result._dataset.verified()

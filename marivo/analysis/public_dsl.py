@@ -228,7 +228,7 @@ def sum() -> RowMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.sum())``.
+    Example: ``result = relation.aggregate(mv.sum())``.
     Constraints: Sum uses the relation's current rows and rejects unsupported Cells.
     """
     return RowMethod("sum")
@@ -239,7 +239,7 @@ def count() -> CountMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.count())``.
+    Example: ``result = relation.aggregate(mv.count())``.
     Constraints: Count includes current rows with non-Defined Cells.
     """
     return CountMethod("count")
@@ -250,7 +250,7 @@ def mean() -> RowMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.mean())``.
+    Example: ``result = relation.aggregate(mv.mean())``.
     Constraints: Non-Defined participating Cells reject the strict mean.
     """
     return RowMethod("mean")
@@ -261,7 +261,7 @@ def count_defined() -> CountMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.count_defined())``.
+    Example: ``result = relation.aggregate(mv.count_defined())``.
     Constraints: Counts only Defined Cells, without numeric conversion.
     """
     return CountMethod("count_defined")
@@ -272,7 +272,7 @@ def min() -> RowMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.min())``.
+    Example: ``result = relation.aggregate(mv.min())``.
     Constraints: Requires finite Defined values; empty input is Undefined(empty_min).
     """
     return RowMethod("min")
@@ -283,7 +283,7 @@ def max() -> RowMethod:
 
     Args: None.
     Returns: A closed RowMethod value.
-    Example: ``result = relation.summarize(mv.max())``.
+    Example: ``result = relation.aggregate(mv.max())``.
     Constraints: Requires finite Defined values; empty input is Undefined(empty_max).
     """
     return RowMethod("max")
@@ -439,7 +439,7 @@ def _kind(node: Relation) -> str:
         if isinstance(params, PartsTransport) and params.display_view is not None:
             if params.display_view == "values":
                 if isinstance(quantity, RowStatisticQuantity):
-                    return "summarize"
+                    return "aggregate"
                 if isinstance(quantity, (ObservedQuantity, RolledQuantity)):
                     return (
                         "ratio_rollup"
@@ -472,7 +472,7 @@ def _kind(node: Relation) -> str:
     if isinstance(params, ReferenceDerive):
         return "relation_ratio"
     if isinstance(params, RowState):
-        return "summarize"
+        return "aggregate"
     if isinstance(params, AssociationScore):
         return "correlate"
     if isinstance(params, CellDerive):
@@ -594,12 +594,12 @@ class _Value:
         if kind == "forecast":
             names = ("prediction", "lower", "upper", "where")
         elif kind == "forecast_read":
-            names = ("where", "rank", "summarize", "table")
+            names = ("where", "rank", "aggregate", "table")
         elif kind == "association_read":
             names = (
                 ("where", "table")
                 if self._node.root.value_type == ScalarType("boolean")
-                else ("where", "rank", "summarize", "table")
+                else ("where", "rank", "aggregate", "table")
             )
         elif kind == "correlate" and "pair_inputs" in roles:
             names = ("coefficient", "selected", "where")
@@ -620,7 +620,7 @@ class _Value:
         elif kind == "deviation_read":
             names = (
                 "where",
-                "summarize",
+                "aggregate",
                 *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
             )
         elif kind in ("retention", "subject_retention"):
@@ -652,7 +652,7 @@ class _Value:
                 ),
             )
         elif kind in ("history_read", "history_in_state"):
-            names = ("where", "summarize", *(("members",) if "subject" in roles else ()))
+            names = ("where", "aggregate", *(("members",) if "subject" in roles else ()))
         elif kind == "journey":
             names = (
                 "time_to_event",
@@ -682,22 +682,22 @@ class _Value:
                 "duration",
                 "observed_duration",
             ):
-                names = (*names, "summarize")
+                names = (*names, "aggregate")
         elif kind == "funnel":
             part = next(p for p in signature.parts if isinstance(p, FunnelPart))
             names = ("read", *(("compare",) if part.complete else ()))
         elif kind == "funnel_comparison":
             names = ("read", "attribute")
         elif kind == "funnel_read":
-            names = ("where", "summarize", "rank")
+            names = ("where", "aggregate", "rank")
         elif kind == "attribution":
             names = ("contribution", "current", "baseline", "where")
         elif kind == "attribution_view":
-            names = ("where", "summarize")
+            names = ("where", "aggregate")
         elif kind == "ranking":
             names = ("values", "ranks", "where", "limit")
         elif isinstance(self, MaterializedCoefficientRelation):
-            names = ("where", "summarize")
+            names = ("where", "aggregate")
         elif kind == "members":
             names = (
                 (("cohort",) if signature.domain.time_grid is None else ())
@@ -710,9 +710,9 @@ class _Value:
             )
         elif kind == "read":
             names = (
-                ("where", "members", "group_by", "summarize")
+                ("where", "members", "group_by", "aggregate")
                 if fixed
-                else ("where", "members", "group_by", "summarize", "execute")
+                else ("where", "members", "group_by", "aggregate", "execute")
             )
         elif isinstance(signature.quantity, RowStatisticQuantity):
             names = (
@@ -725,13 +725,13 @@ class _Value:
         elif kind == "correlate":
             names = ("coefficient",) if fixed else ("execute",)
         elif kind == "correlate_where":
-            names = ("summarize",)
+            names = ("aggregate",)
         elif kind in ("compare", "relation_ratio"):
-            names = ("where", "summarize")
+            names = ("where", "aggregate")
         elif kind == "where":
             names = (
                 *(("members",) if any(isinstance(p, SubjectPart) for p in signature.parts) else ()),
-                *(("summarize",) if signature.quantity is not None else ()),
+                *(("aggregate",) if signature.quantity is not None else ()),
             )
         elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
             names = (
@@ -741,7 +741,7 @@ class _Value:
                     else ()
                 ),
                 *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
-                "summarize",
+                "aggregate",
                 *(
                     (("compare",) if "coordinate_state" in roles else ("compare", "correlate"))
                     if kind == "observe" and signature.domain.kind == "entity"
@@ -762,7 +762,7 @@ class _Value:
         ):
             names = tuple(name for name in names if name not in ("rollup", "group_by"))
         if isinstance(self, _CountRelation):
-            names = tuple(dict.fromkeys((*names, "summarize")))
+            names = tuple(dict.fromkeys((*names, "aggregate")))
             names = tuple(name for name in names if name != "group_by")
         if (
             signature.quantity is not None
@@ -866,7 +866,7 @@ class _Value:
         if "anchor" in roles and signature.quantity is not None:
             names = (
                 "where",
-                "summarize",
+                "aggregate",
                 *(("members",) if kind == "where" else ()),
                 *(("execute",) if not fixed else ()),
             )
@@ -879,7 +879,7 @@ class _Value:
                 isinstance(part, HistoryViewPart) and part.request.kind == "dwell"
                 for part in signature.parts
             ):
-                names = tuple(name for name in names if name != "summarize")
+                names = tuple(name for name in names if name != "aggregate")
         if self._materialize_before_continuing():
             names = ("execute",)
         if "condition_cells" in roles and isinstance(self._node.root.value_type, DurationType):
@@ -897,7 +897,7 @@ class _Value:
                 for n in names
                 if n
                 not in (
-                    "summarize",
+                    "aggregate",
                     "rollup",
                     "attribute",
                     "forecast",
@@ -952,12 +952,12 @@ class _Value:
                 for replacement in (
                     tuple(
                         AnalysisAction(
-                            f"relation.where(relation.value.is_defined()).summarize(mv.{method}())",
+                            f"relation.where(relation.value.is_defined()).aggregate(mv.{method}())",
                             action.help_target,
                         )
                         for method in allowed
                     )
-                    if action.call.startswith("relation.summarize(")
+                    if action.call.startswith("relation.aggregate(")
                     else (action,)
                 )
             )
@@ -2397,12 +2397,12 @@ class _OriginalContinuation(_NumericComparison):
             row_node=rows,
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Reduce the current finished Cells into a new row statistic.
 
         Args: method: A descriptor returned by a current-row method factory.
         Returns: A logical RowStatistic independent of original Metric identity.
-        Example: ``result = relation.summarize(mv.mean()).execute()``.
+        Example: ``result = relation.aggregate(mv.mean()).execute()``.
         Constraints: Numeric reducers require finite Defined Cells.
         """
         if not isinstance(method, RowMethod):
@@ -2434,12 +2434,12 @@ class _OriginalContinuation(_NumericComparison):
 
 
 class _CountRelation(_Value):
-    def summarize(self, method: CountMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: CountMethod) -> LogicalStatisticRelation:
         """Count current scalar rows under the selected Cell policy.
 
         Args: method: A descriptor from mv.count() or mv.count_defined().
         Returns: A new logical current-row statistic.
-        Example: ``result = relation.summarize(mv.count_defined()).execute()``.
+        Example: ``result = relation.aggregate(mv.count_defined()).execute()``.
         Constraints: Numeric reducers are not admitted on categorical, temporal or boolean values.
         """
         if not isinstance(method, CountMethod):
@@ -3064,7 +3064,7 @@ class LogicalFixedAnalysisDomain(_CohortDomain):
                         input_identity=self._node.root.fingerprint,
                         expected="a retained observation contract with contributions, path, time and full Subject keys",
                         received=f"fixed selected Subject with fit_scope={fit.fit_id}; no retained observation contract",
-                        repair="Read the already captured follow-up numeric Artifact and summarize it. Prepare a new observation in a complete logical source chain before execute().",
+                        repair="Read the already captured follow-up numeric Artifact and aggregate it. Prepare a new observation in a complete logical source chain before execute().",
                     )
                 raise _reject(
                     "source-only or fixed-only inputs",
@@ -3194,9 +3194,9 @@ class GroupedNumericRelation(_Value):
         Constraints: This reads local contract metadata and does not execute a source.
         """
         actions = (
-            ("execute", "rollup", "summarize")
+            ("execute", "rollup", "aggregate")
             if self._node.root.signature.quantity is not None
-            else ("summarize",)
+            else ("aggregate",)
         )
         return replace(super().contract(), actions=self._action_contract(actions))
 
@@ -3213,18 +3213,18 @@ class GroupedNumericRelation(_Value):
             raise _reject(
                 "an original Metric grouping",
                 "current numeric rows",
-                "Choose summarize with a row method.",
+                "Choose aggregate with a row method.",
             )
         return MaterializedGroupedNumericRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Reduce current rows within the selected complete target keys.
 
         Args: method: A closed current-row descriptor.
         Returns: A new grouped RowStatistic.
-        Example: ``result = relation.group_by(dimension).summarize(mv.mean()).execute()``.
+        Example: ``result = relation.group_by(dimension).aggregate(mv.mean()).execute()``.
         Constraints: Uses current rows, independently of original Metric state.
         """
         if not isinstance(method, RowMethod):
@@ -3248,7 +3248,7 @@ class GroupedNumericRelation(_Value):
             raise _reject(
                 "original Metric state",
                 "current numeric rows",
-                "Choose summarize with a row method.",
+                "Choose aggregate with a row method.",
             )
         return LogicalRolledNumericRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
 
@@ -3279,7 +3279,7 @@ class GroupedRatioRelation(_Value):
         Example: ``result = relation.contract()``.
         Constraints: This reads local contract metadata and does not execute a source.
         """
-        return replace(super().contract(), actions=self._action_contract(("rollup", "summarize")))
+        return replace(super().contract(), actions=self._action_contract(("rollup", "aggregate")))
 
     def rollup(self) -> LogicalRolledRatioRelation:
         """Merge original numerator and denominator state by the selected coordinate.
@@ -3292,12 +3292,12 @@ class GroupedRatioRelation(_Value):
         """
         return LogicalRolledRatioRelation(_TOKEN, self._node, self._runtime, inputs=(self,))
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Reduce current rows within the selected complete target keys.
 
         Args: method: A closed current-row descriptor.
         Returns: A new grouped RowStatistic.
-        Example: ``result = relation.group_by(dimension).summarize(mv.mean()).execute()``.
+        Example: ``result = relation.group_by(dimension).aggregate(mv.mean()).execute()``.
         Constraints: Uses current rows, independently of original Metric state.
         """
         if not isinstance(method, RowMethod):
@@ -3391,13 +3391,13 @@ class LogicalNumericRelation(_NumericComparison):
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Construct a new current-row sum, count or equal-row mean.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3492,13 +3492,13 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build fixed-only current-row statistic.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3507,13 +3507,13 @@ class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
 class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
     """Fixed member or contribution group with retained Metric components."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a current-row statistic over this exact group.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Preserves every retained group axis and counts current materialized rows, not their original contributions.
         """
         if not isinstance(method, RowMethod):
@@ -3535,13 +3535,13 @@ class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
 class LogicalRolledNumericRelation(_OriginalContinuation):
     """Unexecuted Singleton observation derived from original Metric state."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over the current Singleton row.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3566,13 +3566,13 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
 class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed original-state Singleton observation."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only statistic over this Singleton row.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3620,13 +3620,13 @@ class LogicalRatioRelation(_NumericComparison):
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over current ratio rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3685,13 +3685,13 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
             _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only current-row statistic.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3700,13 +3700,13 @@ class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
 class LogicalRolledRatioRelation(_OriginalContinuation):
     """Unexecuted ratio reobserved from original numerator and denominator state."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over current rolled ratio rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3728,13 +3728,13 @@ class LogicalRolledRatioRelation(_OriginalContinuation):
 class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation):
     """Fixed ratio rollup with retained original component meaning."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only statistic over current rolled ratio rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3791,13 +3791,13 @@ class LogicalDifferenceRelation(_NumericComparison):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over current Difference rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3867,13 +3867,13 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only current-row statistic.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3919,13 +3919,13 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
         """
         return self._members_domain(through)
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over selected current rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -3984,13 +3984,13 @@ class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericCompari
             _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only statistic over selected rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -4031,7 +4031,7 @@ class _StatisticContinuation(_NumericComparison):
             keys: Retained complete coordinates or corresponding classifications selecting roles.
         Returns: A grouped statistic awaiting rollup.
         Example: ``result = statistic.group_by(dimension).rollup().execute()``.
-        Constraints: Merges this statistic's state; does not summarize finished values.
+        Constraints: Merges this statistic's state; does not aggregate finished values.
         Execute source Duration statistics before selecting merge axes.
         """
         if any(isinstance(key, MemberAxis) for key in keys):
@@ -4128,12 +4128,12 @@ class LogicalCoefficientRelation(_Value):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Describe current coefficient rows.
 
         Args: method: A closed row statistic factory value.
         Returns: A LogicalStatisticRelation.
-        Example: ``summary = coefficients.summarize(mv.mean())``.
+        Example: ``summary = coefficients.aggregate(mv.mean())``.
         Constraints: This is not a pooled correlation.
         """
         return LogicalStatisticRelation(
@@ -4185,13 +4185,13 @@ class MaterializedCoefficientRelation(_MaterializedValue):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over current coefficient rows.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -4216,13 +4216,13 @@ class MaterializedCoefficientRelation(_MaterializedValue):
 class LogicalCoefficientSelectionRelation(_Value):
     """Unexecuted strict coefficient selection."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Calculate a statistic over the selected coefficient.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -4260,13 +4260,13 @@ class LogicalCoefficientSelectionRelation(_Value):
 class MaterializedCoefficientSelectionRelation(_MaterializedValue):
     """Fixed strict coefficient selection."""
 
-    def summarize(self, method: RowMethod) -> LogicalStatisticRelation:
+    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Build a fixed-only statistic over the selected coefficient.
 
         Args:
             method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
         Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.summarize(mv.mean())``.
+        Example: ``result = relation.aggregate(mv.mean())``.
         Constraints: Calculates over current rows using the selected Cell policy.
         """
         return self._summarize_rows(method)
@@ -4973,7 +4973,7 @@ def wrap_materialized(
         return MaterializedAssociationResult(_TOKEN, node, runtime, dataset=dataset)
     if kind == "correlate_where":
         return MaterializedCoefficientSelectionRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "summarize":
+    if kind == "aggregate":
         return MaterializedStatisticRelation(_TOKEN, node, runtime, dataset=dataset)
     if kind == "ratio_observe":
         return MaterializedRatioRelation(_TOKEN, node, runtime, dataset=dataset)
@@ -5991,7 +5991,7 @@ class _History(_Value):
         Args: None.
         Returns: A LogicalDwellSummary over the exact retained domain.
         Example: ``result = history.dwell()``.
-        Constraints: Rows have model_state grain. mean_duration, median_duration and p90_duration summarize completed window fragments, including left-clipped completed fragments and excluding censored fragments. Duration ticks use microseconds: seconds = ticks / 1000000; exported pandas timedeltas use total_seconds(). Finished summaries cannot be pooled. Requires complete method-owned canonical History parts.
+        Constraints: Rows have model_state grain. mean_duration, median_duration and p90_duration aggregate completed window fragments, including left-clipped completed fragments and excluding censored fragments. Duration ticks use microseconds: seconds = ticks / 1000000; exported pandas timedeltas use total_seconds(). Finished summaries cannot be pooled. Requires complete method-owned canonical History parts.
         """
         from marivo.analysis.core.history_types import Dwell
         from marivo.analysis.materialization.graph_history import view

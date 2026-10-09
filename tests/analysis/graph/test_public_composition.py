@@ -76,7 +76,7 @@ def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
         live = observed.group_by(coordinate).rollup().execute()
         fixed = saved.group_by(coordinate).rollup().execute()
         assert live.to_pandas().equals(fixed.to_pandas())
-    assert saved.summarize(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
+    assert saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
 
 
 @pytest.mark.runtime
@@ -90,7 +90,7 @@ def test_ratio_original_state_and_empty_contribution(
     fixed = relation.execute()
     if scenario == "j3_weighting":
         assert fixed.to_pandas().set_index("member")["value"].to_dict() == {"A": 1.0, "B": 100.0}
-        assert fixed.summarize(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
+        assert fixed.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
         assert fixed.rollup().execute().to_pandas().iloc[0]["value"] == pytest.approx(200 / 101)
     elif scenario == "empty_group":
         assert fixed.to_pandas().iloc[0]["value"] == 0
@@ -130,9 +130,9 @@ def test_empty_numeric_selection_has_distinct_row_policies(
     difference = current.compare(baseline).execute()
     empty = difference.where(difference.value.lt(-1000)).execute()
     assert empty.to_pandas().empty
-    assert empty.summarize(mv.sum()).execute().to_pandas().iloc[0]["value"] == 0
-    assert empty.summarize(mv.count()).execute().to_pandas().iloc[0]["value"] == 0
-    mean = empty.summarize(mv.mean()).execute().to_pandas().iloc[0]
+    assert empty.aggregate(mv.sum()).execute().to_pandas().iloc[0]["value"] == 0
+    assert empty.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 0
+    mean = empty.aggregate(mv.mean()).execute().to_pandas().iloc[0]
     assert (mean["cell_tag"], mean["cell_reason"]) == ("undefined", "empty_mean")
 
 
@@ -270,13 +270,13 @@ saved.show()
 journey = sys.argv[3]
 if journey == 'j2':
     selected = saved.where(saved.value.lt(0)).execute()
-    assert selected.summarize(mv.sum()).execute().to_pandas().iloc[0]['value'] == -90
+    assert selected.aggregate(mv.sum()).execute().to_pandas().iloc[0]['value'] == -90
 elif journey == 'j3':
     assert saved.rollup().execute().to_pandas().iloc[0]['value'] == 40
-    assert abs(saved.summarize(mv.mean()).execute().to_pandas().iloc[0]['value'] - 130/3) < 1e-12
+    assert abs(saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] - 130/3) < 1e-12
 else:
     selected = saved.coefficient.where(saved.coefficient.value.lt(0.1)).execute()
-    assert abs(selected.summarize(mv.mean()).execute().to_pandas().iloc[0]['value'] + .4) < 1e-12
+    assert abs(selected.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] + .4) < 1e-12
 """
     process = subprocess.run(
         [sys.executable, "-c", script, case.session.id, reference, journey],
@@ -385,7 +385,7 @@ def test_public_parquet_journeys_have_separate_source_evidence(
     if journey == "j3":
         observed = _ratio(case, coordinates=(case.names.channel,)).execute()
         assert observed.rollup().execute().to_pandas().iloc[0]["value"] == 40
-        assert observed.summarize(mv.mean()).execute().to_pandas().iloc[0][
+        assert observed.aggregate(mv.mean()).execute().to_pandas().iloc[0][
             "value"
         ] == pytest.approx(130 / 3)
     elif journey in ("j4", "j4_ties"):

@@ -287,7 +287,7 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     observed = members.observe(metric, by=(mv.member(),))
     with pytest.raises(AnalysisError):
         observed.group_by(mv.member())
-    statistic = observed.summarize(mv.count())
+    statistic = observed.aggregate(mv.count())
     for current in (statistic, statistic.execute()):
         with pytest.raises(AnalysisError, match=r"Use mv\.member\(\) only in observe\.by"):
             current.group_by(mv.member())
@@ -376,7 +376,7 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
         ms.ref.metric("sales.aov_from_lines"), via=routes, by=(mv.member(),)
     )
     assert overall.execute().to_pandas()["value"].iloc[0] == pytest.approx(200 / 101)
-    assert individual.summarize(mv.mean()).execute().to_pandas()["value"].iloc[0] == 50.5
+    assert individual.aggregate(mv.mean()).execute().to_pandas()["value"].iloc[0] == 50.5
 
 
 @pytest.mark.runtime

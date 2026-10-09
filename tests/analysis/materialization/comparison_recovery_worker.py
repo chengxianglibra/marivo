@@ -129,18 +129,18 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             ("count", mv.count(), 3),
             ("mean", mv.mean(), 2),
         ):
-            result = execute(name, nested.summarize(method))
+            result = execute(name, nested.aggregate(method))
             assert result.to_pandas().value.tolist() == [expected]
         defined = execute("ratio_defined", ratio.where(ratio.value.is_defined()))
         assert isinstance(defined, mv.MaterializedSelectedNumericRelation)
-        result = execute("ratio_count", defined.summarize(mv.count()))
+        result = execute("ratio_count", defined.aggregate(mv.count()))
         assert result.to_pandas().value.tolist() == [2]
-        result = execute("ratio_mean", defined.summarize(mv.mean()))
+        result = execute("ratio_mean", defined.aggregate(mv.mean()))
         assert result.to_pandas().value.tolist() == [1]
         empty = execute("union_defined", union.where(union.value.is_defined()))
         assert isinstance(empty, mv.MaterializedSelectedDifferenceRelation)
         assert empty.to_pandas().empty
-        result = execute("union_count", empty.summarize(mv.count()))
+        result = execute("union_count", empty.aggregate(mv.count()))
         assert result.to_pandas().value.tolist() == [0]
         assert not hasattr(nested, "rollup") and not hasattr(union, "rollup")
         try:

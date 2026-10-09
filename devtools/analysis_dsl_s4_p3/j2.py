@@ -30,7 +30,7 @@ def main(root: Path) -> None:
         selected.observe(
             revenue, during=september, via=buyer, by=(ms.ref.entity("sales.customer"),)
         )
-        .summarize(mv.mean())
+        .aggregate(mv.mean())
         .execute()
     )
     fixed_change = change.execute()
