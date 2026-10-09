@@ -259,9 +259,15 @@ not alternative expression bodies.
 Observation supplies either a range or an exact endpoint when required by the
 Metric's temporal role. Membership selection, observation scope and output time
 coordinates remain separate. Routes bind each distinct computation root;
-occurrences sharing a root keep independent filters/state. Identity or a unique
-definition-bound route permits omitted `via`, including grouped observation.
-A foreign root requires its explicit directed route.
+occurrences sharing a root keep independent filters/state. Identity binds the same Entity. Other roots and scalar reads infer a unique
+directed keyed to-one path from normalized semantic facts, preserving declared
+Metric time-path prefixes. No shortest-path, declaration-order or physical-cost
+choice selects a business role. Ambiguity rejects with real bounded candidates.
+`via=None` and omission both infer; a Relationship Ref, `RootRoute`, or `RootRoutes`
+selects explicit roles. RootRoutes bind by root identity in any order and may
+cover only ambiguous roots; duplicate, extra and incorrect endpoints reject.
+A read accepts exactly one path from its current member to the field owner.
+Physical schema/type/version/admission failures never try another semantic path.
 
 Each component occurrence reduces independently on its complete target key
 before combination. Component domains combine as complete tuples, never as a
@@ -274,11 +280,31 @@ retained time bucket with `during=grid` or `at=grid.end`. Membership decides whi
 contributions
 participate; `by` selects only spatial keys. It accepts an ordered tuple of the
 receiver's member Entity (all primary-key components), categorical member or
-contribution-path Dimensions, and same-Session logical classifications, including
-explicit version reads. Duplicate or unbound axes and mismatched classifications
+contribution-path or independently reachable scalar Dimensions, and same-Session
+logical classifications, including explicit version reads. Member Dimensions
+classify complete member keys. On-route fields inherit the selected role; outside
+that route, each root resolves its own single-valued field binding. Equivalent
+complete semantic paths deduplicate; distinct legal roles remain ambiguous.
+A classification read on a computation root attaches by that root's complete
+contribution keys before aggregation, separately from contribution attribution.
+Its read path may differ from observe's path. Every component binds every axis;
+missing mapping cannot discard a component or allocate its overall value.
+Classification matching and Defined-value checks cover actual consumed keys;
+a filtered classification cannot implicitly filter contributions. The consumed contribution/member-time keys are fixed before classification is attached; missing classifications retain those keys until coverage validation rejects them. Duplicate or unbound axes and mismatched classifications
 reject. `groups` binds an exact same-Session logical target domain and retains
 empty groups. Public `coordinates` and grouped-domain observation are removed.
 Only retained full Subject identity permits a subsequent `members()`.
+Coordinate identity retains the original Dimension Ref, classification origin,
+role path, version/time grid and a distinct binding identifier, never a fabricated
+semantic Ref. Two explicit roles of the same field form separate axes; repeating
+the same binding rejects. Raw Refs select only one retained binding; corresponding
+classification objects disambiguate grouping, statistic rollup and retained-axis
+attribution without source reads. Attribution preserves the complete ordered
+endpoint axes; it does not choose another relationship role or recover removed axes.
+Explicit targets may select a captured component binding of a common multi-root
+axis. Field, owner, role and full key positions must agree; runtime target coverage
+still rejects any unrepresented consumed group.
+
 Multiple member classifications align on the complete member/time key before
 their group axes are attached. Explicit target completion preserves comparison
 continuations and initializes empty temporal-fold samples with the retained fold

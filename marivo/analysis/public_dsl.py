@@ -38,6 +38,7 @@ from marivo.analysis.core.model import (
     AssociationStatePart,
     AttributionPart,
     Coordinate,
+    CoordinateStatePart,
     CoveragePart,
     DerivedQuantity,
     DisplayPart,
@@ -59,6 +60,7 @@ from marivo.analysis.core.model import (
     SubjectPart,
     SubjectRetentionPart,
     TrainingInputsPart,
+    coordinate_binding_id,
     part_role,
 )
 from marivo.analysis.core.predicates import DurationLiteral, TemporalLiteral, ValuePredicate
@@ -90,6 +92,7 @@ from marivo.analysis.core.rules import (
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
+    ObserveWeightedMean,
     OccurrenceCombine,
     PartsTransport,
     PreparedObservation,
@@ -123,17 +126,19 @@ from marivo.analysis.materialization.graph_fields import (
     CompositePredicate,
     NumericField,
     NumericPredicate,
-    RootRoutesValue,
-    RootRouteValue,
     ScalarPredicate,
     StatePredicate,
     TemporalField,
     not_,
-    root_route,
-    root_routes,
 )
 from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
+from marivo.analysis.observation.route_inputs import (
+    RootRoutesValue,
+    RootRouteValue,
+    root_route,
+    root_routes,
+)
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.subject import DroppedBefore
 from marivo.introspection.live.reflect import required_arguments
@@ -150,7 +155,6 @@ from marivo.refs import (
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
 from marivo.semantic.event import ParticipantRoleHandle
 from marivo.semantic.ir import TargetRelationshipContract
-from marivo.semantic.metric_graph import TargetMetricContract
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from marivo.semantic.validator import normalize_target_relationship
 
@@ -279,8 +283,8 @@ def route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) 
 
     Args:
         root: Exact contribution Entity Ref.
-        through: Ordered nonempty Relationship Ref path to the member Entity.
-    Returns: A closed RootRoute for an admitted ratio observation.
+        through: Ordered Relationship Ref path; empty selects identity at the root.
+    Returns: A closed RootRoute for read or observe.
     Example: ``path = mv.route(order, through=(buyer,))``.
     Constraints: The route is validated against the selected member and Metric.
     """
@@ -288,12 +292,12 @@ def route(root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]) 
 
 
 def routes(*items: RootRoute) -> RootRoutes:
-    """Bind ordered explicit Entity routes.
+    """Bind explicit relationship roles by contribution root identity.
 
     Args: items: One or more RootRoute values for distinct roots.
     Returns: A closed RootRoutes value for read or observe.
     Example: ``pair = mv.routes(line_route, order_route)``.
-    Constraints: Read requires one member-rooted route; observations validate their own root order.
+    Constraints: Read requires one member-rooted route. Observe accepts partial root overrides in any order; remaining roots resolve automatically. Duplicate and extra roots reject.
     """
     return root_routes(*items)
 
@@ -1420,6 +1424,69 @@ class _Value:
                 )
         if isinstance(params, BindProject):
             facts.extend((("field", params.ref.path), ("field_kind", params.ref.kind.value)))
+            facts.append(
+                ("field_path", " -> ".join(item.path for item in params.path) or "identity")
+            )
+        bound_observations = tuple(
+            item
+            for item in retained_nodes(self._node.definition)
+            if isinstance(item, MethodNode)
+            and isinstance(item.parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean))
+        )
+        for index, bound in enumerate(bound_observations[:4]):
+            observation = bound.parameters
+            assert isinstance(observation, (ObserveMetric, ObserveCount, ObserveWeightedMean))
+            facts.append(
+                (
+                    f"contribution_binding_{index}",
+                    observation.contribution.path
+                    + ": "
+                    + (" -> ".join(item.ref.path for item in observation.path) or "identity"),
+                )
+            )
+            for position, coordinate in enumerate(observation.classification_coordinates[:4]):
+                facts.append(
+                    (
+                        f"coordinate_binding_{index}_{position}",
+                        coordinate.field + ": " + coordinate.binding_id[:22],
+                    )
+                )
+            fields = {
+                c.field
+                for c in (
+                    *bound.signature.domain.instance_key,
+                    *observation.classification_coordinates,
+                )
+            }
+            classifications = tuple(
+                dict.fromkeys(
+                    (
+                        item.parameters.ref.path,
+                        item.inputs[0].node.signature.domain.instance_key[0].entity_ref.path,
+                        tuple(hop.path for hop in item.parameters.path),
+                        item.parameters.attribute_time,
+                    )
+                    for edge in bound.inputs
+                    for item in topology(edge.node)
+                    if isinstance(item, MethodNode)
+                    and isinstance(item.parameters, BindProject)
+                    and item.parameters.ref.path in fields
+                )
+            )
+            for position, (dimension_field, origin, path, version_time) in enumerate(
+                classifications[:4]
+            ):
+                role = (
+                    dimension_field + " from " + origin + ": " + (" -> ".join(path) or "identity")
+                )
+                if version_time != "untimed":
+                    role += "; at=" + version_time
+                facts.append(
+                    (
+                        f"classification_role_{index}_{position}",
+                        role if len(role) <= 384 else role[:381] + "...",
+                    )
+                )
         if self._dataset is not None:
             schema = self._dataset.artifact.descriptor
             from marivo.analysis.materialization.graph_protocol import schema_from
@@ -1756,6 +1823,41 @@ class _Value:
         tree, dependencies = self._bound_predicate(predicate)
         return self._node.where(tree, dependencies=dependencies)
 
+    def _classification_key(self, category: CategoryRelation) -> Coordinate:
+        if (
+            category._node.root.signature.domain.binding.session_id
+            != self._node.root.signature.domain.binding.session_id
+        ):
+            raise _reject(
+                "a same-Session classification",
+                "a foreign Session",
+                "Read the classification in this Session.",
+            )
+        return category._node.classification_coordinate()
+
+    def _attribution_axes(
+        self, axes: tuple[Ref[DimensionKind] | CategoryRelation, ...]
+    ) -> tuple[Ref[DimensionKind] | Coordinate, ...]:
+        if type(axes) is not tuple or any(
+            not isinstance(
+                axis,
+                (
+                    Ref,
+                    LogicalCategoryRelation,
+                    MaterializedCategoryRelation,
+                    LogicalSelectedCategoryRelation,
+                    MaterializedSelectedCategoryRelation,
+                ),
+            )
+            for axis in axes
+        ):
+            raise _reject(
+                "an ordered tuple of Dimensions or corresponding classifications",
+                type(axes).__name__,
+                "Pass axes=(dimension_or_classification, ...).",
+            )
+        return tuple(a if isinstance(a, Ref) else self._classification_key(a) for a in axes)
+
     def _group_nodes(
         self,
         keys: tuple[
@@ -1771,7 +1873,7 @@ class _Value:
         ],
     ) -> tuple[Relation, Relation]:
         node = self._node
-        references: list[Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid] = []
+        references: list[Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid | Coordinate] = []
         for key in keys:
             if isinstance(key, Grain):
                 from marivo._temporal import time_scope
@@ -1807,10 +1909,38 @@ class _Value:
                     MaterializedSelectedCategoryRelation,
                 ),
             ):
-                node = node.attach_category(key._node)
-                from marivo.refs import ref
-
-                references.append(ref.dimension(key._node.classification_coordinate().field))
+                coordinate = self._classification_key(key)
+                retained = tuple(
+                    dict.fromkeys(
+                        (
+                            *node.root.signature.domain.instance_key,
+                            *(
+                                c
+                                for part in node.root.signature.parts
+                                if isinstance(part, CoordinateStatePart)
+                                and not part.attribution_only
+                                for c in part.coordinates
+                            ),
+                        )
+                    )
+                )
+                retained_matches = tuple(
+                    c
+                    for c in retained
+                    if c == coordinate
+                    or (c.field == coordinate.field and coordinate.binding_id in c.bindings)
+                )
+                if len(retained_matches) > 1:
+                    raise _reject(
+                        "one retained classification binding",
+                        coordinate.field,
+                        "Select an unambiguous classification role.",
+                    )
+                if retained_matches:
+                    references.append(retained_matches[0])
+                else:
+                    node = node.attach_category(key._node)
+                    references.append(coordinate)
             else:
                 references.append(key)
         if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
@@ -1821,6 +1951,9 @@ class _Value:
                 coordinates.extend(
                     c for c in node.root.signature.domain.instance_key if c.role == "anchor"
                 )
+                continue
+            if isinstance(reference, Coordinate):
+                coordinates.append(reference)
                 continue
             matches = [
                 c
@@ -2380,8 +2513,24 @@ class _CountRelation(_Value):
                     MaterializedSelectedCategoryRelation,
                 ),
             ):
-                node = node.attach_category(key._node)
-                coordinates.append(node.root.signature.domain.instance_key[-1])
+                coordinate = self._classification_key(key)
+                retained_matches = tuple(
+                    c
+                    for c in node.root.signature.domain.instance_key
+                    if c == coordinate
+                    or (c.field == coordinate.field and coordinate.binding_id in c.bindings)
+                )
+                if len(retained_matches) > 1:
+                    raise _reject(
+                        "one retained classification binding",
+                        coordinate.field,
+                        "Select an unambiguous classification role.",
+                    )
+                if retained_matches:
+                    coordinates.append(retained_matches[0])
+                else:
+                    node = node.attach_category(key._node)
+                    coordinates.append(node.root.signature.domain.instance_key[-1])
             else:
                 matches = [
                     c
@@ -2392,7 +2541,7 @@ class _CountRelation(_Value):
                         else c.field == key.path
                     )
                 ]
-                if not matches:
+                if not matches or (key.kind == "dimension" and len(matches) != 1):
                     raise _reject(
                         "retained grouping coordinates",
                         key.path,
@@ -2452,6 +2601,7 @@ class _MaterializedRead(_Value):
             "statistical_unit",
             "field",
             "field_kind",
+            "field_path",
             "window",
             "start_selection",
             "within",
@@ -2462,6 +2612,13 @@ class _MaterializedRead(_Value):
             "horizon",
             "interval_level",
         }
+        meaning.update(
+            name
+            for name, _ in disclosure
+            if name.startswith(
+                ("contribution_binding_", "coordinate_binding_", "classification_role_")
+            )
+        )
         self._dataset.show(
             n=n,
             max_output_bytes=max_output_bytes,
@@ -2649,7 +2806,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[MeasureKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
+        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
         match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalNumericRelation: ...
 
@@ -2659,7 +2816,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[DimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
+        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
         match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalCategoryRelation | LogicalBooleanRelation: ...
 
@@ -2669,7 +2826,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
+        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
         match_verification: Literal["check", "assume"] = "check",
     ) -> LogicalTemporalRelation: ...
 
@@ -2678,7 +2835,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         field: Ref[MeasureKind] | Ref[DimensionKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
+        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
         match_verification: Literal["check", "assume"] = "check",
     ) -> (
         LogicalNumericRelation
@@ -2691,7 +2848,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         Args:
             field: Declared Measure, direct Dimension/TimeDimension, or bound Boolean Dimension expression Ref.
             at: Independent aware attribute instant or grid endpoint; an endpoint binds every member/time cell. Unversioned fields accept None or a grid endpoint and keep their stable value.
-            via: Exact single-valued member-to-owner relationship or route.
+            via: Relationship Ref, RootRoute or one-entry RootRoutes selecting a member-to-owner role; omit or pass None to infer the unique directed to-one path.
             match_verification: Check unknown owner matching, or assume it for this call.
         Returns: Numeric, Category, Boolean or Temporal relation according to field kind.
         Example: ``values = members.read(field, at=scope.before_end)``.
@@ -2757,7 +2914,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         *,
         during: TimeScope | TimeGrid | None = None,
         at: datetime | GridEndpoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutes | None = None,
+        via: Ref[RelationshipKind] | RootRoute | RootRoutes | None = None,
         by: tuple[
             Ref[EntityKind]
             | Ref[DimensionKind]
@@ -2774,16 +2931,16 @@ class LogicalAnalysisDomain(_CohortDomain):
             metric: Declared Metric Ref or closed runtime Metric expression to observe.
             during: Fixed TimeScope, a TimeGrid selecting each bucket's window, or None for no added restriction.
             at: Explicit cumulative endpoint, grid endpoint binding every time cell, or aware datetime.
-            via: Admitted relationship Ref or ordered routes; omit or pass None for the same Entity root.
+            via: Relationship Ref, RootRoute or RootRoutes selecting contribution roles by root identity. Omit or pass None to infer unique directed to-one paths; partial overrides leave other roots automatic.
             by: Ordered tuple of the receiver's member Entity, categorical Dimensions, or
-                same-Session logical classifications. The Entity retains its full primary key.
+                same-Session logical member or contribution-root classifications. Independent scalar Dimension branches are allowed. The Entity retains its full primary key.
                 Empty means Singleton on ordinary members, or one overall value per time bucket.
             groups: Optional same-Session logical target domain retaining explicit empty groups.
             complete_during: Explicit business-complete scopes with aware datetime bounds.
                 Omit for the existing observation policy; an empty tuple declares no complete buckets.
         Returns: An original LogicalNumericRelation | LogicalRatioRelation at the selected grain.
         Example: ``result = relation.observe(metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=buyer)``.
-        Constraints: During and at are alternatives. By cannot introduce a time grid; time classifications must match the bound grid. Ordinary Metric/Count routes have no fixed hop limit; each hop must be contiguous, explicitly keyed and directed to-one between unversioned Entities. The Metric, window, path and member binding must be admitted. Completeness requires one original sum on during=grid, no dimension grouping or at, and a complete non-partial grid. Uncovered buckets are Unknown with retained partial state. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
+        Constraints: During and at are alternatives. Ambiguous roles require via or an explicitly bound read in by. Contribution and classification paths are independent; every component must bind every axis on complete keys without fanout. Versioned fields still require an explicit attribute time. By cannot introduce a time grid; timed classifications must match the bound grid. Ordinary Metric/Count paths are directed keyed to-one between unversioned Entities. Physical admission never selects another role. Completeness requires one original sum on during=grid without grouping or at; uncovered buckets are Unknown. Business-covered observations cannot roll up; production uses DuckDB table/Parquet.
         """
         if during is not None and at is not None:
             raise _reject(
@@ -2817,15 +2974,57 @@ class LogicalAnalysisDomain(_CohortDomain):
                 type(groups).__name__,
                 "Use a logical complete target domain for groups.",
             )
-        receiver = LogicalAnalysisDomain(_TOKEN, node, self._runtime, inputs=(self,))
         subject = next(p for p in node.root.signature.parts if isinstance(p, SubjectPart))
-        keys: list[Coordinate] = []
-        coordinates: list[Ref[DimensionKind]] = []
-        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
+        live = node._live()
+        metric_contract = node.resolve_metric(metric)
+        member_classifier_base = node
+        from marivo.analysis.observation.relationship_binding import RelationshipResolver
         from marivo.refs import ref as semantic_ref
         from marivo.semantic.validator import normalize_target_dimension
 
-        category: object
+        resolver = RelationshipResolver.build(live.graph.registry)
+        root_refs = tuple(
+            semantic_ref.entity(root.path) for root in metric_contract.computation_roots
+        )
+        overrides = resolver.overrides(
+            via, roots=root_refs, target="dsl.LogicalAnalysisDomain.observe"
+        )
+        paths_list: list[tuple[Ref[RelationshipKind], ...]] = []
+        for root in root_refs:
+            prefixes = tuple(
+                tuple(semantic_ref.relationship(item.path) for item in component.event_time_path)
+                for component in metric_contract.components
+                if component.computation_root.path == root.path
+            )
+            prefix = builtins.max(prefixes, key=len, default=())
+            if any(prefix[: len(item)] != item for item in prefixes):
+                raise _reject(
+                    "compatible declared component roles",
+                    root.path,
+                    "Observe conflicting component roles independently.",
+                )
+            paths_list.append(
+                resolver.resolve(
+                    root.path,
+                    subject.entity_ref.path,
+                    explicit=overrides.get(root.path),
+                    prefix=prefix,
+                )
+            )
+        paths = tuple(paths_list)
+        keys: list[Coordinate] = []
+        categories: list[LogicalCategoryRelation | LogicalSelectedCategoryRelation] = []
+        contribution_domains: dict[str, Relation] = {}
+        contribution_bases: dict[str, Relation] = {}
+        classification_coordinates: list[Coordinate] = []
+
+        def contribution_domain(root: Ref[EntityKind]) -> Relation:
+            if root.path not in contribution_bases:
+                contribution_bases[root.path] = Relation.members(
+                    self._runtime, live.graph.registry, live.sidecar, live.report_timezone, root
+                )
+            return contribution_bases[root.path]
+
         for axis in by:
             if isinstance(axis, Ref) and axis.kind == "entity":
                 if axis != subject.entity_ref:
@@ -2836,69 +3035,138 @@ class LogicalAnalysisDomain(_CohortDomain):
                     )
                 keys.extend(subject.subject_key)
                 continue
+            category: LogicalCategoryRelation | LogicalSelectedCategoryRelation | None = None
             if isinstance(axis, Ref) and axis.kind == "dimension":
                 dimension = semantic_ref.dimension(axis.path)
-                field = normalize_target_dimension(node._live().graph.registry, axis.path)
-                if field.entity_ref.path != subject.entity_ref.path:
-                    coordinates.append(dimension)
-                    keys.append(
-                        Coordinate(semantic_ref.entity(field.entity_ref.path), axis.path, "group")
-                    )
+                field = normalize_target_dimension(live.graph.registry, axis.path)
+                if field.entity_ref.path == subject.entity_ref.path:
+                    member_read = member_classifier_base.read(dimension, resolver=resolver)
+                    node = node.attach_category(member_read)
+                    keys.append(member_read.classification_coordinate())
                     continue
-                category = receiver.read(dimension)
-            else:
+                member_paths = resolver.candidates(subject.entity_ref.path, field.entity_ref.path)
+                if len(member_paths) == 1 and all(
+                    resolver.candidates(
+                        root.path,
+                        field.entity_ref.path,
+                        bound_member=(subject.entity_ref.path, route_path),
+                    )
+                    == ((*route_path, *member_paths[0]),)
+                    for root, route_path in zip(root_refs, paths, strict=True)
+                ):
+                    member_read = member_classifier_base.read(
+                        dimension,
+                        via=RootRouteValue(subject.entity_ref, member_paths[0]),
+                        resolver=resolver,
+                    )
+                    node = node.attach_category(member_read)
+                    keys.append(member_read.classification_coordinate())
+                    continue
+            elif isinstance(axis, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
                 category = axis
-            if not isinstance(category, (LogicalCategoryRelation, LogicalSelectedCategoryRelation)):
+                categories.append(category)
+                coordinate = category._node.classification_coordinate()
+                dimension = semantic_ref.dimension(coordinate.field)
+                field = normalize_target_dimension(live.graph.registry, dimension.path)
+                category_subject = next(
+                    p for p in category._node.root.signature.parts if isinstance(p, SubjectPart)
+                )
+                category_grid = category._node.root.signature.domain.time_grid
+                if (
+                    category_grid is not None
+                    and category_grid != node.root.signature.domain.time_grid
+                ):
+                    raise _reject(
+                        "a classification on the observation's exact time grid",
+                        "an unbound or different classification grid",
+                        "Bind the observation and classification to the same grid.",
+                    )
+                if category_subject.entity_ref == subject.entity_ref:
+                    node = node.attach_category(category._node)
+                    keys.append(coordinate)
+                    continue
+                if category_subject.entity_ref not in root_refs:
+                    raise _reject(
+                        "a classification on members or a Metric contribution root",
+                        category_subject.entity_ref.path,
+                        "Read the Dimension on the observation members or a declared contribution root.",
+                    )
+            else:
                 raise _reject(
-                    "a member Entity or categorical Dimension",
+                    "a member Entity, categorical Dimension or logical classification",
                     type(axis).__name__,
                     "Choose a typed axis in by.",
                 )
-            category_grid = category._node.root.signature.domain.time_grid
-            if category_grid is not None and category_grid != node.root.signature.domain.time_grid:
-                raise _reject(
-                    "a classification on the observation's exact time grid",
-                    "an unbound or different classification grid",
-                    "Bind during=grid or at=grid.end and read the classification on that same grid.",
+            bound_categories: list[tuple[Ref[EntityKind], Relation]] = []
+            for root, route_path in zip(root_refs, paths, strict=True):
+                base = contribution_domain(root)
+                if category is not None and category_subject.entity_ref == root:
+                    read = category._node
+                else:
+                    owner = field.entity_ref.path
+                    # On-route fields inherit the selected contribution role exactly.
+                    current = root.path
+                    read_path: tuple[Ref[RelationshipKind], ...] | None = (
+                        () if owner == current else None
+                    )
+                    for i, relationship in enumerate(route_path):
+                        mapping = next(
+                            m for m in resolver.mappings if m.ref.path == relationship.path
+                        )
+                        current = mapping.to_entity_ref.path
+                        if current == owner:
+                            read_path = route_path[: i + 1]
+                            break
+                    if read_path is None:
+                        read_path = resolver.resolve(
+                            root.path, owner, bound_member=(subject.entity_ref.path, route_path)
+                        )
+                    read = base.read(
+                        dimension, via=RootRouteValue(root, read_path), resolver=resolver
+                    )
+                bound_categories.append((root, read))
+            bound_coordinates = tuple(
+                read.classification_coordinate() for _, read in bound_categories
+            )
+            coordinate = bound_coordinates[0]
+            if any(item != coordinate for item in bound_coordinates[1:]):
+                identities = tuple(sorted({item.binding_id for item in bound_coordinates}))
+                coordinate = replace(
+                    coordinate,
+                    binding_id=coordinate_binding_id(
+                        coordinate.entity_ref, coordinate.field, identities
+                    ),
+                    bindings=identities,
                 )
-            node = node.attach_category(category._node)
-            categories.append(category)
-            keys.append(category._node.classification_coordinate())
+            for root, read in bound_categories:
+                classified = contribution_domains.get(root.path, contribution_domain(root))
+                read_grid = read.root.signature.domain.time_grid
+                if read_grid is not None and classified.root.signature.domain.time_grid is None:
+                    classified = classified.each(read_grid)
+                contribution_domains[root.path] = classified.attach_category(
+                    read, coordinate=coordinate
+                )
+            classification_coordinates.append(coordinate)
+            keys.append(coordinate)
         if len(set(keys)) != len(keys):
-            raise _reject("distinct observation axes", repr(by), "Remove repeated axes from by.")
+            raise _reject(
+                "distinct observation bindings", repr(by), "Remove repeated bindings from by."
+            )
         keys.extend(c for c in node.root.signature.domain.instance_key if c.role == "anchor")
-        live = node._live()
-        metric_contract: TargetMetricContract | None = None
         if complete_during is not None and (
             not isinstance(during, TimeGrid)
             or at is not None
             or any(c.role == "group" for c in keys)
-            or len((metric_contract := node.resolve_metric(metric)).components) > 1
+            or len(metric_contract.components) > 1
         ):
             raise _reject(
                 "a single original sum on during=grid without dimension grouping or at",
                 "incompatible business-completeness observation",
                 "Use members.observe(sum_metric, during=grid, complete_during=(scope,)).",
             )
-        declared = (
-            via.routes if isinstance(via, RootRoutesValue) else (via,) if via is not None else ()
+        classifications = tuple(
+            (root, relation._live().graph) for root, relation in contribution_domains.items()
         )
-        for route in declared:
-            if isinstance(route, RootRouteValue):
-                relationship = normalize_target_relationship(
-                    live.graph.registry, route.through[0].path
-                )
-                if relationship.from_entity_ref.path != route.root.path:
-                    raise _reject(
-                        "the declared contribution root",
-                        route.root.path,
-                        "Bind the exact route root.",
-                    )
-        paths = tuple(
-            route.through if isinstance(route, RootRouteValue) else (route,) for route in declared
-        ) or ((),)
-        if metric_contract is None:
-            metric_contract = node.resolve_metric(metric)
         if len(metric_contract.components) > 1:
             observed = node.observe_routes(
                 metric,
@@ -2906,7 +3174,9 @@ class LogicalAnalysisDomain(_CohortDomain):
                 during=window,
                 at=point,
                 paths=paths,
-                coordinates=tuple(coordinates),
+                classifications=classifications,
+                classification_coordinates=tuple(classification_coordinates),
+                resolver=resolver,
                 target_keys=tuple(keys),
             )
             if groups is not None:
@@ -2932,7 +3202,9 @@ class LogicalAnalysisDomain(_CohortDomain):
             during=window,
             at=point,
             via=single[0] if len(single) == 1 else single,
-            coordinates=tuple(coordinates),
+            classifications=dict(classifications).get(root_refs[0].path),
+            classification_coordinates=tuple(classification_coordinates),
+            resolver=resolver,
             target_keys=tuple(keys),
         )
         if groups is not None:
@@ -3887,13 +4159,13 @@ class LogicalDifferenceRelation(_NumericComparison):
     def attribute(
         self,
         *,
-        axes: tuple[Ref[DimensionKind], ...],
+        axes: tuple[Ref[DimensionKind] | CategoryRelation, ...],
         mode: Literal["joint", "hierarchy"] = "joint",
         top_k: int | None = None,
     ) -> LogicalAttributionResult:
         """Allocate an absolute change from its complete original endpoint states.
 
-        Args: axes: Unique ordered contribution Dimensions; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
+        Args: axes: Unique ordered Dimensions or corresponding classifications selecting retained roles; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
         Returns: A LogicalAttributionResult with same-key contribution/current/baseline views.
         Example: ``result = change.attribute(axes=(channel,), mode="joint", top_k=5).execute()``.
         Constraints: Fixed inputs require retained axes; every resolution independently reconciles.
@@ -3901,7 +4173,10 @@ class LogicalDifferenceRelation(_NumericComparison):
         from marivo.analysis.materialization.graph_attribution import bind
 
         return LogicalAttributionResult(
-            _TOKEN, bind(self._node, axes, mode, top_k), self._runtime, inputs=(self,)
+            _TOKEN,
+            bind(self._node, self._attribution_axes(axes), mode, top_k),
+            self._runtime,
+            inputs=(self,),
         )
 
     def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
@@ -3960,13 +4235,13 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
     def attribute(
         self,
         *,
-        axes: tuple[Ref[DimensionKind], ...],
+        axes: tuple[Ref[DimensionKind] | CategoryRelation, ...],
         mode: Literal["joint", "hierarchy"] = "joint",
         top_k: int | None = None,
     ) -> LogicalAttributionResult:
         """Allocate an absolute change from its complete original endpoint states.
 
-        Args: axes: Unique ordered contribution Dimensions; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
+        Args: axes: Unique ordered Dimensions or corresponding classifications selecting retained roles; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
         Returns: A LogicalAttributionResult with same-key contribution/current/baseline views.
         Example: ``result = change.attribute(axes=(channel,), mode="joint", top_k=5).execute()``.
         Constraints: Fixed inputs require retained axes; every resolution independently reconciles.
@@ -3974,7 +4249,10 @@ class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
         from marivo.analysis.materialization.graph_attribution import bind
 
         return LogicalAttributionResult(
-            _TOKEN, bind(self._node, axes, mode, top_k), self._runtime, inputs=(self,)
+            _TOKEN,
+            bind(self._node, self._attribution_axes(axes), mode, top_k),
+            self._runtime,
+            inputs=(self,),
         )
 
     def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
@@ -4146,20 +4424,22 @@ class GroupedStatisticRelation(_Value):
 class _StatisticContinuation(_NumericComparison):
     def group_by(
         self,
-        *keys: Ref[DimensionKind] | Ref[EntityKind],
+        *keys: Ref[DimensionKind] | Ref[EntityKind] | CategoryRelation,
         groups: GroupedAnalysisDomain | MaterializedAnalysisDomain | None = None,
     ) -> GroupedStatisticRelation:
         """Select retained axes for a partial row-state merge.
 
         Args:
-            keys: Retained complete coordinates to preserve.
+            keys: Retained complete coordinates or corresponding classifications selecting roles.
             groups: Optional explicit target including valid empty groups.
         Returns: A grouped statistic awaiting rollup.
         Example: ``result = statistic.group_by(dimension).rollup().execute()``.
         Constraints: Merges this statistic's state; does not summarize finished values.
         Execute source Duration statistics before selecting merge axes.
         """
-        node = self._node.rollup_statistic(*keys)
+        node = self._node.rollup_statistic(
+            *(key if isinstance(key, Ref) else self._classification_key(key) for key in keys)
+        )
         if groups is not None:
             node = node.complete_groups(groups._node)
         return GroupedStatisticRelation(_TOKEN, node, self._runtime, inputs=(self,))
@@ -7318,6 +7598,12 @@ class _AnchorDomain(_Value):
 
             for route in declared:
                 if isinstance(route, RootRouteValue):
+                    if not route.through:
+                        raise _reject(
+                            "a nonempty explicit Anchor route",
+                            route.root.path,
+                            "Bind the existing Anchor contribution route explicitly.",
+                        )
                     relationship = normalize_target_relationship(
                         self._node.binding.graph.registry, route.through[0].path
                     )

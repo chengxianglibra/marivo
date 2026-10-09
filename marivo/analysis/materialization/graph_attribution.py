@@ -140,21 +140,25 @@ def expand(
 
 def bind(
     relation: Relation,
-    axes: tuple[Ref[DimensionKind], ...],
+    axes: tuple[Ref[DimensionKind] | Coordinate, ...],
     mode: Literal["joint", "hierarchy"],
     top_k: int | None,
 ) -> Relation:
     if (
         type(axes) is not tuple
         or not axes
-        or any(type(a) is not Ref or a.kind is not SemanticKind.DIMENSION for a in axes)
+        or any(
+            not isinstance(a, Coordinate)
+            and (type(a) is not Ref or a.kind is not SemanticKind.DIMENSION)
+            for a in axes
+        )
         or len(set(axes)) != len(axes)
         or mode not in ("joint", "hierarchy")
         or (mode == "hierarchy" and len(axes) < 2)
         or (top_k is not None and (type(top_k) is not int or not 1 <= top_k <= 1000))
     ):
         raise invalid(
-            "nonempty unique ordered Dimensions; hierarchy requires two axes; top_k must be None or integer 1..1000 excluding bool"
+            "nonempty unique ordered Dimension bindings; hierarchy requires two axes; top_k must be None or integer 1..1000 excluding bool"
         )
     definition = relation.definition
     if (
@@ -170,31 +174,79 @@ def bind(
     if chosen == "component_mix" and isinstance(physical, DurationType):
         raise invalid("Duration component allocation is unqualified")
     endpoints = [p for p in relation.root.signature.parts if isinstance(p, EndpointPart)]
+    selections: list[tuple[Coordinate, ...]] = []
+    for endpoint in endpoints:
+        coordinates = (
+            () if endpoint.coordinate_state is None else endpoint.coordinate_state.coordinates
+        )
+        selected: list[Coordinate] = []
+        for axis in axes:
+            matches = tuple(
+                c
+                for c in coordinates
+                if (
+                    c == axis
+                    or (
+                        c.field == axis.field
+                        and c.entity_ref == axis.entity_ref
+                        and axis.binding_id in c.bindings
+                    )
+                    if isinstance(axis, Coordinate)
+                    else c.field == axis.path
+                )
+            )
+            if len(matches) > 1:
+                raise invalid(
+                    "an axis has multiple retained roles; pass its corresponding classification"
+                )
+            if matches:
+                selected.append(matches[0])
+        selections.append(tuple(selected))
     retained = all(
         p.coordinate_state is not None
-        and tuple(c.field for c in p.coordinate_state.coordinates) == tuple(a.path for a in axes)
-        for p in endpoints
+        and p.coordinate_state.coordinates == selected
+        and len(selected) == len(axes)
+        for p, selected in zip(endpoints, selections, strict=True)
     )
+    from marivo.refs import ref
+
+    references = tuple(ref.dimension(a.field) if isinstance(a, Coordinate) else a for a in axes)
+    bindings = selections[0] if retained else ()
+    if retained and any(selected != bindings for selected in selections):
+        raise invalid("endpoint axis roles differ")
     expanded: Node = relation.root
     if not retained:
+        if any(isinstance(a, Coordinate) for a in axes):
+            raise invalid(
+                "classifications must select the complete retained ordered axes on both endpoints"
+            )
         if isinstance(relation.binding, FrozenBinding):
             raise invalid(
                 "fixed Difference lacks the requested retained axes; lineage cannot supply them"
             )
         children = tuple(
-            Edge(e.role, expand(e.node, axes, relation)) if isinstance(e.node, MethodNode) else e
+            Edge(e.role, expand(e.node, references, relation))
+            if isinstance(e.node, MethodNode)
+            else e
             for e in definition.inputs
         )
         expanded = method_node(children, definition.parameters, value_type=physical)
     source = relation.root.signature.domain
-    owner = axes[0].path.rsplit(".", 1)[0]
-    from marivo.refs import ref
+    owner = references[0].path.rsplit(".", 1)[0]
 
     entity = ref.entity(owner)
     keys = (
         *source.instance_key,
         Coordinate(entity, "attribution:resolution", "group"),
-        *(Coordinate(entity, "attribution:axis:" + a.path, "group") for a in axes),
+        *(
+            Coordinate(
+                entity,
+                "attribution:axis:" + a.path,
+                "group",
+                bindings[index].binding_id if bindings else "direct",
+            )
+            for index, a in enumerate(references)
+        ),
         Coordinate(entity, "attribution:other_mask", "group"),
     )
     domain = DomainSignature(
@@ -207,7 +259,7 @@ def bind(
     )
     root = method_node(
         (relation._edge(), Edge("quantity", expanded)),
-        AttributionDerive(domain, axes, chosen, physical.name, mode, top_k),
+        AttributionDerive(domain, references, chosen, physical.name, mode, top_k, bindings),
         value_type=physical,
         retained_endpoints=(definition, definition)
         if isinstance(relation.binding, FrozenBinding)
@@ -641,8 +693,16 @@ def validate(
     basis = declarations["basis"]
     allocation = declarations["allocation"]
     if allocation.domain != contract.signature.domain or any(
-        (p.axes, p.method, p.mode, p.top_k, p.complete, p.view)
-        != (basis.axes, basis.method, basis.mode, basis.top_k, basis.complete, basis.view)
+        (p.axes, p.coordinate_bindings, p.method, p.mode, p.top_k, p.complete, p.view)
+        != (
+            basis.axes,
+            basis.coordinate_bindings,
+            basis.method,
+            basis.mode,
+            basis.top_k,
+            basis.complete,
+            basis.view,
+        )
         or p.domain != (basis.domain if p.role in ROLES[:3] else allocation.domain)
         for p in declarations.values()
     ):

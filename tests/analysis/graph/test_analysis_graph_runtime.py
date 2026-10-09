@@ -276,7 +276,7 @@ def test_source_key_is_fresh_per_run_and_binds_selected_plan() -> None:
     second = graph_source_execution_key(prepared.admitted, (binding,), "run_b")
     assert first != second
     # Pin the v2 graph execution-key envelope and structural definition encoding.
-    assert first == "549eb5d2e62aa14595cc6161ae3b9d0a1f9c079d2e8a1c3ed96920d349e58a6c"
+    assert first == "f012903d654f304c41bf3ab4e066439a482241688d12a99e86515c397affdba7"
     assert first == graph_source_execution_key(prepared.admitted, (binding,), "run_a")
     equivalent_leaf = _source("session_r42", quantity=True)
     equivalent_root = _count(equivalent_leaf)
@@ -340,7 +340,7 @@ def test_fixed_key_binds_exact_reference_receipts_parts_state_and_snapshot() -> 
         "snapshot-digest",
     )
     key = graph_fixed_execution_key(prepared.admitted, (original,))
-    assert key == "9342258a857a24440f5a63c23850ec80d37179997f27427c971d711169a577c8"
+    assert key == "c666319a2777300554d65165484d96aed21541fe9a5826fce39c2a3e723e793e"
     variants = (
         replace(original, producing_run_ref="run_other"),
         replace(original, primary_receipt_digest="different-primary"),

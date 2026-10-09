@@ -181,7 +181,7 @@ amount = ms.measure_column(name={n.amount!r}, entity=orders,
                            unit={revenue_unit!r})
 line_amount = ms.measure_column(name={n.line_amount!r}, entity=lines,
                                 column={n.line_amount!r}, additivity=ms.additive_all(),
-                                unit='CNY')
+                                unit={revenue_unit!r})
 buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer,
                         keys=[ms.join_on(order_customer_id, customer_id)])
 line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,

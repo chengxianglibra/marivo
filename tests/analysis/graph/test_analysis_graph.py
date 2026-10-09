@@ -670,24 +670,24 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
     [
         (
             "source",
-            "0a1e646715c236c47868c100789678b876bce40c8b6018eb31462ba56266a8c3",
-            "06b2581d02ba5a1e5cb1c681dacbb20d97b153bf8984c5961747d157ef509569",
-            "a99884eaa30f16ba30c2ffc55215601627ef25c4bea4243f056e0c8372339582",
+            "82816f07666e8eb1cf366830b6266f48fd14253bf0bd41ee95a48a64dd0b2a12",
+            "53766d1a55839a02221956e774e51a94cc09d806ef0ba1efad159604de4e0569",
+            "de0e8065f3dd7fb0dac5c863e62d22be9bfbb9cd6a3bee05f62a35ebe2b75011",
         ),
         (
             "fixed",
-            "a066402e9a43f7286a25b22db241d28aba0fb7037013ba63bf5afb750d341ed7",
-            "8d89e0408cfa5ba941c792cee611f4b23bfdacb895091f5af759b68b53fab353",
-            "62b182d640bce5df77c3d627e95d0cc8f19290c0c1fb80fa4e6e73ced4a3a7db",
+            "8cf118f0b71fdfd4d14f5278f0cfe660f6e22acef6daf93ca300ecc8b4e9c609",
+            "008bcc302a41ad0dbb9f99b651691583a4873ddcc2148a55d086113a8d4399c6",
+            "2b4d8b08eb3b0d6630199287c942ab9f19b6fd618fdbc2ba4c982781ceb9f3bb",
         ),
     ],
 )
-def test_persisted_identity_pins_v2_premise_contract(
+def test_persisted_identity_pins_v5_coordinate_contract(
     kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 
-    # Pin the v2 premise contract and v4 snapshot with deterministic capture identities.
+    # Pin the v5 coordinate contract and snapshot with deterministic capture identities.
     root = _source() if kind == "source" else _fixed()
     root = replace(root, identity="leaf")
     routes = []

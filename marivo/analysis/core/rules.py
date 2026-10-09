@@ -222,6 +222,7 @@ class ObserveMetric:
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
     temporal: TemporalExecution = field(kw_only=True)
+    classification_coordinates: tuple[Coordinate, ...] = field(default=(), kw_only=True)
     start: str | None
     end: str | None
     amount_column: str
@@ -261,6 +262,7 @@ class ObserveWeightedMean:
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
     temporal: TemporalExecution = field(kw_only=True)
+    classification_coordinates: tuple[Coordinate, ...] = field(default=(), kw_only=True)
     start: str | None
     end: str | None
     amount_column: str
@@ -285,6 +287,7 @@ class ObserveCount:
     path: tuple[TargetRelationshipContract, ...]
     event: TargetDimensionContract
     temporal: TemporalExecution = field(kw_only=True)
+    classification_coordinates: tuple[Coordinate, ...] = field(default=(), kw_only=True)
     start: str | None
     end: str | None
     coordinates: tuple[TargetDimensionContract, ...] = ()
@@ -499,6 +502,7 @@ class AttributionDerive:
     value_type: str
     mode: Literal["joint", "hierarchy"] = "joint"
     top_k: int | None = None
+    coordinate_bindings: tuple[Coordinate, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1076,13 +1080,27 @@ def _result(
     output_roles = tuple(part_role(part) for part in parts)
     retained = tuple(role for role in output_roles if role in input_parts and role not in created)
     removed = tuple(role for role in input_parts if role not in output_roles)
-    # A premise bound to a different scope cannot be silently transported.
+    # Preserve foreign-scope facts only as explicit dependencies of retained evidence.
     transport = tuple(
         evidence
         for item in inputs
         for evidence in item.evidence
         if evidence.fact.binding == domain.binding
     )
+    dependency_facts = {fact for evidence in transport for fact in evidence.dependencies}
+    candidates = tuple(evidence for item in inputs for evidence in item.evidence)
+    while True:
+        retained_dependencies = tuple(
+            evidence
+            for evidence in candidates
+            if evidence.fact in dependency_facts and evidence not in transport
+        )
+        if not retained_dependencies:
+            break
+        transport = (*transport, *retained_dependencies)
+        dependency_facts.update(
+            fact for evidence in retained_dependencies for fact in evidence.dependencies
+        )
     inherited = tuple(obligation for item in inputs for obligation in item.obligations)
     pending = tuple(dict.fromkeys((*inherited, *obligations)))
     dependencies = tuple(
@@ -1494,11 +1512,34 @@ def _observe_metric(
         component_node,
     )
 
-    if len(inputs) != 1 or inputs[0].domain.kind != "entity":
+    if (
+        len(inputs) != (2 if params.classification_coordinates else 1)
+        or inputs[0].domain.kind != "entity"
+    ):
         reject("one Entity member domain", repr(inputs), "Bind Entity members.", "core.observe")
     source = inputs[0]
     binding = _binding(inputs, "core.observe")
     subject = require_part(source, "subject")
+    if params.classification_coordinates:
+        classification = inputs[1]
+        classification_subject = require_part(classification, "subject")
+        if (
+            prepared
+            or classification.domain.kind != "entity"
+            or not isinstance(classification_subject, SubjectPart)
+            or classification_subject.entity_ref != params.contribution
+            or not classification_subject.total
+            or (not classification_subject.injective and classification.domain.time_grid is None)
+            or not set(params.classification_coordinates) <= set(classification.domain.instance_key)
+            or any(c.role != "group" for c in params.classification_coordinates)
+            or classification.domain.time_grid not in (None, source.domain.time_grid)
+        ):
+            reject(
+                "complete contribution keys and scalar classifications on the same time grid",
+                repr(classification.domain),
+                "Read classifications on this contribution root and exact grid.",
+                "core.observe.classification",
+            )
     metric, quantity = params.metric, params.quantity
     aggregate_method = (
         "weighted_mean"
@@ -1698,6 +1739,7 @@ def _observe_metric(
         keys = params.target.coordinates
         available = (
             *source.domain.instance_key,
+            *params.classification_coordinates,
             *(
                 Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
                 for c in params.coordinates
@@ -1801,6 +1843,7 @@ def _observe_metric(
                     Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
                     for c in params.coordinates
                 ),
+                *params.classification_coordinates,
             )
         )
     )
@@ -1819,13 +1862,14 @@ def _observe_metric(
                 component_types=weighted_state_types(params.amount_type, params.weight_type)
                 if isinstance(params, ObserveWeightedMean)
                 else (),
+                primary_coordinate=retained_coordinate,
             ),
         )
     coverage = CoveragePart(binding, quantity.definition_id, binding.scope_id, "v1")
     partition = _fact("contribution_partition", binding, quantity.contribution_id)
     complete = _fact("complete_coverage", binding, quantity.definition_id)
     mappings = tuple(_contribution_mapping_fact(inputs, params, i) for i in range(len(params.path)))
-    return _result(
+    result = _result(
         "bind_project@v1",
         inputs,
         output_domain,
@@ -1849,6 +1893,15 @@ def _observe_metric(
         ),
         preserve_key_domain=output_domain == source.domain,
     )
+    if params.classification_coordinates:
+        result = replace(
+            result,
+            output=replace(
+                result.output,
+                evidence=tuple(dict.fromkeys((*result.output.evidence, *inputs[1].evidence))),
+            ),
+        )
+    return result
 
 
 def _map_correspond(inputs: tuple[Signature, ...], params: MapCorrespond) -> RuleDerivation:
@@ -3662,7 +3715,21 @@ def _complete_groups(inputs: tuple[Signature, ...], params: CompleteGroups) -> R
     pre = group_consumption_facts(inputs, params) if source.domain.instance_key else ()
     obligations = tuple(Obligation(fact, "source.group_mapping@v1", "consume") for fact in pre)
     if (
-        source.domain.instance_key != target.domain.instance_key
+        (
+            len(source.domain.instance_key) != len(target.domain.instance_key)
+            or any(
+                retained != requested
+                and not (
+                    retained.entity_ref == requested.entity_ref
+                    and retained.field == requested.field
+                    and retained.role == requested.role
+                    and requested.binding_id in retained.bindings
+                )
+                for retained, requested in zip(
+                    source.domain.instance_key, target.domain.instance_key, strict=True
+                )
+            )
+        )
         or target.quantity is not None
         or params.output_domain.binding != binding
         or params.output_domain.instance_key != source.domain.instance_key
@@ -4135,8 +4202,14 @@ def _attribution(inputs: tuple[Signature, ...], params: AttributionDerive) -> Ru
     if len(endpoint_parts) != 2 or any(
         p.original_state is None
         or p.coordinate_state is None
-        or tuple(c.field for c in p.coordinate_state.coordinates)
-        != tuple(a.path for a in params.axes)
+        or (
+            p.coordinate_state.coordinates != params.coordinate_bindings
+            if params.coordinate_bindings
+            else tuple(c.field for c in p.coordinate_state.coordinates)
+            != tuple(a.path for a in params.axes)
+            or len({c.field for c in p.coordinate_state.coordinates})
+            != len(p.coordinate_state.coordinates)
+        )
         for p in endpoint_parts
     ):
         reject(
@@ -4188,6 +4261,7 @@ def _attribution(inputs: tuple[Signature, ...], params: AttributionDerive) -> Ru
             else endpoint_parts[1]
             if role == "baseline_endpoint"
             else None,
+            coordinate_bindings=params.coordinate_bindings,
         )
         for role in (
             "current_endpoint",

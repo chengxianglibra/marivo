@@ -220,7 +220,7 @@ actual source precision. Civil dates preserve their calendar interpretation.
 Report, window, grid and calendar authorities remain separate frozen parameters
 or domain facts and participate in fingerprints and execution identity. The
 report timezone never replaces the physical source shape, and no generic
-fallback bypasses exact qualification. Graph snapshots use `graph_dag/v4`; older
+fallback bypasses exact qualification. Graph snapshots use `graph_dag/v5`; older
 versions require source re-execution. Fixed and cold recovery use frozen facts
 without reader probes, source connections or host timezone resolution.
 

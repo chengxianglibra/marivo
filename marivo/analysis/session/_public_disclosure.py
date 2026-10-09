@@ -544,9 +544,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 if type_value is dsl.GridEndpoint
                 else ("AnalysisAction",)
                 if type_value is dsl.AnalysisContract
-                else ("dsl.routes",)
+                else (
+                    "dsl.routes",
+                    "dsl.LogicalAnalysisDomain.read",
+                    "dsl.LogicalAnalysisDomain.observe",
+                )
                 if type_value is dsl.RootRoute
-                else ("dsl.LogicalAnalysisDomain.observe",)
+                else ("dsl.LogicalAnalysisDomain.read", "dsl.LogicalAnalysisDomain.observe")
                 if type_value is dsl.RootRoutes
                 else ("methods.metric",)
                 if type_value in (dsl.RowMethod, dsl.CountMethod)

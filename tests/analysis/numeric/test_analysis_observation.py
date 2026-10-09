@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_fields import (
+from marivo.analysis.observation.route_inputs import (
     RootRoutesValue,
     RootRouteValue,
     root_route,
@@ -97,9 +97,10 @@ def test_root_routes_rejects_no_route() -> None:
         root_routes()
 
 
-def test_root_route_requires_a_nonempty_relationship_path() -> None:
-    with pytest.raises(AnalysisError, match="route"):
-        RootRouteValue(ref.entity("sales.order"), ())
+def test_root_route_accepts_an_identity_path() -> None:
+    route = RootRouteValue(ref.entity("sales.order"), ())
+    assert route.root == ref.entity("sales.order")
+    assert route.through == ()
 
 
 @pytest.mark.runtime
@@ -322,7 +323,7 @@ def test_observe_linear_over_two_distinct_contribution_roots(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j3")
+    case = analysis_dsl_case_factory("j3", revenue_unit="1")
     names = case.names
     domain = names.domain
     order = ms.ref.entity(f"{domain}.{names.order}")
@@ -363,7 +364,7 @@ def test_linear_subtract_reverses_its_named_term(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j3")
+    case = analysis_dsl_case_factory("j3", revenue_unit="1")
     names = case.names
     domain = names.domain
     order = ms.ref.entity(f"{domain}.{names.order}")
@@ -575,7 +576,7 @@ def test_linear_preserves_each_empty_branch_policy(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j1")
+    case = analysis_dsl_case_factory("j1", revenue_unit="1")
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text()
@@ -660,7 +661,7 @@ def test_linear_executes_three_independently_reduced_roots(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j3")
+    case = analysis_dsl_case_factory("j3", revenue_unit="1")
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text()
@@ -888,7 +889,7 @@ def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j1")
+    case = analysis_dsl_case_factory("j1", revenue_unit="1")
     revenue = ms.ref.metric("sales.revenue")
     count = ms.ref.metric("sales.order_count")
     expression = mv.runtime_metric.linear(

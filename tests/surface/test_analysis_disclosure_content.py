@@ -27,15 +27,24 @@ def test_runtime_aggregate_help_discloses_static_backend_check() -> None:
     assert "execution never substitutes the definition" in text
 
 
-def test_observation_help_discloses_grain_and_optional_identity_route() -> None:
+def test_observation_help_discloses_grain_and_automatic_roles() -> None:
     text, _, _ = render_help_text(mv.LogicalAnalysisDomain.observe)
     focused, _, _ = render_help_text("analysis.dsl.LogicalAnalysisDomain.observe")
 
     assert text == focused
-    assert "via: 'Ref[RelationshipKind] | RootRoutes | None' = None" in text
-    assert "omit or pass None for the same Entity root" in text
+    assert "via: 'Ref[RelationshipKind] | RootRoute | RootRoutes | None' = None" in text
+    assert "Omit or pass None to infer unique directed to-one paths" in text
     assert "by" in text and "Singleton" in text and "time" in text
     assert "result = relation.observe(metric," in text
+    for target in (
+        "analysis.dsl.LogicalAnalysisDomain.read",
+        "analysis.dsl.LogicalDifferenceRelation.attribute",
+        "analysis.dsl.MaterializedDifferenceRelation.attribute",
+        "analysis.dsl.StatisticContinuation.group_by",
+    ):
+        focused, _, _ = render_help_text(target)
+        assert focused
+        assert "RootRoute" in focused if target.endswith(".read") else "classifications" in focused
 
 
 def test_history_interpretation_help_uses_producer_contract() -> None:

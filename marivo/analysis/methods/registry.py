@@ -119,7 +119,18 @@ class MethodRegistration:
                 and not (
                     input_count == 2
                     and self.semantics.key.name
-                    in ("metric.count", "metric.observe", "metric.sum_zero", "metric.mean")
+                    in (
+                        "metric.count",
+                        "metric.observe",
+                        "metric.sum_zero",
+                        "metric.mean",
+                        "metric.weighted_mean",
+                        "metric.min",
+                        "metric.max",
+                        "metric.distinct",
+                        "metric.approx_distinct",
+                        "metric.quantile",
+                    )
                 )
             ):
                 reject(

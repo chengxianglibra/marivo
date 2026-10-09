@@ -12,6 +12,7 @@ from uuid import uuid4
 from marivo.analysis.core.model import Signature, reject
 from marivo.analysis.core.rules import (
     AnchorObserve,
+    AttachCategory,
     AttributionDerive,
     BindProject,
     CellDerive,
@@ -427,6 +428,26 @@ def _validate_method(
         )
     if roles != expected:
         _fail(f"ordered input roles {expected}", repr(roles))
+    if isinstance(node.parameters, AttachCategory):
+        category = node.inputs[1].node
+        if isinstance(category, MethodNode):
+            from marivo.analysis.observation.coordinate_binding import read_coordinate
+
+            category_params = category.parameters
+            coordinate = (
+                read_coordinate(category_params)
+                if isinstance(category_params, BindProject)
+                else category_params.classification
+                if isinstance(category_params, PartsTransport)
+                else None
+            )
+            selected = node.parameters.coordinate
+            if coordinate is not None and (
+                selected.field != coordinate.field
+                or selected.entity_ref != coordinate.entity_ref
+                or (selected != coordinate and coordinate.binding_id not in selected.bindings)
+            ):
+                _fail("the classification's exact frozen Dimension role", selected.binding_id)
     if type(node.sources) is not tuple or any(type(s) is not SourceLeaf for s in node.sources):
         _fail("immutable explicit source dependencies", node.identity)
     if isinstance(node.parameters, OccurrencePrepare):

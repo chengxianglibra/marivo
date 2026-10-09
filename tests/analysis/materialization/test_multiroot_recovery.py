@@ -14,6 +14,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.model import ObservedQuantity
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -200,10 +201,36 @@ def test_native_independent_multiroot_fixed_and_cold(
                     by=(ms.ref.entity("sales.subjects"),),
                 ),
             }
+            for relation in relations.values():
+                quantity = relation._node.root.signature.quantity
+                assert isinstance(quantity, ObservedQuantity)
+                automatic = members.observe(
+                    quantity.metric_ref, by=(ms.ref.entity("sales.subjects"),)
+                )
+                assert automatic._node.root.signature.quantity == quantity
+            auto_read = session.members(ms.ref.entity("sales.left")).read(
+                ms.ref.dimension("sales.subjects.owner")
+            )
+            explicit_read = session.members(ms.ref.entity("sales.left")).read(
+                ms.ref.dimension("sales.subjects.owner"),
+                via=mv.route(
+                    ms.ref.entity("sales.left"),
+                    through=(ms.ref.relationship("sales.left_subject"),),
+                ),
+            )
+            assert (
+                auto_read._node.classification_coordinate()
+                == explicit_read._node.classification_coordinate()
+            )
+        assert auto_read.execute().to_pandas()["value"].tolist() == ["a"] * 4
         originals: dict[str, Json] = {}
         parts: dict[str, Json] = {}
         for kind, relation in relations.items():
-            result = relation.execute()
+            quantity = relation._node.root.signature.quantity
+            assert isinstance(quantity, ObservedQuantity)
+            result = members.observe(
+                quantity.metric_ref, by=(ms.ref.entity("sales.subjects"),)
+            ).execute()
             assert isinstance(
                 result, (mv.MaterializedNumericRelation, mv.MaterializedRatioRelation)
             )
