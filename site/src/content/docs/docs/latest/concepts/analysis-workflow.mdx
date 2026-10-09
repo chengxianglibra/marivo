@@ -184,6 +184,10 @@ components; other coordinates retain complete flat partitions. Real all-Null
 contributions remain distinct from empty targets. Automatic relationships preserve
 the exact backend admission boundary. Materialized comparisons retain the bound
 endpoint partitions for source-free attribution; old state requires re-execution.
+Frozen definitions use shared contract tables so repeated facts and bindings do
+not expand at every graph node. This preserves original attribution scope and
+source-free continuations within the existing definition budget. Graph snapshots
+from earlier formats require re-execution; existing history and files are preserved.
 
 ## Keep source and fixed work explicit
 

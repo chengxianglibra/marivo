@@ -17,10 +17,9 @@ import marivo.semantic as ms
 from marivo.analysis.core.graph import MethodNode, topology
 from marivo.analysis.core.rules import ObserveMetric
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_protocol import encode
 from marivo.analysis.materialization.graph_snapshot import (
-    GRAPH,
     MethodRecord,
+    document_json,
     graph_document,
     thaw_graph,
 )
@@ -149,7 +148,7 @@ def test_coordinate_tampering_and_frozen_roles(analysis_dsl_case_factory: DslCas
     with pytest.raises(AnalysisError):
         thaw_graph(
             PREFIX
-            + base64.b64encode(zlib.compress(encode(document, GRAPH).encode(), level=9)).decode()
+            + base64.b64encode(zlib.compress(document_json(document).encode(), level=9)).decode()
         )
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(

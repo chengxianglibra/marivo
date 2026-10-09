@@ -125,18 +125,31 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v5, `graph-dag-v5:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
+| graph_dag/v6, `graph-dag-v6:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
 
-Only v5 is accepted. Prior graph protocols return a structured integrity error and
-source re-execution guidance; there is no dual read or migration. Fixed grouping,
-rollup and cold recovery use captured complete keys and coordinate bindings without
-resolving relationships or acquiring source data.
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
 | artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
 | receipt/v1 (primary), receipt/v2 (part) | Complete key schema, local storage facts, exact part payload SHA-256 and closed table/keyed/partition layout with an explicit owner role |
 | method_state/v2 | Kind-dispatched state, binding and method/contract versions |
 | continuation/v5 | Frozen graph and Entity/Dimension/semantic/method/input facts, without receipt or method-state proof digests |
 | execution_key/v3 | Same-Session execution identity, independent of Store generation |
+
+Only v6 is accepted. Prior graph protocols return a structured integrity error and
+source re-execution guidance; there is no dual read or migration. Fixed grouping,
+rollup and cold recovery use captured complete keys and coordinate bindings without
+resolving relationships or acquiring source data.
+
+Graph v6 stores Binding, DomainSignature, Fact and Evidence once in four closed
+value tables. References bind their exact kind and nonnegative integer index;
+values restore in dependency order without expanding a recursive JSON copy.
+Canonical first-use ordering rejects duplicate, unused or inline pooled values.
+The full uncompressed document, including tables, remains bounded at 4 MiB,
+and the compressed/Base64 graph remains bounded at 256 KiB. Value tables admit
+at most 16,384 entries and 65,536 references in addition to the existing graph
+node, edge and depth budgets. Pooling preserves complete derivations, obligations,
+retained endpoints, capture identities and definition fingerprints. Graph v5 and
+earlier require source re-execution; existing state and files are preserved.
+
 
 Complete graph protocol names have the `marivo.analysis.` prefix. Parts preserve
 exact physical types, Decimal precision/scale and Duration/timestamp units.
@@ -158,7 +171,7 @@ remaining coordinates and concrete component carriers. Receipts freeze the layou
 and owner; restoration does not query Semantic or infer endpoint correspondence.
 Descriptor v6, part receipt v2 and state/part contract 4 reject prior formats with
 structured source re-execution guidance, preserving existing files. Store 9,
-graph DAG v5 and continuation v5 remain unchanged; there is no migration or dual read.
+graph DAG v6 and continuation v5 remain independent; there is no migration or dual read.
 
 Optional correspondence endpoints use -1 solely for an absent endpoint, outside
 the four Cell states. Only a frozen optional binding permits that sentinel;

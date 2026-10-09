@@ -14,6 +14,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
+from marivo.analysis.materialization.graph_snapshot import document_json, graph_document
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
@@ -170,7 +171,13 @@ def test_source_and_retained(
         assert top_frame[top_frame.coord_0.isna()].value.tolist() == (
             [-3] if metric_kind == "sum" else [-1.5]
         )
-        selected = fixed.where(fixed.contribution.value.gt(0)).execute()
+        selection = fixed.where(fixed.contribution.value.gt(0))
+        if backend == "duckdb" and axis_kind == "joint":
+            assert (
+                len(document_json(graph_document(selection._node.definition)).encode())
+                < 1024 * 1024
+            )
+        selected = selection.execute()
         assert sorted(selected.contribution.to_pandas().value.tolist()) == (
             [1, 2] if metric_kind == "sum" else [0.5, 1]
         )

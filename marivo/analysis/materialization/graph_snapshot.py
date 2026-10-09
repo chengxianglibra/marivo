@@ -37,6 +37,7 @@ from marivo.analysis.core.rules import (
     RuleParameters,
 )
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.graph_value_tables import GraphValueCodec
 from marivo.analysis.methods.physical import FixedShape, ValueType
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.refs import ArtifactRef
@@ -46,7 +47,7 @@ MAX_REFERENCES = 16384
 MAX_DEPTH = 128
 MAX_EXPANDED_BYTES = 4 * 1024 * 1024
 MAX_ENCODED_BYTES = 262144
-PREFIX = "graph-dag-v5:"
+PREFIX = "graph-dag-v6:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,12 +98,19 @@ Record = Annotated[SourceRecord | FixedRecord | MethodRecord, Field(discriminato
 
 @dataclass(frozen=True, slots=True)
 class GraphDocument:
-    schema: Literal["marivo.analysis.graph_dag/v5"]
+    schema: Literal["marivo.analysis.graph_dag/v6"]
     root: str
     nodes: tuple[Record, ...]
 
 
+# Native records serve exact definition comparisons; wire persistence uses VALUE_CODEC.
 GRAPH = TypeAdapter(GraphDocument)
+VALUE_CODEC = GraphValueCodec(GraphDocument)
+
+
+def document_json(document: GraphDocument) -> str:
+    """Encode the canonical graph wire document including its shared value tables."""
+    return VALUE_CODEC.encode(document)
 
 
 def node_record(node: Node) -> Record:
@@ -139,7 +147,7 @@ def _record_text(record: Record) -> str:
 
     # Dataclass equality can equate differently typed literals (e.g. 1 and 1.0).
     # Compare the exact closed wire facts, without recursively expanding inputs.
-    return encode(GraphDocument("marivo.analysis.graph_dag/v5", record.identity, (record,)), GRAPH)
+    return encode(GraphDocument("marivo.analysis.graph_dag/v6", record.identity, (record,)), GRAPH)
 
 
 def same_node_definition(first: Node, second: Node) -> bool:
@@ -286,7 +294,7 @@ def graph_document(root: Node) -> GraphDocument:
             pending.extend(node.sources)
             pending.extend(node.retained_endpoints)
     document = GraphDocument(
-        "marivo.analysis.graph_dag/v5",
+        "marivo.analysis.graph_dag/v6",
         root.identity,
         tuple(records[identity] for identity in sorted(records)),
     )
@@ -352,9 +360,9 @@ def freeze_graph(root: Node) -> str:
 
 def _encode_document(document: GraphDocument) -> str:
     """Write the bounded document after its owning entry has validated semantics."""
-    from marivo.analysis.materialization.graph_protocol import encode, invalid
+    from marivo.analysis.materialization.graph_protocol import invalid
 
-    body = encode(document, GRAPH).encode()
+    body = document_json(document).encode()
     if len(body) > MAX_EXPANDED_BYTES:
         raise invalid("definition exceeds its 4 MiB expanded bound")
     text = PREFIX + base64.b64encode(zlib.compress(body, level=9)).decode("ascii")
@@ -366,13 +374,13 @@ def _encode_document(document: GraphDocument) -> str:
 def read_graph_document(text: str) -> GraphDocument:
     """Validate a bounded canonical DAG before admitting its exact definitions."""
     from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_protocol import decode, invalid
+    from marivo.analysis.materialization.graph_protocol import invalid
 
     if not text.startswith(PREFIX):
         raise IntegrityError(
-            expected="the current graph-dag-v5 frozen definition",
+            expected="the current graph-dag-v6 frozen definition",
             received="obsolete or unknown graph snapshot format",
-            repair="Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
+            repair="Preserve existing state and files. Re-execute the source analysis to produce a current snapshot; old snapshots cannot continue.",
             stage="graph_protocol",
             help_target="actions.execute",
         )
@@ -391,7 +399,7 @@ def read_graph_document(text: str) -> GraphDocument:
             raise invalid("invalid bounded compressed definition")
         if PREFIX + base64.b64encode(zlib.compress(body, level=9)).decode("ascii") != text:
             raise invalid("noncanonical compressed definition")
-        document = decode(body.decode("utf-8"), GRAPH)
+        document = VALUE_CODEC.decode(body.decode("utf-8"))
         return document
     except IntegrityError:
         raise
