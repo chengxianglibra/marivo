@@ -68,7 +68,9 @@ class _DerivedFields(TypedDict, total=False):
 class AnalysisError(MarivoError):
     """Call marivo.help(AnalysisError) for its public consumption contract.
 
-    Base class for all analysis errors.
+    Base class for all analysis errors. ``run_ref`` identifies the exact Run
+    when known; failures before admission normally have no Run. Use the owning
+    Session's ``get_run(run_ref).show()`` to inspect recorded work.
     """
 
     def __init__(
@@ -81,6 +83,7 @@ class AnalysisError(MarivoError):
         repair: AnalysisRepair | None = None,
         hint: str | None = None,
         context: Mapping[str, object] | None = None,
+        run_ref: str | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -94,6 +97,7 @@ class AnalysisError(MarivoError):
         self.repair: AnalysisRepair | None = repair if repair is not None else derived.get("repair")
 
         self.hint = hint
+        self.run_ref = run_ref
 
     @property
     def kind(self) -> str:
@@ -104,6 +108,16 @@ class AnalysisError(MarivoError):
         """Override in subtypes to derive stable fields from ``_context``."""
 
         return _DerivedFields()
+
+    def _run_guidance(self) -> tuple[str, ...]:
+        """Render exact same-Session recovery through the shared error template."""
+        if self.run_ref is None:
+            return ()
+        return (
+            f"Run: {self.run_ref}",
+            f"Inspect: session.get_run({self.run_ref!r}).show()",
+            "Run help: marivo.help('analysis.session.get_run')",
+        )
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
@@ -117,6 +131,7 @@ class AnalysisError(MarivoError):
             context_lines.append(f"Received: {self.received}")
         if self.hint:
             context_lines.append(f"Hint: {self.hint}")
+        context_lines.extend(self._run_guidance())
         if context_lines:
             lines.append("")
             lines.extend(context_lines)

@@ -21,7 +21,6 @@ class MaterializationError(DatasetConstructionError):
         help_target: str = "actions.execute",
     ) -> None:
         self.stage = stage
-        self.run_ref = run_ref
         super().__init__(
             expected=expected,
             received=received,
@@ -29,6 +28,7 @@ class MaterializationError(DatasetConstructionError):
             location=f"dataset.{stage}",
             message="Dataset materialization contract failed.",
             help_target=help_target,
+            run_ref=run_ref,
         )
 
 

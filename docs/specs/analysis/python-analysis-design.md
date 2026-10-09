@@ -69,6 +69,12 @@ Entity key or value types. This is separate from business execution, and the
 schema is checked again at execution. Repr and contract inspection do not
 perform source or retained-row reads.
 
+Executing `session.members(entity_ref)` alone reads and saves the complete
+member key set. It may scan the entire Entity source and has no default row
+truncation. Primary-key uniqueness and unversioned identity establish grain,
+not a bound on member count. `show(n=...)` limits display only. Execution uses
+the shared 600-second graph budget described by the Runtime owner.
+
 ## Domains, quantities and Cells
 
 An analysis Signature binds a domain, optional quantity, retained parts,

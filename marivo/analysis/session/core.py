@@ -265,12 +265,18 @@ class Session:
     ) -> LogicalAnalysisDomain:
         """Construct the complete governed Entity member domain at an exact version.
 
+        Construction uses schema-only preflight, without business rows or Run.
+        Identity retains every declared string or int64 key column.
+
         Args:
             entity: Exact declared Entity Ref.
             at: Explicit version instant or TimeScope.before_end; None for unversioned Entities.
         Returns: A logical AnalysisDomain bound to this Session.
         Example: ``customers = session.members(ms.ref.entity('sales.customer'))``.
-        Constraints: R1 schema-only preflight precedes Run allocation; no business rows are read. Identity retains every declared string or int64 key column.
+        Constraints: execute() reads and saves the complete member key set; may scan
+        the entire Entity source, no default row truncation. PK uniqueness,
+        unversioned identity and show(n=...) do not bound size. Shared 600-second
+        graph budget.
         """
         from marivo.analysis.materialization.graph_relation import Relation
         from marivo.analysis.public_dsl import new_members
@@ -332,7 +338,7 @@ class Session:
     def get_run(self, run_id: str) -> RunRecord:
         """Read an exact same-Session Run.
 
-        Args: run_id: Exact Run identity.
+        Args: run_id: Exact incomplete, failed or succeeded Run identity.
         Returns: The closed incomplete, failed or succeeded Run variant.
         Example: ``session.get_run(run_id).show()``.
         Constraints: Foreign Run identities are rejected.

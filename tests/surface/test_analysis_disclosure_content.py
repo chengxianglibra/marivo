@@ -17,6 +17,34 @@ from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.shared_fixtures import DslCaseFactory
 
 
+@pytest.mark.parametrize(
+    "target",
+    (
+        "analysis.session.members",
+        "analysis.LogicalAnalysisDomain",
+        "analysis.MaterializedAnalysisDomain",
+        "analysis.dsl.LogicalAnalysisDomain.execute",
+    ),
+)
+def test_member_help_discloses_full_execution_cost(target: str) -> None:
+    text = render_help_text(target)[0]
+    assert "complete member key set" in text
+    assert "entire Entity source" in text
+    assert "no default row truncation" in text
+    assert "unversioned identity" in text
+    assert "show(n=...)" in text
+    assert "600-second" in text
+
+
+def test_run_read_and_abandon_help_have_distinct_identity_constraints() -> None:
+    read = render_help_text("analysis.session.get_run")[0]
+    abandon = render_help_text("analysis.session.abandon_run")[0]
+    assert "incomplete, failed or succeeded Run id" in read
+    assert "committed success cannot be abandoned" not in read
+    assert "incomplete or failed Run id" in abandon
+    assert "committed success cannot be abandoned" in abandon
+
+
 def test_runtime_aggregate_help_discloses_static_backend_check() -> None:
     text, _, _ = render_help_text("analysis.runtime_metric.aggregate")
     callable_text, _, _ = render_help_text(mv.runtime_metric.aggregate)

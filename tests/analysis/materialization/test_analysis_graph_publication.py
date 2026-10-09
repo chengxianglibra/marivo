@@ -747,8 +747,14 @@ def test_faults_have_no_success_and_clean_only_own_run(case, point):
             raise RuntimeError(point)
 
     runtime._hook = fail
-    with pytest.raises(RuntimeError, match=point):
+    with pytest.raises(MaterializationError) as caught:
         _execute(case)
+    assert isinstance(caught.value.__cause__, RuntimeError)
+    assert str(caught.value.__cause__) == point
+    assert caught.value.run_ref is not None
+    assert caught.value.run_ref == runtime.last_run_ref
+    failed = runtime.get_run(caught.value.run_ref)
+    assert failed.lifecycle == "failed"
     assert _counts(runtime.store) == (2, 1, 2, 0)
     assert read_result(runtime.store.project_root, saved.descriptor).primary[
         "value"
@@ -846,8 +852,11 @@ def test_unknown_commit_preserves_success_and_does_not_replay(case, monkeypatch)
             raise OSError("lost ack")
 
     case[0]._hook = fail
-    with pytest.raises(RecoveryPendingError):
+    with pytest.raises(RecoveryPendingError) as caught:
         _execute(case)
+    assert caught.value.run_ref == case[0].last_run_ref
+    assert isinstance(caught.value.__cause__, OSError)
+    assert str(caught.value.__cause__) == "unavailable"
     assert case[4] == ["open"]
     assert _counts(case[0].store) == (1, 1, 1, 0)
 
@@ -1106,8 +1115,11 @@ def test_unknown_precommit_preserves_original_resources(case, monkeypatch):
             raise OSError("uncertain")
 
     runtime._hook = fail
-    with pytest.raises(RecoveryPendingError):
+    with pytest.raises(RecoveryPendingError) as caught:
         _execute(case)
+    assert caught.value.run_ref == runtime.last_run_ref
+    assert isinstance(caught.value.__cause__, OSError)
+    assert str(caught.value.__cause__) == "offline"
     assert _counts(runtime.store) == (1, 0, 0, 2)
     assert case[4] == ["open"]
     monkeypatch.setattr(runtime.store, "_graph_run", original)
@@ -1156,8 +1168,10 @@ def test_contradictory_commit_readback_is_unknown_and_preserves_files(case):
             raise OSError("lost acknowledgement")
 
     runtime._hook = corrupt
-    with pytest.raises(RecoveryPendingError):
+    with pytest.raises(RecoveryPendingError) as caught:
         _execute(case)
+    assert caught.value.run_ref == runtime.last_run_ref
+    assert isinstance(caught.value.__cause__, IntegrityError)
     assert _counts(runtime.store) == (1, 1, 0, 0)
     assert case[4] == ["open"]
     assert list(
@@ -1259,8 +1273,14 @@ def test_native_write_failure_is_structured_and_has_no_publication(case, monkeyp
         raise OSError("write denied")
 
     monkeypatch.setattr(storage.pq, "write_table", fail)
-    with pytest.raises(MaterializationError, match="local Parquet write failed"):
+    with pytest.raises(MaterializationError, match="local Parquet write failed") as caught:
         _execute(case)
+    assert caught.value.__cause__ is None
+    assert isinstance(caught.value.__context__, OSError)
+    assert str(caught.value.__context__) == "write denied"
+    assert caught.value.run_ref is not None
+    assert caught.value.run_ref == case[0].last_run_ref
+    assert case[0].get_run(caught.value.run_ref).lifecycle == "failed"
     assert _counts(case[0].store) == (1, 0, 1, 0)
 
 

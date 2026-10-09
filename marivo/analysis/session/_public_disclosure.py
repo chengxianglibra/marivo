@@ -574,6 +574,11 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 constraints=(
                     "Exact member, semantic and Artifact bindings govern continuations.",
                     *(
+                        (_doc_section(dsl.LogicalAnalysisDomain.execute, "Constraints"),)
+                        if type_value in (dsl.LogicalAnalysisDomain, dsl.MaterializedAnalysisDomain)
+                        else ()
+                    ),
+                    *(
                         (
                             _doc_section(
                                 getattr(dsl._History, history_families[type_value][0]),

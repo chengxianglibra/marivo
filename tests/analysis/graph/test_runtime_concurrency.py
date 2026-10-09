@@ -225,6 +225,7 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
         question: str | None = None,
         report_timezone_name: str = "UTC",
         report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
+        domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
         barrier.wait(timeout=10)
         record = original_create(
@@ -234,6 +235,7 @@ def test_canonical_creation_releases_candidate_before_winner_guard(
             question=question,
             report_timezone_name=report_timezone_name,
             report_timezone_resolution=report_timezone_resolution,
+            domains=domains,
         )
         if record.session_ref == session_ref:
             winner.append(record.session_ref)

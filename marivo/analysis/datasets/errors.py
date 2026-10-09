@@ -18,6 +18,7 @@ class DatasetConstructionError(AnalysisError):
         location: str = "dataset",
         message: str = "Dataset contract validation failed.",
         help_target: str | None = None,
+        run_ref: str | None = None,
     ) -> None:
         # Core has no published Help leaf yet; an explicit hint also avoids the
         # eager constraint registry that AnalysisError otherwise loads lazily.
@@ -27,6 +28,7 @@ class DatasetConstructionError(AnalysisError):
             received=received[:320],
             location=location[:160],
             hint=repair[:480],
+            run_ref=run_ref,
             repair=AnalysisRepair(
                 kind="retry",
                 action=repair[:480],

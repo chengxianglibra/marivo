@@ -433,6 +433,7 @@ def suggestions_for(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
         scored = [
             (
                 score
+                + (1000.0 if leaf == target.rpartition(".")[2] else 0.0)
                 + (
                     200.0 * ratio
                     if parent == target.rpartition(".")[0]
