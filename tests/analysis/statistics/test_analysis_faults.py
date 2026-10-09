@@ -128,11 +128,6 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
     finding_count = result.evidence_digest().finding_count
     for scenario, statement, parameters in (
         (
-            "finding_digest",
-            "UPDATE dataset_evidence SET finding_set_digest=? WHERE artifact_ref=?",
-            ("foreign-digest", artifact),
-        ),
-        (
             "finding_body",
             "UPDATE findings SET finding_body_payload=? WHERE artifact_ref=?",
             ("{}", artifact),
@@ -145,7 +140,7 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
     ):
         with store._connection() as connection:
             connection.execute("BEGIN")
-            if not finding_count and scenario != "finding_digest":
+            if not finding_count:
                 connection.execute(
                     "INSERT INTO findings(artifact_ref,finding_ordinal,finding_identity_digest,finding_body_payload,finding_ref) VALUES(?,?,?,?,?)",
                     (

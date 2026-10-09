@@ -17,6 +17,7 @@ import pytest
 from marivo.analysis.compiler.graph_lowering import (
     CellColumns,
     CoordinateColumn,
+    LoweredPlan,
     RelationLayout,
     SourceBinding,
 )
@@ -31,6 +32,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import AssociationScore, CellDerive, PartsTransport, RowState
+from marivo.analysis.materialization import graph_local_execution, graph_publication
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import (
@@ -304,7 +306,7 @@ assert saved.producing_run_ref != sys.argv[4]
     assert process.returncode == 0, process.stderr
 
 
-def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
+def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: pytest.MonkeyPatch):
     first = _execute(case)
     runtime, root, _, _, opens, backend = case
     assert read_result(runtime.store.project_root, first.descriptor).primary[
@@ -330,7 +332,17 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
         "value"
     ].to_pylist() == [4]
     fixed = _fixed(_capture(case))
+    schedule_calls: list[LoweredPlan] = []
+    validate = graph_local_execution.validate_fixed_schedule
+
+    def validate_once(lowered: LoweredPlan) -> None:
+        schedule_calls.append(lowered)
+        validate(lowered)
+
+    monkeypatch.setattr(graph_publication, "validate_fixed_schedule", validate_once)
+    monkeypatch.setattr(graph_local_execution, "validate_fixed_schedule", validate_once)
     result = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+    assert len(schedule_calls) == 1
     assert read_result(runtime.store.project_root, result.descriptor).primary[
         "value"
     ].to_pylist() == [4]
@@ -338,6 +350,7 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case):
     assert (
         runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),)) == result
     )
+    assert len(schedule_calls) == 2
     assert _counts(runtime.store) == before == (4, 4, 4, 0)
     assert opens == ["open", "open", "open"]
 
@@ -1478,6 +1491,58 @@ def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
             case[0].store, connection, output.descriptor, output.artifact_ref
         )
     assert evidence.finding_count == len(findings)
+
+
+@pytest.mark.parametrize(
+    ("column", "value"),
+    (
+        ("finding_count", 1),
+        ("extractor_contract_versions_payload", '["foreign@v1"]'),
+        ("extractor_contract_versions_payload", "[1]"),
+        ("extractor_contract_versions_payload", "invalid"),
+    ),
+)
+def test_finding_collection_rejects_invalid_stored_envelope(case, column, value):
+    from marivo.analysis.materialization import graph_findings, graph_store
+
+    output = _execute(case)
+    store = case[0].store
+    with store._connection() as connection:
+        connection.execute("BEGIN")
+        try:
+            connection.execute(
+                f"UPDATE dataset_evidence SET {column}=? WHERE artifact_ref=?",
+                (value, output.artifact_ref),
+            )
+            with pytest.raises(MaterializationError):
+                graph_findings.collection(store, connection, output.descriptor, output.artifact_ref)
+            with pytest.raises(MaterializationError):
+                graph_store.artifact(store, connection, output.artifact_ref)
+        finally:
+            connection.rollback()
+
+
+def test_committed_finding_content_digests_are_read_without_reaudit(case):
+    from marivo.analysis.materialization import graph_findings
+
+    output = _execute(case)
+    store = case[0].store
+    with store._connection() as connection:
+        connection.execute("BEGIN")
+        try:
+            connection.execute(
+                "UPDATE dataset_evidence SET evidence_digest=?, finding_set_digest=? "
+                "WHERE artifact_ref=?",
+                ("a" * 64, "b" * 64, output.artifact_ref),
+            )
+            findings, evidence = graph_findings.collection(
+                store, connection, output.descriptor, output.artifact_ref
+            )
+            assert not findings
+            assert evidence.evidence_digest == "a" * 64
+            assert evidence.finding_set_digest == "b" * 64
+        finally:
+            connection.rollback()
 
 
 def test_compact_binding_has_one_frozen_storage_owner(case):

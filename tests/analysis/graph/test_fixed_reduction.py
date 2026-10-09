@@ -376,6 +376,8 @@ def test_pending_checks_end_original_reduction_groups() -> None:
     )
     _, lowered = reduction_plan(root)
     assert lowered.admitted.checks
+    with pytest.raises(MaterializationError, match="frozen completed partition and coverage"):
+        local.validate_fixed_schedule(lowered)
     assert local._reduction_groups(lowered) == {}
 
 

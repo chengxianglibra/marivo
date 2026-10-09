@@ -22,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
     admitted_capture,
 )
 from marivo.analysis.compiler.member_version import select_version, version_predicate
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph, topology
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     AnchorObservationPart,
@@ -66,23 +66,15 @@ from marivo.analysis.core.rules import (
     AnchorBind,
     AnchorObserve,
     AnchorRetention,
-    AssociationFit,
-    AssociationRead,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
     BindProject,
     CellDerive,
-    DeviationFit,
     DisplayRank,
     DisplayTable,
     EntityObservationTarget,
-    ForecastFit,
-    ForecastRead,
-    FunnelAttribute,
     FunnelAxesPrepare,
-    FunnelCompare,
-    FunnelReduce,
     HistoryAxesPrepare,
     HistoryReplay,
     HistoryView,
@@ -101,18 +93,14 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
-    RetentionBySubject,
     RowState,
     TimeProduct,
-    TimeRunRead,
-    TimeRuns,
     _contribution_mapping_fact,
     captured_mapping_fact,
     group_consumption_facts,
 )
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.core.time_grid import GridVersionSelection
-from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.native_numeric import (
     adapt_measure,
@@ -3203,7 +3191,7 @@ def _observe(
             }
         ).distinct()
         if classification_scopes is not None:
-            for ancestor in topology(classification.node):
+            for ancestor in admitted.captured.dependencies(classification.node):
                 classification_scopes.setdefault(ancestor.identity, []).append(
                     (consumed, source_ids)
                 )
@@ -3840,68 +3828,6 @@ def lower(
             stages.append(stage)
             continue
         if isinstance(stage, LocalMethodStage):
-            admit(stage.implementation, stage.node.parameters)
-            if len(stage.inputs) not in (1, 2) and not isinstance(
-                stage.node.parameters,
-                (
-                    AssociationFit,
-                    AssociationRead,
-                    ForecastFit,
-                    ForecastRead,
-                    TimeRuns,
-                    TimeRunRead,
-                    DeviationFit,
-                    AttributionDerive,
-                    PartsTransport,
-                    ReferenceDerive,
-                    DisplayRank,
-                    DisplayTable,
-                ),
-            ):
-                _fail("registered row, Association, or predicate inputs", repr(stage.inputs))
-            if len(stage.inputs) == 2 and not (
-                isinstance(
-                    stage.node.parameters,
-                    (
-                        AssociationScore,
-                        AssociationFit,
-                        AssociationRead,
-                        ForecastFit,
-                        ForecastRead,
-                        TimeRuns,
-                        TimeRunRead,
-                        DeviationFit,
-                        AttachCategory,
-                        AnchorRetention,
-                        RetentionBySubject,
-                        AnchorBind,
-                        AnchorObserve,
-                        PreparedObservation,
-                        HistoryView,
-                        FunnelReduce,
-                        FunnelCompare,
-                        FunnelAttribute,
-                    ),
-                )
-                or (
-                    isinstance(stage.node.parameters, PartsTransport)
-                    and stage.node.parameters.external_predicate
-                )
-                or (
-                    isinstance(
-                        stage.node.parameters,
-                        (
-                            HistoryReplay,
-                            AttributionDerive,
-                            CellDerive,
-                            ReferenceDerive,
-                            DisplayRank,
-                            DisplayTable,
-                        ),
-                    )
-                )
-            ):
-                _fail("a registered two-input local method", repr(stage.inputs))
             output_layout = canonical_layout(
                 stage.node.signature,
                 has_value=not isinstance(stage.node.parameters, PartsTransport)
@@ -4049,9 +3975,6 @@ def lower(
             source_ids: tuple[str, ...] = (stage.leaf.identity,)
             cell_reasons = bound.cell_reasons
         else:
-            admit(stage.implementation, stage.node.parameters)
-            if stage.operation not in ("ibis", "prepare"):
-                _fail("a qualified preparation consumer", stage.operation)
             params = stage.node.parameters
             inputs = tuple(
                 results[i]

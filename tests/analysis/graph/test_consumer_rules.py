@@ -262,7 +262,7 @@ def test_shared_consumer_rules_do_not_read_provenance_and_reject_neighbors(
     )
 
 
-def test_renamed_implementation_still_requires_genuine_registration() -> None:
+def test_selected_implementation_provenance_does_not_change_parameter_admission() -> None:
     item = next(
         i
         for i in REGISTRY.lookup(MethodKey("parts_transport")).implementations
@@ -270,8 +270,7 @@ def test_renamed_implementation_still_requires_genuine_registration() -> None:
     )
     assert isinstance(item.qualification, Qualified)
     renamed = replace(item, qualification=replace(item.qualification, implementation_id="x"))
-    with pytest.raises(MethodRegistrationError, match=r"implemented R3\.4 consumer"):
-        builtin.admit(renamed, PartsTransport("view", _domain(), (), True))
+    builtin.admit(renamed, PartsTransport("view", _domain(), (), True))
 
 
 def test_invalid_specialization_policy_is_rejected() -> None:

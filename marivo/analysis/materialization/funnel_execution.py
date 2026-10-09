@@ -32,8 +32,9 @@ from marivo.analysis.core.rules import (
     OccurrencePrepare,
     PartsTransport,
 )
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import logical_table, required
 from marivo.analysis.materialization.cell_arrow import project as cell_project
-from marivo.analysis.materialization.cell_arrow import required
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
@@ -94,6 +95,11 @@ def _result(
             names=[*keys, "status"],
         )
     )
+    reasons = (
+        ("zero_total_delta", "empty_positive_pool", "empty_negative_pool")
+        if any(isinstance(part, FunnelAllocationPart) for part in node.signature.parts)
+        else ("initial_step", "zero_denominator")
+    )
     return from_arrow(
         primary,
         ExchangeContract(
@@ -103,7 +109,7 @@ def _result(
             primary.schema,
             keys,
             tuple(PartContract(p.role, p.table.schema, ()) for p in parts),
-            (("undefined", ("initial_step", "zero_denominator")),),
+            (("undefined", reasons),),
             state_kind,
             None if statuses is None else statuses.schema,
         ),
@@ -629,18 +635,17 @@ def transport(
         )
     if params.display_view == "ranks":
         ranks = next(p.table for p in source.parts if p.role == "ranks")
-        by_key = {tuple(r[k] for k in keys): r for r in cell_rows(ranks)}
+        positions = {tuple(r[k] for k in keys): i for i, r in enumerate(cell_rows(ranks))}
+        indices = pa.array(
+            [positions[tuple(r[k] for k in keys)] for r in cell_rows(primary)],
+            type=pa.int64(),
+        )
+        primary = logical_table(primary)
         for name in ("value", "cell_tag", "cell_reason"):
             primary = primary.set_column(
                 primary.schema.get_field_index(name),
                 name,
-                pa.array(
-                    [
-                        by_key[tuple(r[k] for k in keys)]["ranks__" + name]
-                        for r in cell_rows(primary)
-                    ],
-                    type=ranks.schema.field("ranks__" + name).type,
-                ),
+                cell_column(ranks, "ranks__" + name).take(indices),
             )
     parts = tuple(
         next(p for p in source.parts if p.role == part_role(declaration))

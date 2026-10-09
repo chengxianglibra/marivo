@@ -2200,148 +2200,27 @@ def _fold_rollup_stage(
 
 
 def validate_fixed_schedule(lowered: LoweredPlan) -> None:
-    """Reject unsupported schedules before any Artifact read or Run allocation."""
+    """Check fixed consumption constraints once before Artifact reads or Run allocation."""
     if lowered.admitted.classification.kind != "artifact":
         raise _invalid("fixed schedule contains live inputs")
-    available: set[str] = set()
+    pending = {check.node_id for check in lowered.admitted.checks}
     for stage in lowered.stages:
-        if isinstance(stage, ArtifactReadStage):
-            available.add(stage.output)
-            continue
         if not isinstance(stage, LoweredLocal):
-            raise _invalid("fixed schedule contains a source stage")
-        name = stage.stage.node.method.name
-        arity = (
-            len(stage.stage.node.inputs)
-            if isinstance(
-                stage.stage.node.parameters,
-                (
-                    AssociationFit,
-                    AssociationRead,
-                    ForecastFit,
-                    ForecastRead,
-                    TimeRuns,
-                    TimeRunRead,
-                    DeviationFit,
-                    DeviationRead,
-                    AttributionDerive,
-                    PartsTransport,
-                    ReferenceDerive,
-                    DisplayRank,
-                    DisplayTable,
-                    HistoryView,
-                    HistoryRead,
-                    FunnelReduce,
-                    FunnelCompare,
-                    FunnelRead,
-                    FunnelAttribute,
-                ),
-            )
-            else 2
-            if name
-            in (
-                "cell.difference",
-                "cell.relative_change",
-                "cell.ratio",
-                "association.spearman",
-                "group.attach",
-            )
-            else 1
-        )
+            continue
+        node = stage.stage.node
+        params = node.parameters
         if (
-            name
-            not in (
-                "association.pearson",
-                "association.kendall",
-                "association.read",
-                "forecast.naive",
-                "forecast.drift",
-                "forecast.seasonal_naive",
-                "forecast.read",
-                "time.runs",
-                "time.runs_read",
-                "deviation.zscore",
-                "deviation.mad",
-                "deviation.read",
-                "anchor.retention",
-                "retention.by_subject",
-                "anchor.bind",
-                "history.in_state",
-                "history.distribution",
-                "history.transitions",
-                "history.violations",
-                "history.intervals",
-                "history.dwell",
-                "history.read",
-                "funnel.reduce",
-                "funnel.compare",
-                "funnel.read",
-                "funnel_ratio_mix",
-                "journey.match",
-                "journey.duration",
-                "journey.completed",
-                "journey.read",
-                "occurrence.prepare",
-                "group.attach",
-                "parts_transport",
-                "domain.cohort",
-                "reference.share",
-                "reference.penetration",
-                "reference.standardize",
-                "attribution.additive_difference",
-                "attribution.component_mix",
-                "display.rank",
-                "display.table",
-                "map_correspond",
-                "state_rollup.min",
-                "state_rollup.max",
-                "state_rollup",
-                "state_rollup.count",
-                "state_rollup.sum_zero",
-                "state_rollup.ratio",
-                "state_rollup.weighted_mean",
-                "state_rollup.mean",
-                "state_rollup.fold",
-                "state_rollup.linear",
-                "cell.difference",
-                "cell.relative_change",
-                "cell.ratio",
-                "association.spearman",
-                "row.count",
-                "row.count_defined",
-                "row.sum",
-                "row.mean",
-                "row.min",
-                "row.max",
-            )
-            or len(stage.stage.inputs) != arity
-            or not set(stage.stage.inputs) <= available
-        ):
-            raise _invalid("unqualified fixed method schedule")
-        if (
-            name
-            in (
-                "state_rollup.min",
-                "state_rollup.max",
-                "state_rollup",
-                "state_rollup.count",
-                "state_rollup.sum_zero",
-                "state_rollup.ratio",
-                "state_rollup.weighted_mean",
-                "state_rollup.mean",
-                "state_rollup.fold",
-                "state_rollup.linear",
-            )
-            and name != "state_rollup.fold"
-            and any(check.node_id == stage.stage.node.identity for check in lowered.admitted.checks)
+            isinstance(params, OriginalReduce)
+            and params.method != "fold"
+            and node.identity in pending
         ):
             raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
         if (
-            arity == 2
-            and name not in ("group.attach", "domain.cohort")
+            len(stage.stage.inputs) == 2
             and not isinstance(
-                stage.stage.node.parameters,
+                params,
                 (
+                    AttachCategory,
                     AttributionDerive,
                     CellDerive,
                     ReferenceDerive,
@@ -2355,8 +2234,9 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                     FunnelAttribute,
                 ),
             )
+            and not (isinstance(params, PartsTransport) and params.mode == "cohort")
         ):
-            domains = tuple(edge.node.signature.domain for edge in stage.stage.node.inputs)
+            domains = tuple(edge.node.signature.domain for edge in node.inputs)
             if any(
                 domain.binding != domains[0].binding
                 or domain.instance_key != domains[0].instance_key
@@ -2364,9 +2244,6 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                 for domain in domains[1:]
             ):
                 raise _invalid("fixed endpoints lack one frozen common member binding")
-        available.add(stage.stage.output)
-    if lowered.primary_output not in available:
-        raise _invalid("fixed schedule lacks its primary output")
 
 
 def execute_verified_fixed(
@@ -2377,7 +2254,6 @@ def execute_verified_fixed(
     """Execute each admitted fixed stage once without intermediate publication."""
     if prepared.admitted is not lowered.admitted:
         raise _invalid("prepared and lowered fixed plans differ")
-    validate_fixed_schedule(lowered)
     groups = _selection_groups(lowered)
     reductions = _reduction_groups(lowered)
     fused_outputs: set[str] = set()

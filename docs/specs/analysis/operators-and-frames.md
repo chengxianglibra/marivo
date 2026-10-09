@@ -653,7 +653,9 @@ typed Other with active/other masks stay distinct. Hierarchy preserves every
 ordered prefix. Contribution rank uses abs(contribution), then resolution/full
 typed key/kind; zero overall delta retains valid contributions, with
 Undefined(zero_total_delta) total shares and separate empty positive/negative
-pool reasons. Views filtered later retain original reconciliation scope and
+pool reasons, Undefined(empty_positive_pool) and Undefined(empty_negative_pool).
+The allocation exchange declares all three reasons before compact Cell encoding.
+Views filtered later retain original reconciliation scope and
 revoke selected-domain complete-partition claims. Logical missing axes become
 explicit same-assignment expansion dependencies; fixed missing axes/components
 reject rather than reading lineage/current Semantic.

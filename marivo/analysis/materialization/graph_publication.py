@@ -440,10 +440,28 @@ def _execute(
                                         "SQLite capture has no native execution connection"
                                     )
                                 _initialize_sqlite_functions(connection)
-                            bindings = tuple(
-                                replace(binding, source=source.binding_for(binding.leaf.identity))
-                                for binding in bindings
-                            )
+                            rebound: list[SourceBinding] = []
+                            for source_binding in bindings:
+                                selected_source = source.binding_for(source_binding.leaf.identity)
+                                entity_relation = source_binding.entity_relation
+                                if entity_relation is not None:
+                                    entity_relation = (
+                                        entity_relation.op()
+                                        .replace(
+                                            {
+                                                source_binding.source.relation.op(): selected_source.relation.op()
+                                            }
+                                        )
+                                        .to_expr()
+                                    )
+                                rebound.append(
+                                    replace(
+                                        source_binding,
+                                        source=selected_source,
+                                        entity_relation=entity_relation,
+                                    )
+                                )
+                            bindings = tuple(rebound)
                         lowered = lower(plan, bindings=bindings)
                         with _execution_log.stage("analysis.source") as summary:
                             result = execute_source_graph(prepared, lowered, source)

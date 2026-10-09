@@ -441,9 +441,21 @@ def collection(
         )
         actual.append(finding)
     findings = tuple(actual)
-    version = TypeAdapter(tuple[str, ...]).validate_json(
-        evidence["extractor_contract_versions_payload"], strict=True
-    )
+    try:
+        version = TypeAdapter(tuple[str, ...]).validate_json(
+            evidence["extractor_contract_versions_payload"], strict=True
+        )
+    except ValidationError:
+        raise invalid("invalid Finding extractor version encoding") from None
+    expected_versions = tuple(
+        part.extractor for part in descriptor.signature.parts if isinstance(part, FindingPolicyPart)
+    ) or ("graph.no_findings@v1",)
+    if (
+        evidence["finding_count"] != len(findings)
+        or version != expected_versions
+        or (version == ("graph.no_findings@v1",) and findings)
+    ):
+        raise invalid("Finding collection count or frozen extractor authority differs")
     return findings, t.ArtifactDigest(
         artifact_ref=ArtifactRef(ref=artifact_ref),
         quality_summary_digest=digest(encode(descriptor, DESCRIPTOR)),

@@ -11,6 +11,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization import graph_local_execution
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -197,6 +198,15 @@ def test_full_time_opportunities_and_static_target(
             assert set(frame.index) == expected
         for result in (source_two, fixed_two):
             assert result.to_pandas().empty
+        penetration = fixed_any.penetration_in(fixed_targets).execute()
+        restored_targets = session.artifact(fixed_targets.state.artifact_ref)
+        restored_cohort = session.artifact(fixed_any.state.artifact_ref)
+        assert isinstance(restored_targets, mv.MaterializedAnalysisDomain)
+        assert isinstance(restored_cohort, mv.MaterializedAnalysisDomain)
+        with monkeypatch.context() as cached:
+            cached.setattr(graph_local_execution, "execute_verified_fixed", forbid_source_read)
+            repeated = restored_cohort.penetration_in(restored_targets).execute()
+        assert repeated.state.artifact_ref == penetration.state.artifact_ref
         evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
         if evidence:
             assert source_any._dataset is not None

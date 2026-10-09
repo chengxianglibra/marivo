@@ -15,7 +15,6 @@ from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, 
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.materialization.cell_arrow import logical_schema, rows
 from marivo.analysis.methods.association_numeric import score
-from marivo.analysis.methods.builtin import admit
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
 
@@ -46,7 +45,6 @@ def score_spearman(
     stage: LocalMethodStage, left: pa.Table, right: pa.Table, keys: tuple[str, ...]
 ) -> SpearmanResult:
     """Pair exact retained keys and score complete finite Cells with average ranks."""
-    admit(stage.implementation, stage.node.parameters)
     if (
         not isinstance(stage.node.parameters, AssociationScore)
         or stage.implementation.key.route not in ("ibis_python", "artifact_python")
@@ -138,7 +136,6 @@ def score_spearman(
 
 def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticResult:
     """Finish exact admitted int64 rows after R4 verifies retained input."""
-    admit(stage.implementation, stage.node.parameters)
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method not in ("sum", "mean")
@@ -227,7 +224,6 @@ def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticRe
 
 def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
     """Consume validated retained or prepared rows without reading or publishing."""
-    admit(stage.implementation, stage.node.parameters)
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count"
@@ -296,7 +292,6 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
 
 def count_defined(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
     """Count validated Defined Cells without a fixed row-cap qualification."""
-    admit(stage.implementation, stage.node.parameters)
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count_defined"
