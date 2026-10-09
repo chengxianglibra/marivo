@@ -57,6 +57,21 @@ policy. The semantic tables below do not claim every type/backend combination
 is executable. Unsupported shapes reject explicitly before work; they do not
 retry a different numerical or execution route.
 
+Native-table Count original reductions admit int64 retained counts over Entity,
+Group and Singleton inputs on PostgreSQL, MySQL, Trino and ClickHouse through
+the Ibis route with an instant/us/UTC physical shape. They merge original
+occurrence counts and coverage in the database; current-row `summarize` remains
+a different quantity. The registry owns the exact keys. Missing-key errors retain
+the requested key and disclose at most three admitted physical profiles for the
+same types, domains and time. These are explicit reconstruction choices, not
+automatic retries; an empty candidate list directs the caller to report missing
+library support. Other physical shapes still require their own registration.
+PostgreSQL Count observation and rollup reject nested categorical coordinate
+state before source execution. Overall, Entity and time-only Group Count paths
+remain admitted; Group qualification does not authorize every retained state shape.
+Count observations explicitly preserve the signed int64 carrier before further
+aggregation, including backends whose native count and literal sums are unsigned.
+
 ## Evidence and field matching
 
 Entity identity/version grain and source parsing are trusted declarations.

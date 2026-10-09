@@ -282,6 +282,25 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             and (isinstance(item.key.shape, FixedShape) or item.key.shape.backend == "duckdb")
         )
     declarations = _implementations(method)
+    if method.name == "state_rollup.count":
+        declarations += tuple(
+            replace(
+                item,
+                key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
+                qualification=Qualified(
+                    f"native_count_rollup.{backend}.{item.key.input_domains[0]}.int64.us.utc@v1",
+                    "analysis.compiler.graph_lowering",
+                    "tests/analysis/graph/test_count_rollup_backends.py",
+                ),
+            )
+            for backend in ("postgres", "mysql", "trino", "clickhouse")
+            for item in declarations
+            if isinstance(item.key.shape, SourceShape)
+            and item.key.shape
+            == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+            and item.key.input_types == (ScalarType("int64"),)
+            and item.key.route == "ibis"
+        )
     c04_numeric = tuple(
         replace(
             item,

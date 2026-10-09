@@ -388,7 +388,7 @@ def test_classified_count_native_compilation_and_admission(
             SourceShape(backend, "table", "native", leaf.definition.shape.time),
             "ibis",
         )
-        if backend in ("sqlite", "mysql", "clickhouse"):
+        if backend in ("sqlite", "postgres", "mysql", "clickhouse"):
             with pytest.raises(
                 MethodRegistrationError, match="nested contribution-coordinate state"
             ):

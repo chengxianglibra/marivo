@@ -516,6 +516,21 @@ def coordinate_state_type(part: CoordinateStatePart) -> dt.Array:
     )
 
 
+def unnest_coordinate_state(
+    stage: SourceMethodStage, table: ir.Table, keys: tuple[str, ...], column: str
+) -> ir.Table:
+    if (
+        isinstance(stage.implementation.key.shape, SourceShape)
+        and stage.implementation.key.shape.backend == "trino"
+    ):
+        # Trino UNNEST expands ROW fields; integer positions preserve the
+        # single struct column required by the logical expression.
+        positions = ibis.range(0, table[column].length()).name("__coordinate_index")
+        expanded = table.unnest(positions)
+        return expanded.select(*keys, group=expanded[column][expanded.__coordinate_index])
+    return table.select(*keys, group=table[column].unnest())
+
+
 def _validate_layout(
     table: ir.Table, layout: RelationLayout, signature: Signature, value_type: str
 ) -> None:
@@ -2423,9 +2438,11 @@ def _original_sum(
             coordinate = next(
                 p for p in source.node.signature.parts if isinstance(p, CoordinateStatePart)
             )
-            exploded = table.select(
-                *(key.column for key in source.layout.keys),
-                group=table.coordinate_state__groups.unnest(),
+            exploded = unnest_coordinate_state(
+                stage,
+                table,
+                tuple(key.column for key in source.layout.keys),
+                "coordinate_state__groups",
             )
             table = exploded.select(
                 **{
@@ -3519,8 +3536,18 @@ def _observe(
             if wide_decimal_sum
             else summed.state_sum
         )
-        total = bounded_sum.fill_null(0.0 if amount_type == "float64" else 0).cast(amount_type)
-        support = summed.support.fill_null(0).cast("int64")
+        total = bounded_sum.fill_null(0.0 if amount_type == "float64" else 0)
+        total = (
+            transport_cast(total, amount_type)
+            if isinstance(params, ObserveCount)
+            else total.cast(amount_type)
+        )
+        support = summed.support.fill_null(0)
+        support = (
+            transport_cast(support, "int64")
+            if isinstance(params, ObserveCount)
+            else support.cast("int64")
+        )
         defined = (
             support > 0
             if isinstance(params, ObserveMetric) and params.metric.empty_rule == "null"

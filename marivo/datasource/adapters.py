@@ -520,6 +520,7 @@ def _exact_array(
                 record = cast("dict[str, object]", value)
                 valid = set(record) == set(arrow_type.names)
                 if valid:
+                    normalized_record: dict[str, object] = {}
                     for child in arrow_type:
                         child_value = record[child.name]
                         if (
@@ -529,14 +530,18 @@ def _exact_array(
                             and re.fullmatch(r"(?:0|-[1-9][0-9]*|[1-9][0-9]*)", child_value)
                         ):
                             child_value = int(child_value)
-                            record[child.name] = child_value
-                        _exact_array([child_value], child, backend_name=backend_name)
+                        normalized_child: object = _exact_array(
+                            [child_value], child, backend_name=backend_name
+                        )[0].as_py()
+                        normalized_record[child.name] = normalized_child
+                    value = normalized_record
         elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
             valid = type(value) is list
             if valid:
-                _exact_array(
+                normalized_items: list[object] = _exact_array(
                     cast("list[object]", value), arrow_type.value_field, backend_name=backend_name
-                )
+                ).to_pylist()
+                value = normalized_items
         else:
             valid = False
         if not valid:

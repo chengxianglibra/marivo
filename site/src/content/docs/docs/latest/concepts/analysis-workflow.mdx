@@ -84,12 +84,27 @@ for action in restored.contract().actions:
 saved_observation = august_revenue.execute()
 recovered_observation = session.artifact(saved_observation.state.artifact_ref)
 recovered_observation.summarize(method=mv.count()).execute().show()
+order_count = ms.ref.metric("sales.order_count")
+per_customer_count = customers.observe(
+    order_count, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
+)
+total_count = customers.observe(order_count, during=august, via=buyer).execute()
+merged_count = per_customer_count.rollup().execute()
+merged_count.show()
 ```
 
 `rollup()` merges sufficient original Metric components and finishes the governed
 equation. `summarize()` creates a new statistic over current represented rows.
 A mean of displayed averages is not the original weighted mean. Grouped
 observation over the same Entity root needs no relationship solely for grouping.
+
+For Count, `rollup()` merges the original occurrence counts. `summarize(mv.count())`
+counts represented result rows instead. Native-table Count rollup supports
+PostgreSQL, MySQL, Trino and ClickHouse on the registered UTC microsecond Ibis
+profile. Missing physical support reports the exact key and bounded registered
+alternatives; keep the source unchanged and report that key when none is suitable.
+PostgreSQL Count currently rejects nested categorical grouping before execution.
+Omit categorical axes for an overall Count; per-entity and time-only grouping remain supported.
 
 Ordinary `observe` directly computes the overall Metric. Member scope limits contributions; `by=(member_entity,)` preserves each complete member identity, and `by=(dimension,)` computes grouped values directly. `groups` retains an explicit logical target domain, including empty groups. With `during=grid`, every time bucket stays while `by` selects spatial grain; endpoint reads and cumulative observations bind the grid through `at=grid.before_end/end`. Retain partitions before original rollup when attribution needs them. The former `coordinates` parameter and grouped-domain observation are removed.
 

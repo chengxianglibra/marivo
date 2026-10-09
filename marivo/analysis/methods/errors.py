@@ -9,17 +9,19 @@ from marivo.introspection.live.model import LiveHelpTarget
 class MethodRegistrationError(AnalysisError):
     """A method owner, declaration, or exact implementation is invalid."""
 
-    def __init__(self, expected: str, received: str, repair: str) -> None:
+    def __init__(self, expected: str, received: str, repair: str | AnalysisRepair) -> None:
         super().__init__(
             message="Analysis method registration failed.",
             expected=expected,
             received=received,
             location="analysis.methods",
-            repair=AnalysisRepair(
+            repair=repair
+            if isinstance(repair, AnalysisRepair)
+            else AnalysisRepair(
                 kind="retry", action=repair, help_target=LiveHelpTarget(surface="analysis")
             ),
         )
 
 
-def reject(expected: str, received: str, repair: str) -> NoReturn:
+def reject(expected: str, received: str, repair: str | AnalysisRepair) -> NoReturn:
     raise MethodRegistrationError(expected, received, repair)

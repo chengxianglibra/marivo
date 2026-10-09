@@ -80,6 +80,15 @@ def test_first_round_workflow_examples_execute(
     first = _example("en", "customer-original-rollup")
     exec(compile(first, "first-round-entry-example", "exec"), namespace)
     assert isinstance(namespace["total"], mv.MaterializedNumericRelation)
+    total_count = namespace["total_count"]
+    merged_count = namespace["merged_count"]
+    assert isinstance(total_count, mv.MaterializedNumericRelation)
+    assert isinstance(merged_count, mv.MaterializedRolledNumericRelation)
+    expected_count = sum(
+        str(order[4]).startswith("2026-08") for order in analysis_dsl_rows(scenario).orders
+    )
+    assert total_count.to_pandas()["value"].tolist() == [expected_count]
+    assert merged_count.to_pandas()["value"].tolist() == [expected_count]
 
     identifier = {
         "change": "selected-next-month",

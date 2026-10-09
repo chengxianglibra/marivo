@@ -233,6 +233,57 @@ def test_nested_decode_rejects_bool_coercion() -> None:
         _exact_array([{"active": 1}], schema_field)
 
 
+@pytest.mark.parametrize("large", [False, True])
+def test_trino_nested_rows_preserve_normalized_children_without_mutating_input(large: bool) -> None:
+    from trino.types import NamedRowTuple
+
+    row = NamedRowTuple(["even", 2**53 + 1], ["coordinate", "count"], ["varchar", "bigint"])
+    record = pa.struct([pa.field("coordinate", pa.string()), pa.field("count", pa.int64())])
+    array_type = pa.large_list(record) if large else pa.list_(record)
+    field = pa.field("state", pa.struct([pa.field("groups", array_type)]))
+    groups: list[object] = [row, None]
+    value: dict[str, object] = {"groups": groups}
+    actual = _exact_array([value, {"groups": []}, None], field, backend_name="trino")
+    assert actual.to_pylist() == [
+        {"groups": [{"coordinate": "even", "count": 2**53 + 1}, None]},
+        {"groups": []},
+        None,
+    ]
+    assert value["groups"] is groups and groups[0] is row
+
+
+def test_nested_backend_normalization_preserves_struct_and_list_values() -> None:
+    field = pa.field("groups", pa.list_(pa.struct([pa.field("count", pa.int64())])))
+    original: dict[str, object] = {"count": "9007199254740993"}
+    assert _exact_array([[original]], field, backend_name="postgres").to_pylist() == [
+        [{"count": 2**53 + 1}]
+    ]
+    assert original == {"count": "9007199254740993"}
+    boolean = pa.field("groups", pa.list_(pa.struct([pa.field("active", pa.bool_())])))
+    assert _exact_array([[{"active": 1}]], boolean, backend_name="clickhouse").to_pylist() == [
+        [{"active": True}]
+    ]
+
+
+@pytest.mark.parametrize("value", [True, 2**63, 1.5, None])
+def test_nested_count_transport_still_rejects_invalid_values(value: object) -> None:
+    field = pa.field("groups", pa.list_(pa.struct([pa.field("count", pa.int64(), nullable=False)])))
+    with pytest.raises(DatasourceSourceCapabilityError):
+        _exact_array([[{"count": value}]], field, backend_name="trino")
+
+
+def test_nested_trino_row_names_and_float_precision_still_reject_changes() -> None:
+    from trino.types import NamedRowTuple
+
+    row = NamedRowTuple([1], ["wrong"], ["bigint"])
+    field = pa.field("groups", pa.list_(pa.struct([pa.field("count", pa.int64())])))
+    with pytest.raises(DatasourceSourceCapabilityError, match="row field names changed"):
+        _exact_array([[row]], field, backend_name="trino")
+    floats = pa.field("groups", pa.list_(pa.struct([pa.field("value", pa.float32())])))
+    with pytest.raises(DatasourceSourceCapabilityError, match="value changed"):
+        _exact_array([[{"value": 1.1}]], floats)
+
+
 def test_clickhouse_declared_boolean_decodes_only_exact_zero_one() -> None:
     field = pa.field("accepted", pa.bool_())
     assert _exact_array([0, 1, None], field, backend_name="clickhouse").to_pylist() == [
