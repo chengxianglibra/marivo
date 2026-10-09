@@ -48,6 +48,8 @@ from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_preflight import preflight_entities
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, TimeShape
+from marivo.analysis.observation.coordinate_binding import classification_meaning
+from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.datasource.adapters import TIMESTAMP_UNIT_METADATA_KEY
 from marivo.refs import (
     DimensionKind,
@@ -203,7 +205,7 @@ def bound_routes(
     if len(roots) != len(routes):
         raise _reject(f"{len(roots)} distinct contribution roots for {len(routes)} routes")
     for route in routes:
-        normalize_target_relationship(registry, route[0].path)
+        normalize_target_relationship(registry, route[0].path) if route else None
     return {root.path: route for root, route in zip(roots, routes, strict=True)}
 
 
@@ -258,6 +260,9 @@ def _observe_component(
     at: datetime | GridPoint | None = None,
     relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
+    classifications: MemberGraph | None = None,
+    classification_coordinates: tuple[Coordinate, ...] = (),
+    resolver: RelationshipResolver | None = None,
 ) -> MemberGraph:
     """Bind one occurrence of the contract resolved by this observation's entry."""
     registry = members.registry
@@ -265,7 +270,12 @@ def _observe_component(
         raise _reject("an existing component occurrence index")
     component = metric.components[component_index]
     route_refs = (via,) if type(via) is Ref else via
-    path = tuple(normalize_target_relationship(registry, item.path) for item in route_refs)
+    path = tuple(
+        resolver.by_ref[item.path]
+        if resolver is not None
+        else normalize_target_relationship(registry, item.path)
+        for item in route_refs
+    )
     if component.computation_root.path != (
         path[0].from_entity_ref.path if path else members.entity_schema.contract.ref.path
     ):
@@ -597,8 +607,13 @@ def _observe_component(
         else "us",
         "UTC",
     )
+    if classifications is not None and relative:
+        raise _reject("contribution classifications require ordinary member observation")
     nodes: dict[str, Node] = {}
-    for node in topology(members.root):
+    roots = (members.root,) if classifications is None else (members.root, classifications.root)
+    for node in (item for root in roots for item in topology(root)):
+        if node.identity in nodes:
+            continue
         if isinstance(node, SourceLeaf):
             nodes[node.identity] = replace(
                 node,
@@ -618,6 +633,9 @@ def _observe_component(
         else:
             raise _reject("fixed members cannot open a live observation source")
     member_root = nodes[members.root.identity]
+    classification_root = (
+        nodes[classifications.root.identity] if classifications is not None else None
+    )
     member_leaf = nodes[members.leaf.identity]
     assert isinstance(member_root, MethodNode) and isinstance(member_leaf, SourceLeaf)
     target: EntityObservationTarget | GroupObservationTarget = EntityObservationTarget(
@@ -703,6 +721,7 @@ def _observe_component(
             + occurrence_slice
             + window
             + member_root.fingerprint
+            + repr(classification_coordinates)
         ),
         metric_ref,
         metric.bound_graph_fingerprint,
@@ -715,6 +734,12 @@ def _observe_component(
             + component.role
             + occurrence_slice
             + member_root.fingerprint
+            + repr(classification_coordinates)
+            + (
+                classification_meaning(classification_root)
+                if classification_root is not None
+                else ""
+            )
         ),
         "ignore_null_inputs",
         "fold@v1"
@@ -834,6 +859,7 @@ def _observe_component(
         parameters = replace(parameters, fold=component.time_fold)
     parameters = replace(
         parameters,
+        classification_coordinates=classification_coordinates,
         grid_window=grid_window,
         cumulative=cumulative,
         window_timezone=during.boundary_timezone
@@ -845,6 +871,8 @@ def _observe_component(
             raise _reject("relative capture requires count or additive components")
         parameters = replace(parameters, capture_versions=True)
     observation_inputs: tuple[Edge, ...] = (Edge("subject", member_root),)
+    if classification_root is not None:
+        observation_inputs = (*observation_inputs, Edge("subject", classification_root))
     local_populations = tuple(
         {
             node.inputs[0].node.identity: node.inputs[0].node
@@ -966,6 +994,11 @@ def _observe_component(
                 leaf.identity: (schema, leaf)
                 for schema, leaf in (
                     *((schema, nodes[leaf.identity]) for schema, leaf in members.sources),
+                    *(
+                        ((schema, nodes[leaf.identity]) for schema, leaf in classifications.sources)
+                        if classifications is not None
+                        else ()
+                    ),
                     *source_entries,
                 )
                 if isinstance(leaf, SourceLeaf)
@@ -987,6 +1020,9 @@ def observe_ratio_members(
     at: datetime | GridPoint | None = None,
     relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
+    classifications: tuple[tuple[str, MemberGraph], ...] = (),
+    classification_coordinates: tuple[Coordinate, ...] = (),
+    resolver: RelationshipResolver | None = None,
 ) -> MemberGraph:
     """Bind a closed ratio to its independently aggregated ordered components."""
     from marivo.analysis.materialization.graph_composition import combine_observations
@@ -1019,6 +1055,9 @@ def observe_ratio_members(
             at=at,
             relative=relative,
             target_keys=target_keys,
+            classifications=dict(classifications).get(component.computation_root.path),
+            classification_coordinates=classification_coordinates,
+            resolver=resolver,
         )
         for index, component in enumerate(metric.components)
     )
@@ -1057,6 +1096,9 @@ def observe_linear_members(
     at: datetime | GridPoint | None = None,
     relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
+    classifications: tuple[tuple[str, MemberGraph], ...] = (),
+    classification_coordinates: tuple[Coordinate, ...] = (),
+    resolver: RelationshipResolver | None = None,
 ) -> MemberGraph:
     """Bind a signed linear combination to its independently reduced occurrences."""
     from marivo.analysis.materialization.graph_composition import combine_linear_occurrences
@@ -1085,6 +1127,9 @@ def observe_linear_members(
             at=at,
             relative=relative,
             target_keys=target_keys,
+            classifications=dict(classifications).get(component.computation_root.path),
+            classification_coordinates=classification_coordinates,
+            resolver=resolver,
         )
         for index, component in enumerate(metric.components)
     )

@@ -30,6 +30,7 @@ from marivo.analysis.core.rules import (
     FunnelCompare,
     FunnelRead,
     FunnelReduce,
+    GroupObservationTarget,
     HistoryAxesPrepare,
     HistoryRead,
     HistoryReplay,
@@ -2037,6 +2038,33 @@ def specialize_arity(implementation: Implementation, arity: int) -> Implementati
 
 def specialize_numeric(implementation: Implementation, key: QualificationKey) -> Implementation:
     """Bind precise numeric families and closed typed predicate inputs."""
+    if (
+        key.method.name
+        in (
+            "metric.observe",
+            "metric.sum_zero",
+            "metric.count",
+            "metric.mean",
+            "metric.weighted_mean",
+            "metric.min",
+            "metric.max",
+            "metric.distinct",
+            "metric.approx_distinct",
+            "metric.quantile",
+        )
+        and implementation.key.input_domains == ("entity",)
+        and key.input_domains == ("entity", "entity")
+        and len(key.input_types) == 2
+        and key.input_types[1] in (ScalarType("int64"), ScalarType("string"))
+        and implementation.key.route == "ibis"
+    ):
+        member_key = replace(key, input_types=key.input_types[:1], input_domains=("entity",))
+        base = specialize_numeric(implementation, member_key)
+        if base.key.input_types == member_key.input_types:
+            return replace(
+                base,
+                key=replace(base.key, input_types=key.input_types, input_domains=key.input_domains),
+            )
     if implementation.numeric_specialization == "exact":
         return implementation
     if key.method.name in ("time.runs", "time.runs_read"):
@@ -2379,14 +2407,22 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
         return
     if (
         isinstance(implementation.key.shape, SourceShape)
-        and implementation.key.shape.backend == "sqlite"
-        and isinstance(params, (ObserveMetric, ObserveCount))
-        and params.coordinates
+        and implementation.key.shape.backend in ("sqlite", "mysql", "clickhouse")
+        and isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean))
+        and (
+            params.coordinates
+            or params.classification_coordinates
+            or (
+                isinstance(params.target, GroupObservationTarget)
+                and any(c.role == "group" for c in params.target.coordinates)
+            )
+        )
     ):
         reject(
-            "a SQLite observation without nested contribution-coordinate state",
-            repr(params.coordinates),
-            "Omit contribution coordinates; SQLite nested state is not qualified.",
+            "an observation without nested contribution-coordinate state on "
+            + implementation.key.shape.backend,
+            repr((params.coordinates, params.classification_coordinates)),
+            "Omit contribution coordinates or use a backend qualified for nested state.",
         )
     if isinstance(
         params,

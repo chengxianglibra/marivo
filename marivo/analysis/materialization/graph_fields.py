@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo.analysis.core.graph import Node
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.refs import EntityKind, Ref, RelationshipKind, SemanticKind
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_relation import Relation
@@ -188,49 +187,6 @@ class NumericField(_BoundValue):
         Constraints: Requires matching types, units and complete keys; no implicit conversion.
         """
         return self._predicate("eq", threshold)
-
-
-@dataclass(frozen=True, slots=True)
-class RootRouteValue:
-    root: Ref[EntityKind]
-    through: tuple[Ref[RelationshipKind], ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.root) is not Ref
-            or self.root.kind is not SemanticKind.ENTITY
-            or type(self.through) is not tuple
-            or not self.through
-            or any(
-                type(item) is not Ref or item.kind is not SemanticKind.RELATIONSHIP
-                for item in self.through
-            )
-        ):
-            raise _invalid("route requires an Entity and nonempty ordered Relationship Refs")
-
-
-@dataclass(frozen=True, slots=True)
-class RootRoutesValue:
-    routes: tuple[RootRouteValue, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.routes) is not tuple
-            or not self.routes
-            or any(type(item) is not RootRouteValue for item in self.routes)
-            or len({item.root for item in self.routes}) != len(self.routes)
-        ):
-            raise _invalid("one to sixteen ordered routes over distinct contribution roots")
-
-
-def root_route(
-    root: Ref[EntityKind], *, through: tuple[Ref[RelationshipKind], ...]
-) -> RootRouteValue:
-    return RootRouteValue(root, through)
-
-
-def root_routes(*items: RootRouteValue) -> RootRoutesValue:
-    return RootRoutesValue(items)
 
 
 @dataclass(frozen=True, slots=True, eq=False, repr=False)

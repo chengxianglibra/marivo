@@ -295,9 +295,9 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v4", "graph_dag/v999")
+        body = body.replace("graph_dag/v5", "graph_dag/v999")
     elif damage == "previous_version":
-        body = body.replace("graph_dag/v4", "graph_dag/v3")
+        body = body.replace("graph_dag/v5", "graph_dag/v4")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)
@@ -406,7 +406,9 @@ def test_duplicate_identity_cannot_hide_equal_but_differently_typed_literals() -
         freeze_graph(root)
 
 
-@pytest.mark.parametrize("old_prefix", ("graph-dag-v1:", "graph-dag-v2:"))
+@pytest.mark.parametrize(
+    "old_prefix", ("graph-dag-v1:", "graph-dag-v2:", "graph-dag-v3:", "graph-dag-v4:")
+)
 def test_obsolete_graph_dag_is_preserved_and_requires_reexecution(old_prefix: str) -> None:
     current = freeze_graph(_observation())
     old = old_prefix + current.removeprefix(PREFIX)

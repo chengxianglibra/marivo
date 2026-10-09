@@ -63,10 +63,18 @@ Entity identity/version grain and source parsing are trusted declarations.
 Constructor guarantees, call assumptions and completed invocation checks remain
 distinct. Selection preserves unique keys; grouping constructs unique targets.
 To-one structure proves single-valuedness, not total matching.
+SQLite, MySQL and ClickHouse observations reject nested contribution-coordinate state;
+relationship inference does not change backend admission or substitute a path.
 
 `LogicalAnalysisDomain.read(field, *, at=None, via=None,
 match_verification="check")` and its governed variants use declared field owner,
-complete relationship keys and captured version facts. Same-owner/same-version
+complete relationship keys and captured version facts. Both scalar reads and
+ordinary member observations infer unique directed keyed to-one paths when via
+is omitted or None. Explicit routes bind roles by root identity, independent of
+argument order; partial observation overrides leave other roots automatic.
+Contribution attribution and complete-key classification are independent bindings.
+Versioned fields still require their own explicit attribute instant; the observation
+window does not choose their version. Same-owner/same-version
 reads need no matching query. Unknown path/version totality creates an exact
 `mapping_total` obligation. `match_verification="assume"` removes only that
 call's matching query and retains the assumption, without a new Null policy.
@@ -259,6 +267,9 @@ only. Relative or nested Difference, ordinary ratio, standardized quantities,
 distinct and quantile do not receive attribution merely because endpoints exist.
 Additive original linear components may qualify only with complete additive
 partition and endpoint reproduction; no general FormulaBasis is introduced.
+Attribution axes accept corresponding classifications to select retained roles.
+A bare Dimension Ref requires one retained binding on each endpoint, and the
+complete ordered axis bindings must agree across endpoints.
 
 `ExactKeys(verification="check")` requires unique full typed keys and equal images;
 double empty is valid. Entity identity and constructor guarantees are trusted.

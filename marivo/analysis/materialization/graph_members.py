@@ -78,7 +78,6 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
-from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_preflight import (
     EntitySchema,
     bind_entity_output,
@@ -87,6 +86,8 @@ from marivo.analysis.materialization.graph_preflight import (
 from marivo.analysis.materialization.graph_protocol import digest, schema_text
 from marivo.analysis.materialization.graph_store import GraphArtifact
 from marivo.analysis.methods.physical import ScalarType, ValueType
+from marivo.analysis.observation.relationship_binding import RelationshipResolver
+from marivo.analysis.observation.route_inputs import RootRoutesValue, RootRouteValue
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.refs import (
     DimensionKind,
@@ -116,7 +117,6 @@ from marivo.semantic.validator import (
     Registry,
     normalize_target_dimension,
     normalize_target_entity,
-    normalize_target_relationship,
 )
 
 
@@ -137,11 +137,12 @@ class MemberGraph:
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridPoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutesValue | None = None,
+        via: Ref[RelationshipKind] | RootRouteValue | RootRoutesValue | None = None,
         sidecar: CompiledExpressionSidecar | None = None,
         report_timezone: str = "UTC",
         inherit_member_version: bool = False,
         match_verification: Literal["check", "assume"] = "check",
+        resolver: RelationshipResolver | None = None,
     ) -> MemberGraph:
         """Bind a typed scalar field through one complete, single-valued path."""
 
@@ -205,18 +206,14 @@ class MemberGraph:
                 raise reject("field kind differs from its declaration")
         start = self.root.signature.domain.instance_key[0].entity_ref.path
         owner = field.entity_ref.path
-        if isinstance(via, RootRoutesValue):
-            matching = tuple(item for item in via.routes if item.root.path == start)
-            if len(matching) != 1 or len(via.routes) != 1:
-                raise reject("read requires one route rooted at the current member Entity")
-            refs = matching[0].through
-        elif via is None:
-            refs = ()
-        elif isinstance(via, Ref) and via.kind is SemanticKind.RELATIONSHIP:
-            refs = (via,)
-        else:
-            raise reject("invalid route")
-        contracts = tuple(normalize_target_relationship(self.registry, item.path) for item in refs)
+        resolver = resolver or RelationshipResolver.build(self.registry)
+        overrides = resolver.overrides(
+            via, roots=(ref.entity(start),), target="dsl.LogicalAnalysisDomain.read"
+        )
+        refs = resolver.resolve(
+            start, owner, explicit=overrides.get(start), target="dsl.LogicalAnalysisDomain.read"
+        )
+        contracts = tuple(resolver.by_ref[item.path] for item in refs)
         current = start
         for item in contracts:
             if item.from_entity_ref.path != current or item.cardinality not in (

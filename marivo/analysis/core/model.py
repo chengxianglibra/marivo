@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
+from hashlib import sha256
 from typing import Literal, NoReturn, TypeAlias
 
 from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
@@ -84,6 +85,11 @@ class Binding:
 CoordinateRole: TypeAlias = Literal["identity", "version", "group", "anchor", "instance"]
 
 
+def coordinate_binding_id(entity: Ref[EntityKind], field: str, bindings: tuple[str, ...]) -> str:
+    """Identify a common axis by its exact set of independently frozen roles."""
+    return sha256(repr((entity, field, bindings)).encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class Coordinate:
     """A whole typed coordinate component, never a display-value equivalence."""
@@ -91,6 +97,8 @@ class Coordinate:
     entity_ref: Ref[EntityKind]
     field: str
     role: CoordinateRole
+    binding_id: str = "direct"
+    bindings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.entity_ref) is not Ref or self.entity_ref.kind is not SemanticKind.ENTITY:
@@ -101,6 +109,17 @@ class Coordinate:
                 "core.coordinate",
             )
         _nonempty(self.field, "core.coordinate.field")
+        _nonempty(self.binding_id, "core.coordinate.binding_id")
+        if self.bindings and (
+            self.bindings != tuple(sorted(set(self.bindings)))
+            or self.binding_id != coordinate_binding_id(self.entity_ref, self.field, self.bindings)
+        ):
+            reject(
+                "a canonical coordinate binding identity",
+                self.binding_id,
+                "Preserve the exact frozen coordinate role bindings.",
+                "core.coordinate.binding_id",
+            )
         if self.role not in ("identity", "version", "group", "anchor", "instance"):
             reject(
                 "a closed coordinate role",
@@ -468,10 +487,27 @@ class CoordinateStatePart:
     extra_coordinates: tuple[Coordinate, ...] = ()
     attribution_only: bool = False
     component_types: tuple[tuple[str, str], ...] = ()
+    primary_coordinate: Coordinate | None = None
+
+    def __post_init__(self) -> None:
+        if self.primary_coordinate is not None and (
+            self.primary_coordinate.entity_ref != self.owner
+            or self.primary_coordinate.field != self.dimension.path
+            or self.primary_coordinate.role != "group"
+        ):
+            reject(
+                "the original Dimension and owner coordinate",
+                repr(self.primary_coordinate),
+                "Retain the original coordinate binding with its state.",
+                "core.coordinate_state",
+            )
 
     @property
     def coordinates(self) -> tuple[Coordinate, ...]:
-        return (Coordinate(self.owner, self.dimension.path, "group"), *self.extra_coordinates)
+        return (
+            self.primary_coordinate or Coordinate(self.owner, self.dimension.path, "group"),
+            *self.extra_coordinates,
+        )
 
     @property
     def columns(self) -> tuple[str, ...]:
@@ -480,7 +516,15 @@ class CoordinateStatePart:
         )
 
     def column_for(self, dimension: Ref[DimensionKind]) -> str:
-        return self.columns[tuple(c.field for c in self.coordinates).index(dimension.path)]
+        matches = [i for i, c in enumerate(self.coordinates) if c.field == dimension.path]
+        if len(matches) != 1:
+            reject(
+                "one retained coordinate binding",
+                dimension.path,
+                "Select the corresponding classification to disambiguate its role.",
+                "core.coordinate_state",
+            )
+        return self.columns[matches[0]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -562,6 +606,7 @@ class AttributionPart:
     complete: bool = True
     view: Literal["contribution", "current", "baseline"] = "contribution"
     version: Literal["v1"] = "v1"
+    coordinate_bindings: tuple[Coordinate, ...] = field(default=(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1195,7 +1240,22 @@ def validate_part(part: Part) -> None:
             not part.axes
             or type(part.axes) is not tuple
             or any(type(a) is not Ref or a.kind is not SemanticKind.DIMENSION for a in part.axes)
-            or len(set(part.axes)) != len(part.axes)
+            or (
+                len(set(part.axes)) != len(part.axes)
+                if not part.coordinate_bindings
+                else type(part.coordinate_bindings) is not tuple
+                or len(set(part.coordinate_bindings)) != len(part.coordinate_bindings)
+                or tuple(c.field for c in part.coordinate_bindings)
+                != tuple(a.path for a in part.axes)
+                or any(c.role != "group" for c in part.coordinate_bindings)
+                or (
+                    part.endpoint is not None
+                    and (
+                        part.endpoint.coordinate_state is None
+                        or part.endpoint.coordinate_state.coordinates != part.coordinate_bindings
+                    )
+                )
+            )
             or part.method not in ("additive_difference", "component_mix")
             or part.mode not in ("joint", "hierarchy")
             or (part.mode == "hierarchy" and len(part.axes) < 2)

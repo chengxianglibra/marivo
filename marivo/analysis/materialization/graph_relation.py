@@ -66,7 +66,6 @@ from marivo.analysis.materialization.graph_composition import (
     validate_time_comparison,
 )
 from marivo.analysis.materialization.graph_dataset import GraphDataset
-from marivo.analysis.materialization.graph_fields import RootRoutesValue
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
 from marivo.analysis.materialization.graph_observation import (
     _observe_component,
@@ -89,6 +88,8 @@ from marivo.analysis.methods.physical import (
     NoTime,
     ScalarType,
 )
+from marivo.analysis.observation.relationship_binding import RelationshipResolver
+from marivo.analysis.observation.route_inputs import RootRoutesValue, RootRouteValue
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
@@ -784,8 +785,9 @@ class Relation:
         dimension: Ref[DimensionKind] | Ref[MeasureKind] | Ref[TimeDimensionKind],
         *,
         at: datetime | BeforeEndBoundary | GridPoint | None = None,
-        via: Ref[RelationshipKind] | RootRoutesValue | None = None,
+        via: Ref[RelationshipKind] | RootRouteValue | RootRoutesValue | None = None,
         match_verification: Literal["check", "assume"] = "check",
+        resolver: RelationshipResolver | None = None,
     ) -> Relation:
         live = self._live()
         graph = live.graph.read(
@@ -795,6 +797,7 @@ class Relation:
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
             match_verification=match_verification,
+            resolver=resolver,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -957,6 +960,9 @@ class Relation:
         coordinates: tuple[Ref[DimensionKind], ...] = (),
         at: datetime | GridPoint | None = None,
         target_keys: tuple[Coordinate, ...] | None = None,
+        classifications: MemberGraph | None = None,
+        classification_coordinates: tuple[Coordinate, ...] = (),
+        resolver: RelationshipResolver | None = None,
     ) -> Relation:
         live = self._live()
         relative = any(
@@ -975,6 +981,9 @@ class Relation:
             report_timezone=live.report_timezone,
             relative=relative,
             target_keys=target_keys,
+            classifications=classifications,
+            classification_coordinates=classification_coordinates,
+            resolver=resolver,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -1015,6 +1024,9 @@ class Relation:
         coordinates: tuple[Ref[DimensionKind], ...] = (),
         at: datetime | GridPoint | None = None,
         target_keys: tuple[Coordinate, ...] | None = None,
+        classifications: tuple[tuple[str, MemberGraph], ...] = (),
+        classification_coordinates: tuple[Coordinate, ...] = (),
+        resolver: RelationshipResolver | None = None,
     ) -> Relation:
         """Observe an ordered multi-root quantity under explicitly bound routes."""
         live = self._live()
@@ -1038,6 +1050,9 @@ class Relation:
                 report_timezone=live.report_timezone,
                 relative=relative,
                 target_keys=target_keys,
+                classifications=classifications,
+                classification_coordinates=classification_coordinates,
+                resolver=resolver,
             )
             return Relation(self.runtime, linear.root, replace(live, graph=linear))
         graph = observe_ratio_members(
@@ -1052,6 +1067,9 @@ class Relation:
             report_timezone=live.report_timezone,
             relative=relative,
             target_keys=target_keys,
+            classifications=classifications,
+            classification_coordinates=classification_coordinates,
+            resolver=resolver,
         )
         return Relation(self.runtime, graph.root, replace(live, graph=graph))
 
@@ -1227,7 +1245,7 @@ class Relation:
         return self._with(root)
 
     def rollup(
-        self, *coordinates: Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid
+        self, *coordinates: Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid | Coordinate
     ) -> Relation:
         signature = self.root.signature
         quantity = signature.quantity
@@ -1283,30 +1301,42 @@ class Relation:
                     if c.role == "anchor"
                 )
                 continue
+            retained_coordinates = tuple(
+                dict.fromkeys(
+                    (
+                        *signature.domain.instance_key,
+                        *(
+                            c
+                            for part in signature.parts
+                            if isinstance(part, CoordinateStatePart) and not part.attribution_only
+                            for c in part.coordinates
+                        ),
+                    )
+                )
+            )
+            if isinstance(coordinate, Coordinate):
+                matches = tuple(
+                    c
+                    for c in retained_coordinates
+                    if c == coordinate
+                    or (c.field == coordinate.field and coordinate.binding_id in c.bindings)
+                )
+                if len(matches) != 1:
+                    raise _reject(
+                        "classification did not uniquely select a retained coordinate binding"
+                    )
+                selected.extend(matches)
+                continue
             # Entity references retain their entire composite identity.
             matches = tuple(
                 c
-                for c in signature.domain.instance_key
+                for c in retained_coordinates
                 if (
                     c.entity_ref == coordinate and c.role == "identity"
                     if coordinate.kind == "entity"
                     else c.field == coordinate.path
                 )
             )
-            if not matches:
-                retained = next(
-                    (
-                        p
-                        for p in signature.parts
-                        if isinstance(p, CoordinateStatePart) and not p.attribution_only
-                    ),
-                    None,
-                )
-                matches = (
-                    ()
-                    if retained is None
-                    else tuple(c for c in retained.coordinates if c.field == coordinate.path)
-                )
             if not matches or (coordinate.kind == "dimension" and len(matches) != 1):
                 raise _reject("group key was not uniquely retained with this relation")
             selected.extend(matches)
@@ -1421,7 +1451,9 @@ class Relation:
             )
         )
 
-    def rollup_statistic(self, *coordinates: Ref[DimensionKind] | Ref[EntityKind]) -> Relation:
+    def rollup_statistic(
+        self, *coordinates: Ref[DimensionKind] | Ref[EntityKind] | Coordinate
+    ) -> Relation:
         quantity = self.root.signature.quantity
         if not isinstance(quantity, RowStatisticQuantity):
             raise _reject("row rollup requires a retained RowStatistic")
@@ -1444,12 +1476,18 @@ class Relation:
                 c
                 for c in self.root.signature.domain.instance_key
                 if (
-                    c.entity_ref == reference and c.role == "identity"
+                    c == reference
+                    or (c.field == reference.field and reference.binding_id in c.bindings)
+                    if isinstance(reference, Coordinate)
+                    else c.entity_ref == reference and c.role == "identity"
                     if reference.kind == "entity"
                     else c.field == reference.path
                 )
             )
-            if not matched or (reference.kind == "dimension" and len(matched) != 1):
+            if not matched or (
+                (isinstance(reference, Coordinate) or reference.kind == "dimension")
+                and len(matched) != 1
+            ):
                 raise _reject("statistic group coordinate was not uniquely retained")
             keys.extend(matched)
         if len(keys) != len(set(keys)):
@@ -1488,14 +1526,21 @@ class Relation:
             and params.field_contract is not None
             and params.ref.kind == "dimension"
         ):
-            return Coordinate(params.field_owner, params.ref.path, "group")
+            from marivo.analysis.observation.coordinate_binding import read_coordinate
+
+            return read_coordinate(params)
         raise _reject("classification requires an explicit retained Dimension identity")
 
     def _with_sources(self, dependency: Relation) -> Relation:
         if isinstance(self.binding, LiveBinding) and isinstance(dependency.binding, LiveBinding):
+            own = self.binding.graph
+            other = dependency.binding.graph
             sources = {
                 leaf.identity: (schema, leaf)
-                for schema, leaf in (*dependency.binding.graph.sources, *self.binding.graph.sources)
+                for schema, leaf in (
+                    *(other.sources or ((other.entity_schema, other.leaf),)),
+                    *(own.sources or ((own.entity_schema, own.leaf),)),
+                )
             }
             return replace(
                 self,
@@ -1506,8 +1551,10 @@ class Relation:
             )
         return self
 
-    def attach_category(self, category: Relation) -> Relation:
-        coordinate = category.classification_coordinate()
+    def attach_category(
+        self, category: Relation, *, coordinate: Coordinate | None = None
+    ) -> Relation:
+        coordinate = coordinate or category.classification_coordinate()
         source = self.root.signature.domain
         target = replace(
             source,

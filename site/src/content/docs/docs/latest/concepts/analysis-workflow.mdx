@@ -110,8 +110,44 @@ channel_revenue = orders.observe(
 channel_revenue.show()
 ```
 
-Use the Metric’s root Entity directly when it is also the analysis Entity.
-For a different contribution root, supply its explicit declared relationship route.
+`read` and ordinary member `observe` infer a unique directed keyed to-one path.
+Omitting `via` and passing `None` have the same meaning. If several relationship
+roles are legal, select a Relationship Ref or `mv.route(root, through=(...))`.
+`mv.routes(...)` binds roots by identity in any order; it can specify only roots
+that need disambiguation. A read accepts one member-to-owner route.
+
+Contribution attribution and dimension lookup can use different paths. The model
+in this next example declares order lines, a line-to-order-to-buyer path, and a
+separate line-to-product path. Product categories attach to full line keys before
+revenue aggregation. Bare `by=(product_category,)` gives the same result when its
+binding is unique. A missing or filtered classification does not filter revenue.
+Versioned fields require their own `read(..., at=...)`; an observation window
+does not choose an attribute version.
+
+{/* example: contribution-classification */}
+
+```python
+customers = session.members(ms.ref.entity("sales.customer"))
+lines = session.members(ms.ref.entity("sales.order_line"))
+category = lines.read(
+    ms.ref.dimension("sales.product.category"),
+    via=ms.ref.relationship("sales.line_product"),
+)
+category_revenue = customers.observe(
+    ms.ref.metric("sales.line_revenue"),
+    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+    by=(category,),
+).execute()
+category_revenue.show()
+```
+
+The same Dimension read through different explicit roles retains different
+coordinate bindings. Use the corresponding classification object for subsequent
+`group_by`, statistic rollup or retained-axis attribution when a bare Dimension Ref
+would be ambiguous. Attribution uses the complete ordered endpoint axes. Fixed continuations
+use saved bindings and complete keys without re-inferring paths.
+SQLite, MySQL and ClickHouse reject observations that require nested contribution-coordinate
+state; automatic relationships preserve the existing backend admission boundary.
 
 ## Keep source and fixed work explicit
 

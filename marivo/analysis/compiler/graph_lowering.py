@@ -22,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
     admitted_capture,
 )
 from marivo.analysis.compiler.member_version import select_version, version_predicate
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph, topology
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     AnchorObservationPart,
@@ -2644,6 +2644,10 @@ def _contribution_rows(
     if root_filters is not None:
         root = root.filter(root_filters)
     fields: dict[str, ir.Value] = {
+        **{
+            f"contribution__key_{i}": root[key.coordinate.field]
+            for i, key in enumerate(root_binding.layout.keys)
+        },
         **{name: root[column] for name, column in captured_columns},
         **(
             {
@@ -2746,7 +2750,13 @@ def _contribution_rows(
         member_input = stage.node.inputs[
             1 if isinstance(stage.node.parameters, AnchorObserve) else 0
         ].node.signature
-        fact = _contribution_mapping_fact((member_input,), params, index)
+        fact = _contribution_mapping_fact(
+            tuple(edge.node.signature for edge in stage.node.inputs)
+            if params.classification_coordinates
+            else (member_input,),
+            params,
+            index,
+        )
         obligation = next(
             (item for item in stage.node.derivation.obligations if item.fact == fact), None
         )
@@ -2969,6 +2979,8 @@ def _observe(
     checks: list[LoweredCheck],
     admitted: GraphPlan,
     relations: tuple[LoweredRelation, ...],
+    classification: LoweredRelation | None = None,
+    classification_scopes: dict[str, list[tuple[ir.Table, tuple[str, ...]]]] | None = None,
 ) -> tuple[ir.Table, RelationLayout, tuple[str, ...]]:
     from datetime import date, datetime
 
@@ -3084,22 +3096,14 @@ def _observe(
     source_ids = _source_ids(members.source_ids, contribution_ids)
     member_keys = tuple(k.column for k in members.layout.keys if k.coordinate.role == "identity")
     source_coordinates = members.node.signature.domain.instance_key
-    raw_coordinates = tuple(
-        Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
-        for c in params.coordinates
+    raw_coordinates = (
+        tuple(
+            Coordinate(semantic_ref.entity(c.entity_ref.path), c.ref.path, "group")
+            for c in params.coordinates
+        )
+        + params.classification_coordinates
     )
     output_coordinates = stage.node.signature.domain.instance_key
-    target_fields: dict[str, ir.Value] = {}
-    for index, coordinate in enumerate(output_coordinates):
-        if coordinate in source_coordinates:
-            target_fields[f"key_{index}"] = mapping[keys[source_coordinates.index(coordinate)]]
-        else:
-            raw_index = raw_coordinates.index(coordinate)
-            target_fields[f"key_{index}"] = source[
-                "coordinate" if raw_index == 0 else f"coordinate_{raw_index}"
-            ]
-    if not target_fields:
-        target_fields["__target"] = ibis.literal(0, type="int64")
     predicates = [source[f"member_{i}"] == mapping[key] for i, key in enumerate(member_keys)]
     grid = members.node.signature.domain.time_grid
     if params.grid_window:
@@ -3134,6 +3138,84 @@ def _observe(
         predicates.append(ibis.cases(*conditions, else_=False))
     identity = _identity_observation(stage, members, params)
     joined = source if identity else source.inner_join(mapping, predicates)
+    if classification is not None:
+        consumed = joined.select(
+            **{
+                f"key_{i}": joined[f"contribution__key_{i}"]
+                if key.coordinate.role == "identity"
+                else joined[
+                    next(k.column for k in members.layout.keys if k.coordinate.role == "anchor")
+                ]
+                for i, key in enumerate(classification.layout.keys)
+                if key.coordinate.role in ("identity", "anchor")
+            }
+        ).distinct()
+        if classification_scopes is not None:
+            for ancestor in topology(classification.node):
+                classification_scopes.setdefault(ancestor.identity, []).append(
+                    (consumed, source_ids)
+                )
+        classification_mapping = classification.expression.view()
+        classification_predicates = [
+            joined[f"contribution__key_{i}"] == classification_mapping[key.column]
+            for i, key in enumerate(classification.layout.keys)
+            if key.coordinate.role == "identity"
+        ]
+        if classification.node.signature.domain.time_grid is not None:
+            member_time = next(
+                k.column for k in members.layout.keys if k.coordinate.role == "anchor"
+            )
+            classification_time = next(
+                k.column for k in classification.layout.keys if k.coordinate.role == "anchor"
+            )
+            classification_predicates.append(
+                joined[member_time] == classification_mapping[classification_time]
+            )
+        # Classification coverage consumes the original member/time domain. A missing
+        # classification must survive the join so the check can reject it.
+        joined = joined.left_join(classification_mapping, classification_predicates).select(
+            *[joined[name] for name in joined.columns],
+            **{
+                "coordinate"
+                if i + len(params.coordinates) == 0
+                else f"coordinate_{i + len(params.coordinates)}": classification_mapping[
+                    next(k.column for k in classification.layout.keys if k.coordinate == coordinate)
+                ]
+                for i, coordinate in enumerate(params.classification_coordinates)
+            },
+        )
+        checks.append(
+            IntegrityCheck(
+                stage.output,
+                "complete scalar classifications on consumed contribution keys",
+                joined.filter(
+                    reduce(
+                        or_,
+                        (
+                            joined[
+                                "coordinate"
+                                if i + len(params.coordinates) == 0
+                                else f"coordinate_{i + len(params.coordinates)}"
+                            ].isnull()
+                            for i in range(len(params.classification_coordinates))
+                        ),
+                    )
+                ),
+                _source_ids(source_ids, classification.source_ids),
+            )
+        )
+        source_ids = _source_ids(source_ids, classification.source_ids)
+    target_fields: dict[str, ir.Value] = {}
+    for index, coordinate in enumerate(output_coordinates):
+        if coordinate in source_coordinates:
+            target_fields[f"key_{index}"] = mapping[keys[source_coordinates.index(coordinate)]]
+        else:
+            raw_index = raw_coordinates.index(coordinate)
+            target_fields[f"key_{index}"] = joined[
+                "coordinate" if raw_index == 0 else f"coordinate_{raw_index}"
+            ]
+    if not target_fields:
+        target_fields["__target"] = ibis.literal(0, type="int64")
     target_keys = tuple(target_fields)
     if any(c in output_coordinates for c in raw_coordinates):
         targets = joined.select(**target_fields).distinct()
@@ -3200,7 +3282,7 @@ def _observe(
             {
                 name: target_fields[f"key_{output_coordinates.index(coordinate)}"]
                 if coordinate in output_coordinates
-                else source[
+                else joined[
                     "coordinate"
                     if raw_coordinates.index(coordinate) == 0
                     else f"coordinate_{raw_coordinates.index(coordinate)}"
@@ -3675,6 +3757,7 @@ def lower(
     results: dict[str, LoweredRelation] = {}
     stages: list[LoweredStage] = []
     checks: list[LoweredCheck] = []
+    classification_scopes: dict[str, list[tuple[ir.Table, tuple[str, ...]]]] = {}
     layouts: dict[str, RelationLayout] = {}
     for stage in admitted.stages:
         part_expressions: list[tuple[str, ir.Table]] = []
@@ -4052,7 +4135,14 @@ def lower(
                 cell_reasons = () if params.mode == "cohort" else inputs[0].cell_reasons
             elif isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
                 table, layout, source_ids = _observe(
-                    stage, inputs[0], bindings, checks, admitted, tuple(results.values())
+                    stage,
+                    inputs[0],
+                    bindings,
+                    checks,
+                    admitted,
+                    tuple(results.values()),
+                    inputs[1] if params.classification_coordinates else None,
+                    classification_scopes,
                 )
                 cell_reasons = registry.lookup(stage.node.method).semantics.empty_cell_reasons
             elif isinstance(params, BindProject):
@@ -4329,6 +4419,19 @@ def lower(
             else:
                 _fail("an implemented checker for this bound obligation", check_id)
             checks.append(SemanticCheck(requirement, violations, source_ids))
+    for index, check in enumerate(checks):
+        if isinstance(check, SemanticCheck) and check.requirement.node_id in classification_scopes:
+            scopes = classification_scopes[check.requirement.node_id]
+            columns = tuple(
+                name for name in scopes[0][0].columns if name in check.violations.columns
+            )
+            if columns:
+                scope = _union_all(tuple(item.select(*columns) for item, _ in scopes)).distinct()
+                checks[index] = replace(
+                    check,
+                    violations=check.violations.semi_join(scope, columns),
+                    source_ids=_source_ids(check.source_ids, *(ids for _, ids in scopes)),
+                )
     scheduled: list[LoweredCheck] = []
     for check in checks:
         prior = next(
@@ -4441,7 +4544,7 @@ def _complete_groups(
     checks.append(
         SemanticCheck(
             CheckRequirement(stage.node.identity, stage.output, obligation),
-            left.anti_join(right, keys),
+            left.anti_join(right, keys).select(*keys),
             source_ids,
         )
     )

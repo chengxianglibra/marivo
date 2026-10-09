@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Literal
 
 import ibis
@@ -58,11 +59,13 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.methods.physical import ScalarType, SourceShape, TimeShape
+from marivo.analysis.methods.errors import MethodRegistrationError
+from marivo.analysis.methods.physical import QualificationKey, ScalarType, SourceShape, TimeShape
+from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.refs import RefPayloadV1, ref
-from marivo.semantic.ir import TargetDimensionContract, TargetEntityContract
+from marivo.semantic.ir import TargetDimensionContract, TargetEntityContract, TimestampParse
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
     CanonicalSliceEntryV1,
@@ -78,7 +81,7 @@ ENTITY = ref.entity("sales.events")
 
 @contextmanager
 def _source(
-    *, empty: bool = False, compound: bool = True
+    *, empty: bool = False, compound: bool = True, native_time: bool = False
 ) -> Iterator[tuple[SourceSession, SourceLeaf, SourceBinding]]:
     rows = pa.table(
         {
@@ -87,6 +90,11 @@ def _source(
             "cluster": pa.array(["bi", "bi", "bi", "other", "bi"], type=pa.string()),
             "amount": pa.array([10, None, 7, 20, 99], type=pa.int64()),
             "point": pa.array(
+                [datetime(2026, 9, 2, tzinfo=timezone.utc)] * 5,
+                type=pa.timestamp("us", tz="UTC"),
+            )
+            if native_time
+            else pa.array(
                 ["20260902", "20260903", "20260904", "20260904", "20260830"], type=pa.string()
             ),
         }
@@ -183,7 +191,12 @@ def _observation(
     empty: Literal["null", "zero"] = "null",
     grouped: bool = False,
     grid_window: bool = False,
+    event: TargetDimensionContract | None = None,
 ) -> MethodNode:
+    event = event or axis("%Y%m%d")
+    temporal = observation_temporal(
+        event, "timestamp('UTC', 6)" if isinstance(event.parse, TimestampParse) else "string"
+    )
     metric = ref.metric("sales.total")
     graph = MetricExpressionGraphV1(
         "metric-expression/v1",
@@ -267,12 +280,12 @@ def _observation(
             quantity,
             ENTITY,
             (),
-            axis("%Y%m%d"),
+            event,
             start,
             end,
             filters=filters,
             grid_window=grid_window,
-            temporal=observation_temporal(axis("%Y%m%d"), "string"),
+            temporal=temporal,
         )
     else:
         parameters = ObserveMetric(
@@ -281,7 +294,7 @@ def _observation(
             quantity,
             ENTITY,
             (),
-            axis("%Y%m%d"),
+            event,
             start,
             end,
             "amount",
@@ -289,7 +302,7 @@ def _observation(
             filters=filters,
             grid_window=grid_window,
             method=method,
-            temporal=observation_temporal(axis("%Y%m%d"), "string"),
+            temporal=temporal,
         )
     return method_node(
         (Edge("subject", members),),
@@ -317,6 +330,76 @@ def _primary(lowered: LoweredPlan) -> LoweredRelation:
         for stage in lowered.stages
         if isinstance(stage, LoweredRelation) and stage.output == lowered.primary_output
     )
+
+
+@pytest.mark.parametrize(
+    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+)
+@pytest.mark.parametrize("contribution", (False, True))
+def test_classified_count_native_compilation_and_admission(
+    backend: str, contribution: bool
+) -> None:
+    with _source(native_time=True) as (_, leaf, binding):
+        members = _members(leaf)
+        coordinate = Coordinate(ENTITY, _cluster().ref.path, "group")
+        domain = members.signature.domain
+        classified = method_node(
+            (Edge("subject", members), Edge("subject", _read_cluster(members))),
+            AttachCategory(
+                coordinate,
+                replace(
+                    domain,
+                    instance_key=(*domain.instance_key, coordinate),
+                    target_key=(*domain.target_key, coordinate),
+                ),
+                False,
+            ),
+            value_type=leaf.value_type,
+        )
+        event = replace(
+            axis("%Y%m%d"),
+            logical_type="timestamp",
+            granularity="second",
+            timezone="UTC",
+            parse=TimestampParse("UTC"),
+        )
+        original = _observation(members, leaf, method="count", empty="zero", event=event)
+        params = replace(original.parameters, classification_coordinates=(coordinate,))
+        root = method_node(
+            (Edge("subject", members), Edge("subject", classified)),
+            params,
+            value_type=original.value_type,
+            sources=(leaf,),
+        )
+        if not contribution:
+            root = _observation(
+                _read_cluster(members),
+                leaf,
+                method="count",
+                empty="zero",
+                event=event,
+                grouped=True,
+            )
+        inputs = tuple(edge.node.signature for edge in root.inputs)
+        key = QualificationKey(
+            root.method,
+            tuple(edge.node.value_type for edge in root.inputs),
+            tuple(item.domain.kind for item in inputs),
+            SourceShape(backend, "table", "native", leaf.definition.shape.time),
+            "ibis",
+        )
+        if backend in ("sqlite", "mysql", "clickhouse"):
+            with pytest.raises(
+                MethodRegistrationError, match="nested contribution-coordinate state"
+            ):
+                REGISTRY.select(key, inputs, root.parameters)
+            return
+        REGISTRY.select(key, inputs, root.parameters)
+        expression = _primary(_lower(root, (binding,))).expression
+        dialect = "postgres" if backend == "postgres" else backend
+        sql = ibis.to_sql(expression, dialect=dialect)
+        assert "SELECT" in sql
+        sqlglot.parse_one(sql, read=dialect)
 
 
 @pytest.mark.parametrize(
