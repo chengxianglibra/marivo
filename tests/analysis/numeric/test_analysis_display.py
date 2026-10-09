@@ -27,7 +27,7 @@ def test_current_row_mean_of_integer_counts(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     facts = analysis_dsl_rows("j2")
     expected = sum(str(order[4]).startswith("2026-08") for order in facts.orders) / len(
@@ -105,13 +105,13 @@ def test_business_display_identifies_current_and_baseline_windows(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = customers.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     current.compare(baseline).execute().show(n=0)
     text = capsys.readouterr().out
@@ -163,7 +163,7 @@ def test_public_rank_table_source_and_fixed(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     facts = analysis_dsl_rows("j2")
     counts = {
@@ -286,7 +286,7 @@ def test_display_precision_matrix(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     expected = {"A": 9007199254740993 if physical == "BIGINT" else 60, "B": 120, "C": 0, "D": 0}
     if physical.startswith("DECIMAL"):
@@ -334,7 +334,7 @@ def test_top_k_original_rank_share_and_empty(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     for current, partitions in ((values, category), (values.execute(), category.execute())):
         shares = (
@@ -393,7 +393,7 @@ def test_static_display_errors_are_zero_read(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = values.execute()
     ranking = values.rank(order="descending", ties="dense")
@@ -430,7 +430,7 @@ def test_static_display_errors_are_zero_read(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     with pytest.raises(AnalysisError):
         mv.table(a=values, b=july)
@@ -462,7 +462,7 @@ def test_cold_display_continuations_and_corruption(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     ranking = values.rank(order="descending", ties="dense").execute()
     terminal = mv.table(amount=ranking.values, rank=ranking.ranks).execute()
@@ -585,7 +585,7 @@ def test_display_publication_is_atomic(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = values.execute()
     before = set((case.root / ".marivo").rglob("*.parquet"))
@@ -624,7 +624,7 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     ranking = values.rank(order="descending", ties="dense")
     calls: list[str] = []
@@ -885,7 +885,7 @@ def test_empty_original_domain_and_numeric_view_continuations(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         for current in (values, values.execute()):
             ranking = current.rank(order="descending", ties="ordinal").execute()
@@ -926,7 +926,7 @@ def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     total = values.rollup()
     ranked_total = total.rank(order="descending", ties="dense")
@@ -953,7 +953,7 @@ def test_group_and_entity_time_display_domains(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     groups = count.group_by(region).rollup()
     for current in (groups, groups.execute()):
@@ -970,7 +970,7 @@ def test_group_and_entity_time_display_domains(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     categories = product.read(ms.ref.dimension("sales.customer.region"), at=grid.before_end)
     facts = analysis_dsl_rows("j2")
@@ -1017,7 +1017,7 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     ratio = values.ratio(values)
     for current in (ratio, ratio.execute()):
@@ -1057,7 +1057,7 @@ def test_ranking_views_can_be_ranked_again(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     ranking = values.rank(order="descending", ties="ordinal")
     current = ranking.execute() if fixed else ranking

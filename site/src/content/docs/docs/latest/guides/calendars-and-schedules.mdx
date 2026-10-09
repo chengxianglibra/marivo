@@ -71,7 +71,7 @@ dataset = members.observe(
     revenue,
     during=launch,
     via=ms.ref.relationship("sales.order_buyer"),
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 ```
 

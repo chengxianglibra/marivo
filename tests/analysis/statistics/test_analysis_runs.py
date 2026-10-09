@@ -23,7 +23,7 @@ def test_ratio_without_retained_coverage_rejects_with_typed_error(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     ).execute()
     ratio = history.ratio(history).execute()
     with pytest.raises(AnalysisError, match="original captured coverage fact"):
@@ -41,7 +41,7 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
         ms.ref.metric("sales.revenue"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(daily, mv.LogicalNumericRelation)
     segments = daily.runs(where=daily.value.gt(-1))
@@ -169,7 +169,7 @@ def test_new_grid_after_subject_selection(
     via = ms.ref.relationship("sales." + case.names.buyer)
     members = case.session.members(ms.ref.entity("sales.customer"))
     values = members.observe(
-        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(ms.ref.entity("sales.customer"),)
+        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(mv.member(),)
     )
     assert isinstance(values, mv.LogicalNumericRelation)
     selected = values.where(values.value.is_defined()).members()
@@ -179,7 +179,7 @@ def test_new_grid_after_subject_selection(
         ms.ref.metric("sales.revenue"),
         during=grid,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(fresh, mv.LogicalNumericRelation)
     receiver = fresh.execute() if fixed else fresh

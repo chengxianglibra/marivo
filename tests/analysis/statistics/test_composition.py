@@ -84,7 +84,7 @@ def test_direct_score_runs_and_blocked_next_round(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
         by=(
-            ms.ref.entity("sales.order"),
+            mv.member(),
             axis,
         ),
     )
@@ -92,7 +92,7 @@ def test_direct_score_runs_and_blocked_next_round(
         metric,
         during=mv.time_scope(start="2026-08-04", end="2026-08-07"),
         by=(
-            ms.ref.entity("sales.order"),
+            mv.member(),
             axis,
         ),
     )
@@ -226,7 +226,7 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
                 during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
                 by=(
-                    ms.ref.entity("sales.customer"),
+                    mv.member(),
                     *axes,
                 ),
             )
@@ -283,12 +283,12 @@ def test_score_select_members_followup_one_dag(
     current = members.observe(
         ms.ref.metric("sales.total_0"),
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=(ms.ref.entity("sales.order"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.total_0"),
         during=mv.time_scope(start="2026-07-29", end="2026-08-01"),
-        by=(ms.ref.entity("sales.order"),),
+        by=(mv.member(),),
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
@@ -300,7 +300,7 @@ def test_score_select_members_followup_one_dag(
     followup = selected.observe(
         ms.ref.metric("sales.total_0"),
         during=mv.time_scope(start="2026-08-03", end="2026-08-04"),
-        by=(ms.ref.entity("sales.order"),),
+        by=(mv.member(),),
     )
     trace: list[str] = []
     iterate, compute = SourceBatchStream._iterate, deviation_execution.execute
@@ -358,7 +358,7 @@ def test_category_time_three_methods_three_models(
         timed_members.observe(
             ms.ref.metric(f"sales.total_{i}"),
             during=grid,
-            by=(ms.ref.entity("sales.order"),),
+            by=(mv.member(),),
         )
         .group_by(category, grid)
         .rollup()

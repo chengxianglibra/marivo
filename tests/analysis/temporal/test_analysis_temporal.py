@@ -157,7 +157,7 @@ def test_public_grid_observation_and_retained_axis(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     current = observed.execute() if fixed else observed
     totals = current.group_by(grid).rollup().execute().to_pandas()
@@ -179,7 +179,7 @@ def test_public_whole_cell_grain_coarsening(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=grid,
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     current = observed.execute() if fixed else observed
     result = current.group_by(mv.grain("month")).rollup().execute()
@@ -196,7 +196,7 @@ def test_identity_observation_has_no_inferred_relationship(
     observed = case.session.members(ms.ref.entity(f"{n.domain}.{n.order}")).observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        by=(ms.ref.entity(f"{n.domain}.{n.order}"),),
+        by=(mv.member(),),
     )
     assert observed.rollup().execute().to_pandas().value.tolist() == [1000]
 
@@ -281,7 +281,7 @@ session = mv.session.resume(sys.argv[1], by='id')
 grid = mv.time_grid(during=mv.time_scope(start='2026-08-01', end='2026-11-01'), grain=mv.grain('month'))
 result = session.members(ms.ref.entity('sales.customer')).observe(
     ms.ref.metric('sales.' + sys.argv[2]), via=ms.ref.relationship('sales.order_buyer'),
-    by=(ms.ref.entity('sales.customer'),),
+    by=(mv.member(),),
     **({'at': grid.end} if sys.argv[2] == 'running' else {'during': grid})
 ).execute()
 assert len(result.to_pandas()) == 12
@@ -374,7 +374,7 @@ def test_grid_required_state_damage_revokes_continuation(
             at=grid.end if metric == "running" else None,
             during=None if metric == "running" else grid,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )
@@ -452,7 +452,7 @@ def test_cumulative_anchors_ignore_display_start(
         ms.ref.metric("sales.running"),
         at=grid.end,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     overall = case.session.members(ms.ref.entity("sales.customer")).observe(
@@ -478,7 +478,7 @@ def test_cumulative_anchors_ignore_display_start(
             ms.ref.metric("sales.running"),
             at=datetime(2026, 10, 1, tzinfo=timezone.utc),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()
@@ -530,7 +530,7 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
         ms.ref.metric("sales.folded"),
         during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     if overflow:
@@ -586,7 +586,7 @@ def test_source_wall_clock_gap_and_fold_reject_before_publication(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     with pytest.raises(AnalysisError) as caught:
         observed.execute()
@@ -678,7 +678,7 @@ def test_source_report_and_grid_timezones_are_independent(
         ms.ref.metric("sales.revenue"),
         during=grid,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     original = logical.execute()
     result = logical.group_by(grid).rollup().execute()
@@ -781,7 +781,7 @@ running_ratio = ms.ratio(name='running_ratio', numerator=running_revenue, denomi
         ms.ref.metric("sales.running_ratio"),
         at=grid.end,
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert observed.group_by(grid).rollup().execute().to_pandas().value.tolist() == [269.25, 235.2]
     fixed = observed.execute()
@@ -832,7 +832,7 @@ def test_engine_timezone_disagreement_rejects_without_route_retry(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     with pytest.raises(AnalysisError, match="timezone rules differ"):
         observed.execute()
@@ -923,7 +923,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
             during=window,
             at=endpoint,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -950,7 +950,7 @@ def test_empty_fold_keeps_typed_state_for_fixed_continuation(
             ms.ref.metric("sales.folded"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )

@@ -7,11 +7,40 @@ import inspect
 import re
 from collections import deque
 
+import pytest
+
+import marivo.analysis as mv
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.dataset_render import render
 from marivo.analysis._capabilities.registry import REGISTRY
+
+
+def test_member_axis_is_a_pure_immutable_observation_argument() -> None:
+    axis = mv.member()
+    assert type(axis) is mv.MemberAxis
+    assert axis == mv.member()
+    assert not inspect.signature(mv.member).parameters
+    assert str(inspect.signature(mv.member).return_annotation) == "MemberAxis"
+    assert "MemberAxis" in repr(axis) and "analysis.dsl.member" in repr(axis)
+    assert "\n" not in repr(axis)
+    with pytest.raises((AttributeError, TypeError)):
+        axis.entity = "sales.customer"
+    assert (
+        str(inspect.signature(mv.LogicalAnalysisDomain.observe).parameters["by"].annotation)
+        == "tuple[MemberAxis | Ref[DimensionKind] | LogicalCategoryRelation, ...]"
+    )
+    factory = render(REGISTRY, "dsl.member")
+    assert "no source read" in factory
+    assert "Only observe.by accepts this axis" in factory
+    assert "result = mv.member()" in factory
+    assert "dsl.member" in render(REGISTRY, "MemberAxis")
+    assert "dsl.member" in render(REGISTRY, "dsl.LogicalAnalysisDomain.observe")
+    for name in ("LogicalSelectedCategoryRelation", "MaterializedSelectedCategoryRelation"):
+        assert not hasattr(mv, name)
+        assert name not in REGISTRY.canonical_ids()
+        assert not any(name in target for target in REGISTRY.canonical_ids())
 
 
 def test_time_binding_has_one_public_entry_per_operation() -> None:
@@ -141,8 +170,6 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
     scalars = (
         mv.LogicalCategoryRelation,
         mv.MaterializedCategoryRelation,
-        mv.LogicalSelectedCategoryRelation,
-        mv.MaterializedSelectedCategoryRelation,
         mv.LogicalBooleanRelation,
         mv.MaterializedBooleanRelation,
         mv.LogicalSelectedBooleanRelation,

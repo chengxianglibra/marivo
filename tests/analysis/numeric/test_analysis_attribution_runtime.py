@@ -28,7 +28,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(
-            ms.ref.entity("sales.customer"),
+            mv.member(),
             *axes,
         ),
     )
@@ -37,7 +37,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(
-            ms.ref.entity("sales.customer"),
+            mv.member(),
             *axes,
         ),
     )
@@ -554,7 +554,7 @@ def test_period_buckets_and_retained_coarsened_partition(
             ms.ref.metric("sales.order_count"),
             during=grid,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"), *axes),
+            by=(mv.member(), *axes),
         )
         if coarsen:
             values = values.group_by(ms.ref.entity("sales.customer"), mv.grain("month")).rollup()

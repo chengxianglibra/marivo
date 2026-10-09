@@ -52,13 +52,13 @@ def _capture(case: DslCase, kind: _Kind) -> tuple[GraphDataset, tuple[GraphDatas
             ms.ref.metric("sales.revenue"),
             during=during,
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         count = members.observe(
             ms.ref.metric("sales.order_count"),
             during=during,
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         association = revenue.correlate(count, method="pearson").execute()
         assert association._dataset is not None
@@ -75,7 +75,7 @@ def _capture(case: DslCase, kind: _Kind) -> tuple[GraphDataset, tuple[GraphDatas
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     if kind == "forecast":
         forecast = history.forecast(horizon=mv.periods(2), model=mv.naive()).execute()

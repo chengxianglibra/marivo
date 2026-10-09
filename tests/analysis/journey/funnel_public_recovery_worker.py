@@ -144,7 +144,7 @@ def materialize(root: Path, *, source_followup: bool = True) -> dict[str, Json]:
                     ms.ref.metric("commerce.fact_count"),
                     during=mv.time_scope(start=START, end=END),
                     via=ms.ref.relationship("commerce.participant"),
-                    by=(ms.ref.entity("commerce.subjects"),),
+                    by=(mv.member(),),
                 ).execute()
                 assert following.to_pandas().member.tolist() == [9007199254740994]
                 assert following.to_pandas().value.tolist() == [1]

@@ -50,7 +50,7 @@ def run(root: Path, phase: str) -> None:
         records = {}
         for name in ("weighted", "mean"):
             fixed = members.observe(
-                ms.ref.metric("sales." + name), during=scope, by=(ms.ref.entity("sales.facts"),)
+                ms.ref.metric("sales." + name), during=scope, by=(mv.member(),)
             ).execute()
             records[name] = {
                 "ref": fixed.state.artifact_ref.ref,

@@ -113,7 +113,7 @@ def _native_temporal_recovery(
             ms.ref.metric("sales.folded"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
             via=ms.ref.relationship("sales.fact_subject"),
-            by=(ms.ref.entity("sales.subjects"),),
+            by=(mv.member(),),
         )
         assert isinstance(values, mv.LogicalNumericRelation)
         source = values.execute()

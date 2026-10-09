@@ -104,7 +104,7 @@ def test_coordinate_state_cost(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(
-            ms.ref.entity(f"{n.domain}.{n.customer}"),
+            mv.member(),
             ms.ref.dimension(f"{n.domain}.{n.order}.{n.channel}"),
         ),
     )

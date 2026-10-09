@@ -87,13 +87,13 @@ def test_public_source_fixed_views_and_selection(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     change = current.compare(baseline)
     source = change.deviation(method=method)
@@ -175,13 +175,13 @@ def test_f11_complete_source_chain(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     deviation = current.compare(baseline).deviation(method=method)
     defined = deviation.where(deviation.score.value.is_defined())
@@ -192,15 +192,13 @@ def test_f11_complete_source_chain(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
         )
-        followup = selected.observe(
-            metric, during=grid, via=via, by=(ms.ref.entity("sales.customer"),)
-        )
+        followup = selected.observe(metric, during=grid, via=via, by=(mv.member(),))
     else:
         followup = selected.observe(
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=via,
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
     trace: list[str] = []
     source_batches, original_fit = SourceSession.batches, numeric.fit
@@ -402,7 +400,7 @@ def test_selected_time_score_can_establish_a_new_fixed_fit(
             ms.ref.metric("sales.revenue"),
             during=grid,
             via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .deviation(method=method)
         .execute()

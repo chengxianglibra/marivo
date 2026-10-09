@@ -22,7 +22,7 @@ followup = positive.observed.members().observe(
     revenue,
     during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 followup.summarize(method=mv.count_defined()).execute().show()
 fixed = scored.execute()
@@ -128,7 +128,7 @@ order_count = customers.observe(
     ms.ref.metric("sales.order_count"),
     during=august,
     via=buyer,
-    by=(ms.ref.entity("sales.customer"),),
+    by=(mv.member(),),
 )
 association = august_revenue.correlate(order_count, method="spearman").execute()
 coefficient = association.coefficient
@@ -164,7 +164,7 @@ distribution = (
         scalar_distinct,
         during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
         via=ms.ref.relationship("sales.facts_subject"),
-        by=(ms.ref.entity("sales.subjects"),),
+        by=(mv.member(),),
     )
     .execute()
 )

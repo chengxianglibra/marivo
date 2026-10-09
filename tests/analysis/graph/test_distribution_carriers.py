@@ -83,7 +83,7 @@ def test_named_distribution_carriers_recover_independently(
                 metric,
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             )
             .execute()
         )

@@ -95,9 +95,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     metric = ms.ref.metric("sales.order_count")
     buyer = ms.ref.relationship("sales.order_buyer")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    values = members.observe(
-        metric, during=august, via=buyer, by=(ms.ref.entity("sales.customer"),)
-    )
+    values = members.observe(metric, during=august, via=buyer, by=(mv.member(),))
     assert isinstance(values, mv.LogicalNumericRelation)
     traces: dict[str, Trace] = {}
 
@@ -142,7 +140,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=buyer,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     change = values.compare(earlier)
     trace.help(values.ratio)
@@ -150,7 +148,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         ms.ref.metric("sales.revenue"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     quotient = values.ratio(revenue)
     assert isinstance(change, mv.LogicalDifferenceRelation)
@@ -197,7 +195,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         ms.ref.metric("sales.revenue"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     association = values.correlate(revenue, method="spearman")
     assert isinstance(association, mv.LogicalAssociationResult)
@@ -224,9 +222,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
     daily = (
-        orders.observe(
-            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
-        )
+        orders.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
         .group_by(grid)
         .rollup()
     )

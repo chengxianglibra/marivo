@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
@@ -111,7 +112,7 @@ def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_facto
         .observe(
             ms.ref.metric("sales.revenue"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
     )
     rendered = repr(result)
@@ -140,7 +141,7 @@ def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) ->
         .observe(
             ms.ref.metric("sales.revenue"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .contract()
     )
@@ -157,7 +158,7 @@ def test_dataset_contract_show_prints_render_plus_newline(
         .observe(
             ms.ref.metric("sales.revenue"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .contract()
     )

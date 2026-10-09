@@ -60,7 +60,7 @@ def test_duckdb_local_original_sum_consumes_group_input(
             ms.ref.metric("cost.facts_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
             by=(
-                ms.ref.entity("cost.facts"),
+                mv.member(),
                 axis,
             ),
         )

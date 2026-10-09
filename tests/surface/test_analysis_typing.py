@@ -15,6 +15,8 @@ def test_public_dsl_rejects_wrong_kinds_methods_and_lifecycle(tmp_path: Path) ->
         """
 import marivo.analysis as mv
 import marivo.semantic as ms
+mv.LogicalSelectedCategoryRelation
+mv.MaterializedSelectedCategoryRelation
 session = mv.session.get_or_create("static", report_timezone="UTC")
 members = session.members(ms.ref.entity("sales.customer"))
 session.members(ms.ref.metric("sales.revenue"))
@@ -22,6 +24,8 @@ members.read(ms.ref.entity("sales.customer"))
 members.observe(ms.ref.metric("sales.revenue"), via=ms.ref.entity("sales.order"), by=(ms.ref.dimension("sales.customer.region"),))
 members.observe(ms.ref.metric("sales.revenue"), coordinates=(ms.ref.dimension("sales.customer.region"),))
 members.observe(ms.ref.metric("sales.revenue"), by=(ms.ref.metric("sales.revenue"),))
+members.observe(ms.ref.metric("sales.revenue"), by=(ms.ref.entity("sales.customer"),))
+members.observe(ms.ref.metric("sales.revenue"), by=mv.member())
 members.group_by(ms.ref.dimension("sales.customer.region")).observe(ms.ref.metric("sales.revenue"))
 category = members.read(ms.ref.dimension("sales.customer.region"))
 assert isinstance(category, mv.LogicalCategoryRelation)
@@ -49,6 +53,7 @@ observed.correlate(observed, method="partial")
 mv.route(ms.ref.metric("sales.revenue"), through=(ms.ref.relationship("sales.buyer"),))
 mv.sum("extra")
 category.rank(order="ascending", ties="dense")
+observed.group_by(mv.member())
 observed.rank(order="up", ties="average")
 observed.rank(order="ascending", ties="dense", partition_by=(observed,))
 ranking = observed.rank(order="ascending", ties="dense")
@@ -89,6 +94,9 @@ table.execute().execute()
     assert 'Argument "via" to "observe"' in output
     assert 'Unexpected keyword argument "coordinates"' in output
     assert 'Argument "by" to "observe"' in output
+    assert 'Argument 1 to "group_by"' in output
+    assert 'has no attribute "LogicalSelectedCategoryRelation"' in output
+    assert 'has no attribute "MaterializedSelectedCategoryRelation"' in output
     assert 'LogicalAnalysisDomain" has no attribute "group_by"' in output
     assert 'has no attribute "compare"' in output
     assert 'Argument 1 to "where"' in output
@@ -119,6 +127,8 @@ def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path
         """
 import marivo.analysis as mv
 import marivo.semantic as ms
+from typing_extensions import assert_type
+assert_type(mv.member(), mv.MemberAxis)
 session = mv.session.get_or_create('static', report_timezone='UTC')
 members = session.members(ms.ref.entity('sales.customer'))
 metric = mv.runtime_metric.linear(add=[ms.ref.metric('sales.revenue'), ms.ref.metric('sales.revenue')], label='twice')
@@ -135,9 +145,15 @@ grouped_observed.rollup().execute()
 grouped_with_none = orders.observe(ms.ref.metric('sales.revenue'), via=None, by=(ms.ref.dimension('sales.order.channel'),))
 assert isinstance(grouped_with_none, mv.LogicalNumericRelation)
 grouped_with_none.rollup().execute()
-individual = members.observe(ms.ref.metric('sales.revenue'), by=(ms.ref.entity('sales.customer'),))
+individual = members.observe(ms.ref.metric('sales.revenue'), by=(mv.member(),))
 category = members.read(ms.ref.dimension('sales.customer.region'))
 assert isinstance(category, mv.LogicalCategoryRelation)
+selected = category.where(category.value.eq('east'))
+assert_type(selected, mv.LogicalCategoryRelation)
+assert_type(selected.where(selected.value.eq('east')), mv.LogicalCategoryRelation)
+fixed_category = selected.execute()
+assert_type(fixed_category, mv.MaterializedCategoryRelation)
+assert_type(fixed_category.where(fixed_category.value.eq('east')), mv.LogicalCategoryRelation)
 classified = members.observe(ms.ref.metric('sales.revenue'), by=(category,))
 assert isinstance(classified, mv.LogicalNumericRelation)
 """
@@ -209,8 +225,8 @@ def rejected(
     selected_members: mv.LogicalFixedAnalysisDomain,
     category: mv.LogicalCategoryRelation,
     fixed_category: mv.MaterializedCategoryRelation,
-    selected_category: mv.LogicalSelectedCategoryRelation,
-    fixed_selected_category: mv.MaterializedSelectedCategoryRelation,
+    selected_category: mv.LogicalCategoryRelation,
+    fixed_selected_category: mv.MaterializedCategoryRelation,
     boolean: mv.LogicalBooleanRelation,
     fixed_boolean: mv.MaterializedBooleanRelation,
     selected_boolean: mv.LogicalSelectedBooleanRelation,
@@ -256,8 +272,6 @@ def rejected(
         "LogicalFixedAnalysisDomain",
         "LogicalCategoryRelation",
         "MaterializedCategoryRelation",
-        "LogicalSelectedCategoryRelation",
-        "MaterializedSelectedCategoryRelation",
         "LogicalBooleanRelation",
         "MaterializedBooleanRelation",
         "LogicalSelectedBooleanRelation",

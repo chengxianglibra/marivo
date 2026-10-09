@@ -30,7 +30,7 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     assert session.runs().items == ()
     with pytest.raises(SemanticLoadFailed) as caught:
         session.members(ms.ref.entity("sales.orders")).observe(
-            ms.ref.metric("sales.revenue"), by=(ms.ref.entity("sales.orders"),)
+            ms.ref.metric("sales.revenue"), by=(mv.member(),)
         )
     assert "warehouse" in str(caught.value)
     assert "unknown datasource" in str(caught.value)
@@ -65,7 +65,7 @@ def test_observe_uses_registered_global_datasource(
     session = mv.session.get_or_create("registered", report_timezone="UTC")
     output = (
         session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.revenue"), by=(ms.ref.entity("sales.orders"),))
+        .observe(ms.ref.metric("sales.revenue"), by=(mv.member(),))
         .rollup()
         .execute()
     )

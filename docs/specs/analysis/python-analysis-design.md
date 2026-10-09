@@ -309,8 +309,9 @@ First member observation directly computes the complete Metric at the requested
 `by` grain. The default `by=()` produces Singleton, or one overall value per
 retained time bucket with `during=grid` or `at=grid.end`. Membership decides which
 contributions
-participate; `by` selects only spatial keys. It accepts an ordered tuple of the
-receiver's member Entity (all primary-key components), categorical member or
+participate; `by` selects only spatial keys. It accepts an ordered tuple containing
+`mv.member()` to retain the receiver's full Subject identity and all primary-key
+components, categorical member or
 contribution-path or independently reachable scalar Dimensions, and same-Session
 logical classifications, including explicit version reads. Member Dimensions
 classify complete member keys. On-route fields inherit the selected role; outside
@@ -328,6 +329,15 @@ overall `summarize(count()/count_defined())`. Numeric, ratio and statistic resul
 retain grouping and their admitted original or current-row reductions. Public
 `coordinates` and standalone grouped-domain observation are removed.
 Only retained full Subject identity permits a subsequent `members()`.
+The member marker resolves against the receiver during construction; it is not
+a new persisted axis kind. Repeated member markers and Entity Refs in `by`
+reject. Primary-key Dimensions remain ordinary classification axes and do not
+implicitly acquire Subject identity.
+
+Category reads and category `where()` return the same LogicalCategoryRelation;
+execution and recovery return MaterializedCategoryRelation. Selection remains
+in the definition graph with its exact predicates, member scope and Dimension
+binding. The former SelectedCategoryRelation types are removed without aliases.
 Coordinate identity retains the original Dimension Ref, classification origin,
 role path, version/time grid and a distinct binding identifier, never a fabricated
 semantic Ref. Two explicit roles of the same field form separate axes; repeating

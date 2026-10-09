@@ -65,7 +65,7 @@ def run_process(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         region = members.read(ms.ref.dimension("sales.customer.region"))
         assert isinstance(region, mv.LogicalCategoryRelation)
@@ -84,7 +84,7 @@ def run_process(
                 ms.ref.metric(f"sales.{name}"),
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             ).execute()
         orders = session.members(ms.ref.entity("sales.order"))
         results["read"] = orders.read(ms.ref.measure("sales.order.amount")).execute()

@@ -238,11 +238,11 @@ def run(
     for index in range(len(PROFILES)):
         during = grid if domain == "entity_time" else window
         metric = ms.ref.metric(f"sales.total_{index}")
-        current = members.observe(metric, during=during, by=(ms.ref.entity("sales.order"),))
+        current = members.observe(metric, during=during, by=(mv.member(),))
         baseline = members.observe(
             metric,
             during=baseline_grid if domain == "entity_time" else baseline_window,
-            by=(ms.ref.entity("sales.order"),),
+            by=(mv.member(),),
         )
         assert isinstance(current, mv.LogicalNumericRelation)
         assert isinstance(baseline, mv.LogicalNumericRelation)

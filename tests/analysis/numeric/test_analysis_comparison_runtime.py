@@ -98,13 +98,13 @@ def test_public_numeric_difference_source_and_fixed(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     source = current.compare(baseline).execute().to_pandas().set_index("member")
     first, second = current.execute(), baseline.execute()
@@ -148,13 +148,13 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     saved = current.compare(baseline).execute()
     dataset = saved._dataset
@@ -263,7 +263,7 @@ def test_nested_difference_keeps_independent_captures(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         assert isinstance(result, mv.LogicalNumericRelation)
         return result
@@ -363,13 +363,13 @@ def test_relative_change_exact_finish_and_zero_baseline(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
         saved = left.compare(right, value="relative_change").execute()
@@ -398,7 +398,7 @@ def test_ordinary_ratio_and_cohort_singleton(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     for left in (current, current.execute()):
@@ -418,7 +418,7 @@ def test_ordinary_ratio_and_cohort_singleton(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     second = second_observed.rollup()
     for left, right in ((first, second), (first.execute(), second.execute())):
@@ -443,13 +443,13 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
@@ -562,9 +562,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             grain=mv.grain("day"),
             timezone="America/New_York" if event_kind == "aware_local" else "UTC",
         )
-        result = members.observe(
-            metric, during=grid, via=via, by=(ms.ref.entity("sales.customer"),)
-        )
+        result = members.observe(metric, during=grid, via=via, by=(mv.member(),))
         assert isinstance(result, mv.LogicalNumericRelation)
         return result
 
@@ -619,13 +617,13 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
     relationship = ms.ref.relationship("sales.customer_account")
     scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
     left = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, during=scope, via=buyer, by=(ms.ref.entity("sales.customer"),)
+        metric, during=scope, via=buyer, by=(mv.member(),)
     )
     right = case.session.members(ms.ref.entity("sales.account")).observe(
         metric,
         during=scope,
         via=mv.routes(mv.route(ms.ref.entity("sales.order"), through=(buyer, relationship))),
-        by=(ms.ref.entity("sales.account"),),
+        by=(mv.member(),),
     )
     for first, second in ((left, right), (left.execute(), right.execute())):
         pairing = mv.one_to_one(left=first, right=second, via=relationship)
@@ -651,13 +649,13 @@ def test_relative_and_ratio_cold_fixed_composition(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     first, second = current.execute(), baseline.execute()
     relative = current.rollup().compare(baseline.rollup(), value="relative_change").execute()
@@ -720,7 +718,7 @@ def test_ordinary_ratio_numeric_families(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     for result in (observed.ratio(observed).execute(), fixed.ratio(fixed).execute()):
@@ -764,13 +762,13 @@ def test_composite_keys_double_empty_and_wrong_key_images(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     first, second = current.execute(), baseline.execute()
     for left, right in ((current, baseline), (first, second)):
@@ -823,13 +821,13 @@ def test_public_relative_negative_and_minimum_integer_baseline(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     first, second = current.execute(), baseline.execute()
     expected = float(Fraction(2**63 - 1 - baseline_amount, abs(baseline_amount)))
@@ -874,13 +872,13 @@ def test_float_sum_envelope_and_native_mean_cell_boundary(
             ms.ref.metric("sales." + metric),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         baseline = members.observe(
             ms.ref.metric("sales." + metric),
             during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         first, second = current.execute(), baseline.execute()
         for left, right in ((current, baseline), (first, second)):
@@ -919,13 +917,13 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     independent = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     original = SourceSession.stage_derived
     captured: list[pa.Table] = []
@@ -978,13 +976,13 @@ def test_comparison_of_float_original_expression_operands(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     baseline = members.observe(
         metric,
         during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     first, second = current.execute(), baseline.execute()
     expected = {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
@@ -1027,12 +1025,12 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
     via = ms.ref.relationship("sales.order_buyer")
     current = (
-        eastern.observe(metric, during=scope, via=via, by=(ms.ref.entity("sales.customer"), region))
+        eastern.observe(metric, during=scope, via=via, by=(mv.member(), region))
         .group_by(region)
         .rollup()
     )
     baseline = (
-        members.observe(metric, during=scope, via=via, by=(ms.ref.entity("sales.customer"), region))
+        members.observe(metric, during=scope, via=via, by=(mv.member(), region))
         .group_by(region)
         .rollup()
     )
@@ -1073,13 +1071,13 @@ def test_public_decimal_ratio_rounds_once_half_even(
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
     via = ms.ref.relationship("sales.order_buyer")
     numerator = members.observe(
-        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(ms.ref.entity("sales.customer"),)
+        ms.ref.metric("sales.revenue"), during=scope, via=via, by=(mv.member(),)
     )
     denominator = members.observe(
         ms.ref.metric("sales.denominator"),
         during=scope,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     first, second = numerator.execute(), denominator.execute()
     for left, right in ((numerator, denominator), (first, second)):
@@ -1135,7 +1133,7 @@ def test_float_fold_comparison_without_error_envelope_rejects_statically(
         ms.ref.metric("sales.folded"),
         during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     with pytest.raises(AnalysisError, match="retained operand error envelope"):
         observed.ratio(observed)
@@ -1174,7 +1172,7 @@ def test_float_row_statistic_comparison_retains_error_state(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     descriptor = mv.sum() if method == "sum" else mv.mean()
     grouped = observed.group_by(ms.ref.entity("sales.customer")).summarize(descriptor)
@@ -1202,7 +1200,7 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     # Ordinary division produces float Cells with retained nonzero bounds.
     assert isinstance(observed, mv.LogicalNumericRelation)
@@ -1269,7 +1267,7 @@ def test_fixed_comparison_indexes_components_once_per_endpoint(
         ms.ref.metric("sales.order_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     positive = observed.where(observed.value.gt(0))

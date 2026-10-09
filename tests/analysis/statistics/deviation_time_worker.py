@@ -219,7 +219,7 @@ def run(
             raw = members.observe(
                 ms.ref.metric(f"sales.maximum_{index}"),
                 during=grid,
-                by=(ms.ref.entity("sales.order"),),
+                by=(mv.member(),),
             )
             assert isinstance(raw, mv.LogicalNumericRelation)
             sources: dict[str, mv.LogicalNumericRelation | mv.LogicalRolledNumericRelation] = {

@@ -97,7 +97,7 @@ def test_observation_preserves_population_windows_and_query_count(
                 ms.ref.metric("sales.revenue"),
                 during=mv.time_scope(start=start, end=end),
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             )
             .execute()
             .to_pandas()
@@ -144,7 +144,7 @@ def test_observation_preserves_population_windows_and_query_count(
         .observe(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            by=(ms.ref.entity("sales.order"),),
+            by=(mv.member(),),
         )
         .execute()
         .to_pandas()
@@ -181,7 +181,7 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
                 ms.ref.metric("sales.revenue"),
                 during=grid,
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             )
             .execute()
             .to_pandas()
@@ -232,7 +232,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
                 ms.ref.metric("sales.running"),
                 at=grid.end,
                 via=ms.ref.relationship("sales.order_buyer"),
-                by=(ms.ref.entity("sales.customer"),),
+                by=(mv.member(),),
             )
             .group_by(grid)
             .rollup()
@@ -251,7 +251,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
             ms.ref.metric("sales.running"),
             at=datetime(2026, 10, 1, tzinfo=timezone.utc),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()

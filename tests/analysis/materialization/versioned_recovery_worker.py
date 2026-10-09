@@ -85,7 +85,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     str,
                     mv.LogicalSelectedNumericRelation
                     | mv.LogicalSelectedBooleanRelation
-                    | mv.LogicalSelectedCategoryRelation
+                    | mv.LogicalCategoryRelation
                     | mv.LogicalSelectedTemporalRelation,
                     list[tuple[int, str]],
                 ],
@@ -104,7 +104,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     (
                         mv.MaterializedSelectedNumericRelation,
                         mv.MaterializedSelectedBooleanRelation,
-                        mv.MaterializedSelectedCategoryRelation,
+                        mv.MaterializedCategoryRelation,
                         mv.MaterializedSelectedTemporalRelation,
                     ),
                 )

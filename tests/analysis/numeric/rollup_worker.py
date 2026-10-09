@@ -128,7 +128,7 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         members = session.members(ms.ref.entity("sales.orders"))
         values, artifacts = {}, {}
         for name, metric in zip(METRIC_NAMES, metrics, strict=True):
-            observed = members.observe(metric, by=(ms.ref.entity("sales.orders"),))
+            observed = members.observe(metric, by=(mv.member(),))
             warm = observed.rollup().execute().to_pandas()
             values[name] = str(warm["value"].iloc[0])
             artifacts[name] = observed.execute().state.artifact_ref.ref

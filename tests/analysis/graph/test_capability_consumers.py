@@ -135,7 +135,7 @@ def test_declared_string_time_uses_owned_execution_functions(
         values = session.members(ms.ref.entity("sales.facts")).observe(
             ms.ref.metric("sales.total"),
             during=mv.time_scope(start=start, end=end),
-            by=(ms.ref.entity("sales.facts"),),
+            by=(mv.member(),),
         )
         assert isinstance(values, mv.LogicalNumericRelation)
         result = values.execute()
@@ -259,7 +259,7 @@ def test_source_coordinates_statistics_and_original_state(
         assert isinstance(selected, mv.LogicalAnalysisDomain)
         categories = selected.read(ms.ref.dimension("sales.facts.bucket"))
         assert isinstance(categories, mv.LogicalCategoryRelation)
-        values = selected.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        values = selected.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(values, mv.LogicalNumericRelation)
         grouped = values.group_by(categories)
         counted = grouped.summarize(mv.count()).execute()
@@ -298,18 +298,18 @@ def test_source_coordinates_statistics_and_original_state(
         original = values.group_by(categories).rollup().execute()
         assert original.to_pandas().value.tolist() == [2]
         assert original.rollup().execute().to_pandas().value.tolist() == [2]
-        full = members.observe(ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),))
+        full = members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(full, mv.LogicalNumericRelation)
         if numeric_type == "int64":
             current = members.observe(
                 ms.ref.metric("sales.total"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(ms.ref.entity("sales.facts"),),
+                by=(mv.member(),),
             )
             baseline = members.observe(
                 ms.ref.metric("sales.total"),
                 during=mv.time_scope(start="2026-08-02", end="2026-08-03"),
-                by=(ms.ref.entity("sales.facts"),),
+                by=(mv.member(),),
             )
             assert isinstance(current, mv.LogicalNumericRelation)
             assert isinstance(baseline, mv.LogicalNumericRelation)
@@ -326,9 +326,7 @@ def test_source_coordinates_statistics_and_original_state(
         assert full.summarize(mv.mean()).execute().to_pandas().value.tolist() == pytest.approx(
             [full_sum / 3], abs=1e-12, rel=0
         )
-        average = members.observe(
-            ms.ref.metric("sales.average"), by=(ms.ref.entity("sales.facts"),)
-        )
+        average = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
         assert isinstance(average, mv.LogicalNumericRelation)
         assert average.summarize(mv.count()).execute().to_pandas().value.tolist() == [3]
         assert average.summarize(mv.count_defined()).execute().to_pandas().value.tolist() == [2]
@@ -343,9 +341,7 @@ def test_source_coordinates_statistics_and_original_state(
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
         empty_members = bucket.where(bucket.value.eq("missing")).members()
         assert isinstance(empty_members, mv.LogicalAnalysisDomain)
-        empty_values = empty_members.observe(
-            ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
-        )
+        empty_values = empty_members.observe(ms.ref.metric("sales.total"), by=(mv.member(),))
         assert isinstance(empty_values, mv.LogicalNumericRelation)
         assert empty_values.summarize(mv.count()).execute().to_pandas().value.tolist() == [0]
         empty_mean = empty_values.summarize(mv.mean()).execute().to_pandas()
@@ -462,7 +458,7 @@ def test_original_mean_preserves_component_weights(
         session = mv.session.get_or_create("r93-c05-mean", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         bucket = members.read(ms.ref.dimension("sales.facts.bucket"))
-        values = members.observe(ms.ref.metric("sales.average"), by=(ms.ref.entity("sales.facts"),))
+        values = members.observe(ms.ref.metric("sales.average"), by=(mv.member(),))
         assert isinstance(bucket, mv.LogicalCategoryRelation)
         assert isinstance(values, mv.LogicalNumericRelation)
         grouped = values.group_by(bucket).rollup()
@@ -603,7 +599,7 @@ def test_cumulative_keeps_anchor_and_overlap(
             grain=mv.grain("month"),
         )
         logical = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.running"), at=grid.end, by=(ms.ref.entity("sales.facts"),)
+            ms.ref.metric("sales.running"), at=grid.end, by=(mv.member(),)
         )
         fixed = logical.execute()
         source_trace.record(fixed)
@@ -702,7 +698,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         assert bound.cells[-1].end.strftime("%Y-%m-%d %H:%M:%S") == instants[3]
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -876,7 +872,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
                 during=mv.time_grid(during=scope, grain=grain, timezone="UTC"),
             )
         fixed = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
         ).execute()
         assert len(fixed.to_pandas()) == 10
         source_trace.record(fixed)
@@ -954,7 +950,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         )
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -1059,7 +1055,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         reader = members._node._live().graph.entity_schema.reader_timezone
         reader_zone = reader.engine_timezone_name if reader is not None else None
         fixed = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
         ).execute()
         frame = fixed.to_pandas()
         assert len(frame) == 10 and set(frame.cell_tag) == {"defined"}
@@ -1121,9 +1117,7 @@ def test_sqlite_native_time_adopts_frozen_system_reader_authority(
         reader = members._node._live().graph.entity_schema.reader_timezone
         assert reader is not None and reader.read_tz_resolution == "system_fallback"
         monkeypatch.setenv("TZ", "Asia/Shanghai")
-        logical = members.observe(
-            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
-        )
+        logical = members.observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
         assert session.runs().items == ()
         assert not any(owner.submissions for owner in source_trace.owners)
         assert logical.execute().group_by(grid).rollup().execute().to_pandas().value.tolist() == [
@@ -1188,7 +1182,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         fixed = (
             session.members(ms.ref.entity("sales.facts"))
-            .observe(ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),))
+            .observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
             .execute()
         )
         frame = fixed.to_pandas()
@@ -1263,7 +1257,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         )
         grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
         logical = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.total"), during=grid, by=(ms.ref.entity("sales.facts"),)
+            ms.ref.metric("sales.total"), during=grid, by=(mv.member(),)
         )
         result = logical.execute()
         assert sorted(result.to_pandas().value.tolist()) == [0, 2]

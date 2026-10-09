@@ -85,12 +85,17 @@ def test_numeric_string_category_persists_and_continues(
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
     for current in (category, category.execute()):
-        saved = current.where(current.value.eq("123")).execute()
+        selected = current.where(current.value.eq("123"))
+        assert type(selected) is mv.LogicalCategoryRelation
+        chained = selected.where(selected.value.eq("123"))
+        assert type(chained) is mv.LogicalCategoryRelation
+        saved = chained.execute()
+        assert type(saved) is mv.MaterializedCategoryRelation
         frame = saved.to_pandas()
         assert frame.member.tolist() == ["A"]
         assert frame.value.tolist() == ["123"]
         restored = case.session.artifact(saved.state.artifact_ref)
-        assert isinstance(restored, mv.MaterializedSelectedCategoryRelation)
+        assert isinstance(restored, mv.MaterializedCategoryRelation)
         assert restored.to_pandas().equals(frame)
         continued = restored.where(restored.value.eq("123")).execute()
         assert continued.to_pandas().equals(frame)
@@ -114,7 +119,7 @@ def test_selected_difference_discloses_where_continuation(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start=start, end=end),
             via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
     )
@@ -177,7 +182,7 @@ def test_public_multi_input_source_and_fixed(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     twice = members.observe(
         mv.runtime_metric.linear(
@@ -185,7 +190,7 @@ def test_public_multi_input_source_and_fixed(
         ),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     predicate = mv.all_of(amount.value.is_defined(), amount.value.gt(0), category.value.eq("east"))
     facts = analysis_dsl_rows("j2")
@@ -240,7 +245,7 @@ def test_tag_selection_precedes_numeric_consumption(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     current = values.execute() if fixed else values
     with pytest.raises(Exception, match=r"Defined|defined"):
@@ -325,7 +330,7 @@ def test_public_precise_field_comparisons(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        by=(ms.ref.entity(f"{n.domain}.{n.customer}"),),
+        by=(mv.member(),),
     )
     values = values.where(values.value.is_defined())
     facts = analysis_dsl_rows("j2")
@@ -380,7 +385,7 @@ def test_public_duration_field_comparison(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     selected = values.where(values.value.is_defined())
     expected = {

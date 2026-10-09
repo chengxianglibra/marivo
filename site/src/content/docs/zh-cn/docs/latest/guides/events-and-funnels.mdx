@@ -84,7 +84,7 @@ revenue = selected.observe(
     ms.ref.metric("sales.revenue"),
     during=window,
     via=ms.ref.relationship("sales.order_customer"),
-    by=(ms.ref.entity("sales.customers"),),
+    by=(mv.member(),),
 ).execute()
 ```
 

@@ -35,7 +35,7 @@ def test_public_j1_total_uses_registered_source(
             revenue,
             during=august,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()
@@ -68,7 +68,7 @@ def test_public_j1_scope_uses_persisted_report_timezone(
             revenue,
             during=august,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()
@@ -81,7 +81,7 @@ def test_public_j1_scope_uses_persisted_report_timezone(
             revenue,
             during=utc_instants,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()
@@ -118,7 +118,7 @@ def test_public_contract_actions_and_result_card(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     saved = observed.execute()
     assert ".show()" in repr(saved)
@@ -186,7 +186,7 @@ def test_public_empty_and_undefined_cards(
                 through=(ms.ref.relationship(f"{names.domain}.{names.buyer}"),),
             ),
         ),
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     undefined = observed.rollup().execute()
     undefined.show()
@@ -211,7 +211,7 @@ def test_public_member_read_and_category_selection(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .rollup()
         .execute()
@@ -226,7 +226,7 @@ def test_public_member_read_and_category_selection(
     assert by_region.to_pandas().set_index("group").loc["east", "value"] == 600
     selected = read.where(read.value.eq("west")).execute()
 
-    assert isinstance(selected, mv.MaterializedSelectedCategoryRelation)
+    assert isinstance(selected, mv.MaterializedCategoryRelation)
     assert selected.to_pandas()["value"].tolist() == ["west"]
     actions = selected.contract().actions
     assert tuple(action.call for action in actions) == (
@@ -236,7 +236,7 @@ def test_public_member_read_and_category_selection(
     )
     assert all(action.help_target.startswith("analysis.") for action in actions)
     assert isinstance(
-        case.session.artifact(selected.state.artifact_ref), mv.MaterializedSelectedCategoryRelation
+        case.session.artifact(selected.state.artifact_ref), mv.MaterializedCategoryRelation
     )
     assert selected.members().execute().to_pandas()["member"].tolist() == ["D"]
     before = len(case.session.runs().items)
@@ -245,7 +245,7 @@ def test_public_member_read_and_category_selection(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
     assert len(case.session.runs().items) == before
 
@@ -350,7 +350,7 @@ def test_public_fixed_coordinate_rollup_uses_retained_group_state(
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
         by=(
-            ms.ref.entity(f"{names.domain}.{names.customer}"),
+            mv.member(),
             channel,
         ),
     )
@@ -372,12 +372,8 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     july = mv.time_scope(start="2026-07-01", end="2026-08-01")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    fixed = members.observe(
-        revenue, during=july, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
-    ).execute()
-    live = members.observe(
-        revenue, during=august, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
-    )
+    fixed = members.observe(revenue, during=july, via=buyer, by=(mv.member(),)).execute()
+    live = members.observe(revenue, during=august, via=buyer, by=(mv.member(),))
     count_before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match="mixed live and materialized"):
@@ -399,9 +395,9 @@ def test_public_comparison_rejects_different_members_and_metric_units(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     count = ms.ref.metric(f"{names.domain}.{names.order_count}")
-    current = first_members.observe(revenue, during=august, via=buyer, by=(entity,))
-    separate = separate_members.observe(revenue, during=july, via=buyer, by=(entity,))
-    different_metric = first_members.observe(count, during=july, via=buyer, by=(entity,))
+    current = first_members.observe(revenue, during=august, via=buyer, by=(mv.member(),))
+    separate = separate_members.observe(revenue, during=july, via=buyer, by=(mv.member(),))
+    different_metric = first_members.observe(count, during=july, via=buyer, by=(mv.member(),))
     before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match=r"endpoints|Metric|metric"):
@@ -421,7 +417,7 @@ def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     first = logical.execute()
     second = logical.execute()
@@ -453,12 +449,8 @@ def test_public_j2_selected_members_and_next_month_mean(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 
-    change = customers.observe(
-        revenue, during=august, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
-    ).compare(
-        customers.observe(
-            revenue, during=july, via=buyer, by=(ms.ref.entity(f"{names.domain}.{names.customer}"),)
-        )
+    change = customers.observe(revenue, during=august, via=buyer, by=(mv.member(),)).compare(
+        customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
     )
     selected = change.where(change.value.lt(0)).members()
     result = (
@@ -466,7 +458,7 @@ def test_public_j2_selected_members_and_next_month_mean(
             revenue,
             during=september,
             via=buyer,
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .summarize(mv.mean())
         .execute()
@@ -498,7 +490,7 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
             mv.route(order, through=(buyer,)),
         ),
         by=(
-            ms.ref.entity(f"{names.domain}.{names.customer}"),
+            mv.member(),
             channel,
         ),
     )
@@ -551,13 +543,13 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
     count = customers.observe(
         ms.ref.metric(f"{names.domain}.{names.order_count}"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     )
 
     association = revenue.correlate(count, method="spearman").execute()
@@ -633,13 +625,13 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
         ms.ref.metric("telemetry.signal_sum"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity("telemetry.device"),),
+        by=(mv.member(),),
     )
     readings = devices.observe(
         ms.ref.metric("telemetry.reading_count"),
         during=august,
         via=buyer,
-        by=(ms.ref.entity("telemetry.device"),),
+        by=(mv.member(),),
     )
 
     association = signal.correlate(readings, method="spearman").execute()
@@ -702,7 +694,7 @@ def test_public_missing_key_and_wrong_relationship_reject(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.line_order}"),
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
     assert route.value.repair is not None
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
@@ -720,7 +712,7 @@ def test_public_missing_retained_part_blocks_recovery(
             ms.ref.metric(f"{names.domain}.{names.revenue}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+            by=(mv.member(),),
         )
         .execute()
     )
@@ -754,7 +746,7 @@ def test_public_cold_process_continues_from_retained_parts(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        by=(ms.ref.entity(f"{names.domain}.{names.customer}"),),
+        by=(mv.member(),),
     ).execute()
     saved_ref = observed.state.artifact_ref.ref
     offline = case.database_path.with_suffix(".offline")
@@ -798,7 +790,7 @@ def test_retired_grouping_calls_reject_before_execution(
         assert not hasattr(current, "count")
         assert not any("group_by" in action.call for action in current.contract().actions)
     metric = ms.ref.metric("sales.revenue")
-    values = members.observe(metric, by=(ms.ref.entity("sales.customer"),))
+    values = members.observe(metric, by=(mv.member(),))
     namespace = {"members": members, "metric": metric, "values": values}
     before = case.session.runs().items
     statements = tuple(case.session._runtime.statistics.statements)

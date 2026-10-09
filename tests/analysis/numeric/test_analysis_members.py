@@ -147,6 +147,39 @@ def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
 
 
 @pytest.mark.runtime
+def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
+    prefix = _domain(members_session)
+    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
+    metric = ms.ref.metric(f"{prefix}.observed_total")
+    category = ms.ref.dimension(f"{prefix}.plain.category")
+    for axes, expected in (
+        ((mv.member(), category), {(1, "A", "west"): 10, (1, "B", "east"): 20}),
+        ((category, mv.member()), {("west", 1, "A"): 10, ("east", 1, "B"): 20}),
+    ):
+        observed = members.observe(metric, by=axes)
+        fixed = observed.execute()
+        rows = fixed.to_pandas()
+        assert rows.set_index(list(rows.columns[:3]))["value"].to_dict() == expected
+        assert fixed.members().execute().to_pandas().iloc[:, :2].values.tolist() == [
+            [1, "A"],
+            [1, "B"],
+        ]
+    primary_key_dimensions = members.observe(
+        metric,
+        by=(ms.ref.dimension(f"{prefix}.plain.tenant"), ms.ref.dimension(f"{prefix}.plain.id")),
+    )
+    with pytest.raises(AnalysisError):
+        primary_key_dimensions.members()
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
+    )
+    rows = members.observe(metric, during=grid, by=(mv.member(),)).execute().to_pandas()
+    assert len(rows) == 6
+    assert rows["value"].dropna().tolist() == [10, 20]
+    assert rows["cell_tag"].tolist().count("null") == 4
+
+
+@pytest.mark.runtime
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -156,7 +189,13 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     route = ms.ref.relationship(f"{prefix}.to_snapshot")
     category = members.read(field, at=datetime(2026, 8, 1, tzinfo=timezone.utc), via=route)
     assert isinstance(category, mv.LogicalCategoryRelation)
-    observed = members.observe(metric, by=(category,)).execute()
+    selected_category = category.where(category.value.is_defined())
+    assert type(selected_category) is mv.LogicalCategoryRelation
+    assert (
+        selected_category._node.classification_coordinate()
+        == category._node.classification_coordinate()
+    )
+    observed = members.observe(metric, by=(selected_category,)).execute()
     assert observed.to_pandas().set_index("group")["value"].to_dict() == {"west": 10, "east": 20}
     own = members.read(ms.ref.dimension(f"{prefix}.plain.category"))
     assert isinstance(own, mv.LogicalCategoryRelation)

@@ -137,7 +137,7 @@ def run(root: Path, phase: str) -> None:
             members.observe(
                 ms.ref.metric(f"sales.total_{i}"),
                 during=grid,
-                by=(ms.ref.entity("sales.order"),),
+                by=(mv.member(),),
             )
             .group_by(grid)
             .rollup()

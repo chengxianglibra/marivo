@@ -30,7 +30,7 @@ def test_all_frozen_concrete_receivers_and_owned_fields(tmp_path: Path) -> None:
     body = "import marivo.analysis as mv\nfrom typing_extensions import assert_type\n"
     for receiver in RECEIVERS:
         body += (
-            f"def accepts_{receiver}(value: mv.{receiver}, category: mv.LogicalCategoryRelation, fixed: mv.MaterializedSelectedCategoryRelation) -> None:\n"
+            f"def accepts_{receiver}(value: mv.{receiver}, category: mv.LogicalCategoryRelation, fixed: mv.MaterializedCategoryRelation) -> None:\n"
             "    assert_type(value.deviation(method='zscore'), mv.LogicalDeviationResult)\n"
             "    assert_type(value.deviation(method='mad', partition_by=(category, fixed)), mv.LogicalDeviationResult)\n"
         )

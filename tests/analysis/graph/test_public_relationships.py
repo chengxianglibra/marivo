@@ -130,7 +130,7 @@ def test_authored_relationship_keys_execute_metric_and_event(relationship_projec
             during=mv.time_scope(start="2026-01-01", end="2026-02-01"),
             via=ms.ref.relationship("sales.event_order"),
             by=(
-                ms.ref.entity("sales.orders"),
+                mv.member(),
                 ms.ref.dimension("sales.orders.region"),
             ),
         )

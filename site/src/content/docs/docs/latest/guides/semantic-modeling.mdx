@@ -315,7 +315,7 @@ long_count = population.observe(
     ms.ref.metric("sales.number"),
     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
     via=long_routes,
-    by=(ms.ref.entity("sales.orders"),),
+    by=(mv.member(),),
 ).execute()
 ```
 

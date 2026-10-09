@@ -61,13 +61,13 @@ def test_public_source_fixed_association(
         ms.ref.metric("sales.revenue"),
         during=during,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     b = members.observe(
         ms.ref.metric("sales.order_count"),
         during=during,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     logical = a.correlate(b, method=method)
     result = logical.execute()
@@ -127,7 +127,7 @@ def test_public_source_fixed_forecast(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     logical = history.forecast(horizon=mv.periods(2), model=model)
     result = logical.execute()
@@ -201,7 +201,7 @@ def test_all_requested_pairs_and_static_ceiling(
             else mv.runtime_metric.linear(add=[metric] * (i + 1), label=f"times_{i}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         for i in range(1, arity + 1)
     )
@@ -240,16 +240,12 @@ def test_lag_counts_ties_and_approved_future(
         else mv.grain("day"),
     )
     a = (
-        members.observe(
-            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
-        )
+        members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
         .group_by(grid)
         .rollup()
     )
     b = (
-        members.observe(
-            ms.ref.metric("sales.total_5"), during=grid, by=(ms.ref.entity("sales.order"),)
-        )
+        members.observe(ms.ref.metric("sales.total_5"), during=grid, by=(mv.member(),))
         .group_by(grid)
         .rollup()
     )
@@ -278,7 +274,7 @@ def test_lag_counts_ties_and_approved_future(
         members.observe(
             ms.ref.metric("sales.total_5"),
             during=history_grid,
-            by=(ms.ref.entity("sales.order"),),
+            by=(mv.member(),),
         )
         .group_by(history_grid)
         .rollup()
@@ -311,13 +307,13 @@ def test_statistical_failure_is_atomic(
         ms.ref.metric("sales.revenue"),
         during=during,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     b = members.observe(
         ms.ref.metric("sales.order_count"),
         during=during,
         via=via,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     logical = a.correlate(b)
     fixed = logical.execute()
@@ -354,7 +350,7 @@ def test_forecast_prediction_is_a_complete_numeric_receiver(
         ms.ref.metric("sales.order_count"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     prior = history.forecast(horizon=mv.periods(2), model=mv.drift()).execute()
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)

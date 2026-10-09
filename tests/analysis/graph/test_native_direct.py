@@ -48,7 +48,7 @@ def _values(work: Workload) -> mv.LogicalNumericRelation:
     values = work.session.members(ms.ref.entity("cost.facts")).observe(
         ms.ref.metric("cost.facts_total"),
         during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-        by=(ms.ref.entity("cost.facts"),),
+        by=(mv.member(),),
     )
     assert isinstance(values, mv.LogicalNumericRelation)
     return values
@@ -326,7 +326,7 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r96-hybrid", report_timezone="UTC")
         values = session.members(ms.ref.entity("sales.facts")).observe(
-            ms.ref.metric("sales.total"), by=(ms.ref.entity("sales.facts"),)
+            ms.ref.metric("sales.total"), by=(mv.member(),)
         )
         assert isinstance(values, mv.LogicalNumericRelation)
         derived, calculated = SourceSession.stage_derived, SourceSession.stage_calculated

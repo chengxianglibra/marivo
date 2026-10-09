@@ -153,7 +153,7 @@ def test_native_count_rollup_and_group_state(
         members = session.members(entity)
         window = mv.time_scope(start="2026-09-01", end="2026-09-02")
         scalar = members.observe(metric, during=window)
-        individual = members.observe(metric, during=window, by=(entity,))
+        individual = members.observe(metric, during=window, by=(mv.member(),))
         grouped = members.observe(metric, during=window, by=(category,))
         assert isinstance(scalar, mv.LogicalNumericRelation)
         assert isinstance(individual, mv.LogicalNumericRelation)
@@ -221,7 +221,7 @@ def test_native_count_rollup_and_group_state(
         assert isinstance(empty, mv.LogicalAnalysisDomain)
         for empty_logical in (
             empty.observe(metric, during=window),
-            empty.observe(metric, during=window, by=(entity,)).rollup(),
+            empty.observe(metric, during=window, by=(mv.member(),)).rollup(),
         ):
             assert empty_logical.execute().to_pandas()["value"].tolist() == [0]
         grid = mv.time_grid(

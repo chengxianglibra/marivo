@@ -212,7 +212,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
         ms.ref.metric("sales.revenue"),
         during=grid,
         via=ms.ref.relationship("sales." + case.names.buyer),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     original = raw.execute()
     input_frame = original.to_pandas()

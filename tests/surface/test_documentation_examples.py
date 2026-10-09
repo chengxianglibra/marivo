@@ -269,7 +269,7 @@ def test_display_workflow_example_executes(
             ms.ref.metric("sales.order_count"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         ),
     }
     code = _example("en", "ranking-table")

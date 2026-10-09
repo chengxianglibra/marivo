@@ -9,6 +9,7 @@ import sys
 import duckdb
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic.ir import AggKind
 from tests.shared_fixtures import DslCaseFactory
@@ -48,7 +49,7 @@ def test_defined_quantile_survives_source_offline_recovery(
         .observe(
             ms.ref.metric("sales.median_amount"),
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )

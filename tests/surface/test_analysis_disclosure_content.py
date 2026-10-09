@@ -224,13 +224,13 @@ def test_rendered_focused_examples_execute(
         ms.ref.metric("sales.order_count"),
         during=scope,
         via=buyer,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     revenue = members.observe(
         ms.ref.metric("sales.revenue"),
         during=scope,
         via=buyer,
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     if method == "correlate":
         order_members = case.session.members(ms.ref.entity("sales.order"))
@@ -286,9 +286,7 @@ def test_rendered_forecast_example_executes(analysis_dsl_case_factory: DslCaseFa
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
     daily = (
-        members.observe(
-            ms.ref.metric("sales.total_0"), during=grid, by=(ms.ref.entity("sales.order"),)
-        )
+        members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
         .group_by(grid)
         .rollup()
     )

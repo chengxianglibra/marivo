@@ -52,7 +52,7 @@ def test_direct_distribution(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
@@ -111,7 +111,7 @@ def test_native_quantile_precision_is_source_owned(
         .observe(
             metric,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )
@@ -163,7 +163,7 @@ def test_float_original_mean_state(
         )
     )
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
+        metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
     )
     fixed = observed.execute()
     expected = 20.75 / 4 if weighted else 4.0
@@ -191,7 +191,7 @@ def test_original_extrema(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     assert fixed.to_pandas().set_index("member").loc["D", "cell_tag"] == "null"
@@ -268,7 +268,7 @@ def test_decimal_original_state(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     assert logical.rollup().execute().to_pandas()["value"].tolist() == [Decimal(expected)]
@@ -339,7 +339,7 @@ def test_numeric_composition_matrix(
         expr,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(
-            ms.ref.entity("sales.customer"),
+            mv.member(),
             *((ms.ref.dimension("sales.order.channel"),) if coordinates else ()),
         ),
     )
@@ -488,7 +488,7 @@ def test_duration_matrix(
         expr,
         via=ms.ref.relationship("sales.order_buyer"),
         by=(
-            ms.ref.entity("sales.customer"),
+            mv.member(),
             *(
                 (ms.ref.dimension("sales.order.channel"),)
                 if coordinates and kind != "count_distinct"
@@ -582,7 +582,7 @@ running = ms.cumulative(name='running', base=revenue)
         if kind == "cumulative"
         else mv.time_scope(start="2026-08-01", end="2026-08-03"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     fixed = logical.execute()
     expected = {"first": 2, "last": 5, "min": 2, "max": 5, "mean": 3.5, "cumulative": 7}[kind]
@@ -754,7 +754,7 @@ from dataclasses import asdict
 from pathlib import Path
 from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
 for kind, metric in metrics.items():
-    fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer'),by=(ms.ref.entity('sales.customer'),)).execute()
+    fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer'),by=(mv.member(),)).execute()
     artifacts[kind] = fixed.state.artifact_ref.ref
     contracts[kind] = {'K': asdict(fixed.contract()), 'signature': encode(fixed._node.root.signature, SIGNATURE)}
 Path('recovery-contracts.json').write_text(json.dumps(contracts))
@@ -952,7 +952,7 @@ def test_numeric_boundary_facts(
         label="boundary",
     )
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
+        metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
     )
     if case_kind in ("overflow", "nonfinite", "calendar"):
         with pytest.raises(AnalysisError):
@@ -1001,7 +1001,7 @@ def test_distribution_duplicates_nulls_and_interpolation(
         .observe(
             metric,
             via=ms.ref.relationship("sales.order_buyer"),
-            by=(ms.ref.entity("sales.customer"),),
+            by=(mv.member(),),
         )
         .execute()
     )
@@ -1151,7 +1151,7 @@ cancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additi
     ]
     expr = mv.runtime_metric.linear(add=leaves[:2], subtract=[leaves[2]], label="cancellation")
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expr, via=ms.ref.relationship("sales.order_buyer"), by=(ms.ref.entity("sales.customer"),)
+        expr, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
     )
     fixed = logical.execute()
     oracle = Fraction(large) + 1 - Fraction(large)
@@ -1208,7 +1208,7 @@ def test_current_row_counts_keep_numeric_null_policy(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
-        by=(ms.ref.entity("sales.customer"),),
+        by=(mv.member(),),
     )
     assert isinstance(logical, mv.LogicalNumericRelation)
     fixed = logical.execute()
