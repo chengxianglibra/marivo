@@ -338,6 +338,16 @@ current question creates a new result; it does not upgrade an old Store.
 
 ## Recovery and bounded reads
 
+Session discovery selects only the current-generation Store. If its database
+path is absent, `mv.session.current()` returns `None` and
+`mv.session.recent(limit=...)` returns an empty page with the requested limit,
+`has_more=False` and `next_cursor=None`. These reads never create Store state
+or inspect earlier generations; earlier directories and unrelated sibling files
+do not block discovery or creation of a new Session in the same project.
+History arguments are validated before the absent-Store result. An existing
+but invalid, unreadable or incompatible current Store still raises a structured
+error. Missing Session identities cannot be resumed or created through recovery.
+
 Use `session.runs(limit=..., cursor=...)`, `session.get_run(run_id)`,
 `session.artifact(reference)` and `session.graph(...)`. Run variants are
 incomplete, succeeded and failed; inspect the exact type before accessing

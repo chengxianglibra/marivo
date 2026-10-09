@@ -126,6 +126,25 @@ Continue with [time and cohorts](/docs/latest/guides/time-and-cohorts/),
 For an unfamiliar capability, start at `marivo.help("analysis")`; with an object
 in hand, follow its contract and exact Help target. Structured errors own repair.
 
+## Session discovery
+
+Session discovery reads only the current Store generation. Before that Store is
+created, `mv.session.current()` returns `None` and `mv.session.recent()` returns
+an empty page. These reads create no Store state. Earlier generation directories
+can remain in the same project while you create new Sessions; their Sessions
+are not read or migrated. An invalid or unreadable current Store still raises a
+structured error.
+
+{/* example: session-discovery */}
+
+```python
+import marivo.analysis as mv
+
+current = mv.session.current()
+history = mv.session.recent(limit=5)
+session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+```
+
 ## Saved semantic scope
 
 `mv.session.get_or_create("sales-review", domains="sales")` captures an exact

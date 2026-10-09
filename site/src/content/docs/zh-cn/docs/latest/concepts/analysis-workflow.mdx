@@ -124,6 +124,24 @@ fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上�
 不熟悉某项能力时从 `marivo.help("analysis")`开始；已有对象时跟随其 contract
 和确切 Help 目标。结构化错误负责具体修复。
 
+## 发现 Session
+
+Session 发现只读取当前代 Store。尚未创建当前 Store 时，
+`mv.session.current()` 返回 `None`，`mv.session.recent()` 返回空页，
+这些读取不会创建 Store 状态。旧代目录可以保留在同一项目中，同时创建新的
+Session；旧代 Session 不会被读取或迁移。当前 Store 无效或不可读时，
+仍会抛出结构化错误。
+
+{/* example: session-discovery */}
+
+```python
+import marivo.analysis as mv
+
+current = mv.session.current()
+history = mv.session.recent(limit=5)
+session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
+```
+
 ## 保存语义范围
 
 `mv.session.get_or_create("sales-review", domains="sales")` 保存准确的语义 domain

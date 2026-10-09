@@ -13,6 +13,7 @@ from marivo.analysis.errors import (
     SessionNotFoundError,
     SessionStateError,
 )
+from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.store import SessionStore
@@ -32,6 +33,18 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
         repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
         location="session.identity",
     )
+
+
+def _existing_store(root: Path) -> SessionStore | None:
+    """Read only the current-generation Store; absence never creates state."""
+    layout = MaterializationLayout(root)
+    try:
+        layout.store_db.lstat()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        raise invalid(f"selected Store {layout.generation} is unavailable") from None
+    return SessionStore.open_existing(root)
 
 
 def _validate_project_manifest(root: Path) -> None:
@@ -73,7 +86,7 @@ def get_or_create(
 
     Returns: The activated Session, with authored semantics loaded only on demand.
     Example: ``session = mv.session.get_or_create('revenue-review')``.
-    Constraints: Existing eager Stores remain untouched; no Session is migrated.
+    Constraints: Earlier Store generations remain untouched and can coexist in this project; no Session is migrated.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
 
@@ -115,19 +128,16 @@ def current() -> Session | None:
     """Read the current existing Session without activation or source loading.
 
     Args: None.
-    Returns: The persisted current Session, or None when absent.
+    Returns: The persisted current-generation Session, or None when the Store or current Session is absent.
     Example: ``session = mv.session.current()``.
-    Constraints: This probe never creates a Store or reconciles pending work.
+    Constraints: This probe never creates a Store or reconciles pending work. Other generations are ignored; an invalid current Store still raises.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
 
     root = resolve_project_root()
-    if not MaterializationLayout(root).store_db.is_file():
-        generations = root / ".marivo" / "analysis" / "generations"
-        if generations.exists() and any(generations.iterdir()):
-            SessionStore.open_existing(root)
+    store = _existing_store(root)
+    if store is None:
         return None
-    store = SessionStore.open_existing(root)
     record = store.current()
     return (
         None
@@ -226,16 +236,19 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
     Args:
         limit: Page size from 1 through 100.
         cursor: The previous page's next_cursor, or None.
-    Returns: A newest-first SessionSummaryPage.
+    Returns: A newest-first SessionSummaryPage, empty when the current-generation Store is absent.
     Example: ``mv.session.recent(limit=5).show()``.
-    Constraints: History reads do not activate or recover Sessions.
+    Constraints: History reads do not create a Store, activate or recover Sessions. Other generations are ignored; an invalid current Store still raises.
     """
     from marivo.analysis.session import _lazy_history
     from marivo.analysis.session._lazy_runtime_reads import page_after
 
     page_after(limit, cursor, operation="recent")
+    store = _existing_store(resolve_project_root())
+    if store is None:
+        return SessionSummaryPage(items=(), limit=limit, has_more=False, next_cursor=None)
     return _lazy_history.recent(
-        SessionStore.open_existing(resolve_project_root()),
+        store,
         limit=limit,
         cursor=cursor,
     )

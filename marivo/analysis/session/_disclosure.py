@@ -157,14 +157,14 @@ def provider() -> DisclosureProvider:
             "get_or_create",
             "Session",
             "import marivo.analysis as mv\nresult = mv.session.get_or_create('help-example')",
-            "Guarded create or recovery; sets current Session and updates an explicitly supplied question.",
+            "Guarded create or recovery; sets current Session, updates an explicit question, and preserves earlier Store generations in this project.",
         ),
         (
             session_namespace,
             "current",
             "Session | None",
             "import marivo.analysis as mv\nresult = mv.session.current()",
-            "Read existing current Session; do not create or reconcile.",
+            "Read current Session; return None when the current-generation Store is absent. No creation or reconciliation.",
         ),
         (
             session_namespace,
@@ -178,7 +178,7 @@ def provider() -> DisclosureProvider:
             "recent",
             "SessionSummaryPage",
             "import marivo.analysis as mv\nresult = mv.session.recent(limit=5)",
-            "Read one bounded existing Session-history page; no activation.",
+            "Read current-generation Session history; return an empty page when its Store is absent. No creation or activation.",
         ),
         (
             session_namespace,
