@@ -1,6 +1,10 @@
 """Structured string template for analysis errors."""
 
+import pytest
+
+from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.errors import (
     DatasourceEnvVarMissingError,
     DatasourceSecretStorePermissionsError,
@@ -50,6 +54,27 @@ def test_base_template_omits_missing_optional_sections() -> None:
     assert "Received:" not in rendered
     assert "Hint:" not in rendered
     assert "Repair:" not in rendered
+    assert err.run_ref is None
+    assert "get_run" not in rendered
+
+
+@pytest.mark.parametrize("with_repair", (False, True))
+def test_error_and_live_help_share_exact_run_inspection(with_repair: bool) -> None:
+    error = (
+        MaterializationError(
+            expected="complete input",
+            received="partial input",
+            repair="Restore the input.",
+            run_ref="run_exact",
+        )
+        if with_repair
+        else AnalysisError(message="execution failed", run_ref="run_exact")
+    )
+    for rendered in (str(error), render_help_text(error)[0]):
+        assert "Run: run_exact" in rendered
+        assert "session.get_run('run_exact').show()" in rendered
+        assert "marivo.help('analysis.session.get_run')" in rendered
+    assert "optional run_ref" in render_help_text(AnalysisError)[0]
 
 
 def test_datasource_env_var_missing_mentions_cache_and_validation() -> None:

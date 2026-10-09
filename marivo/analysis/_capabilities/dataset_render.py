@@ -30,6 +30,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
                 value = getattr(original, name)
                 if value is not None:
                     lines.append(f"  {name.title()}: {value}")
+            lines.extend("  " + line for line in original._run_guidance())
         if isinstance(original, AnalysisError) and original.repair is not None:
             repair = original.repair
             lines.extend(("  Repair:", "    Kind: " + repair.kind, "    Action: " + repair.action))
@@ -44,7 +45,7 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             lines.append('    Next help: marivo.help("' + qualified + '")')
         else:
             lines.append(
-                "  Fields: message, expected, received, location and optional repair. Inspect the instance facts before choosing a repair."
+                "  Fields: message, expected, received, location, optional run_ref and repair. Inspect the instance facts before choosing a repair."
             )
         text = "\n".join(lines) + "\n"
         budget = ANALYSIS_HELP_RENDER_BUDGETS["current_briefing"]

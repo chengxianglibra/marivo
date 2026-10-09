@@ -27,6 +27,7 @@ def test_invalid_objects_have_bounded_resolvable_repairs(target: object) -> None
     (
         ("analysis.session.memebrs", "analysis.session.members"),
         ("analysis.session.resum", "analysis.session.resume"),
+        ("analysis.dsl.LogicalAnalysisDomain", "analysis.LogicalAnalysisDomain"),
     ),
 )
 def test_analysis_typo_repair_preserves_closest_registered_leaf(target: str, expected: str) -> None:
@@ -34,4 +35,14 @@ def test_analysis_typo_repair_preserves_closest_registered_leaf(target: str, exp
         marivo.help(target)
     assert captured.value.candidates[0] == expected
     for candidate in captured.value.candidates:
+        assert isinstance(route_help_target(candidate), NativeHelpRoute)
+
+
+def test_unqualified_receiver_method_remains_unregistered() -> None:
+    with pytest.raises(MarivoHelpTargetError) as captured:
+        marivo.help("analysis.group_by")
+    error = captured.value
+    assert "marivo.help(value.method)" in str(error)
+    assert error.candidates and all(target.endswith(".group_by") for target in error.candidates)
+    for candidate in error.candidates:
         assert isinstance(route_help_target(candidate), NativeHelpRoute)

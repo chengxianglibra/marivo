@@ -21,6 +21,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis.evidence import _dataset_types as e
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session import _lazy_read_model as r
+from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
 
 READ_TYPES: tuple[type[object], ...] = (
@@ -199,7 +200,7 @@ def provider() -> DisclosureProvider:
             "members",
             "LogicalAnalysisDomain",
             "result = session.members(entity_ref)",
-            "Bind a typed Entity member graph using schema-only R1 preflight; no business rows or Run.",
+            "Schema-only member construction; no business rows or Run.",
         ),
         (
             Session,
@@ -259,7 +260,7 @@ def provider() -> DisclosureProvider:
         "population": "Use the matching complete Subject domain in the same Session and source/fixed mode.",
         "during": "Select starts with a finite half-open TimeScope.",
         "business_order": "Event-only named order; Journey starts inherit captured order.",
-        "at": "Use an exact datetime or TimeScope.before_end for versioned membership; omit for unversioned Entities.",
+        "at": "Versioned: datetime or TimeScope.before_end; else omit.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",
         "report_timezone": "Choose an IANA or explicit UTC-offset report timezone on first creation; existing Sessions retain their timezone.",
@@ -272,9 +273,9 @@ def provider() -> DisclosureProvider:
         "run_limit": "Choose the bounded embedded Run-page size.",
         "run_cursor": "Use the preceding inspection's runs.next_cursor.",
         "session_id": "Use the exact existing Session id.",
-        "run_id": "Use an exact incomplete or failed Run id from session.runs(); committed success cannot be abandoned.",
+        "run_id": "Use an exact incomplete, failed or succeeded Run id from session.runs().",
         "reference": "Use an exact committed ArtifactRef or artifact reference string.",
-        "entity": "Use an exact governed Entity Ref from the current Semantic catalog.",
+        "entity": "Governed Entity Ref from catalog.",
         "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
         "status": "Choose incomplete, failed, succeeded or None.",
         "direction": "Choose ancestors or descendants.",
@@ -302,14 +303,25 @@ def provider() -> DisclosureProvider:
                 else "runtime",
                 related=("session.resume",) if name in ("runs", "get_run", "artifact") else (),
                 parameters=tuple(
-                    P(n, acquisition[n]) for n in signature(value).parameters if n != "self"
+                    P(
+                        n,
+                        "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
+                        if n == "run_id" and name == "abandon_run"
+                        else acquisition[n],
+                    )
+                    for n in signature(value).parameters
+                    if n != "self"
                 ),
                 output=output,
-                constraints=(effect,),
+                constraints=(_doc_section(value, "Constraints"),)
+                if name == "members"
+                else (effect,),
                 effects=effect,
                 telemetry=name in ("get_or_create", "resume", "abandon_run"),
                 failures=(
-                    "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
+                    "AnalysisError: read its fields and repair."
+                    if name == "members"
+                    else "AnalysisError: inspect the structured identity, bound or recovery repair; no eager fallback.",
                 ),
                 example=ExampleInput(
                     code,

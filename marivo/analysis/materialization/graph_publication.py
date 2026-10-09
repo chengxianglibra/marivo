@@ -6,7 +6,7 @@ import os
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -24,7 +24,7 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     PartsTransport,
 )
-from marivo.analysis.errors import AnalysisRepair
+from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.cell_arrow import binding_scope
 from marivo.analysis.materialization.contracts import (
@@ -33,7 +33,7 @@ from marivo.analysis.materialization.contracts import (
     RunFailurePhase,
     canonical_json,
 )
-from marivo.analysis.materialization.errors import RecoveryPendingError
+from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.execution_key import (
     FixedKeyInput,
     FixedPartKey,
@@ -108,6 +108,13 @@ if TYPE_CHECKING:
 SourceFactory = Callable[
     [], AbstractContextManager[tuple[SourceSession, tuple[SourceBinding, ...]]]
 ]
+
+
+@dataclass(slots=True)
+class _InvocationRun:
+    """Admission identity for one invocation, independent of Runtime history."""
+
+    run_ref: str | None = None
 
 
 def _reconcile_graph(
@@ -195,6 +202,7 @@ def _execute(
     root: Node,
     routes: tuple[RouteChoice, ...],
     *,
+    invocation: _InvocationRun,
     source_bindings: tuple[SourceKeyBinding, ...] = (),
     source_factory: SourceFactory | None = None,
     source_schemas: tuple[pa.Schema, ...] = (),
@@ -343,6 +351,7 @@ def _execute(
             )
         )
         graph_store.admit(store, session, key, selected, run_ref)
+        invocation.run_ref = run_ref
         runtime.last_run_ref = run_ref
         _execution_log.annotate(run_id=run_ref)
         nonce = uuid4().hex
@@ -708,6 +717,7 @@ def execute(
     source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
     entered = time.monotonic()
+    invocation = _InvocationRun()
     from marivo.analysis.materialization.execute_deadline import execution_budget
 
     inherited = _execution_log.snapshot(runtime.store.project_root).fields.get("operation_id")
@@ -728,20 +738,45 @@ def execute(
                 runtime,
                 root,
                 routes,
+                invocation=invocation,
                 source_bindings=source_bindings,
                 source_factory=source_factory,
                 source_schemas=source_schemas,
             )
         except BaseException as error:
+            reported: BaseException = error
+            if isinstance(error, AnalysisError):
+                if error.run_ref is None:
+                    error.run_ref = invocation.run_ref
+            elif isinstance(error, Exception):
+                source = source_factory is not None
+                reported = MaterializationError(
+                    expected="an available input satisfying the admitted graph contract",
+                    received="source execution failed" if source else "graph execution failed",
+                    repair=(
+                        "Inspect the failed Run, correct its source or resource requirement, then execute again to create a new Run."
+                        if source and invocation.run_ref is not None
+                        else "Correct the source or resource requirement, then execute again; source execution creates a new Run."
+                        if source
+                        else "Correct the retained input or resource requirement, then execute the logical relation again."
+                    ),
+                    stage="graph_source" if source else "graph_execution",
+                    run_ref=invocation.run_ref,
+                    help_target="session.get_run"
+                    if invocation.run_ref is not None
+                    else "actions.execute",
+                )
             _execution_log.emit(
                 "execution.completed",
                 context=context,
                 severity="ERROR",
                 state="failed",
                 duration_ms=int((time.monotonic() - entered) * 1000),
-                fields=_execution_log.error_fields(error),
+                fields=_execution_log.error_fields(reported),
             )
-            raise
+            if reported is error:
+                raise
+            raise reported from error
         _execution_log.emit(
             "execution.completed",
             context=context,

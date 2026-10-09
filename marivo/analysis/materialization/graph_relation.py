@@ -54,10 +54,9 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.errors import AnalysisError, StatisticalErrorCode, StatisticalRelationError
+from marivo.analysis.errors import StatisticalErrorCode, StatisticalRelationError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_composition import (
     combine_observations,
     comparison_empty_rules,
@@ -319,18 +318,7 @@ class Relation:
 
     def execute(self) -> GraphDataset:
         if isinstance(self.binding, LiveBinding):
-            try:
-                artifact = self.binding.graph.execute()
-            except AnalysisError:
-                raise
-            except Exception as error:
-                raise MaterializationError(
-                    expected="an available source satisfying the admitted graph contract",
-                    received="source execution failed",
-                    repair="Inspect this Run, restore the source, and retry the logical relation.",
-                    stage="graph_source",
-                    run_ref=self.runtime.last_run_ref,
-                ) from error
+            artifact = self.binding.graph.execute()
         else:
             artifact = self.runtime._execute_graph(
                 self.root,

@@ -2643,7 +2643,14 @@ class _CohortDomain(_Value):
 
 
 class LogicalAnalysisDomain(_CohortDomain):
-    """Unexecuted governed Entity membership and its selected subdomains."""
+    """Unexecuted governed Entity membership and its selected subdomains.
+
+    Construction uses schema-only preflight, without business rows or Run.
+    Executing unfiltered membership reads and saves the complete member key set;
+    it may scan the entire Entity source, with no default row truncation.
+    Primary-key uniqueness, unversioned identity and show(n=...) do not bound
+    member count. Execution shares a 600-second budget across the graph.
+    """
 
     def _bind_time_grid(self, grid: TimeGrid) -> tuple[Relation, BoundTimeGrid]:
         """Bind one operation's complete member/time product without a public receiver."""
@@ -2678,7 +2685,12 @@ class LogicalAnalysisDomain(_CohortDomain):
             None.
         Returns: A MaterializedAnalysisDomain bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: An unfiltered session.members(entity).execute() reads and saves the
+        complete member key set; it may scan the entire Entity source, with no
+        default row truncation. Primary-key uniqueness, unversioned identity and
+        show(n=...) do not bound member count. Execution shares a 600-second
+        budget across the graph. A source branch reevaluates; a fixed branch
+        uses exact retained Artifacts.
         """
         return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
 

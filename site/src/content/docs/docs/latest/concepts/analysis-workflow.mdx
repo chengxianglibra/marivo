@@ -44,6 +44,23 @@ Schema-only preflight may connect to establish key/value types. `execute()` admi
 and executes the graph, then publishes its Materialized result. Calling a method
 on a Materialized receiver constructs new Logical work over retained inputs.
 
+Executing `session.members(entity).execute()` alone reads and saves the complete
+member key set. It may scan the entire Entity source, with no default row
+truncation. Primary-key uniqueness and an Entity without historical versions do
+not limit member count. The graph shares a 600-second execution budget;
+`show(n=...)` limits display only.
+
+Use `marivo.help("analysis.LogicalAnalysisDomain")` for the member type, or
+`marivo.help(customers.execute)` for an exact receiver method. Method names such
+as `group_by` need their receiver: `marivo.help(current.group_by)`.
+
+If execution raises an analysis error, inspect its optional `run_ref` with
+`session.get_run(error.run_ref).show()` when present. Errors before Run admission
+have no new Run. Source execution after a failure creates a new Run;
+`session.runs(status="failed").show()` reads the retained failure history.
+`mv.session.abandon_run(session_id=session.id, run_id=run_id)` reconciles an
+incomplete or failed Run and its resources while preserving that history.
+
 ## Read rows and legal next steps
 
 `show()` reads saved rows. `contract()` describes mechanically admitted actions without reading business rows; it does not choose the next useful business question.

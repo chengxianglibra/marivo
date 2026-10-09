@@ -15,6 +15,12 @@ Materialized value. Its owned fields and methods describe valid continuations.
 Use ``show()`` for bounded current state and ``contract()`` for mechanical input
 requirements. ``to_pandas()`` is the terminal boundary for custom analysis.
 
+``session.members(entity)`` performs schema-only preflight without reading
+business rows or creating a Run. Executing the unfiltered domain reads and saves
+the complete member key set, may scan the entire Entity source, and has no default
+row truncation. Primary-key uniqueness, unversioned identity and display limits
+do not bound member count. Execution shares a 600-second budget across the graph.
+
 Business data display uses ``show(*, n=None, max_output_bytes=8192)`` on
 materialized values and tables. The default fits complete rows within 8 KiB;
 there is no fixed five-row cap. ``n=20`` requests at most twenty rows, ``n=0``
@@ -48,6 +54,15 @@ Execution retains results as project-local Parquet. There is no analysis result
 storage setting or database result storage. Session recovery reads Store 7;
 older generation files are not migrated or rewritten.
 
+Execution errors carry an optional ``run_ref`` after the invocation's Run is
+stored. Inspect that exact record with ``session.get_run(error.run_ref).show()``
+in the same Session; its Help target is ``analysis.session.get_run``. Failures
+before Run admission carry no new Run identity. Existing recovery errors retain
+their original Run association. Correct the cause before executing again:
+each source execution creates a new Run and preserves failed history.
+``get_run`` reads incomplete, failed and succeeded Runs; ``abandon_run`` only
+reconciles incomplete or failed Runs and preserves their history.
+
 Start discovery with ``marivo.help("analysis")``. Focused Help owns signatures,
 examples and constraints; errors preserve concrete diagnostics and own repair.
 Entry provides Session bootstrap/recovery and source selection. Named method and
@@ -56,6 +71,9 @@ admitted calls to their canonical Help leaves; return types and prerequisites
 provide focused continuations without enumerating the entire API. Exact current semantic
 refs or catalog entries select governed inputs, while bound relation fields carry
 exact graph ownership. Cross-Session operands are rejected.
+For a type, use its canonical target such as
+``marivo.help("analysis.LogicalAnalysisDomain")``. Receiver methods can be queried
+with ``marivo.help(value.method)``; ``analysis.group_by`` is not an alias.
 
 The admitted J1–J4 Entity-domain path starts at ``session.members(entity_ref)``.
 Its logical relations expose ``execute()`` and ``contract()``; materialized

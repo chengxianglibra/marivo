@@ -367,6 +367,22 @@ Use `session.runs(limit=..., cursor=...)`, `session.get_run(run_id)`,
 incomplete, succeeded and failed; inspect the exact type before accessing
 success-only or failure-only fields.
 
+An execution error's optional `run_ref` identifies its exact Run when known.
+Run admission supplies this identity to structured failures without changing
+their specific type or repair. A failure before admission has no new Run;
+explicit original-Run references in recovery errors remain authoritative.
+Error text and instance Help provide the same-Session `get_run` inspection call.
+Ordinary execution exceptions become `MaterializationError` with their original
+cause; `KeyboardInterrupt` and `SystemExit` retain their interruption semantics.
+Invocations never infer the error's Run from Runtime history.
+
+Each source execution is a fresh invocation, including after failure; repeating
+the logical relation creates a new Run rather than resuming the failed one.
+`mv.session.abandon_run(session_id=..., run_id=...)` reconciles incomplete or
+failed Runs and their owned resources under the writer guard. It preserves
+audit history and cannot abandon committed success. `session.get_run` can read
+incomplete, failed and succeeded Runs.
+
 ```python
 import marivo.analysis as mv
 
