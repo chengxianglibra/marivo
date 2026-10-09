@@ -2,7 +2,7 @@
 
 日期：2026-09-16。状态：C1 已实现并通过源码、六后端真实旅程及约定回归验收。
 
-对应 [C1 实施计划](2026-09-16-multisource-capability-c1-implementation-plan.md)、[C0 基线](2026-09-16-multisource-capability-c0-acceptance.md) 和 [总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)。本记录只覆盖 C1，不更新 C0 历史观察，不表示 C2–C10 已完成。
+对应 [C1 实施计划](archive/2026-09-16-multisource-capability-c1-implementation-plan.md)、[C0 基线](2026-09-16-multisource-capability-c0-acceptance.md) 和 [总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)。本记录只覆盖 C1，不更新 C0 历史观察，不表示 C2–C10 已完成。
 
 ## 1. 工作区与实现
 

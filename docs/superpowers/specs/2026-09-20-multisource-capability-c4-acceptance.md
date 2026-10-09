@@ -1,6 +1,6 @@
 # C4：受限行表达式、Linear graph 与可解析精度 Decimal 验收
 
-日期：2026-09-20。状态：C4 已完成（逐后端开放/拒绝单元见 §2 矩阵；MySQL decimal mean/div 与 Trino 全部 decimal 单元保持拒绝，证据见 §3/§4）。依据 [实施计划](2026-09-19-multisource-capability-c4-implementation-plan.md)、[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C3b 验收](2026-09-19-multisource-capability-c3b-acceptance.md)。
+日期：2026-09-20。状态：C4 已完成（逐后端开放/拒绝单元见 §2 矩阵；MySQL decimal mean/div 与 Trino 全部 decimal 单元保持拒绝，证据见 §3/§4）。依据 [实施计划](archive/2026-09-19-multisource-capability-c4-implementation-plan.md)、[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](archive/2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C3b 验收](2026-09-19-multisource-capability-c3b-acceptance.md)。
 
 实施基线 `62ccfd252`（C3b 后），验收代码 `04391c784`。提交链 `c63ca8dc8..04391c784` 共 11 个提交：计划 1、语义归一化 2（含结构化 cast 界修复）、执行下推 2（含 value-exact cast 规则）、准入 2（含 ratio-root flag 清理）、rollup 1、披露 1、整体审查修复 2。本记录仅覆盖 C4，不表示 C5、C6–C9 或 C10 完成。
 

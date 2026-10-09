@@ -1,6 +1,6 @@
 # C10：最终 wheel 整体验收
 
-日期：2026-09-23。状态：**C10 的有界安装包验收完成**；下述未运行及仍拒绝的单元不因此变成已支持。执行基线为 `d3aa5b94e4e387e0cb0f225b0a4801252d0f984b`（`lazy-dataset`，开始时工作区干净）；验收记录编写时，实施/验收改动尚未提交。依据 [C10 实施计划](2026-09-23-multisource-capability-c10-implementation-plan.md)、[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)及[机器回执](2026-09-23-multisource-capability-c10-execution-receipts.json)。本次未改生产代码、公共 API、packaged skills 或包依赖。
+日期：2026-09-23。状态：**C10 的有界安装包验收完成**；下述未运行及仍拒绝的单元不因此变成已支持。执行基线为 `d3aa5b94e4e387e0cb0f225b0a4801252d0f984b`（`lazy-dataset`，开始时工作区干净）；验收记录编写时，实施/验收改动尚未提交。依据 [C10 实施计划](archive/2026-09-23-multisource-capability-c10-implementation-plan.md)、[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)及[机器回执](2026-09-23-multisource-capability-c10-execution-receipts.json)。本次未改生产代码、公共 API、packaged skills 或包依赖。
 
 ## 1. 最终产物与安装来源
 

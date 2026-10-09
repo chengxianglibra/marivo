@@ -1,12 +1,12 @@
 # C5：表形态准入解除（全引擎、视图统一、Distributed 多分片）验收
 
-日期：2026-09-20（实际验收日；文件名沿用计划 §6 预设的 2026-09-21 前缀）。状态：C5 已完成（逐后端表形态单元见 §2 矩阵；剩余拒绝项见 §6，均为用户口径明确的保留边界）。依据 [实施计划](2026-09-20-multisource-capability-c5-implementation-plan.md)、[总计划](2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C4 验收](2026-09-20-multisource-capability-c4-acceptance.md)。
+日期：2026-09-20（实际验收日；文件名沿用计划 §6 预设的 2026-09-21 前缀）。状态：C5 已完成（逐后端表形态单元见 §2 矩阵；剩余拒绝项见 §6，均为用户口径明确的保留边界）。依据 [实施计划](archive/2026-09-20-multisource-capability-c5-implementation-plan.md)、[总计划](archive/2026-09-16-multi-datasource-capability-completion-design-and-plan.md)、[C0 清单](archive/2026-09-16-multisource-capability-c0-implementation-plan.md) 与 [C4 验收](2026-09-20-multisource-capability-c4-acceptance.md)。
 
 实施基线 `33c04ca69`（C4 后，计划落盘 HEAD），验收代码 `11ca608aa`（本验收日新增 PG 基线 `3c04afa69` 及其验收末轮 DDL 守护修正 `11ca608aa`）。提交链 `c110e67cb..c32945384` 共 11 个提交（末位 `c32945384` 是本文档自身的审查修正提交，因此本文档不计入该链）：计划 1、gate 解除 1、披露同步 1、既有负向翻转 1、环境 fixture 2（含审查修正）、新增验收测试 2、PostgreSQL 基线 2（含守护修正）、验收文档 2（验收记录 `6143b0a19` 及其审查修正 `c32945384`）。本记录仅覆盖 C5，不表示 C6–C9 或 C10 完成。
 
 ## 0. 范围修订记录（2026-09-20 用户口径）
 
-C0 与总计划 §3.5 对 C5 的原始界定是"ClickHouse Distributed、Trino 无 catalog/connector 类型白名单、PostgreSQL 视图/分区补证据"。实施计划落盘当日，用户对表形态口径作出三项扩展决定（[计划 §0](2026-09-20-multisource-capability-c5-implementation-plan.md)），本阶段按扩展后口径执行并验收：
+C0 与总计划 §3.5 对 C5 的原始界定是"ClickHouse Distributed、Trino 无 catalog/connector 类型白名单、PostgreSQL 视图/分区补证据"。实施计划落盘当日，用户对表形态口径作出三项扩展决定（[计划 §0](archive/2026-09-20-multisource-capability-c5-implementation-plan.md)），本阶段按扩展后口径执行并验收：
 
 1. **ClickHouse 不限制 engine 类型**：全部 engine 进入；读不稳定（ReplacingMergeTree 等未收敛 merge 状态）被明确接受为已声明语义，不是缺陷。验收以 ReplacingMergeTree 未收敛双版本读取落实该口径（§4）。
 2. **视图统一支持**：ClickHouse `View`/`MaterializedView`、Trino `VIEW`、MySQL 视图、SQLite 视图、PostgreSQL 视图全部按既有逐列类型/传输校验准入。

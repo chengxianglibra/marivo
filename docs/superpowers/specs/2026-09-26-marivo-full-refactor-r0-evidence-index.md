@@ -4,7 +4,7 @@ Date: 2026-09-26
 
 Status: R0.1 历史边界登记。本轮未运行产品测试、远端后端、安装包或真实 Agent；历史通过只属于当时的代码、依赖、输入和路线。
 
-依据：[R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)。文件级 SHA-256、字节数和可取得性在 [manifest.json](evidence/r01/manifest.json)。
+依据：[R0 实施文档](archive/2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md)。文件级 SHA-256、字节数和可取得性在 [manifest.json](evidence/r01/manifest.json)。
 
 ## 1. 隔离工作基线
 
@@ -20,12 +20,12 @@ Status: R0.1 历史边界登记。本轮未运行产品测试、远端后端、�
 
 | 输入 | SHA-256 | 起步状态 |
 | --- | --- | --- |
-| [代数 v0.5](2026-09-23-analysis-algebra-theory.md) | c1901f306952e294fb11c329fbf66f5358e1ec3e605f69d9dcd3e60852acc309 | 已跟踪 |
-| [DSL 接口设计](2026-09-24-marivo-semantic-analysis-dsl-interface-design.md) | 319223cf12e7c9b53b0b5bda5c0d7b2e558b4e372e48534e072eb53eed39365a | 已跟踪 |
-| [架构设计](2026-09-24-marivo-analysis-dsl-architecture-design.md) | 1f1feab98bf9c91a86b23bae83ef7e5bb764658141866b943d89611a24ffb001 | 已跟踪 |
-| [MVP 验证计划](2026-09-24-marivo-analysis-dsl-mvp-validation-plan.md) | 83d887968bf602a0674dc2903681ec81d828b8e7985679e66c2f68b3560b3cd5 | 已跟踪；历史验证参照 |
-| [全量主计划](2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md) | 2c433063e7275e33481cf9fd33be28d32ea5236c6167d6484ee14b2239f93646 | 原 checkout 未跟踪；已复制 |
-| [R0 实施文档](2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md) | fd077522e35edc3450bfe6728544d5166c9002d3b8502e80ffdb4f255e382c72 | 原 checkout 未跟踪；已复制 |
+| [代数 v0.5](archive/2026-09-23-analysis-algebra-theory.md) | c1901f306952e294fb11c329fbf66f5358e1ec3e605f69d9dcd3e60852acc309 | 已跟踪 |
+| [DSL 接口设计](archive/2026-09-24-marivo-semantic-analysis-dsl-interface-design.md) | 319223cf12e7c9b53b0b5bda5c0d7b2e558b4e372e48534e072eb53eed39365a | 已跟踪 |
+| [架构设计](archive/2026-09-24-marivo-analysis-dsl-architecture-design.md) | 1f1feab98bf9c91a86b23bae83ef7e5bb764658141866b943d89611a24ffb001 | 已跟踪 |
+| [MVP 验证计划](archive/2026-09-24-marivo-analysis-dsl-mvp-validation-plan.md) | 83d887968bf602a0674dc2903681ec81d828b8e7985679e66c2f68b3560b3cd5 | 已跟踪；历史验证参照 |
+| [全量主计划](archive/2026-09-26-marivo-full-algebra-dsl-refactor-implementation-plan.md) | 2c433063e7275e33481cf9fd33be28d32ea5236c6167d6484ee14b2239f93646 | 原 checkout 未跟踪；已复制 |
+| [R0 实施文档](archive/2026-09-26-marivo-full-algebra-dsl-r0-implementation-plan.md) | fd077522e35edc3450bfe6728544d5166c9002d3b8502e80ffdb4f255e382c72 | 原 checkout 未跟踪；已复制 |
 
 接续阶段须记录新的代码 SHA、diff hash 和输入 hash；变化时重新核对受影响单元。尚未提交的 checkout 文件不能称为远端已取得。
 

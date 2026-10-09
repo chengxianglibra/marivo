@@ -1,6 +1,6 @@
 # C3a：原生 timestamp、时区与实际执行记录验收
 
-日期：2026-09-18。状态：C3a 已完成。实施基线 `d0822098329445a020f1bdeebad0926a37d2b48a`。依据 [实施计划](2026-09-18-multisource-capability-c3a-implementation-plan.md)；本记录仅覆盖 C3a，不表示 C3b、C4、C5 或 C10 完成。
+日期：2026-09-18。状态：C3a 已完成。实施基线 `d0822098329445a020f1bdeebad0926a37d2b48a`。依据 [实施计划](archive/2026-09-18-multisource-capability-c3a-implementation-plan.md)；本记录仅覆盖 C3a，不表示 C3b、C4、C5 或 C10 完成。
 
 ## 1. 交付范围
 
