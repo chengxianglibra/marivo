@@ -1079,11 +1079,6 @@ def _verify_difference_parts(
             for index, side in enumerate(("current", "baseline")):
                 endpoint = endpoints[f"{side}_endpoint"][key]
                 if presence[index]:
-                    if (
-                        definition.policy == "metric_empty"
-                        and endpoint[f"{side}_endpoint__cell_tag"] != "defined"
-                    ):
-                        raise _invalid("metric_empty existing operand is not Defined")
                     continue
                 expected_tag = (
                     None
@@ -1108,31 +1103,33 @@ def _verify_difference_parts(
                     or endpoint[f"{side}_endpoint__value"] != expected_value
                 ):
                     raise _invalid("missing coordinate and retained empty finish disagree")
-            expected_reason = (
-                "missing_side"
-                if definition.policy == "keep"
-                else next(
-                    (
-                        "empty_contribution"
-                        if definition.empty_rules[i] == "null"
-                        else "zero_denominator"
-                        for i in (0, 1)
-                        if not presence[i] and definition.empty_rules[i] != "zero"
-                    ),
-                    None,
-                )
-            )
-            if expected_reason is not None:
+            if definition.policy == "keep":
                 if mapping["correspondence__result_error_bound"] != 0.0:
                     raise _invalid("non-numeric missing-side result has a nonzero error bound")
                 if (
                     row["value"] is not None
-                    or row["cell_tag"]
-                    != ("null" if expected_reason == "empty_contribution" else "undefined")
-                    or row["cell_reason"] != expected_reason
+                    or row["cell_tag"] != "undefined"
+                    or row["cell_reason"] != "missing_side"
                 ):
                     raise _invalid("missing-side result and presence disagree")
                 continue
+        from marivo.analysis.methods.comparison import propagated_cell
+
+        current_endpoint = endpoints["current_endpoint"][key]
+        baseline_endpoint = endpoints["baseline_endpoint"][key]
+        passed = propagated_cell(
+            str(current_endpoint["current_endpoint__cell_tag"]),
+            str(current_endpoint["current_endpoint__cell_reason"]),
+            str(baseline_endpoint["baseline_endpoint__cell_tag"]),
+            str(baseline_endpoint["baseline_endpoint__cell_reason"]),
+        )
+        if passed is not None:
+            # A non-Defined operand passes through per Cell without arithmetic.
+            if mapping["correspondence__result_error_bound"] != 0.0:
+                raise _invalid("non-numeric comparison result has a nonzero error bound")
+            if row["value"] is not None or (row["cell_tag"], row["cell_reason"]) != passed:
+                raise _invalid("propagated comparison Cell and retained operands disagree")
+            continue
         from marivo.analysis.methods.comparison import ComparisonMethod, propagated_error
 
         method: ComparisonMethod = (

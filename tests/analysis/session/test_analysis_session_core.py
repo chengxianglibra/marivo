@@ -88,7 +88,6 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
     )
 
 
-@pytest.mark.runtime
 def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     import marivo.analysis as mv
 

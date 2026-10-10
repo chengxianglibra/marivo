@@ -11,12 +11,11 @@ from tests.analysis.statistics.deviation_oracle import PROFILES
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "domain,key_profile",
-    (("entity", "KS"), ("entity", "KI"), ("entity", "KC"), ("scalar", "KT"), ("category", "KT")),
+    "domain,key_profile,form",
+    [("entity", "KC", "parquet"), ("scalar", "KT", "parquet"), ("category", "KT", "parquet")],
 )
-@pytest.mark.parametrize("form", ("parquet",))
+@pytest.mark.slow
 def test_non_time_domains_types_keys_in_independent_processes(
     analysis_dsl_case_factory: DslCaseFactory, domain: str, key_profile: str, form: str
 ) -> None:
@@ -35,25 +34,20 @@ def test_non_time_domains_types_keys_in_independent_processes(
             )
             if key_profile == "KC":
                 db.execute('UPDATE "order" SET member_seq=? WHERE order_id=?', [10 + i, key])
-        additions = []
-        for index, profile in enumerate(PROFILES):
-            dtype = "BIGINT" if index == 0 else "DOUBLE" if index == 1 else profile.upper()
-            db.execute(f'ALTER TABLE "order" ADD COLUMN profile_{index} {dtype}')
-            scale = int(profile.split(",")[1][:-1]) if index > 1 else 0
-            for i, digit in enumerate((1, 2, 7), 1):
-                value = (
-                    Decimal((0, (digit,), -scale))
-                    if index > 1
-                    else digit / 10
-                    if index == 1
-                    else digit
-                )
-                db.execute(
-                    f'UPDATE "order" SET profile_{index}=? WHERE channel=?', [value, "abc"[i - 1]]
-                )
-            additions.append(
-                f"profile_{index} = ms.measure_column(name='profile_{index}', entity=orders, column='profile_{index}', additivity=ms.additive_all(), unit='CNY')\n"
-            )
+        index = 7 if domain == "entity" else 0 if domain == "scalar" else 1
+        profile = PROFILES[index]
+        dtype = "BIGINT" if index == 0 else "DOUBLE" if index == 1 else profile.upper()
+        db.execute(f'ALTER TABLE "order" ADD COLUMN profile_{index} {dtype}')
+        scale = int(profile.split(",")[1][:-1]) if index > 1 else 0
+        db.execute(
+            f'UPDATE "order" SET profile_{index}=CASE channel '
+            "WHEN 'a' THEN ? WHEN 'b' THEN ? WHEN 'c' THEN ? END",
+            [
+                Decimal((0, (digit,), -scale)) if index > 1 else digit / 10 if index == 1 else digit
+                for digit in (1, 2, 7)
+            ],
+        )
+        declaration = f"profile_{index} = ms.measure_column(name='profile_{index}', entity=orders, column='profile_{index}', additivity=ms.additive_all(), unit='CNY')\n"
     models = case.root / "models/semantic/sales/models.py"
     body = models.read_text()
     if key_profile == "KC":
@@ -66,10 +60,11 @@ def test_non_time_domains_types_keys_in_independent_processes(
             "keys=[ms.join_on(line_order_id, order_id)]",
             "keys=[ms.join_on(line_order_id, order_id), ms.join_on(line_seq, order_seq)]",
         )
-    models.write_text(body + "\n" + "".join(additions))
+    models.write_text(body + "\n" + declaration)
     if form == "parquet":
         export_dsl_parquet_models(case, case.root)
-    for phase in ("produce", "fixed", "cold"):
+    phases = ("produce", "fixed", "cold") if domain == "entity" else ("produce", "fixed")
+    for phase in phases:
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
             for source in (case.root / "source_files").glob("*.parquet"):

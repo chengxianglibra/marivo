@@ -12,7 +12,6 @@ from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 def test_same_time_business_order_changes_replay(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_trace: SourceTrace
 ) -> None:

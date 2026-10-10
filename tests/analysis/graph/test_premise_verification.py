@@ -82,7 +82,6 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         }
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("operation", ["read", "filter"])
 def test_missing_owner_operand_rejects_without_matching_precheck(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
@@ -111,7 +110,6 @@ def test_missing_owner_operand_rejects_without_matching_precheck(
         assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("operation", ["read", "filter", "count"])
 def test_related_field_null_is_valid_and_distinct_from_missing_owner(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, operation: str
@@ -156,7 +154,6 @@ def test_related_field_null_is_valid_and_distinct_from_missing_owner(
         ).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("operation", ["read", "rollup"])
 def test_declared_native_inputs_need_only_one_terminal_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: Literal["read", "rollup"]
@@ -207,7 +204,6 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         assert exchange.completed_checks == ()
 
 
-@pytest.mark.runtime
 def test_owner_matching_trusts_contract_without_a_matching_query(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -230,7 +226,6 @@ def test_owner_matching_trusts_contract_without_a_matching_query(
             members.read(field, via=via, **{"match_verification": "check"})
 
 
-@pytest.mark.runtime
 def test_pairing_assumption_is_exactly_bound_and_avoids_only_its_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -283,7 +278,6 @@ def test_pairing_assumption_is_exactly_bound_and_avoids_only_its_check(
             second.ratio(first, pairing=mv.ExactKeys(verification="assume")).execute()
 
 
-@pytest.mark.runtime
 def test_shared_matching_assumption_never_becomes_completed_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -308,7 +302,7 @@ def test_named_verification_values_are_closed() -> None:
         mv.ExactKeys(verification="skip")
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_assumptions_remain_assumptions_after_source_offline_cold_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

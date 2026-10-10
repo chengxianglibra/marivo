@@ -248,14 +248,13 @@ def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -
         assemble(tuple(providers))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("observe", "where", "aggregate", "rank", "correlate", "ratio"))
 def test_rendered_focused_examples_execute(
     analysis_dsl_case_factory: DslCaseFactory, method: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     if method == "correlate":
-        prepare_profiles(case, "KS", "table", "us", "UTC", False)
+        prepare_profiles(case, "KS", "table", "us", "UTC", False, profile_indices=(0, 1))
         ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     buyer = ms.ref.relationship("sales.order_buyer")
@@ -316,10 +315,9 @@ def test_rendered_focused_examples_execute(
     assert saved.contract().retained_parts
 
 
-@pytest.mark.runtime
 def test_rendered_forecast_example_executes(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
     ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.order"))
     grid = mv.time_grid(

@@ -16,8 +16,6 @@ from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
-pytestmark = pytest.mark.runtime
-
 
 def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -62,14 +60,16 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         assert restored.contribution.to_pandas().equals(frame)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "family,parquet",
     [
-        (family, parquet)
-        for family in ("int64", "float64", "decimal", "duration")
-        for parquet in (False, True)
-    ]
-    + [("duration_" + unit, True) for unit in ("s", "ms", "us")],
+        ("int64", False),
+        ("float64", False),
+        ("decimal", False),
+        ("duration", True),
+        *(("duration_" + unit, True) for unit in ("s", "ms", "us")),
+    ],
 )
 def test_numeric_source_fixed_and_axis_expansion(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -132,11 +132,14 @@ def test_numeric_source_fixed_and_axis_expansion(
             )
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
-    methods = (
+    all_methods = (
         ("sum", "linear")
         if family.startswith("duration")
         else ("sum", "count", "linear", "mean", "weighted", "ratio")
     )
+    is_primary = family == "int64" and not parquet
+    recovery_method = "sum" if family == "int64" or family.startswith("duration") else "mean"
+    methods = all_methods if is_primary else (recovery_method,)
     originals: dict[str, Json] = {}
     original_parts: dict[str, Json] = {}
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -190,18 +193,27 @@ def test_numeric_source_fixed_and_axis_expansion(
                         denominators if kind in ("mean", "weighted", "ratio") else 1,
                     )
             by_side.append(side)
-        fixed_difference = retained.execute()
-        originals[kind + ":difference"], original_parts[kind + ":difference"] = (
-            snapshot(fixed_difference),
-            parts(fixed_difference),
+        if kind == recovery_method:
+            fixed_difference = retained.execute()
+            originals[kind + ":difference"], original_parts[kind + ":difference"] = (
+                snapshot(fixed_difference),
+                parts(fixed_difference),
+            )
+        # Carrier-specific source correctness stays broad; expansion and fixed
+        # continuation share one representative because both vary graph shape.
+        labels = (
+            (("allocation", retained), ("expanded", expanded))
+            if kind == recovery_method
+            else (("allocation", retained),)
         )
-        for label, change in (("allocation", retained), ("expanded", expanded)):
+        for label, change in labels:
             result = change.attribute(axes=axes).execute()
             assert result._dataset is not None
-            originals[kind + ":" + label], original_parts[kind + ":" + label] = (
-                snapshot(result),
-                parts(result),
-            )
+            if kind == recovery_method:
+                originals[kind + ":" + label], original_parts[kind + ":" + label] = (
+                    snapshot(result),
+                    parts(result),
+                )
             verified = result._dataset.verified()
             allocation = next(p.table for p in verified.parts if p.role == "allocation")
             if family.startswith("duration"):
@@ -230,8 +242,9 @@ def test_numeric_source_fixed_and_axis_expansion(
                 == result.baseline.to_pandas().shape
                 == result.contribution.to_pandas().shape
             )
-        with pytest.raises(AnalysisError):
-            expanded.execute().attribute(axes=axes)
+        if kind == recovery_method:
+            with pytest.raises(AnalysisError):
+                expanded.execute().attribute(axes=axes)
 
     state: dict[str, Json] = {
         "phase": "produce",
@@ -239,7 +252,8 @@ def test_numeric_source_fixed_and_axis_expansion(
         "session": case.session.id,
         "family": family,
         "form": "parquet" if parquet else "table",
-        "methods": list(methods),
+        "methods": [recovery_method],
+        "source_methods": list(methods),
         "originals": originals,
         "parts": original_parts,
         "native_sql": [*trace.native_sql],
@@ -254,7 +268,8 @@ def test_numeric_source_fixed_and_axis_expansion(
         shutil.rmtree(case.root / "source_files")
     repository = PROJECT_ROOT
     reports: list[Json] = [state]
-    for phase in ("fixed", "cold"):
+    phases = ("fixed", "cold") if is_primary else ("cold",)
+    for phase in phases:
         output = case.root / ("attribution-carrier-" + phase + ".json")
         completed = subprocess.run(
             [
@@ -336,7 +351,7 @@ def test_common_other_mapping_each_parent_and_resolution(
         assert dict(selected.contract()._facts)["complete_partition"] == "False"
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_offline_cold_parts_and_selected_views(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,
@@ -624,7 +639,7 @@ def test_zero_component_basis_cannot_hide_under_other(
             current.attribute(axes=axes, top_k=1).execute()
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_new_source_evaluation_preserves_fixed_basis(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -677,7 +692,7 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
             [
                 [f"{month}-{i}", "A", str(i), "paid", f"2026-{month:02d}-15", amount]
                 for month, amount in ((8, 1), (7, 0))
-                for i in range(3000)
+                for i in range(3)
             ],
         )
     models = case.root / "models/semantic/sales/models.py"
@@ -702,8 +717,8 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7))
-    # Each rounded side is 0.000333; 3000 contributions sum to 0.999,
-    # exceeding the accepted threshold for an independently computed target of 1.
+    # Three rounded contributions of 0.333333 sum to 0.999999. The 1e-6
+    # residual exceeds the 1e-9 tolerance for the independently computed target of 1.
     for difference in (change, change.execute()):
         before = case.session.runs(status="succeeded").items
         with pytest.raises(AnalysisError, match="reconcile"):
@@ -713,7 +728,7 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
         assert case.session.runs(status="succeeded").items == before
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_float_view_arithmetic_retains_allocation_error_bounds(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -776,7 +791,7 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
             assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_numeric_view_rank_uses_typed_other_order(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,

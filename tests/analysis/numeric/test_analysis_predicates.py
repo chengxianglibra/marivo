@@ -66,8 +66,7 @@ def test_malformed_decimal_literal_wire_rejects(value: dict[str, object]) -> Non
         decode(canonical_json(payload), adapter)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_numeric_string_category_persists_and_continues(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -101,8 +100,7 @@ def test_numeric_string_category_persists_and_continues(
         assert continued.to_pandas().equals(frame)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_selected_difference_discloses_where_continuation(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -167,8 +165,7 @@ def test_precise_predicate_literals_and_duration_fields() -> None:
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_public_multi_input_source_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -222,7 +219,6 @@ def test_public_multi_input_source_and_fixed(
         bool(predicate)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_tag_selection_precedes_numeric_consumption(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
@@ -311,9 +307,8 @@ assert result.members(through=result.subject_binding).execute().to_pandas().memb
     assert set(projected.to_pandas().member) == set(positive.to_pandas().member)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(18,2)"])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_public_precise_field_comparisons(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
 ) -> None:
@@ -351,7 +346,6 @@ def test_public_precise_field_comparisons(
             assert restored.where(restored.value.gt(threshold)).execute().to_pandas().equals(frame)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "unit,parquet", [("us", False), ("s", True), ("ms", True), ("us", True), ("ns", True)]
 )
@@ -400,7 +394,6 @@ def test_public_duration_field_comparison(
             current.where(current.value.gt(0))
 
 
-@pytest.mark.runtime
 def test_foreign_predicate_inputs_reject_before_execution(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

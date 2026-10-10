@@ -18,8 +18,6 @@ from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.execution_logs import execution_records
 
-pytestmark = pytest.mark.runtime
-
 
 def _members(case: DslCase) -> mv.LogicalAnalysisDomain:
     return case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.customer}"))

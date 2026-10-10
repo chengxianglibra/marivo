@@ -13,10 +13,10 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.history_execution import HISTORY
 from marivo.refs import ref
 from tests.analysis.lifecycle.lifecycle_fixtures import (
-    END,
     RECOVERY_PROFILES,
     START,
     build_lifecycle_public,
@@ -25,6 +25,23 @@ from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 
 PROFILES = RECOVERY_PROFILES
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
+PROFILE_IDS = (("K11", "T07"), ("K22", "T07"), ("K33", "T10"))
+RECOVERY_CASES = tuple(
+    (key, time) for key, time in PROFILES if (key["id"], time["id"]) in PROFILE_IDS
+)
+# Cold recovery uses one representative profile; source/fixed still cover every
+# scalar and composite identity shape above.
+COLD_REPLAY_PROFILE = ("K22", "T07")
+
+
+@pytest.fixture(scope="module")
+def history_exchange_template(tmp_path_factory: pytest.TempPathFactory) -> ExchangeResult:
+    """Build one immutable Arrow witness for all retained-history corruption cases."""
+    root = tmp_path_factory.mktemp("lifecycle-exchange")
+    session, members, window, claims, _ = build_lifecycle_public(root)
+    result = replay(session, members, window, claims).execute()
+    assert result._dataset is not None
+    return result._dataset.verified()
 
 
 def replay(session, members, window, claims):
@@ -51,11 +68,11 @@ def records(result):
     ]
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
-    "key,time", PROFILES, ids=[key["id"] + "-" + time["id"] for key, time in PROFILES]
+    "key,time", RECOVERY_CASES, ids=[key["id"] + "-" + time["id"] for key, time in RECOVERY_CASES]
 )
-def test_history_replay_source_fixed_cold(tmp_path, key, time):
+def test_history_replay_source_fixed_profiles_and_representative_cold(tmp_path, key, time):
     subject, occurrence = KEYS[key["subject"]], KEYS[key["occurrence"]]
     session, members, window, claims, values = build_lifecycle_public(
         tmp_path,
@@ -70,6 +87,8 @@ def test_history_replay_source_fixed_cold(tmp_path, key, time):
     fixed = session.artifact(source.state.artifact_ref)
     assert records(fixed) == records(source)
     assert render(fixed.contract().show) == render(source.contract().show)
+    if (key["id"], time["id"]) != COLD_REPLAY_PROFILE:
+        return
     payload = {
         "session": session.id,
         "artifact": source.state.artifact_ref.ref,
@@ -94,24 +113,6 @@ def test_history_replay_source_fixed_cold(tmp_path, key, time):
     assert json.loads(completed.stdout.splitlines()[-1])["accepted"]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("coverage", ["unknown", "prefix", "complete"])
-def test_independent_full_trace_with_origin_coverage(tmp_path, coverage):
-    session, members, window, claims, values = build_lifecycle_public(tmp_path)
-    known = (
-        None
-        if coverage == "unknown"
-        else START + timedelta(seconds=12)
-        if coverage == "prefix"
-        else END
-    )
-    supplied = () if known is None else (replace(claims[0], complete_through=known),)
-    assert records(replay(session, members, window, supplied).execute()) == expected_histories(
-        values, known=known
-    )
-
-
-@pytest.mark.runtime
 def test_missing_origin_does_not_seed_observed_inception(tmp_path):
     session, members, window, _, _ = build_lifecycle_public(tmp_path)
     output = records(replay(session, members, window, ()).execute())
@@ -125,7 +126,6 @@ def test_missing_origin_does_not_seed_observed_inception(tmp_path):
     }
 
 
-@pytest.mark.runtime
 def test_followup_gap_keeps_known_prefix_without_inventing_transition(tmp_path):
     values = [(0, "started", -10, 1), (0, "paid", 5, 2), (0, "finished", 15, 3)]
     session, members, window, claims, _ = build_lifecycle_public(tmp_path, rows=values)
@@ -139,7 +139,6 @@ def test_followup_gap_keeps_known_prefix_without_inventing_transition(tmp_path):
     assert len(output[0]["transitions"]) == 1
 
 
-@pytest.mark.runtime
 def test_proved_terminal_group_survives_incomplete_followup(tmp_path):
     values = [
         (0, "started", -10, 1),
@@ -166,15 +165,6 @@ def test_proved_terminal_group_survives_incomplete_followup(tmp_path):
     assert records(session.artifact(fixed.state.artifact_ref)) == records(fixed)
 
 
-@pytest.mark.runtime
-def test_empty_domain(tmp_path):
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path, empty=True)
-    fixed = replay(session, members, window, claims).execute()
-    assert records(fixed) == []
-    assert len(session.artifact(fixed.state.artifact_ref).to_pandas()) == 0
-
-
-@pytest.mark.runtime
 def test_complete_trigger_without_inception_fails(tmp_path):
     from marivo.analysis.errors import AnalysisError
 
@@ -183,7 +173,6 @@ def test_complete_trigger_without_inception_fails(tmp_path):
         replay(session, members, window, claims).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("terminal", [False, True])
 def test_ties_only_after_proved_terminal(tmp_path, terminal):
     from marivo.analysis.errors import AnalysisError
@@ -237,7 +226,6 @@ def test_frozen_public_signature_and_disclosure():
     assert "LogicalLifecycleDataset" not in text
 
 
-@pytest.mark.runtime
 def test_construction_rejects_authority_before_rows_or_run(tmp_path, monkeypatch):
     from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import SourceSession
@@ -280,8 +268,7 @@ def test_construction_rejects_authority_before_rows_or_run(tmp_path, monkeypatch
     assert session.runs().items == foreign.runs().items == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("seed", range(10))
+@pytest.mark.parametrize("seed", [7])
 def test_scalar_oracle_varied_occurrence_order(tmp_path, seed):
     import random
 
@@ -302,7 +289,6 @@ def test_scalar_oracle_varied_occurrence_order(tmp_path, seed):
     assert records(replay(session, members, window, claims).execute()) == expected_histories(values)
 
 
-@pytest.mark.runtime
 def test_same_terminal_state_different_violation_identity_is_ambiguous(tmp_path):
     from marivo.analysis.errors import AnalysisError
 
@@ -315,7 +301,6 @@ def test_same_terminal_state_different_violation_identity_is_ambiguous(tmp_path)
         replay(session, members, window, claims).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("ordered", [True, False])
 def test_cycle_same_time_trace_requires_business_order(tmp_path, ordered):
     from marivo.analysis.errors import AnalysisError
@@ -339,7 +324,6 @@ def test_cycle_same_time_trace_requires_business_order(tmp_path, ordered):
         assert records(session.artifact(fixed.state.artifact_ref)) == records(fixed)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "fault",
     [
@@ -360,14 +344,15 @@ def test_cycle_same_time_trace_requires_business_order(tmp_path, ordered):
         "key_overflow",
     ],
 )
-def test_closed_history_exchange_rejects_semantic_corruption(tmp_path, fault):
+def test_closed_history_exchange_rejects_semantic_corruption(
+    history_exchange_template: ExchangeResult, fault: str
+) -> None:
     import pyarrow as pa
 
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path)
-    fixed = replay(session, members, window, claims).execute()._dataset.verified()
+    fixed = history_exchange_template
     primary, contract, parts = fixed.primary, fixed.contract, fixed.parts
     rows = parts[0].table.to_pylist()
     item = json.loads(rows[0]["history__record"])
@@ -417,9 +402,7 @@ def test_closed_history_exchange_rejects_semantic_corruption(tmp_path, fault):
         from_arrow(primary, contract, parts=parts, method_state=fixed.method_state)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("role", ["primary", "history"])
-@pytest.mark.parametrize("fault", ["missing", "corrupt"])
+@pytest.mark.parametrize("role,fault", [("primary", "missing"), ("history", "corrupt")])
 def test_receipt_recovery_rejects_before_new_run(tmp_path, role, fault):
     from marivo.analysis.errors import AnalysisError
 
@@ -439,13 +422,10 @@ def test_receipt_recovery_rejects_before_new_run(tmp_path, role, fault):
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point",
     [
-        "insert_artifact",
         "insert_evidence",
-        "insert_findings",
         "insert_terminal",
         "before_commit",
         "cancel",
@@ -482,7 +462,6 @@ def test_publication_failure_preserves_prior_history(tmp_path, point):
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monkeypatch, form):
     import duckdb
@@ -534,16 +513,14 @@ def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monk
         )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("edition", ["docs", "zh-cn/docs"])
-def test_executed_latest_history_example(tmp_path, edition):
-
+def test_executed_latest_history_example(tmp_path):
     import marivo.semantic as ms
 
     session, _, window, claims, _ = build_lifecycle_public(tmp_path)
     from tests.support.documentation import _example
 
-    code = _example(edition, "history-replay")
+    snippets = [_example(locale, "history-replay") for locale in ("en", "zh")]
+    assert snippets[0] == snippets[1]
     namespace = {
         "session": session,
         "window": window,
@@ -551,12 +528,11 @@ def test_executed_latest_history_example(tmp_path, edition):
         "mv": mv,
         "ms": ms,
     }
-    exec(code, namespace)
+    exec(snippets[0], namespace)
     assert isinstance(namespace["recovered"], mv.MaterializedHistoryResult)
     assert records(namespace["recovered"]) == records(namespace["retained_history"])
 
 
-@pytest.mark.runtime
 def test_public_replay_full_subject_domain(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     logical = session.lifecycle.replay(

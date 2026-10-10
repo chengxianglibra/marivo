@@ -37,13 +37,12 @@ from marivo.semantic.runtime_metric import (
     RuntimeSliceExpr,
     RuntimeWeightedMeanExpr,
 )
-from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "clickhouse"))
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "clickhouse")))
 def test_wide_decimal_finish_keeps_extremes_and_half_even(
     backend: str,
     tmp_path: Path,
@@ -193,44 +192,49 @@ def _data(
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "mode,backend",
-    [
-        (mode, backend)
-        for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-        for mode in (
-            "linear",
-            "linear_composite",
-            "linear_fanout",
-            "linear_float",
-            "linear_decimal",
-            "linear_nonfinite",
-            "ratio",
-            "ratio_float",
-            "ratio_decimal",
-            "ratio_decimal_overflow",
-            "ratio_decimal_output_overflow",
-            "weighted_mean",
-            "aggregate",
-            "slice",
-            "mean",
-            "first",
-            "last",
-            "min",
-            "max",
-            "spatial_mean",
-            "spatial_first",
-            "spatial_last",
-            "spatial_min",
-            "spatial_max",
-        )
-        if mode != "linear_nonfinite" or backend == "sqlite"
-        if mode != "linear_fanout" or backend == "duckdb"
-        if mode not in ("ratio_decimal_overflow", "ratio_decimal_output_overflow")
-        or backend in ("mysql", "clickhouse")
-        if not mode.startswith("spatial_") or backend == "duckdb"
-    ],
+    source_params(
+        [
+            (mode, backend)
+            for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+            for mode in (
+                "linear",
+                "linear_composite",
+                "linear_fanout",
+                "linear_float",
+                "linear_decimal",
+                "linear_nonfinite",
+                "ratio",
+                "ratio_float",
+                "ratio_decimal",
+                "ratio_decimal_overflow",
+                "ratio_decimal_output_overflow",
+                "weighted_mean",
+                "aggregate",
+                "slice",
+                "mean",
+                "first",
+                "last",
+                "min",
+                "max",
+                "spatial_mean",
+                "spatial_first",
+                "spatial_last",
+                "spatial_min",
+                "spatial_max",
+            )
+            if mode != "linear_nonfinite" or backend == "sqlite"
+            if mode != "linear_fanout" or backend == "duckdb"
+            if mode not in ("ratio_decimal_overflow", "ratio_decimal_output_overflow")
+            or backend in ("mysql", "clickhouse")
+            if not mode.startswith("spatial_") or backend == "duckdb"
+            if backend == "duckdb"
+            or (backend == "sqlite" and mode in ("linear_decimal", "linear_nonfinite"))
+            or (backend in ("mysql", "clickhouse") and mode == "ratio_decimal_overflow")
+        ],
+        backend_index=1,
+    ),
 )
 def test_independent_roots_and_temporal_fold(
     backend: str,

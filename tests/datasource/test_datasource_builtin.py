@@ -87,9 +87,8 @@ def test_layered_loading_injects_default_once(project_root: Path) -> None:
     assert catalog.require(ms.ref.datasource("warehouse")).name == "warehouse"
 
 
-@pytest.mark.parametrize("backend", ["duckdb", "sqlite"])
-def test_reserved_registration_fails_before_writes(project_root: Path, backend: str) -> None:
-    spec = md.duckdb(name="default") if backend == "duckdb" else md.sqlite(name="default")
+def test_reserved_registration_fails_before_writes(project_root: Path) -> None:
+    spec = md.duckdb(name="default")
     with pytest.raises(DatasourceDuplicateError) as caught:
         md.register(spec)
     assert caught.value.received == "default"

@@ -8,12 +8,11 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource.domain_snapshot as snapshots
-from tests.datasource.source_cases import source_case
+from tests.datasource.source_cases import source_case, source_params
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "trino", "clickhouse"))
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
 def test_remote_preparation_records_independent_reads(
     backend: str,
     tmp_path: Path,

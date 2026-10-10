@@ -20,7 +20,7 @@ from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.datasource.source_cases import Case, source_case
+from tests.datasource.source_cases import Case, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
 
@@ -91,8 +91,9 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
                 admin.command(drop)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("duckdb", "sqlite", "postgres", "clickhouse", "trino"))
+@pytest.mark.parametrize(
+    "backend", source_params(("duckdb", "sqlite", "postgres", "clickhouse", "trino"))
+)
 def test_native_sample_timeout_prevents_snapshot_publication(
     backend: str,
     tmp_path: Path,

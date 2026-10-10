@@ -12,7 +12,7 @@ import pytest
 
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.journey.funnel_public_recovery_worker import author, materialize
-from tests.datasource.source_cases import SourceData, source_case
+from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.json import Json, encode, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -71,8 +71,8 @@ def source_data(rows: list[dict[str, object]], backend: str, events: bool) -> So
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "trino", "clickhouse"))
+@pytest.mark.slow
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
 def test_native_funnel_nonempty_findings_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, source_trace: SourceTrace
 ) -> None:
@@ -148,7 +148,8 @@ def test_native_funnel_nonempty_findings_recovery(
     shutil.rmtree(tmp_path / "models")
     reports: list[Json] = [produced]
     repository = PROJECT_ROOT
-    for phase in ("fixed", "cold"):
+    phases = ("fixed", "cold") if backend == "postgres" else ("fixed",)
+    for phase in phases:
         report = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [

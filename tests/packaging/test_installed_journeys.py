@@ -107,7 +107,10 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
             "(duckdb or sqlite) and (" + METHOD_SELECTIONS["test_multiroot_consumers.py"] + ")",
         ),
         ("tests/analysis/numeric/test_comparison_consumers.py", "duckdb or sqlite"),
-        ("tests/analysis/materialization/test_attribution_recovery.py", "duckdb or sqlite"),
+        (
+            "tests/analysis/materialization/test_attribution_recovery.py",
+            "native_duckdb_attribution",
+        ),
         (
             "tests/analysis/numeric/test_native_numeric.py",
             "native_weighted_and_mean or sqlite or native_numeric_recovers_without_sources",
@@ -131,8 +134,10 @@ def test_installed_independent_behavior_owner(
         "--tb=short",
         "--maxfail=5",
         "--basetemp=" + str(projects / name),
-        owner,
     ]
+    if owner.endswith("/test_attribution_recovery.py"):
+        arguments.extend(("-o", "markers=release: release-only acceptance", "-m", "release"))
+    arguments.append(owner)
     if selection:
         arguments.extend(("-k", selection))
     candidate.run(

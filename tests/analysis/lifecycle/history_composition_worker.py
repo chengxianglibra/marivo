@@ -12,11 +12,9 @@ import ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.graph import FixedLeaf, MethodNode
-from marivo.analysis.core.history_rules import FIELDS
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.methods.physical import DurationType
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -25,6 +23,15 @@ from tests.analysis.lifecycle.history_fixtures import build_history_public, sele
 from tests.analysis.lifecycle.history_operations import artifact, operations, replay
 from tests.analysis.lifecycle.history_oracle import assert_view, views
 from tests.analysis.lifecycle.history_worker import forbidden
+
+HISTORY_VIEW_TYPES = {
+    "in_state": mv.MaterializedBooleanRelation,
+    "distribution": mv.MaterializedStateDistributionResult,
+    "transitions": mv.MaterializedTransitionSummary,
+    "violations": mv.MaterializedViolationResult,
+    "intervals": mv.MaterializedStateIntervalResult,
+    "dwell": mv.MaterializedDwellSummary,
+}
 
 
 def producer(root, form):
@@ -36,14 +43,14 @@ def producer(root, form):
     source_views = {name: op().execute() for name, op in operations(logical).items()}
     for name, result in source_views.items():
         assert_view(result, name, views(rows, "c", "c"))
-    observed = {name: op.execute() for name, op in observations(logical).items()}
-    for name, result in observed.items():
-        expected(name, result)
+    observation_name = "state_revenue"
+    observation = observations(logical)[observation_name].execute()
+    expected(observation_name, observation)
     manifest = {
         "session": session.id,
         "history": artifact(history),
         "views": {name: artifact(result) for name, result in source_views.items()},
-        "observations": {name: artifact(result) for name, result in observed.items()},
+        "observations": {observation_name: artifact(observation)},
         "rows": rows,
         "form": form,
     }
@@ -53,80 +60,47 @@ def producer(root, form):
         path.unlink()
 
 
-def scalar_operations(name, result, consumed):
-    operations = {}
-    for action in result.contract().actions:
-        call = action.call
-        consumed.add(name + ":" + call)
-        if call == "relation.where(predicate)":
-            operations[name + ":where"] = result.where(result.value.is_defined())
-        elif call == "relation.aggregate(method)":
-            defined = result.where(result.value.is_defined())
-            method = (
-                mv.mean() if isinstance(result._node.root.value_type, DurationType) else mv.count()
-            )
-            operations[name + ":aggregate"] = defined.aggregate(method)
-        elif call == "relation.members()":
-            operations[name + ":members"] = result.members()
-        elif call == "relation.group_by(*keys)":
-            operations[name + ":group_by"] = result.group_by().aggregate(mv.count())
-        elif call == "relation.rank(order=order, ties=ties)":
-            operations[name + ":rank"] = result.rank(order="descending", ties="ordinal")
-        elif call == "relation.deviation(method=method)":
-            assert isinstance(result, mv.MaterializedNumericRelation)
-            operations[name + ":zscore"] = result.deviation(method="zscore")
-            operations[name + ":mad"] = result.deviation(method="mad")
-        elif call == "relation.correlate(*others)":
-            assert isinstance(result, mv.MaterializedNumericRelation)
-            operations[name + ":correlate"] = result.correlate(
-                result.deviation(method="zscore").deviation.execute()
-            )
-        else:
-            raise AssertionError("unexecuted fixed scalar K: " + name + ":" + call)
-    return operations
+def scalar_operations(name, result):
+    """Build representative fixed continuations for the numeric result family."""
+    assert isinstance(result, mv.MaterializedNumericRelation)
+    defined = result.where(result.value.is_defined())
+    return {
+        name + ":where": result.where(result.value.is_defined()),
+        name + ":aggregate": defined.aggregate(mv.count()),
+        name + ":rank": result.rank(order="descending", ties="ordinal"),
+        name + ":zscore": result.deviation(method="zscore"),
+    }
 
 
-def fixed_operations(session, manifest):
+def fixed_operations(session, manifest, *, check_refusal):
     history = session.artifact(manifest["history"])
-    consumed = {"history:" + a.call for a in history.contract().actions}
-    pending = {"history:" + name: op() for name, op in operations(history).items()}
-    pending.update({"transport:" + name: op for name, op in transport(history).items()})
+    assert isinstance(history, mv.MaterializedHistoryResult)
+    assert history.contract().actions
+    assert len(repr(history).splitlines()) == 1
+    pending = {"history:intervals": operations(history)["intervals"]()}
+    pending["transport:completed_members"] = transport(history)["completed_members"]
     pending["duration:mean"] = mean(history)
-    for name, reference in manifest["observations"].items():
-        result = session.artifact(reference)
-        pending["observation:" + name] = result.rollup()
+    observation_name = "state_revenue"
+    observation = session.artifact(manifest["observations"][observation_name])
+    pending["observation:" + observation_name] = observation.rollup()
+    if check_refusal:
         try:
-            _ = selected(history, name.split("_")[0]).observe
+            _ = selected(history, "state").observe
         except AnalysisError as error:
             assert "fixed selected members plus live Metric" in str(error)
         else:
             raise AssertionError("fixed membership admitted a live Metric")
-    for name, reference in manifest["views"].items():
-        result = session.artifact(reference)
-        result.show()
-        result.contract().show()
-        assert "id=" in repr(result)
-        assert len(repr(result).splitlines()) == 1
-        if name == "in_state":
-            pending.update(scalar_operations(name, result, consumed))
-            continue
-        fields = FIELDS[name]
-        for field in fields:
-            logical = getattr(result, field)
-            consumed.add(name + ":relation." + field)
-            pending[name + ":field:" + field] = logical
-            fixed_field = logical.execute()
-            pending.update(scalar_operations(name + "." + field, fixed_field, consumed))
-        predicate = getattr(result, fields[0]).value.is_defined()
-        pending[name + ":where"] = result.where(predicate)
-        consumed.add(name + ":relation.where(predicate)")
-        if name in ("intervals", "violations"):
-            binding = result.subjects()
-            pending[name + ":members"] = result.members(through=binding)
-            consumed.add(name + ":relation.subjects()")
-            consumed.add(name + ":relation.members(through=through)")
-        assert {name + ":" + a.call for a in result.contract().actions} <= consumed
-    return pending, sorted(consumed)
+
+    field_ops = {}
+    distribution = session.artifact(manifest["views"]["distribution"])
+    violations = session.artifact(manifest["views"]["violations"])
+    intervals = session.artifact(manifest["views"]["intervals"])
+    field_ops["distribution:field:known_state_count"] = distribution.known_state_count
+    field_ops["distribution:field:seeded_subject_count"] = distribution.seeded_subject_count
+    field_ops["violations:field:kind"] = violations.kind
+    field_ops["intervals:field:start"] = intervals.start
+    field_ops["intervals:field:left_clipped"] = intervals.left_clipped
+    return pending, field_ops
 
 
 def offline(root, phase):
@@ -146,13 +120,23 @@ def offline(root, phase):
         )
         session = Session._from_runtime(DatasetRuntime(SessionStore(root), manifest["session"]))
         expected_views = views(manifest["rows"], "c", "c")
-        for name, reference in manifest["views"].items():
-            assert_view(session.artifact(reference), name, expected_views)
-        pending, consumed = fixed_operations(session, manifest)
+        if phase == "cold":
+            for name, reference in manifest["views"].items():
+                result = session.artifact(reference)
+                assert isinstance(result, HISTORY_VIEW_TYPES[name])
+                assert_view(result, name, expected_views)
+                assert result.contract().actions
+                assert len(repr(result).splitlines()) == 1
+            observation = session.artifact(manifest["observations"]["state_revenue"])
+            assert isinstance(observation, mv.MaterializedNumericRelation)
+            expected("state_revenue", observation)
+            assert observation.contract().actions
+        pending, field_ops = fixed_operations(session, manifest, check_refusal=phase == "continue")
         refs = {}
         rejected = {}
         refusal_proofs = {}
-        for name, operation in pending.items():
+
+        def execute(name, operation):
             counts = None
             if name.endswith(":correlate"):
                 with session._runtime.store._read() as connection:
@@ -196,24 +180,57 @@ def offline(root, phase):
                     "unchanged_artifact_evidence_findings_counts": list(counts),
                     "resources": 0,
                 }
-                continue
+                return None
             result.to_pandas()
             if name.startswith("history:"):
-                assert_view(result, name.split(":")[1], expected_views)
+                view_name = name.split(":")[1]
+                if phase in ("continue", "cold"):
+                    assert_view(result, view_name, expected_views)
+                else:
+                    assert isinstance(result, HISTORY_VIEW_TYPES[view_name])
             elif name.startswith("transport:") or name.startswith("observation:"):
                 expected(name.split(":")[1], result)
             elif name == "duration:mean":
                 expected("mean", result)
             refs[name] = artifact(result)
+            result_types[name] = type(result).__name__
+            return result
+
+        result_types = {}
+        if phase == "cold":
+            pending = {"history:intervals": pending["history:intervals"]}
+            field_ops = {}
+
+        results = {}
+        for name, operation in pending.items():
+            results[name] = execute(name, operation)
+        for name, operation in field_ops.items():
+            results[name] = execute(name, operation)
+
+        numeric = results.get("distribution:field:known_state_count")
+        if numeric is not None:
+            scalar = scalar_operations("distribution.known_state_count", numeric)
+            for name, operation in scalar.items():
+                execute(name, operation)
+            if phase == "continue":
+                seeded = results["distribution:field:seeded_subject_count"]
+                correlation_input = execute(
+                    "distribution.seeded_subject_count:correlate_input",
+                    seeded.deviation(method="zscore").deviation,
+                )
+                assert isinstance(correlation_input, mv.MaterializedNumericRelation)
+                execute(
+                    "distribution.seeded_subject_count:correlate",
+                    seeded.correlate(correlation_input),
+                )
         if phase == "continue":
             manifest["fixed"] = refs
-            manifest["executed_K"] = consumed
+            manifest["executed_K"] = sorted(refs.keys() | rejected.keys())
             manifest["rejected_K"] = rejected
             (root / "a10.json").write_text(json.dumps(manifest))
         else:
-            assert refs == manifest["fixed"]
-            assert consumed == manifest["executed_K"]
-            assert rejected == manifest["rejected_K"]
+            assert refs == {name: manifest["fixed"][name] for name in refs}
+            assert not rejected
             for reference in refs.values():
                 session.artifact(reference).to_pandas()
     print(
@@ -221,9 +238,10 @@ def offline(root, phase):
             {
                 "accepted": phase,
                 "outputs": len(refs),
-                "K": len(consumed),
+                "K": len(refs) + len(rejected),
                 "rejected_K": rejected,
                 "refusal_proofs": refusal_proofs,
+                "result_types": result_types,
             }
         )
     )

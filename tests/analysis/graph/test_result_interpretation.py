@@ -27,10 +27,10 @@ def test_duration_disclosure_uses_actual_carrier(unit: str, divisor: int) -> Non
     }
 
 
-@pytest.mark.runtime
-def test_interpretation_source_fixed_cold(tmp_path: Path) -> None:
+@pytest.mark.slow
+def test_interpretation_cold_recovers_public_facts_and_cards(tmp_path: Path) -> None:
     receipts = []
-    for phase in ("produce", "fixed", "cold"):
+    for phase in ("produce", "cold"):
         result = subprocess.run(
             [
                 sys.executable,
@@ -54,7 +54,7 @@ def test_interpretation_source_fixed_cold(tmp_path: Path) -> None:
                 for path in (*project.glob("*.duckdb*"), *project.rglob("*.parquet")):
                     if ".marivo" not in path.parts:
                         path.unlink()
-    assert len({item["pid"] for item in receipts}) == 3
+    assert len({item["pid"] for item in receipts}) == 2
 
 
 def test_shared_column_facts_keep_distinct_units_and_column_order() -> None:
@@ -73,7 +73,6 @@ def test_shared_column_facts_keep_distinct_units_and_column_order() -> None:
     assert facts["second.duration_seconds"] == "seconds = ticks / 1000"
 
 
-@pytest.mark.runtime
 def test_history_duration_seconds_preserves_exact_microseconds(tmp_path: Path) -> None:
     session, members, _, claims, _ = build_lifecycle_public(
         tmp_path, rows=[(0, "started", 0, 1), (0, "paid", 86412.333333, 2)]

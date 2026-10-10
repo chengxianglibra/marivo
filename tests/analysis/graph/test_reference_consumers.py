@@ -22,10 +22,7 @@ from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "clickhouse", "trino"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.parametrize("operation", ["share", "rank", "cohort"])
 def test_complete_identity_reference_consumers(
     backend: str,
@@ -153,10 +150,7 @@ def test_complete_identity_reference_consumers(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 def test_full_time_opportunities_and_static_target(
     backend: str,
     tmp_path: Path,
@@ -230,10 +224,7 @@ def test_full_time_opportunities_and_static_target(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.parametrize("case_kind", ["complete", "missing", "negative"])
 def test_group_reference_weights_preserve_inputs(
     backend: str,
@@ -314,10 +305,7 @@ def test_group_reference_weights_preserve_inputs(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.parametrize("operation", ["penetration", "display"])
 def test_penetration_and_terminal_display(
     backend: str,

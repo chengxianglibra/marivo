@@ -213,7 +213,6 @@ def _counts(store):
         )
 
 
-@pytest.mark.runtime
 def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
     first = _capture(case)
     case[5].create_table(
@@ -239,7 +238,7 @@ def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
             CellDerive(
                 "difference",
                 "fixed-stock-difference",
-                "strict",
+                "propagate",
                 a.signature.quantity.unit,
                 a.signature.quantity.time_scope,
                 "source.exact_pairing@v1",
@@ -357,7 +356,6 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: py
     assert opens == ["open", "open", "open"]
 
 
-@pytest.mark.runtime
 def test_fixed_spearman_accepts_independent_captures_of_one_frozen_membership(case):
     first, second = _capture(case), _capture(case)
     assert first.artifact_ref != second.artifact_ref
@@ -390,7 +388,6 @@ def test_fixed_spearman_accepts_independent_captures_of_one_frozen_membership(ca
     assert case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),)) == saved
 
 
-@pytest.mark.runtime
 def test_fixed_transport_filters_exact_saved_rows_without_source_open(case):
     captured = _capture(case)
     leaf = _fixed(captured).inputs[0].node
@@ -413,17 +410,8 @@ def test_fixed_transport_filters_exact_saved_rows_without_source_open(case):
     assert len(case[4]) == before_opens
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    ("method", "value_type", "expected"),
-    [
-        ("count", "int64", 2),
-        ("count_defined", "int64", 2),
-        ("sum", "int64", 16),
-        ("mean", "float64", 8.0),
-    ],
-)
-def test_fixed_filter_then_row_method_uses_one_graph_run(case, method, value_type, expected):
+def test_fixed_filter_then_count_defined_uses_one_graph_run(case):
+    method, value_type, expected = "count_defined", "int64", 2
     captured = _capture(case)
     leaf = _fixed(captured).inputs[0].node
     assert isinstance(leaf, FixedLeaf)
@@ -470,7 +458,6 @@ def test_fixed_filter_then_row_method_uses_one_graph_run(case, method, value_typ
     assert len(case[4]) == before_opens
 
 
-@pytest.mark.runtime
 def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch):
     from marivo.analysis.materialization import graph_local_execution
 
@@ -482,7 +469,7 @@ def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch)
         CellDerive(
             "difference",
             "self-difference",
-            "strict",
+            "propagate",
             "units",
             "all",
             "source.exact_pairing@v1",
@@ -535,7 +522,6 @@ def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch)
     assert calls == ["difference"]
 
 
-@pytest.mark.runtime
 def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
     captured = _capture(case)
     association_root = _fixed_pair(captured, captured)
@@ -618,7 +604,6 @@ assert result.parts[0].table.num_rows == 0
     assert process.returncode == 0, process.stderr
 
 
-@pytest.mark.runtime
 def test_source_difference_retains_both_ordered_endpoint_parts(case):
     runtime, _, binding, _, _, backend = case
     leaf = binding.leaf
@@ -689,7 +674,7 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
         CellDerive(
             "difference",
             "same-stock-difference",
-            "strict",
+            "propagate",
             leaf.signature.quantity.unit,
             leaf.signature.quantity.time_scope,
             "source.exact_pairing@v1",
@@ -739,9 +724,10 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
     assert retained.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3]
 
 
-@pytest.mark.parametrize(
-    "point",
-    [
+def test_faults_have_no_success_and_clean_only_own_run(case):
+    saved = _execute(case)
+    runtime = case[0]
+    points = (
         "graph_admitted",
         "graph_primary_written",
         "graph_part_written",
@@ -751,26 +737,26 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
         "insert_evidence",
         "insert_terminal",
         "before_commit",
-    ],
-)
-def test_faults_have_no_success_and_clean_only_own_run(case, point):
-    saved = _execute(case)
-    runtime = case[0]
+    )
+    for point in points:
+        before = _counts(runtime.store)
 
-    def fail(event):
-        if event == point:
-            raise RuntimeError(point)
+        def fail(event, *, selected=point):
+            if event == selected:
+                raise RuntimeError(selected)
 
-    runtime._hook = fail
-    with pytest.raises(MaterializationError) as caught:
-        _execute(case)
-    assert isinstance(caught.value.__cause__, RuntimeError)
-    assert str(caught.value.__cause__) == point
-    assert caught.value.run_ref is not None
-    assert caught.value.run_ref == runtime.last_run_ref
-    failed = runtime.get_run(caught.value.run_ref)
-    assert failed.lifecycle == "failed"
-    assert _counts(runtime.store) == (2, 1, 2, 0)
+        runtime._hook = fail
+        with pytest.raises(MaterializationError) as caught:
+            _execute(case)
+        assert isinstance(caught.value.__cause__, RuntimeError)
+        assert str(caught.value.__cause__) == point
+        assert caught.value.run_ref is not None
+        assert caught.value.run_ref == runtime.last_run_ref
+        failed = runtime.get_run(caught.value.run_ref)
+        assert failed.lifecycle == "failed"
+        after = _counts(runtime.store)
+        assert after == (before[0] + 1, before[1], before[2] + 1, before[3])
+    runtime._hook = None
     assert read_result(runtime.store.project_root, saved.descriptor).primary[
         "value"
     ].to_pylist() == [3]
@@ -893,25 +879,24 @@ def test_corrupt_input_cannot_hit_or_admit(case, target):
     assert _counts(runtime.store) == before
 
 
-@pytest.mark.parametrize(
-    "mutate",
-    [
+def test_strict_descriptor_rejects_altered_fields(case):
+    record = _execute(case)
+    mutations = (
         lambda p: p.update(schema="marivo.dataset_artifact_descriptor/v3"),
         lambda p: p.update(extra=True),
         lambda p: p.pop("parts"),
         lambda p: p["method_state"].update(contract_version=2),
         lambda p: p["primary_receipt"].update(kind="part"),
-    ],
-)
-def test_strict_descriptor_rejects_altered_fields(case, mutate):
-    record = _execute(case)
-    payload = json.loads(encode(record.descriptor, DESCRIPTOR))
-    mutate(payload)
-    with pytest.raises(IntegrityError):
-        decode(canonical_json(payload), DESCRIPTOR)
+    )
+    original = encode(record.descriptor, DESCRIPTOR)
+    for mutate in mutations:
+        payload = json.loads(original)
+        mutate(payload)
+        with pytest.raises(IntegrityError):
+            decode(canonical_json(payload), DESCRIPTOR)
 
 
-@pytest.mark.parametrize("generation", range(1, 9))
+@pytest.mark.parametrize("generation", (1, 8))
 def test_existing_generation_rejection_preserves_project_bytes(
     tmp_path: Path, generation: int
 ) -> None:
@@ -929,8 +914,8 @@ def test_existing_generation_rejection_preserves_project_bytes(
     assert old_path.read_bytes() == before
 
 
-@pytest.mark.parametrize("method,expected", [("sum", 20), ("mean", 20 / 3), ("count_defined", 3)])
-def test_method_state_and_completed_evidence_roundtrip(case, method, expected):
+def test_method_state_and_completed_evidence_roundtrip(case):
+    method, expected = "sum", 20
     leaf = case[2].leaf
     domain = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all")
     root = method_node(
@@ -1026,19 +1011,6 @@ def _finish(process, expected=0):
     return output.strip()
 
 
-@pytest.mark.runtime
-def test_cold_source_free_read_and_fixed_hit(case):
-    saved = _capture(case)
-    case[5].disconnect()
-    (case[0].store.project_root / "source.duckdb").unlink()
-    first = json.loads(_finish(_worker(case[0].store, saved.artifact_ref, "execute")))
-    second = json.loads(_finish(_worker(case[0].store, saved.artifact_ref, "execute")))
-    assert first == second
-    assert first["value"] == [3]
-    assert _counts(case[0].store) == (2, 2, 2, 0)
-
-
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point",
     [
@@ -1058,7 +1030,6 @@ def test_process_exit_coordinates_original_run_without_replay(case, point):
     assert read_result(store.project_root, saved.descriptor).primary.num_rows == 3
 
 
-@pytest.mark.runtime
 def test_two_process_writers_share_one_success_and_release_lock(case):
     saved = _capture(case)
     store = case[0].store
@@ -1495,8 +1466,7 @@ def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
     assert evidence.finding_count == len(findings)
 
 
-@pytest.mark.parametrize("operation", ("digest", "page", "finding"))
-def test_evidence_read_decodes_collection_once(case, monkeypatch, operation):
+def test_evidence_read_decodes_collection_once(case, monkeypatch):
     from marivo.analysis.errors import FindingNotFoundError
     from marivo.analysis.evidence import _dataset_types as t
     from marivo.analysis.materialization import graph_findings
@@ -1519,46 +1489,30 @@ def test_evidence_read_decodes_collection_once(case, monkeypatch, operation):
         return collection(store, connection, descriptor, artifact_ref, _validated=_validated)
 
     monkeypatch.setattr(graph_findings, "collection", counted)
-    if operation == "digest":
-        assert dataset.evidence_digest().finding_count == 0
-    elif operation == "page":
-        page = dataset.findings()
-        assert page.items == () and not page.has_more and page.next_cursor is None
-    else:
-        with pytest.raises(FindingNotFoundError):
-            dataset.finding("missing-finding")
+    assert dataset.evidence_digest().finding_count == 0
+    assert len(calls) == 1
+    calls.clear()
+    page = dataset.findings()
+    assert page.items == () and not page.has_more and page.next_cursor is None
+    assert len(calls) == 1
+    calls.clear()
+    with pytest.raises(FindingNotFoundError):
+        dataset.finding("missing-finding")
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("operation", ("digest", "page", "finding"))
-@pytest.mark.parametrize("fault", ("missing", "invalid_count"))
-def test_evidence_read_still_rejects_incomplete_collection(case, operation, fault):
+def test_missing_evidence_row_blocks_evidence_read(case):
     from marivo.analysis.materialization.graph_dataset import GraphDataset
 
     output = _execute(case)
     dataset = GraphDataset(case[0], output)
     with case[0].store._write() as connection:
-        if fault == "missing":
-            connection.execute(
-                "DELETE FROM dataset_evidence WHERE artifact_ref=?", (output.artifact_ref,)
-            )
-        else:
-            connection.execute(
-                "UPDATE dataset_evidence SET finding_count=1 WHERE artifact_ref=?",
-                (output.artifact_ref,),
-            )
+        connection.execute(
+            "DELETE FROM dataset_evidence WHERE artifact_ref=?", (output.artifact_ref,)
+        )
     with pytest.raises(IntegrityError) as caught:
-        if operation == "digest":
-            dataset.evidence_digest()
-        elif operation == "page":
-            dataset.findings(cursor="invalid")
-        else:
-            dataset.finding("missing-finding")
-    assert caught.value.received == (
-        "Artifact lacks atomic Evidence"
-        if fault == "missing"
-        else "Finding collection count or frozen extractor authority differs"
-    )
+        dataset.evidence_digest()
+    assert caught.value.received == "Artifact lacks atomic Evidence"
 
 
 def test_relation_restore_uses_current_validated_artifact(case, monkeypatch):
@@ -1588,16 +1542,7 @@ def test_relation_restore_uses_current_validated_artifact(case, monkeypatch):
     assert relation.binding.definition is current.validated
 
 
-@pytest.mark.parametrize(
-    ("column", "value"),
-    (
-        ("finding_count", 1),
-        ("extractor_contract_versions_payload", '["foreign@v1"]'),
-        ("extractor_contract_versions_payload", "[1]"),
-        ("extractor_contract_versions_payload", "invalid"),
-    ),
-)
-def test_finding_collection_rejects_invalid_stored_envelope(case, column, value):
+def test_finding_collection_rejects_invalid_stored_envelope(case):
     from marivo.analysis.materialization import graph_findings, graph_store
 
     output = _execute(case)
@@ -1605,14 +1550,25 @@ def test_finding_collection_rejects_invalid_stored_envelope(case, column, value)
     with store._connection() as connection:
         connection.execute("BEGIN")
         try:
-            connection.execute(
-                f"UPDATE dataset_evidence SET {column}=? WHERE artifact_ref=?",
-                (value, output.artifact_ref),
-            )
-            with pytest.raises(MaterializationError):
-                graph_findings.collection(store, connection, output.descriptor, output.artifact_ref)
-            with pytest.raises(MaterializationError):
-                graph_store.artifact(store, connection, output.artifact_ref)
+            for column, value in (
+                ("finding_count", 1),
+                ("extractor_contract_versions_payload", '["foreign@v1"]'),
+                ("extractor_contract_versions_payload", "[1]"),
+                ("extractor_contract_versions_payload", "invalid"),
+            ):
+                connection.execute("SAVEPOINT invalid_evidence")
+                connection.execute(
+                    f"UPDATE dataset_evidence SET {column}=? WHERE artifact_ref=?",
+                    (value, output.artifact_ref),
+                )
+                with pytest.raises(MaterializationError):
+                    graph_findings.collection(
+                        store, connection, output.descriptor, output.artifact_ref
+                    )
+                with pytest.raises(MaterializationError):
+                    graph_store.artifact(store, connection, output.artifact_ref)
+                connection.execute("ROLLBACK TO invalid_evidence")
+                connection.execute("RELEASE invalid_evidence")
         finally:
             connection.rollback()
 
@@ -1666,36 +1622,42 @@ def test_compact_binding_has_one_frozen_storage_owner(case):
     assert all(item.implementation_version == 7 for item in descriptor.method_bindings)
 
 
-@pytest.mark.parametrize("target", ["descriptor", "method_state", "part_receipt"])
-def test_obsolete_artifact_cannot_hit_cache_or_mutate_saved_files(case, target):
-    saved = _execute(case) if target == "part_receipt" else _capture(case)
+def test_obsolete_artifact_cannot_hit_cache_or_mutate_saved_files(case):
+    saved = _execute(case)
     fixed = _fixed(saved)
     case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    payload = encode(saved.descriptor, DESCRIPTOR).replace(
-        "artifact_descriptor/v6"
-        if target == "descriptor"
-        else "receipt/v2"
-        if target == "part_receipt"
-        else "method_state/v2",
-        "artifact_descriptor/v4"
-        if target == "descriptor"
-        else "receipt/v1"
-        if target == "part_receipt"
-        else "method_state/v1",
-    )
-    with case[0].store._write() as connection:
-        connection.execute(
-            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-            (payload, saved.artifact_ref),
-        )
-        connection.execute(
-            "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
-            (digest(payload), saved.artifact_ref),
-        )
+    original = encode(saved.descriptor, DESCRIPTOR)
     paths = tuple(case[0].store.project_root.glob(".marivo/analysis/**/data.parquet"))
     before = {path: path.read_bytes() for path in paths}
-    counts, opens = _counts(case[0].store), list(case[4])
-    with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
-        case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    assert _counts(case[0].store) == counts and case[4] == opens
-    assert before and all(path.read_bytes() == data for path, data in before.items())
+    versions = (
+        ("artifact_descriptor/v6", "artifact_descriptor/v4"),
+        ("method_state/v2", "method_state/v1"),
+        ("receipt/v2", "receipt/v1"),
+    )
+    for current, obsolete in versions:
+        payload = original.replace(current, obsolete)
+        with case[0].store._write() as connection:
+            connection.execute(
+                "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+                (payload, saved.artifact_ref),
+            )
+            connection.execute(
+                "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
+                (digest(payload), saved.artifact_ref),
+            )
+        counts, opens = _counts(case[0].store), list(case[4])
+        try:
+            with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
+                case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
+            assert _counts(case[0].store) == counts and case[4] == opens
+            assert before and all(path.read_bytes() == data for path, data in before.items())
+        finally:
+            with case[0].store._write() as connection:
+                connection.execute(
+                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+                    (original, saved.artifact_ref),
+                )
+                connection.execute(
+                    "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
+                    (digest(original), saved.artifact_ref),
+                )

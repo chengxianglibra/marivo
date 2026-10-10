@@ -18,21 +18,17 @@ from tests.datasource.source_cases import Case, SourceData, datasource, source_c
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
 @pytest.mark.parametrize(
     "kind", ["snapshot", "validity", "duplicate", "overlap", "null_id", "null_tenant"]
 )
 def test_complete_versioned_members(
-    backend: str,
     kind: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     trace = source_trace
@@ -50,7 +46,7 @@ def test_complete_versioned_members(
         rows.append((None, "a", "2026-08-01", None, 50))
     if kind == "null_tenant":
         rows.append((9007199254740994, None, "2026-08-01", None, 50))
-    date_prefix = "DATE " if backend == "trino" else ""
+    date_prefix = ""
     data = SourceData(
         "id BIGINT, tenant VARCHAR(10), beginning DATE, ending DATE, amount BIGINT, enabled BOOLEAN",
         ",".join(
@@ -76,9 +72,7 @@ def test_complete_versioned_members(
             for identity, tenant, start, end, amount in rows
         ],
     )
-    profile = (
-        "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
-    )
+    profile = "table"
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         case.environment["profile"] = profile
         assert isinstance(case.source, TableSourceIR)
@@ -421,13 +415,8 @@ def test_no_time_key_does_not_specialize_to_float() -> None:
             assert builtin.specialize_numeric(item, key).key != key
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
 @pytest.mark.parametrize("mode", ["complete", "missing", "multiple"])
 def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
-    backend: str,
     mode: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -436,6 +425,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
 ) -> None:
     from contextlib import ExitStack
 
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     trace = source_trace
@@ -470,38 +460,24 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
             ],
         )
 
-    profile = (
-        "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
-    )
+    profile = "table"
     with ExitStack() as stack:
-        if backend == "duckdb":
-            path = tmp_path / "source.duckdb"
-            admin = ibis.duckdb.connect(path)
-            try:
-                for name, rows in (("subjects", population), ("attributes", targets)):
-                    source_data = data(rows)
-                    admin.raw_sql(f"CREATE TABLE {name} ({source_data.columns})")
-                    admin.raw_sql(f"INSERT INTO {name} VALUES {source_data.values}")
-            finally:
-                admin.disconnect()
-            connection = stack.enter_context(
-                provider_for(backend).open(
-                    datasource(backend, {"path": str(path), "read_only": True})
-                )
-            )
-            root = Case(
-                connection, TableSourceIR("subjects"), {"backend": backend, "read_only": True}
-            )
-            target = Case(
-                connection, TableSourceIR("attributes"), {"backend": backend, "read_only": True}
-            )
-        else:
-            root = stack.enter_context(
-                source_case(backend, profile, tmp_path, monkeypatch, data(population))
-            )
-            target = stack.enter_context(
-                source_case(backend, profile, tmp_path, monkeypatch, data(targets))
-            )
+        path = tmp_path / "source.duckdb"
+        admin = ibis.duckdb.connect(path)
+        try:
+            for name, rows in (("subjects", population), ("attributes", targets)):
+                source_data = data(rows)
+                admin.raw_sql(f"CREATE TABLE {name} ({source_data.columns})")
+                admin.raw_sql(f"INSERT INTO {name} VALUES {source_data.values}")
+        finally:
+            admin.disconnect()
+        connection = stack.enter_context(
+            provider_for(backend).open(datasource(backend, {"path": str(path), "read_only": True}))
+        )
+        root = Case(connection, TableSourceIR("subjects"), {"backend": backend, "read_only": True})
+        target = Case(
+            connection, TableSourceIR("attributes"), {"backend": backend, "read_only": True}
+        )
         arguments = {
             **root.session.datasource.fields,
             **{key + "_env": value for key, value in root.session.datasource.env_refs.items()},

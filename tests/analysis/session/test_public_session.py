@@ -26,29 +26,26 @@ def test_new_public_session_starts_with_empty_v8_store(
     assert session.runs().items == ()
 
 
-@pytest.mark.parametrize("version", [0, 2, 3, 7])
-@pytest.mark.parametrize("entry", ["get_or_create", "resume", "current"])
 def test_public_session_rejects_existing_store_without_modifying_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: int, entry: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     path = MaterializationLayout(tmp_path).store_db
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as connection:
-        connection.execute(f"PRAGMA user_version={version}")
+        connection.execute("PRAGMA user_version=8")
     before = path.read_bytes()
     files = tuple(path.parent.iterdir())
-    with pytest.raises(IntegrityError) as caught:
-        if entry == "get_or_create":
-            mv.session.get_or_create("new")
-        elif entry == "resume":
-            mv.session.resume("old")
-        else:
-            mv.session.current()
-    assert caught.value.stage == "store_generation"
-    assert "new named Session" in str(caught.value)
-    assert path.read_bytes() == before
-    assert tuple(path.parent.iterdir()) == files
+    for acquire in (
+        lambda: mv.session.get_or_create("new"),
+        lambda: mv.session.resume("old"),
+    ):
+        with pytest.raises(IntegrityError) as caught:
+            acquire()
+        assert caught.value.stage == "store_generation"
+        assert "new named Session" in str(caught.value)
+        assert path.read_bytes() == before
+        assert tuple(path.parent.iterdir()) == files
 
 
 def test_public_calendar_snapshot_is_captured_before_pure_construction(

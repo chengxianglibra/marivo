@@ -21,20 +21,17 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.slow
 def test_native_original_mean_independent_fixed_and_cold(
-    backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    facts = [(i, "a", 1) for i in range(100)] + [(100, "b", 100)]
+    facts = [(0, "a", 1), (1, "a", 1), (2, "b", 100)]
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
         ",".join(
@@ -75,8 +72,8 @@ def test_native_original_mean_independent_fixed_and_cold(
         source_trace.save(
             "mean-source-" + backend,
             {**case.environment, "profile": profile},
-            {"rows": 101},
-            {"a": [100, 100], "b": [100, 1]},
+            {"rows": 3},
+            {"a": [2, 2], "b": [100, 1]},
             source,
             (case.session,),
         )

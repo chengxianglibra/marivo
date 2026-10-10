@@ -65,6 +65,44 @@ table.value
 table.where(observed.value.gt(0))
 mv.table(value=ranking)
 table.execute().execute()
+
+def rejected(
+    members: mv.LogicalAnalysisDomain,
+    fixed_members: mv.MaterializedAnalysisDomain,
+    selected_members: mv.LogicalFixedAnalysisDomain,
+    category: mv.LogicalCategoryRelation,
+    fixed_category: mv.MaterializedCategoryRelation,
+    selected_category: mv.LogicalCategoryRelation,
+    fixed_selected_category: mv.MaterializedCategoryRelation,
+    boolean: mv.LogicalBooleanRelation,
+    fixed_boolean: mv.MaterializedBooleanRelation,
+    selected_boolean: mv.LogicalSelectedBooleanRelation,
+    fixed_selected_boolean: mv.MaterializedSelectedBooleanRelation,
+    temporal: mv.LogicalTemporalRelation,
+    fixed_temporal: mv.MaterializedTemporalRelation,
+    selected_temporal: mv.LogicalSelectedTemporalRelation,
+    fixed_selected_temporal: mv.MaterializedSelectedTemporalRelation,
+    numeric: mv.LogicalNumericRelation,
+) -> None:
+    members.group_by()
+    fixed_members.group_by()
+    selected_members.group_by()
+    members.count()
+    category.group_by()
+    fixed_category.group_by()
+    selected_category.group_by()
+    fixed_selected_category.group_by()
+    boolean.group_by()
+    fixed_boolean.group_by()
+    selected_boolean.group_by()
+    fixed_selected_boolean.group_by()
+    temporal.group_by()
+    fixed_temporal.group_by()
+    selected_temporal.group_by()
+    fixed_selected_temporal.group_by()
+    members.observe(ms.ref.metric("sales.revenue"), groups=members)
+    numeric.group_by(groups=members)
+    mv.GroupedAnalysisDomain
 """
     )
     root = PROJECT_ROOT
@@ -119,6 +157,26 @@ table.execute().execute()
     assert 'LogicalTable" has no attribute "where"' in output
     assert 'MaterializedTable" has no attribute "execute"' in output
     assert 'Argument "value" to "table"' in output
+    for owner in (
+        "LogicalAnalysisDomain",
+        "MaterializedAnalysisDomain",
+        "LogicalFixedAnalysisDomain",
+        "LogicalCategoryRelation",
+        "MaterializedCategoryRelation",
+        "LogicalBooleanRelation",
+        "MaterializedBooleanRelation",
+        "LogicalSelectedBooleanRelation",
+        "MaterializedSelectedBooleanRelation",
+        "LogicalTemporalRelation",
+        "MaterializedTemporalRelation",
+        "LogicalSelectedTemporalRelation",
+        "MaterializedSelectedTemporalRelation",
+    ):
+        assert f'{owner}" has no attribute "group_by"' in output
+    assert 'has no attribute "count"' in output
+    assert 'Unexpected keyword argument "groups" for "observe"' in output
+    assert 'Unexpected keyword argument "groups" for "group_by"' in output
+    assert 'has no attribute "GroupedAnalysisDomain"' in output
 
 
 def test_public_observation_allows_omitted_window_and_precise_narrowing(tmp_path: Path) -> None:
@@ -210,79 +268,3 @@ def check(history: mv.LogicalHistoryResult, fixed: mv.MaterializedHistoryResult)
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def test_retired_grouping_calls_fail_static_typechecking(tmp_path: Path) -> None:
-    source = tmp_path / "retired_grouping.py"
-    source.write_text(
-        """
-import marivo.analysis as mv
-import marivo.semantic as ms
-
-def rejected(
-    members: mv.LogicalAnalysisDomain,
-    fixed_members: mv.MaterializedAnalysisDomain,
-    selected_members: mv.LogicalFixedAnalysisDomain,
-    category: mv.LogicalCategoryRelation,
-    fixed_category: mv.MaterializedCategoryRelation,
-    selected_category: mv.LogicalCategoryRelation,
-    fixed_selected_category: mv.MaterializedCategoryRelation,
-    boolean: mv.LogicalBooleanRelation,
-    fixed_boolean: mv.MaterializedBooleanRelation,
-    selected_boolean: mv.LogicalSelectedBooleanRelation,
-    fixed_selected_boolean: mv.MaterializedSelectedBooleanRelation,
-    temporal: mv.LogicalTemporalRelation,
-    fixed_temporal: mv.MaterializedTemporalRelation,
-    selected_temporal: mv.LogicalSelectedTemporalRelation,
-    fixed_selected_temporal: mv.MaterializedSelectedTemporalRelation,
-    numeric: mv.LogicalNumericRelation,
-) -> None:
-    members.group_by()
-    fixed_members.group_by()
-    selected_members.group_by()
-    members.count()
-    category.group_by()
-    fixed_category.group_by()
-    selected_category.group_by()
-    fixed_selected_category.group_by()
-    boolean.group_by()
-    fixed_boolean.group_by()
-    selected_boolean.group_by()
-    fixed_selected_boolean.group_by()
-    temporal.group_by()
-    fixed_temporal.group_by()
-    selected_temporal.group_by()
-    fixed_selected_temporal.group_by()
-    members.observe(ms.ref.metric("sales.revenue"), groups=members)
-    numeric.group_by(groups=members)
-    mv.GroupedAnalysisDomain
-"""
-    )
-    completed = subprocess.run(
-        [str(PROJECT_ROOT / ".venv/bin/mypy"), "--no-pretty", str(source)],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert completed.returncode != 0
-    for owner in (
-        "LogicalAnalysisDomain",
-        "MaterializedAnalysisDomain",
-        "LogicalFixedAnalysisDomain",
-        "LogicalCategoryRelation",
-        "MaterializedCategoryRelation",
-        "LogicalBooleanRelation",
-        "MaterializedBooleanRelation",
-        "LogicalSelectedBooleanRelation",
-        "MaterializedSelectedBooleanRelation",
-        "LogicalTemporalRelation",
-        "MaterializedTemporalRelation",
-        "LogicalSelectedTemporalRelation",
-        "MaterializedSelectedTemporalRelation",
-    ):
-        assert f'{owner}" has no attribute "group_by"' in completed.stdout
-    assert 'has no attribute "count"' in completed.stdout
-    assert 'Unexpected keyword argument "groups" for "observe"' in completed.stdout
-    assert 'Unexpected keyword argument "groups" for "group_by"' in completed.stdout
-    assert 'has no attribute "GroupedAnalysisDomain"' in completed.stdout

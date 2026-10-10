@@ -19,7 +19,6 @@ from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_p
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 def test_public_history_unknown_cohort_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_trace: SourceTrace
 ) -> None:
@@ -31,7 +30,7 @@ def test_public_history_unknown_cohort_policy(
         tuple[mv.SourceOriginCompletenessDeclarationV1, ...],
         list[tuple[int, str, int | float, int]],
     ] = build_lifecycle_public(
-        tmp_path, backend_name="sqlite", rows=[(0, "started", 0, 1), (0, "finished", 5, 2)]
+        tmp_path, backend_name="duckdb", rows=[(0, "started", 0, 1), (0, "finished", 5, 2)]
     )
     session, population, window, claims, _ = fixture
     history = session.lifecycle.replay(
@@ -86,7 +85,7 @@ def test_public_history_unknown_cohort_policy(
             json.dumps(
                 {
                     "producer": "History.read(in_state(done))",
-                    "backend": "sqlite",
+                    "backend": "duckdb",
                     "cell_tags": frame.cell_tag.tolist(),
                     "known_members": [9007199254740993],
                     "decision_true_counts": [1, 0, 0],

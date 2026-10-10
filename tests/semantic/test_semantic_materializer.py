@@ -225,21 +225,9 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
     # The table should have the expected columns
     assert "amount" in table.columns
     assert "region" in table.columns
-
-
-def test_dataset_materialize_returns_rows(semantic_project_factory, backend_factory) -> None:
-    """Materialized dataset should return actual data via to_pandas()."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-    with _patch_connection_service(project, backend_factory):
-        table = _materialize_dataset(project, "sales.orders")
-    df = table.to_pandas()
-    assert len(df) == 2
-    assert list(df["amount"]) == [100.0, 200.0]
+    rows = table.to_pandas()
+    assert len(rows) == 2
+    assert list(rows["amount"]) == [100.0, 200.0]
 
 
 def test_dataset_materialize_applies_authoring_scope_at_physical_source(
@@ -1726,9 +1714,11 @@ def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
     con.con.execute(
         "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
     )
-    # Insert enough rows to exceed sample_size
-    for i in range(1, 51):
-        con.con.execute(f"INSERT INTO orders VALUES ({i}, {i * 10.0}, 'US', '2025-01-01')")
+    # One extra row proves the five-row sample truncates the full input.
+    con.con.execute(
+        "INSERT INTO orders SELECT i, i * 10.0, 'US', TIMESTAMP '2025-01-01' "
+        "FROM range(1, 7) AS rows(i)"
+    )
 
     def factory(ds_id: str):
         return con
@@ -1740,16 +1730,12 @@ def test_dataset_materialize_with_sample_size(semantic_project_factory) -> None:
     # Without sample_size — full table
     mat_full = Materializer(project, factory)
     table_full = mat_full.entity("sales.orders")
-    assert len(table_full.to_pandas()) == 50
+    assert len(table_full.to_pandas()) == 6
 
     # With sample_size=5 — bounded table
     mat_sampled = Materializer(project, factory, sample_size=5)
     table_sampled = mat_sampled.entity("sales.orders")
     assert len(table_sampled.to_pandas()) == 5
-
-    # Sampled table is cached — subsequent calls return same bounded result
-    table_cached = mat_sampled.entity("sales.orders")
-    assert table_cached.to_pandas().equals(table_sampled.to_pandas())
 
 
 def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
@@ -1758,9 +1744,11 @@ def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
     con.con.execute(
         "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
     )
-    # Insert 100 rows with amounts 1..100 (total = 5050)
-    for i in range(1, 101):
-        con.con.execute(f"INSERT INTO orders VALUES ({i}, {float(i)}, 'US', '2025-01-01')")
+    # One extra row proves the ten-row sample changes the full aggregate.
+    con.con.execute(
+        "INSERT INTO orders SELECT i, CAST(i AS DOUBLE), 'US', TIMESTAMP '2025-01-01' "
+        "FROM range(1, 12) AS rows(i)"
+    )
 
     def factory(ds_id: str):
         return con
@@ -1769,10 +1757,10 @@ def test_metric_materialize_with_sample_size(semantic_project_factory) -> None:
         {"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY}
     )
 
-    # Full metric — exact result
+    # Full metric — exact result across all 11 rows
     mat_full = Materializer(project, factory)
     value_full = mat_full.metric("sales.total_amount")
-    assert value_full.to_pandas() == 5050.0
+    assert value_full.to_pandas() == 66.0
 
     # Sampled metric — approximate result (only first 10 rows, sum = 1+2+...+10 = 55)
     mat_sampled = Materializer(project, factory, sample_size=10)

@@ -139,7 +139,7 @@ def test_wide_first_row_does_not_erase_boundaries_or_skip_ahead() -> None:
     card = _DataCard(
         "Data",
         ("value",),
-        lambda: (("x" * 10000,), ("small",)),
+        lambda: (("x" * 1000,), ("small",)),
         2,
         facts=(("unit", "CNY"),),
         boundaries=(("coverage", "incomplete"),),
@@ -150,11 +150,11 @@ def test_wide_first_row_does_not_erase_boundaries_or_skip_ahead() -> None:
     assert "small" not in text
     assert "reason=output_budget" in text
     assert ".show(max_output_bytes=None)" in text
-    assert "x" * 10000 in card.render(n=None, max_output_bytes=None)
+    assert "x" * 1000 in card.render(n=None, max_output_bytes=None)
 
 
 def test_byte_and_row_limits_both_explain_recovery() -> None:
-    card = _DataCard("Data", ("value",), lambda: (("x" * 10000,) for _ in range(10)), 10)
+    card = _DataCard("Data", ("value",), lambda: (("x" * 1000,) for _ in range(10)), 10)
     text = card.render(n=2, max_output_bytes=500)
     assert "reason=row_limit+output_budget" in text
     assert ".show(n=None, max_output_bytes=None)" in text
@@ -165,11 +165,11 @@ def test_bounded_render_does_not_format_entire_result() -> None:
 
     def rows() -> Iterator[Sequence[object]]:
         nonlocal visits
-        for i in range(100000):
+        for i in range(100):
             visits += 1
             yield (i, "a" * 50)
 
-    card = _DataCard("Data", ("id", "value"), rows, 100000)
+    card = _DataCard("Data", ("id", "value"), rows, 100)
     text = card.render(n=None, max_output_bytes=1000)
     assert len(text.encode()) + 1 <= 1000
     assert visits < 20

@@ -71,16 +71,6 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
 # ---------------------------------------------------------------------------
 
 
-def test_single_model_loads(semantic_project_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _MINIMAL_DATASET_PY,
-        }
-    )
-    assert project.is_ready()
-
-
 def test_global_datasource_can_be_reused_across_models(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
@@ -123,11 +113,26 @@ def test_single_model_load_result_ready(semantic_project_factory) -> None:
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _MINIMAL_DATASET_PY,
-        }
+        },
+        load=False,
     )
     result = project.load()
+    assert project.is_ready()
     assert result.status == "ready"
     assert result.errors == ()
+
+    reg = project._registry
+    assert reg is not None
+    assert "sales" in reg.domains
+    assert "warehouse" in reg.datasources
+    assert "sales.orders" in reg.entities
+    assert "sales.revenue" in reg.metrics
+
+    side = project._expression_sidecar
+    assert side is not None
+    assert ms.ref.entity("sales.orders") not in side.bodies
+    assert ms.ref.metric("sales.revenue") in side.bodies
+    assert ms.ref.datasource("warehouse") not in side.bodies
 
 
 def test_model_only_no_sibling_files(semantic_project_factory) -> None:
@@ -357,6 +362,9 @@ def test_errored_load_result(semantic_project_factory) -> None:
     result = project.load()
     assert result.status == "errored"
     assert len(result.errors) > 0
+    assert not project.is_ready()
+    assert project._registry is None
+    assert project._expression_sidecar is None
 
 
 # ---------------------------------------------------------------------------
@@ -745,53 +753,6 @@ def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None
 # ---------------------------------------------------------------------------
 # Registry and Sidecar access
 # ---------------------------------------------------------------------------
-
-
-def test_registry_accessible_after_load(semantic_project_factory) -> None:
-    """SemanticProject should expose registry after successful load."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _MINIMAL_DATASET_PY,
-        }
-    )
-    reg = project._registry
-    assert reg is not None
-    assert "sales" in reg.domains
-    assert "warehouse" in reg.datasources
-    assert "sales.orders" in reg.entities
-    assert "sales.revenue" in reg.metrics
-
-
-def test_sidecar_accessible_after_load(semantic_project_factory) -> None:
-    """SemanticProject should expose sidecar after successful load."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": _MINIMAL_DATASET_PY,
-        }
-    )
-    side = project._expression_sidecar
-    assert side is not None
-    assert ms.ref.entity("sales.orders") not in side.bodies
-    assert ms.ref.metric("sales.revenue") in side.bodies
-    # Datasets and datasources don't have sidecar callables in source-based authoring.
-    assert ms.ref.datasource("warehouse") not in side.bodies
-
-
-def test_registry_none_on_errored_load(semantic_project_factory) -> None:
-    """Registry should be None when load has errors."""
-    bad_model = textwrap.dedent("""\
-        raise ValueError("boom")
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": bad_model,
-        }
-    )
-    assert not project.is_ready()
-    assert project._registry is None
-    assert project._expression_sidecar is None
 
 
 def test_warnings_accessible_after_load(semantic_project_factory) -> None:

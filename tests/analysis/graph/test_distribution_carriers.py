@@ -16,20 +16,17 @@ from marivo.semantic.ir import AggKind
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_carrier_worker import parts
-from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "physical,parquet", [("float", False), ("float", True), ("decimal", False)]
-)
+@pytest.mark.parametrize("physical", ["float", "decimal"])
+@pytest.mark.slow
 def test_named_distribution_carriers_recover_independently(
     analysis_dsl_case_factory: DslCaseFactory,
     physical: str,
-    parquet: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -57,12 +54,12 @@ def test_named_distribution_carriers_recover_independently(
     model.write_text(
         model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
     methods: dict[str, AggKind] = {"quantile": ("percentile", 0.25)}
+    recovery_kinds = {"quantile"}
     if physical == "float":
+        recovery_kinds.add("distinct")
         methods = {
             "distinct": "count_distinct",
             "approx_distinct": "approx_count_distinct",
@@ -95,9 +92,9 @@ def test_named_distribution_carriers_recover_independently(
         "pid": os.getpid(),
         "session": case.session.id,
         "physical": physical,
-        "form": "parquet" if parquet else "table",
-        "originals": originals,
-        "parts": original_parts,
+        "form": "table",
+        "originals": {name: value for name, value in originals.items() if name in recovery_kinds},
+        "parts": {name: value for name, value in original_parts.items() if name in recovery_kinds},
         "native_sql": [*trace.native_sql],
         "source_closed": all(owner._closed for owner in trace.owners),
     }
@@ -105,8 +102,6 @@ def test_named_distribution_carriers_recover_independently(
     (case.root / "r94-distribution-carrier.json").write_bytes(encode(state))
     shutil.rmtree(case.root / "models")
     case.database_path.unlink()
-    if (case.root / "source_files").exists():
-        shutil.rmtree(case.root / "source_files")
     reports: list[Json] = [state]
     repository = PROJECT_ROOT
     for phase in ("fixed", "cold"):
@@ -130,6 +125,6 @@ def test_named_distribution_carriers_recover_independently(
         reports.append(read(output))
     assert len({str(obj(report)["pid"]) for report in reports}) == 3
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(
-            directory, "distribution-carrier-" + physical + "-" + str(state["form"]) + ".json"
-        ).write_bytes(encode({"reports": checked(reports)}))
+        Path(directory, "distribution-carrier-" + physical + "-table.json").write_bytes(
+            encode({"reports": checked(reports)})
+        )

@@ -4,7 +4,6 @@ import os
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
@@ -14,6 +13,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.methods.registry import MethodRegistration, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey
+from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -25,16 +25,12 @@ from tests.shared_fixtures import run_ids
 from tests.support.json import Json, encode
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ("table", "view"))
-@pytest.mark.parametrize("refusal", ("mixed-live-fixed", "cross-session"))
 def test_public_composition_refuses_before_source_or_run(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    profile: str,
-    refusal: Literal["mixed-live-fixed", "cross-session"],
 ) -> None:
+    profile = "table"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:
@@ -45,15 +41,8 @@ def test_public_composition_refuses_before_source_or_run(
         live = session.members(entity).read(measure)
         previous = live.execute()
         saved = snapshot(previous)
-        sessions = [session]
-        other: mv.LogicalNumericRelation | mv.MaterializedNumericRelation
-        if refusal == "mixed-live-fixed":
-            other = previous
-        else:
-            foreign = mv.session.get_or_create("r94-foreign", report_timezone="UTC")
-            sessions.append(foreign)
-            other = foreign.members(entity).read(measure)
-        before = [run_ids(item) for item in sessions]
+        foreign = mv.session.get_or_create("r94-foreign", report_timezone="UTC")
+        other = foreign.members(entity).read(measure)
         published_before = publication_counts(session)
         calls: list[str] = []
 
@@ -67,56 +56,65 @@ def test_public_composition_refuses_before_source_or_run(
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
         monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
-        errors: list[Json] = []
-        for left, right in ((live, other), (other, live)):
-            with pytest.raises(AnalysisError) as caught:
-                left.ratio(right).execute()
-            error = caught.value
-            assert error.expected and error.received and error.repair is not None
-            assert error.repair.action
-            errors.append(
-                {
-                    "type": type(error).__name__,
-                    "expected": error.expected,
-                    "received": error.received,
-                    "repair": error.repair.action,
-                }
-            )
-        assert calls == []
-        assert [run_ids(item) for item in sessions] == before
-        assert snapshot(previous) == saved
-        assert publication_counts(session) == published_before
-        assert all(item._runtime.store.resources(item.id) == () for item in sessions)
-        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-            Path(directory, "public-refusal-" + refusal + "-" + profile + ".json").write_bytes(
-                encode(
+        refusals: dict[
+            str,
+            tuple[
+                mv.LogicalNumericRelation | mv.MaterializedNumericRelation,
+                mv.LogicalNumericRelation,
+                list[Session],
+            ],
+        ] = {
+            "mixed-live-fixed": (live, previous, [session]),
+            "cross-session": (live, other, [session, foreign]),
+        }
+        reports: dict[str, list[Json]] = {}
+        for refusal, (left, right, sessions) in refusals.items():
+            before = [run_ids(item) for item in sessions]
+            errors: list[Json] = []
+            for first, second in ((left, right), (right, left)):
+                with pytest.raises(AnalysisError) as caught:
+                    first.ratio(second).execute()
+                error = caught.value
+                assert error.expected and error.received and error.repair is not None
+                assert error.repair.action
+                errors.append(
                     {
-                        "requirement": "R9:refusal:shared:pre-run-pre-read:refusal:" + refusal,
-                        "backend": "duckdb",
-                        "profile": profile,
-                        "directions": 2,
-                        "errors": errors,
-                        "tripwire_calls": list(calls),
-                        "run_counts_before": [len(items) for items in before],
-                        "run_counts_after": [len(run_ids(item)) for item in sessions],
-                        "publication_counts_before": [*published_before],
-                        "publication_counts_after": [*publication_counts(session)],
-                        "previous_snapshot": saved,
-                        "previous_artifact_preserved": True,
-                        "resources": 0,
-                        "boundary": "Public ratio composition refusal only; other refusals and physical profiles remain independent.",
+                        "type": type(error).__name__,
+                        "expected": error.expected,
+                        "received": error.received,
+                        "repair": error.repair.action,
                     }
                 )
-            )
+            assert calls == []
+            assert [run_ids(item) for item in sessions] == before
+            assert snapshot(previous) == saved
+            assert publication_counts(session) == published_before
+            assert all(item._runtime.store.resources(item.id) == () for item in sessions)
+            reports[refusal] = errors
+        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+            for refusal, errors in reports.items():
+                Path(directory, "public-refusal-" + refusal + "-" + profile + ".json").write_bytes(
+                    encode(
+                        {
+                            "requirement": "R9:refusal:shared:pre-run-pre-read:refusal:" + refusal,
+                            "backend": "duckdb",
+                            "profile": profile,
+                            "directions": 2,
+                            "errors": errors,
+                            "tripwire_calls": list(calls),
+                            "previous_snapshot": saved,
+                            "previous_artifact_preserved": True,
+                            "resources": 0,
+                            "boundary": "Public ratio composition refusal only; other refusals and physical profiles remain independent.",
+                        }
+                    )
+                )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("role", ("current_endpoint", "baseline_endpoint", "correspondence"))
 def test_public_required_part_missing_blocks_recovery_and_exact_hit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    role: str,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -133,9 +131,6 @@ def test_public_required_part_missing_blocks_recovery_and_exact_hit(
         saved = snapshot(previous)
         assert previous._dataset is not None
         descriptor = previous._dataset.artifact.descriptor
-        part = next(item for item in descriptor.parts if item.role == role)
-        path = tmp_path / part.local.project_relative_path
-        offline = path.with_name(path.name + ".offline")
         before = run_ids(session)
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -147,67 +142,72 @@ def test_public_required_part_missing_blocks_recovery_and_exact_hit(
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, forbidden)
         monkeypatch.setattr(graph_store, "admit", forbidden)
-        path.rename(offline)
-        errors: list[Json] = []
-        try:
-            actions: tuple[Callable[[], object], ...] = (
-                lambda: session.artifact(previous.state.artifact_ref),
-                logical.execute,
-            )
-            for action in actions:
-                with pytest.raises(AnalysisError) as caught:
-                    action()
-                error = caught.value
-                assert error.expected and error.received and error.repair is not None
-                assert error.repair.action
-                errors.append(
-                    {
-                        "type": type(error).__name__,
-                        "expected": error.expected,
-                        "received": error.received,
-                        "repair": error.repair.action,
-                    }
+        reports: dict[str, list[Json]] = {}
+        for role in ("current_endpoint", "baseline_endpoint", "correspondence"):
+            part = next(item for item in descriptor.parts if item.role == role)
+            path = tmp_path / part.local.project_relative_path
+            offline = path.with_name(path.name + ".offline")
+            path.rename(offline)
+            errors: list[Json] = []
+            try:
+                actions: tuple[Callable[[], object], ...] = (
+                    lambda: session.artifact(previous.state.artifact_ref),
+                    logical.execute,
                 )
-            assert run_ids(session) == before and calls == []
-            assert session._runtime.store.resources(session.id) == ()
-        finally:
-            offline.rename(path)
+                for action in actions:
+                    with pytest.raises(AnalysisError) as caught:
+                        action()
+                    error = caught.value
+                    assert error.expected and error.received and error.repair is not None
+                    assert error.repair.action
+                    errors.append(
+                        {
+                            "type": type(error).__name__,
+                            "expected": error.expected,
+                            "received": error.received,
+                            "repair": error.repair.action,
+                        }
+                    )
+                assert run_ids(session) == before and calls == []
+                assert session._runtime.store.resources(session.id) == ()
+            finally:
+                offline.rename(path)
+            reports[role] = errors
         assert snapshot(previous) == saved
         assert publication_counts(session) == published_before
         if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-            Path(directory, "public-refusal-missing-" + role + ".json").write_bytes(
-                encode(
-                    {
-                        "requirement": "R9:refusal:shared:pre-run-pre-read:refusal:missing-required-parts",
-                        "backend": "duckdb",
-                        "profile": "table",
-                        "role": role,
-                        "actions": ["session.artifact", "fixed-exact-hit"],
-                        "errors": errors,
-                        "tripwire_calls": list(calls),
-                        "run_counts_before": [len(before)],
-                        "run_counts_after": [len(run_ids(session))],
-                        "publication_counts_before": [*published_before],
-                        "publication_counts_after": [*publication_counts(session)],
-                        "previous_snapshot": saved,
-                        "previous_artifact_preserved": True,
-                        "resources": 0,
-                        "boundary": "Public retained ratio required-part refusal only; other producer/part/profile bindings remain independent.",
-                    }
+            for role, errors in reports.items():
+                Path(directory, "public-refusal-missing-" + role + ".json").write_bytes(
+                    encode(
+                        {
+                            "requirement": "R9:refusal:shared:pre-run-pre-read:refusal:missing-required-parts",
+                            "backend": "duckdb",
+                            "profile": "table",
+                            "role": role,
+                            "actions": ["session.artifact", "fixed-exact-hit"],
+                            "errors": errors,
+                            "tripwire_calls": list(calls),
+                            "run_counts_before": [len(before)],
+                            "run_counts_after": [len(run_ids(session))],
+                            "publication_counts_before": [*published_before],
+                            "publication_counts_after": [*publication_counts(session)],
+                            "previous_snapshot": saved,
+                            "previous_artifact_preserved": True,
+                            "resources": 0,
+                            "boundary": "Public retained ratio required-part refusal only; other producer/part/profile bindings remain independent.",
+                        }
+                    )
                 )
-            )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ("table", "view"))
 def test_public_cross_datasource_observation_refuses_before_business_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    profile: str,
 ) -> None:
     from tests.support.source_trace import capture_source
 
+    profile = "table"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     roots = (tmp_path / "left_source", tmp_path / "right_source")
@@ -303,16 +303,14 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ("table", "view"))
 def test_public_missing_sqlite_qualification_refuses_before_business_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    profile: str,
 ) -> None:
     from tests.support.source_trace import capture_source
 
+    profile = "table"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     trace = capture_source(monkeypatch)

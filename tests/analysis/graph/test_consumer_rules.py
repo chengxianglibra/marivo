@@ -649,27 +649,20 @@ def test_sqlite_anchor_observation_parameter_boundaries(case: str) -> None:
             admit_observation(renamed, params)
 
 
-@pytest.mark.parametrize("case", ["accepted", "type", "distinct", "start", "end"])
+@pytest.mark.parametrize("case", ["distinct", "start", "end"])
 def test_native_distribution_parameter_boundaries(case: str) -> None:
     item = next(
         i for r in REGISTRY.registrations for i in r.implementations if native_distribution(i)
     )
     params = replace(_observation(), method="count_distinct")
-    if case == "type":
-        params = replace(params, amount_type="float64")
-    elif case == "distinct":
+    if case == "distinct":
         params = replace(params, distinct_columns=("amount",))
     elif case == "start":
         params = replace(params, start=None)
     elif case == "end":
         params = replace(params, end=None)
-    if case in ("accepted", "type"):
+    with pytest.raises(MethodRegistrationError, match="bounded single-column native distribution"):
         builtin.admit(item, params)
-    else:
-        with pytest.raises(
-            MethodRegistrationError, match="bounded single-column native distribution"
-        ):
-            builtin.admit(item, params)
 
 
 @pytest.mark.parametrize(

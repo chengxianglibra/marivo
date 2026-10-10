@@ -48,7 +48,7 @@ def _post_json_server(
             return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-    thread = Thread(target=server.serve_forever, daemon=True)
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     host, port = server.server_address
     try:

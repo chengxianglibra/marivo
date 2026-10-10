@@ -12,6 +12,8 @@ import pytest
 
 from tests.support.paths import PROJECT_ROOT
 
+pytestmark = pytest.mark.slow
+
 _ROOT = PROJECT_ROOT
 _TOOLS = ("python", "pip", "pytest", "mypy", "ruff", "lint-imports", "twine", "sphinx-build")
 
@@ -97,6 +99,25 @@ def test_format_failure_stops_before_expensive_checks(tmp_path: Path, target: st
     assert commands == [["ruff", "format", "--check", "."]]
 
 
+def test_slow_test_selects_extended_cases_and_runs_a_node_serially(tmp_path: Path) -> None:
+    selected = "tests/focused.py::test_one"
+    result, commands = _run_make(tmp_path, "slow-test", tests=selected)
+    assert result.returncode == 0, result.stderr
+    assert commands == [
+        [
+            "pytest",
+            "-q",
+            "--tb=short",
+            "--maxfail=5",
+            "-m",
+            "slow and not release and not runtime",
+            "-n",
+            "0",
+            selected,
+        ]
+    ]
+
+
 def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) -> None:
     result, commands = _run_make(
         tmp_path,
@@ -105,10 +126,18 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     )
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
-    assert len(pytest_commands) == 3
+    assert len(pytest_commands) == 4
     assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5"]
-    assert pytest_commands[1] == ["pytest", "-m", "runtime", "-n", "2"]
-    assert pytest_commands[2] == [
+    assert pytest_commands[1] == [
+        "pytest",
+        "-q",
+        "--tb=short",
+        "--maxfail=5",
+        "-m",
+        "slow and not release and not runtime",
+    ]
+    assert pytest_commands[2] == ["pytest", "-m", "runtime", "-n", "2"]
+    assert pytest_commands[3] == [
         "pytest",
         "-n",
         "0",

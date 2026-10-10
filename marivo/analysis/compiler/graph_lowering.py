@@ -99,6 +99,7 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.core.time_grid import GridVersionSelection
+from marivo.analysis.methods.comparison import PROPAGATION_PRIORITY
 from marivo.analysis.methods.consumer_rules import prepared_numeric
 from marivo.analysis.methods.native_numeric import (
     adapt_measure,
@@ -873,19 +874,25 @@ def _difference(
     if stage.operation == "ibis" and first.type().is_integer():
         widened = first.cast("decimal(38,0)") - second.cast("decimal(38,0)")
         value = widened.cast("int64")
+    # A non-Defined operand passes through without arithmetic; when both are
+    # non-Defined the higher priority tag wins, matching methods.comparison.
+    rank = {tag: len(PROPAGATION_PRIORITY) - i for i, tag in enumerate(PROPAGATION_PRIORITY)}
+
+    def ranked(tag_value: ir.StringValue) -> ir.IntegerValue:
+        return ibis.cases(*((tag_value == name, value) for name, value in rank.items()), else_=0)
+
+    take_baseline = (tag_a == "defined") | ((tag_b != "defined") & (ranked(tag_b) > ranked(tag_a)))
+    missing_keep = ~both & (params.pairing == "keep")
     tag = ibis.ifelse(
-        defined, "defined", ibis.ifelse(~both & (params.pairing == "keep"), "undefined", "null")
+        defined,
+        "defined",
+        ibis.ifelse(missing_keep, "undefined", take_baseline.ifelse(tag_b, tag_a)),
     )
     reason = ibis.ifelse(
         defined,
         ibis.null().cast("string"),
-        ibis.ifelse(~both & (params.pairing == "keep"), "missing_side", "empty_contribution"),
+        ibis.ifelse(missing_keep, "missing_side", take_baseline.ifelse(reason_b, reason_a)),
     )
-    if params.pairing == "metric_empty":
-        missing_tag = (~present_a).ifelse(tag_a, tag_b)
-        missing_reason = (~present_a).ifelse(reason_a, reason_b)
-        tag = defined.ifelse("defined", missing_tag)
-        reason = defined.ifelse(ibis.null().cast("string"), missing_reason)
     if params.method != "difference" and second.type().is_floating():
         unstable = (
             both & (second != 0) & (second.abs() <= paired.baseline_error_bound.fill_null(0.0))
@@ -4376,6 +4383,10 @@ def lower(
                                 )
                             )
                         )
+                    elif isinstance(owner, MethodNode) and isinstance(owner.parameters, CellDerive):
+                        # Present non-Defined operands propagate per Cell; only
+                        # malformed tags and nonfinite Defined values reject.
+                        invalid = ~tag.isin(("defined", "null", "undefined", "unknown"))
                     else:
                         invalid = tag != "defined"
                     if str(value.type()) == "float64":

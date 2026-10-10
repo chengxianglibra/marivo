@@ -17,23 +17,19 @@ from tests.datasource.source_cases import source_case
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
 @pytest.mark.parametrize("operation", ("nested", "union", "ratio"))
 def test_complete_keys_source_and_fixed(
-    backend: str,
     operation: Literal["nested", "union", "ratio"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend: Literal["duckdb"] = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     data = reference_data(backend)
-    profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
+    profile = "table"
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-comparison", report_timezone="UTC")

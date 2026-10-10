@@ -1205,7 +1205,7 @@ class Relation:
                     if arithmetic == "ratio"
                     and isinstance(self.root.value_type, DurationType)
                     and isinstance(other.root.value_type, DurationType)
-                    else "strict",
+                    else "propagate",
                     ratio_unit(left.unit, right.unit) if arithmetic == "ratio" else left.unit,
                     left.time_scope,
                     "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",

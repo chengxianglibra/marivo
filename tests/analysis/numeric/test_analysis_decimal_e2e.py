@@ -9,8 +9,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-pytestmark = pytest.mark.runtime
-
 
 @pytest.fixture
 def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Session:

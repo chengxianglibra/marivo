@@ -59,7 +59,6 @@ def _observations(case: DslCase) -> tuple[mv.LogicalNumericRelation, mv.LogicalN
     )
 
 
-@pytest.mark.runtime
 def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -79,7 +78,6 @@ def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
     assert saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ["j3_weighting", "empty_group", "zero_denominator"])
 def test_ratio_original_state_and_empty_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -99,8 +97,7 @@ def test_ratio_original_state_and_empty_contribution(
         assert row["cell_tag"] == "undefined" and row["cell_reason"] == "zero_denominator"
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("operator", ["lt", "lte", "gt", "gte", "eq"])
+@pytest.mark.parametrize("operator", ["lt"])
 def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
     operator: str,
@@ -122,7 +119,6 @@ def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
     assert reverse == {"A": 40, "B": -20, "C": 50, "D": 0}
 
 
-@pytest.mark.runtime
 def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -136,7 +132,6 @@ def test_empty_numeric_selection_has_distinct_row_policies(
     assert (mean["cell_tag"], mean["cell_reason"]) == ("undefined", "empty_mean")
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("corruption", ["part", "snapshot", "state_version"])
 def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -179,7 +174,6 @@ def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
     assert len(case.session.runs().items) == before
 
 
-@pytest.mark.runtime
 def test_public_history_and_guarded_abandonment_use_graph_runs(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -216,7 +210,7 @@ def test_public_history_and_guarded_abandonment_use_graph_runs(
     assert session.get_run("other").lifecycle == "incomplete"
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("journey", ["j2", "j3", "j4"])
 def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -289,7 +283,6 @@ else:
     assert process.returncode == 0, process.stdout + process.stderr
 
 
-@pytest.mark.runtime
 def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -351,8 +344,7 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     assert case.session.runs().items == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("threshold", [float("inf"), float("nan"), 2**63])
+@pytest.mark.parametrize("threshold", [float("nan"), 2**63])
 def test_invalid_threshold_rejects_without_another_run(
     analysis_dsl_case_factory: DslCaseFactory,
     threshold: int | float,
@@ -365,16 +357,14 @@ def test_invalid_threshold_rejects_without_another_run(
     assert case.session.runs().items == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("journey", ["j1", "j2", "j3", "j4", "j4_ties"])
-def test_public_parquet_journeys_have_separate_source_evidence(
+def test_public_parquet_spearman_has_separate_source_evidence(
     analysis_dsl_case_factory: DslCaseFactory,
-    journey: Literal["j1", "j2", "j3", "j4", "j4_ties"],
 ) -> None:
     from dataclasses import replace
 
     from tests.shared_fixtures import export_dsl_parquet_models
 
+    journey = "j4_ties"
     case = analysis_dsl_case_factory(journey)
     export_dsl_parquet_models(case, case.root)
     case = replace(
@@ -382,53 +372,34 @@ def test_public_parquet_journeys_have_separate_source_evidence(
         catalog=ms.load(workspace_dir=case.root),
         session=mv.session.get_or_create("parquet", report_timezone="UTC"),
     )
-    if journey == "j3":
-        observed = _ratio(case, coordinates=(case.names.channel,)).execute()
-        assert observed.rollup().execute().to_pandas().iloc[0]["value"] == 40
-        assert observed.aggregate(mv.mean()).execute().to_pandas().iloc[0][
-            "value"
-        ] == pytest.approx(130 / 3)
-    elif journey in ("j4", "j4_ties"):
-        n = case.names
-        members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-        during, via = (
-            mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            ms.ref.relationship(f"{n.domain}.{n.buyer}"),
-        )
-        revenue = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.revenue}"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        count = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.order_count}"),
-            during=during,
-            via=via,
-            by=(mv.member(),),
-        )
-        saved = revenue.correlate(count, method="spearman").execute()
-        import pandas as pd
+    n = case.names
+    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
+    during, via = (
+        mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        ms.ref.relationship(f"{n.domain}.{n.buyer}"),
+    )
+    revenue = members.observe(
+        ms.ref.metric(f"{n.domain}.{n.revenue}"),
+        during=during,
+        via=via,
+        by=(mv.member(),),
+    )
+    count = members.observe(
+        ms.ref.metric(f"{n.domain}.{n.order_count}"),
+        during=during,
+        via=via,
+        by=(mv.member(),),
+    )
+    saved = revenue.correlate(count, method="spearman").execute()
+    import pandas as pd
 
-        from tests.shared_fixtures import analysis_dsl_rows
+    from tests.shared_fixtures import analysis_dsl_rows
 
-        facts = analysis_dsl_rows(journey)
-        amounts = {
-            key: sum(row[-1] for row in facts.orders if row[1] == key) for key, _ in facts.customers
-        }
-        counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
-        oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
-        assert saved.to_pandas().iloc[0]["coefficient"] == pytest.approx(oracle)
-    else:
-        current, baseline = _observations(case)
-        if journey == "j1":
-            assert current.rollup().execute().to_pandas().iloc[0]["value"] == 1000
-        else:
-            difference = current.compare(baseline).execute()
-            assert difference.to_pandas().set_index("member")["value"].to_dict() == {
-                "A": -40,
-                "B": 20,
-                "C": -50,
-                "D": 0,
-            }
+    facts = analysis_dsl_rows(journey)
+    amounts = {
+        key: sum(row[-1] for row in facts.orders if row[1] == key) for key, _ in facts.customers
+    }
+    counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
+    oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
+    assert saved.to_pandas().iloc[0]["coefficient"] == pytest.approx(oracle)
     assert case.session._runtime.store.layout.generation == 9

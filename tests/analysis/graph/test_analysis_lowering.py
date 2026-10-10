@@ -1312,8 +1312,8 @@ def test_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_re
     assert physical in terminal[0].sql
 
 
-def test_cannot_fuse_tag_selection_with_numeric_consumption(source_case):
-    leaf = _leaf(source_case[1])
+def test_cannot_fuse_tag_selection_with_numeric_consumption():
+    leaf = _leaf()
     defined = method_node(
         (Edge("quantity", leaf),),
         PartsTransport(
@@ -1329,22 +1329,10 @@ def test_cannot_fuse_tag_selection_with_numeric_consumption(source_case):
         fuse_selection(_selection(defined, unknown="reject"))
 
 
-@pytest.mark.parametrize("route", ["ibis", "artifact_python"])
-def test_lowering_reuses_static_admission(source_case, route: str) -> None:
+def test_lowering_reuses_static_admission(source_case) -> None:
     leaf = _leaf(source_case[1])
-    if route == "artifact_python":
-        fixed = FixedLeaf(
-            ArtifactRef("o1-fixed"),
-            leaf.fingerprint,
-            leaf.signature,
-            leaf.value_type,
-            FixedShape(NoTime()),
-        )
-        admitted = _plan(_count(fixed), route)
-        bindings = ()
-    else:
-        admitted = _plan(_count(leaf))
-        bindings = (_bind(source_case, leaf),)
+    admitted = _plan(_count(leaf))
+    bindings = (_bind(source_case, leaf),)
     with (
         patch.object(graph, "_validate_method", side_effect=AssertionError("revalidated graph")),
         patch.object(MethodRegistry, "derive", side_effect=AssertionError("rederived semantics")),
@@ -1358,6 +1346,28 @@ def test_lowering_reuses_static_admission(source_case, route: str) -> None:
     assert source_case[0].submissions == []
 
 
+def test_artifact_lowering_reuses_static_admission() -> None:
+    leaf = _leaf()
+    fixed = FixedLeaf(
+        ArtifactRef("o1-fixed"),
+        leaf.fingerprint,
+        leaf.signature,
+        leaf.value_type,
+        FixedShape(NoTime()),
+    )
+    admitted = _plan(_count(fixed), "artifact_python")
+    with (
+        patch.object(graph, "_validate_method", side_effect=AssertionError("revalidated graph")),
+        patch.object(MethodRegistry, "derive", side_effect=AssertionError("rederived semantics")),
+        patch.object(MethodRegistry, "select", side_effect=AssertionError("reselected method")),
+        patch.object(
+            MethodRegistry, "_select_derived", side_effect=AssertionError("reselected method")
+        ),
+    ):
+        lowered = lower(admitted, bindings=())
+    assert lowered.admitted is admitted
+
+
 def test_handoff_is_bound_to_registry_instance(source_case) -> None:
     leaf = _leaf(source_case[1])
     admitted = _plan(_count(leaf))
@@ -1367,38 +1377,48 @@ def test_handoff_is_bound_to_registry_instance(source_case) -> None:
     assert source_case[0].submissions == []
 
 
-@pytest.mark.parametrize("route", ["ibis", "ibis_python", "artifact_python"])
+@pytest.mark.parametrize("route", ["ibis", "ibis_python"])
 def test_method_parameter_admission_is_reused_through_lowering_and_consumption(
     source_case, route: str
 ) -> None:
     from marivo.analysis.materialization.graph_execution import prepare_graph
 
     leaf = _leaf(source_case[1])
-    if route == "artifact_python":
-        root = _count(
-            FixedLeaf(
-                ArtifactRef("admission-fixed"),
-                leaf.fingerprint,
-                leaf.signature,
-                leaf.value_type,
-                FixedShape(NoTime()),
-            )
-        )
-        bindings = ()
-    else:
-        root = _spearman(leaf, leaf) if route == "ibis_python" else _count(leaf)
-        bindings = (_bind(source_case, leaf),)
+    root = _spearman(leaf, leaf) if route == "ibis_python" else _count(leaf)
+    bindings = (_bind(source_case, leaf),)
     with patch.object(registry_module, "admit", wraps=builtin.admit) as admissions:
         prepared = prepare_graph(
             root,
             session_ref=leaf.signature.domain.binding.session_id,
             routes=(RouteChoice(root.identity, route),),
         )
-        lowered = lower(prepared.admitted, bindings=bindings)
-        if route == "artifact_python":
-            stage = next(stage.stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-            assert count(stage, (Defined(1), Null("source_null"))).count == 2
+        lower(prepared.admitted, bindings=bindings)
     assert admissions.call_count == 1
     if route == "ibis_python":
         assert len(prepared.admitted.stages) == 3
     assert source_case[0].submissions == []
+
+
+def test_artifact_method_parameter_admission_is_reused_through_lowering_and_consumption() -> None:
+    from marivo.analysis.materialization.graph_execution import prepare_graph
+
+    leaf = _leaf()
+    root = _count(
+        FixedLeaf(
+            ArtifactRef("admission-fixed"),
+            leaf.fingerprint,
+            leaf.signature,
+            leaf.value_type,
+            FixedShape(NoTime()),
+        )
+    )
+    with patch.object(registry_module, "admit", wraps=builtin.admit) as admissions:
+        prepared = prepare_graph(
+            root,
+            session_ref=leaf.signature.domain.binding.session_id,
+            routes=(RouteChoice(root.identity, "artifact_python"),),
+        )
+        lowered = lower(prepared.admitted, bindings=())
+        stage = next(stage.stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
+        assert count(stage, (Defined(1), Null("source_null"))).count == 2
+    assert admissions.call_count == 1

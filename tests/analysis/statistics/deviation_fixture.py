@@ -39,6 +39,7 @@ def prepare_profiles(
     calendar: bool,
     *,
     followup: bool = False,
+    profile_indices: tuple[int, ...] = tuple(range(len(PROFILES))),
 ) -> None:
     (case.root / "deviation-profile.json").write_text(
         json.dumps(
@@ -70,17 +71,19 @@ def prepare_profiles(
             if key_profile == "KC":
                 db.execute('UPDATE "order" SET member_seq=? WHERE order_id=?', [10 + i, key])
         additions = []
-        for index, profile in enumerate(PROFILES):
+        for index in profile_indices:
+            profile = PROFILES[index]
             dtype = "BIGINT" if index == 0 else "DOUBLE" if index == 1 else profile.upper()
             db.execute(f'ALTER TABLE "order" ADD COLUMN profile_{index} {dtype}')
             scale = int(profile.split(",")[1][:-1]) if index > 1 else 0
-            for i, digit in enumerate((1, 2, 7), 1):
-                value = (
+            db.execute(
+                f'UPDATE "order" SET profile_{index}=CASE channel '
+                "WHEN 'a' THEN ? WHEN 'b' THEN ? WHEN 'c' THEN ? END",
+                [
                     Decimal((0, (digit,), -scale)) if index > 1 else digit / 10 if index else digit
-                )
-                db.execute(
-                    f'UPDATE "order" SET profile_{index}=? WHERE channel=?', [value, "abc"[i - 1]]
-                )
+                    for digit in (1, 2, 7)
+                ],
+            )
             additions.append(
                 f"profile_{index} = ms.measure_column(name='profile_{index}', entity=orders, column='profile_{index}', additivity=ms.additive_all(), unit='CNY')\n"
                 f"maximum_{index} = ms.aggregate(name='maximum_{index}', measure=profile_{index}, agg='max', time=ordered_at)\n"

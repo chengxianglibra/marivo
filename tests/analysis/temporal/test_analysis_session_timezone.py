@@ -73,37 +73,17 @@ def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
     from marivo.analysis.errors import SessionTimezoneConflict
 
     monkeypatch.setenv("TZ", "UTC")
-    session_attach.get_or_create(name="demo", report_timezone="Asia/Shanghai")
+    session_attach.get_or_create(name="demo", question="original", report_timezone="Asia/Shanghai")
 
     with pytest.raises(SessionTimezoneConflict) as exc_info:
-        session_attach.get_or_create(name="demo", report_timezone="UTC")
+        session_attach.get_or_create(name="demo", question="replacement", report_timezone="UTC")
 
     assert exc_info.value._context["persisted_report_tz"] == "Asia/Shanghai"
     assert exc_info.value._context["requested_report_tz"] == "UTC"
     assert "new named Session" in str(exc_info.value)
-
-
-def test_reopen_conflicting_timezone_does_not_update_question(monkeypatch):
-    from marivo.analysis.errors import SessionTimezoneConflict
-
-    monkeypatch.setenv("TZ", "UTC")
-    created = session_attach.get_or_create(
-        name="demo",
-        question="original",
-        report_timezone="Asia/Shanghai",
-    )
-    meta_before = _read_session_meta(created)
-
-    with pytest.raises(SessionTimezoneConflict):
-        session_attach.get_or_create(
-            name="demo",
-            question="replacement",
-            report_timezone="UTC",
-        )
-
     persisted = session_attach.get_or_create(name="demo")
     assert persisted.question == "original"
-    assert _read_session_meta(persisted)["question"] == meta_before["question"]
+    assert _read_session_meta(persisted)["question"] == "original"
 
 
 def test_system_timezone_prefers_tz_environment(monkeypatch):

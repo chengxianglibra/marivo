@@ -4,6 +4,7 @@ and the navigation matrix."""
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from marivo.semantic.catalog import (
     _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.reader import SemanticProject
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -114,42 +116,46 @@ def _catalog(
     return SemanticCatalog(project)
 
 
-@pytest.mark.parametrize(
-    ("attribute", "expected_type", "expected_id"),
-    [
-        ("domains", DomainEntry, "domain:sales"),
-        ("datasources", DatasourceEntry, "datasource:warehouse"),
-        ("entities", EntityEntry, "entity:sales.orders"),
-        ("dimensions", DimensionEntry, "dimension:sales.orders.region"),
+def test_catalog_global_collections_are_typed_and_use_typed_ids(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    cases: list[tuple[str, type[CatalogEntry], SemanticKind, str]] = [
+        ("domains", DomainEntry, SemanticKind.DOMAIN, "domain:sales"),
+        ("datasources", DatasourceEntry, SemanticKind.DATASOURCE, "datasource:warehouse"),
+        ("entities", EntityEntry, SemanticKind.ENTITY, "entity:sales.orders"),
+        (
+            "dimensions",
+            DimensionEntry,
+            SemanticKind.DIMENSION,
+            "dimension:sales.orders.region",
+        ),
         (
             "time_dimensions",
             TimeDimensionEntry,
+            SemanticKind.TIME_DIMENSION,
             "time_dimension:sales.orders.ordered_at",
         ),
-        ("measures", MeasureEntry, "measure:sales.orders.amount"),
-        ("metrics", MetricEntry, "metric:sales.revenue"),
+        ("measures", MeasureEntry, SemanticKind.MEASURE, "measure:sales.orders.amount"),
+        ("metrics", MetricEntry, SemanticKind.METRIC, "metric:sales.revenue"),
         (
             "relationships",
             RelationshipEntry,
+            SemanticKind.RELATIONSHIP,
             "relationship:sales.orders_to_users",
         ),
-        ("events", EventEntry, "event:sales.order_created"),
-    ],
-)
-def test_catalog_global_collections_are_typed_and_use_typed_ids(
-    semantic_project_factory,
-    attribute: str,
-    expected_type: type[CatalogEntry],
-    expected_id: str,
-) -> None:
-    collection = getattr(_catalog(semantic_project_factory), attribute)
+        ("events", EventEntry, SemanticKind.EVENT, "event:sales.order_created"),
+    ]
+    for attribute, expected_type, expected_kind, expected_id in cases:
+        collection = getattr(catalog, attribute)
 
-    assert isinstance(collection, CatalogCollection)
-    keys = [ref.key for ref in collection.refs]
-    assert expected_id in keys
-    assert all(type(item) is expected_type for item in collection.items)
-    assert keys == sorted(keys)
-    assert all(item.key in keys for item in collection)
+        assert isinstance(collection, CatalogCollection)
+        assert all(type(ref) is Ref and ref.kind is expected_kind for ref in collection.refs)
+        keys = [ref.key for ref in collection.refs]
+        assert expected_id in keys
+        assert all(type(item) is expected_type for item in collection.items)
+        assert keys == sorted(keys)
+        assert all(item.key in keys for item in collection)
 
 
 def test_catalog_collection_implements_shared_result_and_consumption_protocol(

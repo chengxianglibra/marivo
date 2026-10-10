@@ -110,7 +110,6 @@ def _domain(session: Session) -> str:
     )
 
 
-@pytest.mark.runtime
 def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -147,7 +146,6 @@ def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
     ].tolist() == ["B"]
 
 
-@pytest.mark.runtime
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
     prefix = _domain(members_session)
     members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
@@ -180,7 +178,6 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
     assert rows["cell_tag"].tolist().count("null") == 4
 
 
-@pytest.mark.runtime
 def test_observation_classification_reads_explicit_version(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -208,7 +205,6 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     ].to_dict() == {"east": 10}
 
 
-@pytest.mark.runtime
 def test_computed_measure_and_bound_dependency(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -228,7 +224,6 @@ def test_computed_measure_and_bound_dependency(members_session: Session) -> None
     assert "datetime" in rendered and "Use a date literal" in rendered
 
 
-@pytest.mark.runtime
 def test_computed_boolean_dimension(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -256,7 +251,6 @@ def test_computed_boolean_dimension(
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["snapshot", "valid"])
 def test_exact_versions_and_independent_read(members_session: Session, kind: str) -> None:
     session = members_session
@@ -291,7 +285,6 @@ def _replace_source(session: Session, table: str, query: str) -> None:
             pq.write_table(db.table(table).to_arrow_table(), path)
 
 
-@pytest.mark.runtime
 def test_read_path_coverage_null_and_consumed_scope(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -340,7 +333,6 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
         duplicate.rank(order="ascending", ties="ordinal").execute()
 
 
-@pytest.mark.runtime
 def test_declared_versions_are_trusted_and_actual_indexes_reject_conflicts(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -376,7 +368,6 @@ def test_declared_versions_are_trusted_and_actual_indexes_reject_conflicts(
         saved.rank(order="ascending", ties="ordinal").execute()
 
 
-@pytest.mark.runtime
 def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -411,7 +402,6 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
         assert restored.members().execute().to_pandas()["coord_0"].tolist() == ["A"]
 
 
-@pytest.mark.runtime
 def test_cold_typed_read_continuation_without_source(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -472,7 +462,6 @@ assert computed_members.state.artifact_ref == computed.where(computed.value.gt(2
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.runtime
 def test_complete_subject_set_image_source_and_fixed(tmp_path: Path) -> None:
     from collections.abc import Iterator
     from contextlib import contextmanager
@@ -600,7 +589,6 @@ def test_complete_subject_set_image_source_and_fixed(tmp_path: Path) -> None:
     assert fixed.to_pandas()["coord_0"].tolist() == ["A", "B"]
 
 
-@pytest.mark.runtime
 def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -661,7 +649,6 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
         saved.members().execute()
 
 
-@pytest.mark.runtime
 def test_root_projection_reads_one_source_without_distinct(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -702,7 +689,6 @@ def test_root_projection_reads_one_source_without_distinct(
     assert not primary[0].op().find(ops.Aggregate)
 
 
-@pytest.mark.runtime
 def test_wrong_role_and_many_mapping_reject_before_io(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -733,7 +719,6 @@ def test_wrong_role_and_many_mapping_reject_before_io(
     assert members.read(field, at=at, via=path).execute().to_pandas()["value"].tolist() == [10, 20]
 
 
-@pytest.mark.runtime
 def test_grid_attribute_point_is_independent_of_member_version(members_session: Session) -> None:
     prefix = _domain(members_session)
     grid = mv.time_grid(
@@ -756,7 +741,6 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         )
 
 
-@pytest.mark.runtime
 def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -775,7 +759,6 @@ def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Ses
         product.read(field, at=grid.end, via=route).execute()
 
 
-@pytest.mark.runtime
 def test_direct_grid_endpoint_keeps_four_attribute_families(members_session: Session) -> None:
     prefix = _domain(members_session)
     members = members_session.members(
@@ -823,7 +806,6 @@ def test_direct_grid_endpoint_keeps_four_attribute_families(members_session: Ses
         )
 
 
-@pytest.mark.runtime
 def test_grid_classification_requires_explicit_exact_observation_grid(
     members_session: Session,
 ) -> None:
@@ -871,7 +853,6 @@ def test_grid_classification_requires_explicit_exact_observation_grid(
     assert members_session.get_run(incomplete_error.value.run_ref).lifecycle == "failed"
 
 
-@pytest.mark.runtime
 def test_direct_grid_binding_is_pure_and_rejects_conflicting_authority(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -911,7 +892,6 @@ def test_direct_grid_binding_is_pure_and_rejects_conflicting_authority(
         other_members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid)
 
 
-@pytest.mark.runtime
 def test_composite_subject_predicates(members_session: Session) -> None:
     prefix = _domain(members_session)
     targets = members_session.members(ms.ref.entity(f"{prefix}.plain"))
@@ -930,7 +910,6 @@ def test_composite_subject_predicates(members_session: Session) -> None:
         assert list(zip(frame.member, frame.coord_0, strict=True)) == [(1, "A")]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("reordered", ["primary", "subject"])
 def test_cohort_matches_subject_parts_by_complete_key(
     members_session: Session, reordered: str
@@ -974,7 +953,6 @@ def test_cohort_matches_subject_parts_by_complete_key(
     ]
 
 
-@pytest.mark.runtime
 def test_selected_where_is_disclosed_and_resolvable(members_session: Session) -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target

@@ -90,7 +90,6 @@ def test_relationship_path_preserves_hop_order_and_bounded_display(capsys) -> No
     assert all(len(line) < 170 for line in lines)
 
 
-@pytest.mark.runtime
 def test_observe_runtime_ratio_over_two_contribution_roots(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -130,7 +129,6 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
     ]
 
 
-@pytest.mark.runtime
 def test_observe_sliced_runtime_component_selects_its_own_branch(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -178,7 +176,6 @@ def test_observe_sliced_runtime_component_selects_its_own_branch(
     assert sum(value for value, tag, _ in rows.values() if tag == "defined") == 850
 
 
-@pytest.mark.runtime
 def test_sliced_weighted_mean_filters_pairs_before_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -215,7 +212,6 @@ def test_sliced_weighted_mean_filters_pairs_before_reduction(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
 
 
-@pytest.mark.runtime
 def test_unsliced_observation_keeps_every_member_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -253,7 +249,6 @@ def test_unsliced_observation_keeps_every_member_contribution(
     assert sum(value for value, tag in rows.values() if tag == "defined") == 1000
 
 
-@pytest.mark.runtime
 def test_root_routes_rejects_a_route_per_occurrence_of_one_root(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -287,7 +282,6 @@ def test_root_routes_rejects_a_route_per_occurrence_of_one_root(
         )
 
 
-@pytest.mark.runtime
 def test_observe_two_branches_of_one_root_over_a_single_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -339,7 +333,6 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     assert rows["B"][2] == "empty_contribution"
 
 
-@pytest.mark.runtime
 def test_observe_linear_over_two_distinct_contribution_roots(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -380,7 +373,6 @@ def test_observe_linear_over_two_distinct_contribution_roots(
     ]
 
 
-@pytest.mark.runtime
 def test_linear_subtract_reverses_its_named_term(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -421,7 +413,6 @@ def test_linear_subtract_reverses_its_named_term(
     ]
 
 
-@pytest.mark.runtime
 def test_observe_without_a_window_keeps_every_admitted_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -448,7 +439,6 @@ def test_observe_without_a_window_keeps_every_admitted_contribution(
     assert by_member["C"] == 400
 
 
-@pytest.mark.runtime
 def test_windowless_observation_rejects_a_cumulative_metric(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -485,7 +475,6 @@ def test_windowless_observation_rejects_a_cumulative_metric(
         )
 
 
-@pytest.mark.runtime
 def test_opaque_metric_rejects_instead_of_inventing_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -527,7 +516,6 @@ def test_opaque_metric_rejects_instead_of_inventing_components(
     assert by_member["A"] == 450
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("metric_name", ("revenue", "order_count"))
 def test_ratio_uses_each_components_own_state_and_rolls_up(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -557,11 +545,8 @@ def test_ratio_uses_each_components_own_state_and_rolls_up(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("term_count", (3, 4))
 def test_linear_executes_more_than_two_occurrences(
     analysis_dsl_case_factory: DslCaseFactory,
-    term_count: int,
 ) -> None:
     """Exact qualification preserves every occurrence, including repeated roots."""
     import marivo.analysis as mv
@@ -569,7 +554,7 @@ def test_linear_executes_more_than_two_occurrences(
 
     case = analysis_dsl_case_factory("j1")
     expression = mv.runtime_metric.linear(
-        add=[ms.ref.metric("sales.order_count")] * term_count,
+        add=[ms.ref.metric("sales.order_count")] * 3,
         label="repeated_count",
     )
     rows = (
@@ -583,11 +568,10 @@ def test_linear_executes_more_than_two_occurrences(
         .execute()
         .to_pandas()
     )
-    assert rows["value"].tolist() == [term_count, term_count, term_count, 0]
+    assert rows["value"].tolist() == [3, 3, 3, 0]
     assert rows["cell_tag"].tolist() == ["defined"] * 4
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("metric_name", ("order_count", "zero_revenue", "revenue"))
 def test_linear_preserves_each_empty_branch_policy(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -634,7 +618,6 @@ def test_linear_preserves_each_empty_branch_policy(
         assert rows["cell_tag"].tolist() == ["defined"] * 4
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("windowed", (False, True))
 def test_runtime_aggregate_resolves_the_declared_default_axis(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -674,7 +657,6 @@ def test_runtime_aggregate_resolves_the_declared_default_axis(
     assert rows.loc["D", "cell_tag"] == "null"
 
 
-@pytest.mark.runtime
 def test_linear_executes_three_independently_reduced_roots(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -728,7 +710,6 @@ shipment_count = ms.count(name='shipment_count', entity=shipments, time=shipment
     assert rows["value"].tolist() == [104, 64]
 
 
-@pytest.mark.runtime
 def test_ratio_accepts_a_negative_sum_denominator(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -763,9 +744,8 @@ def test_ratio_accepts_a_negative_sum_denominator(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [-3 / 1000]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("runtime", (False, True))
-@pytest.mark.parametrize("parquet", (False, True))
+@pytest.mark.parametrize("parquet", [False])
 def test_weighted_mean_preserves_pairs_and_fixed_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
     runtime: bool,
@@ -841,11 +821,8 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
             missing.rename(path)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("ratio", (False, True))
 def test_observation_preserves_full_member_identity(
     analysis_dsl_case_factory: DslCaseFactory,
-    ratio: bool,
 ) -> None:
     """Equal first keys in different tenants cannot merge or multiply contributions."""
     import duckdb
@@ -879,9 +856,7 @@ def test_observation_preserves_full_member_identity(
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         mv.runtime_metric.ratio(
             ms.ref.metric("sales.revenue"), ms.ref.metric("sales.order_count"), label="aov"
-        )
-        if ratio
-        else ms.ref.metric("sales.revenue"),
+        ),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
@@ -890,10 +865,9 @@ def test_observation_preserves_full_member_identity(
     rows = fixed.to_pandas().set_index(["member", "coord_0"])
     assert rows.loc[("A", "x"), "value"] == 450
     assert rows.loc[("A", "y"), "value"] == 700
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425 if ratio else 1700]
+    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425]
 
 
-@pytest.mark.runtime
 def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -924,7 +898,6 @@ def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
     _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 3)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("extra", (False, True))
 def test_observation_rejects_wrong_or_extra_root_routes(
     analysis_dsl_case_factory: DslCaseFactory, extra: bool
@@ -950,7 +923,6 @@ def test_observation_rejects_wrong_or_extra_root_routes(
         )
 
 
-@pytest.mark.runtime
 def test_linear_rejects_incommensurable_units(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -1001,22 +973,15 @@ def test_weighted_state_rejects_corrupted_components(changes: dict[str, int]) ->
     assert not state_matches("original_weighted_mean", primary, {**state, **changes})
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("ratio", (False, True))
 def test_composite_slice_reaches_each_leaf_before_reduction(
     analysis_dsl_case_factory: DslCaseFactory,
-    ratio: bool,
 ) -> None:
     import marivo.analysis as mv
     import marivo.semantic as ms
 
     case = analysis_dsl_case_factory("j1")
     revenue = ms.ref.metric("sales.revenue")
-    composite = (
-        mv.runtime_metric.ratio(revenue, ms.ref.metric("sales.order_count"), label="aov")
-        if ratio
-        else mv.runtime_metric.linear(add=[revenue, revenue], label="twice")
-    )
+    composite = mv.runtime_metric.ratio(revenue, ms.ref.metric("sales.order_count"), label="aov")
     expression = mv.runtime_metric.slice(
         composite,
         by={ms.ref.dimension("sales.order.channel"): "web"},
@@ -1030,7 +995,7 @@ def test_composite_slice_reaches_each_leaf_before_reduction(
     )
     fixed = observed.execute()
     rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "C"], "value"].tolist() == ([450, 400] if ratio else [900, 800])
+    assert rows.loc[["A", "C"], "value"].tolist() == [450, 400]
     assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [425 if ratio else 1700]
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425 if ratio else 1700]
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == [425]
+    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [425]

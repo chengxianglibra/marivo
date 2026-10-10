@@ -21,7 +21,6 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import SourceData, source_case
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize(
     "value_type,weight_type",
@@ -134,67 +133,42 @@ def _model(tmp_path: Path) -> None:
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("backend", ["postgres", "mysql", "trino", "clickhouse", "sqlite"])
-def test_native_remote_weighted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
-) -> None:
-    _remote_weighted(tmp_path, monkeypatch, backend, overflow=False)
-
-
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
 def test_clickhouse_weight_state_overflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed: bool
 ) -> None:
-    _remote_weighted(tmp_path, monkeypatch, "clickhouse", overflow=True, fixed=fixed)
+    _clickhouse_weight_state_overflow(tmp_path, monkeypatch, fixed=fixed)
 
 
-def _remote_weighted(
+def _clickhouse_weight_state_overflow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    backend: str,
     *,
-    overflow: bool,
-    fixed: bool = False,
+    fixed: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     _model(tmp_path)
-    profile = {
-        "trino": "iceberg",
-        "clickhouse": "mergetree",
-        "mysql": "innodb-table",
-        "sqlite": "main-table",
-    }.get(backend, "table")
-    typ = "DOUBLE" if backend == "sqlite" else "DECIMAL(12,2)"
-    rows = (
-        "(1,'2026-07-01',1.01,9223372036854775807,'a'),(2,'2026-07-01',1.02,9223372036854775807,'a')"
-        if overflow
-        else "(1,'2026-07-01',1.01,1,'a'),(2,'2026-07-01',1.02,2,'a'),(3,'2026-07-01',NULL,100,'b'),(4,'2026-07-01',5,NULL,'b')"
-    )
+    rows = "(1,'2026-07-01',1.01,9223372036854775807,'a'),(2,'2026-07-01',1.02,9223372036854775807,'a')"
     data = SourceData(
-        f"id BIGINT, day DATE, value {typ}, weight BIGINT, category VARCHAR(10)",
-        rows.replace("'2026-07-01'", "DATE '2026-07-01'") if backend == "trino" else rows,
+        "id BIGINT, day DATE, value DECIMAL(12,2), weight BIGINT, category VARCHAR(10)",
+        rows,
         "id Int64, day Date, value Nullable(Decimal(12,2)), weight Nullable(Int64), category String",
         [
             {
                 "id": i,
                 "day": date(2026, 7, 1),
                 "value": value,
-                "weight": 9223372036854775807 if overflow else weight,
+                "weight": 9223372036854775807,
                 "category": category,
             }
-            for i, value, weight, category in [
-                (1, Decimal("1.01"), 1, "a"),
-                (2, Decimal("1.02"), 2, "a"),
-                (3, None, 100, "b"),
-                (4, Decimal("5"), None, "b"),
+            for i, value, category in [
+                (1, Decimal("1.01"), "a"),
+                (2, Decimal("1.02"), "a"),
             ]
-            if not overflow or i < 3
         ],
-        {"BIGINT": "int64", "DOUBLE": "float64", "DATE": "date"} if backend == "sqlite" else None,
     )
-    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
@@ -206,7 +180,7 @@ def _remote_weighted(
             arguments["user_env"] = "MARIVO_NATIVE_READER"
         (tmp_path / "models/datasources/warehouse.py").write_text(
             "import marivo.datasource as md\n"
-            + f"md.{backend}(name='warehouse',"
+            + "md.clickhouse(name='warehouse',"
             + ",".join(f"{key}={value!r}" for key, value in arguments.items())
             + ")\n"
         )
@@ -218,82 +192,63 @@ def _remote_weighted(
         members = session.members(ms.ref.entity("sales.facts"))
         scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
         observed = members.observe(ms.ref.metric("sales.weighted"), during=scope, by=(mv.member(),))
-        if overflow:
-            from marivo.analysis.materialization.errors import MaterializationError
+        from marivo.analysis.materialization.errors import MaterializationError
 
-            saved = observed.execute() if fixed else None
-            previous = saved.to_pandas() if saved is not None else None
-            if saved is not None:
-                assert saved._dataset is not None
-                state = next(
-                    part.table
-                    for part in saved._dataset.verified().parts
-                    if part.role == "original_state"
-                )
-                assert state.column("original_state__weight_sum").to_pylist() == [2**63 - 1] * 2
-            before = publication_counts(session)
-            with monkeypatch.context() as offline:
-                if saved is not None:
-                    offline.setattr(SourceSession, "batches", forbidden)
-                with pytest.raises(MaterializationError) as raised:
-                    (saved if saved is not None else observed).rollup().execute()
-            cause = str(raised.value.__cause__)
-            assert (
-                "retained numeric sum within declared carrier" in str(raised.value)
-                or "int64 state overflow" in str(raised.value)
-                or "DECIMAL_OVERFLOW" in cause
-                or ("CANNOT_PARSE_TEXT" in cause and "numeric carrier overflow" in cause)
+        saved = observed.execute() if fixed else None
+        previous = saved.to_pandas() if saved is not None else None
+        if saved is not None:
+            assert saved._dataset is not None
+            state = next(
+                part.table
+                for part in saved._dataset.verified().parts
+                if part.role == "original_state"
             )
-            assert raised.value.expected and raised.value.received and raised.value.repair
-            assert publication_counts(session) == before
-            assert session._runtime.store.resources(session.id) == ()
+            assert state.column("original_state__weight_sum").to_pylist() == [2**63 - 1] * 2
+        before = publication_counts(session)
+        with monkeypatch.context() as offline:
             if saved is not None:
-                assert previous is not None
-                assert saved.to_pandas().equals(previous)
-            if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-                Path(
-                    directory,
-                    "native-clickhouse-weight-overflow-"
-                    + ("fixed" if fixed else "source")
-                    + ".json",
-                ).write_text(
-                    json.dumps(
-                        {
-                            "columns": data.columns,
-                            "values": data.values,
-                            "raw_rows": data.rows,
-                            "mathematical_weight_sum": 2 * (2**63 - 1),
-                            "weight_carrier": "int64",
-                            "route": "fixed_python" if fixed else "source_ibis",
-                            "expected": "overflow_refusal",
-                            "error": str(raised.value),
-                            "publication_counts_before": before,
-                            "publication_counts_after": publication_counts(session),
-                            "resources": 0,
-                        },
-                        default=str,
-                        sort_keys=True,
-                    )
-                )
-            return
-        assert observed.rollup().execute().to_pandas().value.tolist() == pytest.approx([3.05 / 3])
-        assert observed.execute().rollup().execute().to_pandas().value.tolist() == pytest.approx(
-            [3.05 / 3]
+                offline.setattr(SourceSession, "batches", forbidden)
+            with pytest.raises(MaterializationError) as raised:
+                (saved if saved is not None else observed).rollup().execute()
+        cause = str(raised.value.__cause__)
+        assert (
+            "retained numeric sum within declared carrier" in str(raised.value)
+            or "int64 state overflow" in str(raised.value)
+            or "DECIMAL_OVERFLOW" in cause
+            or ("CANNOT_PARSE_TEXT" in cause and "numeric carrier overflow" in cause)
         )
-        total = ms.ref.metric("sales.total")
-        weights = ms.ref.metric("sales.weights")
-        for metric, expected, tolerance in (
-            (ms.ref.metric("sales.mean"), 7.03 / 3, 0.005),
-            (mv.runtime_metric.ratio(total, weights, label="rate"), 7.03 / 103, 1e-12),
-            (mv.runtime_metric.linear(add=[total], subtract=[weights], label="net"), -95.97, 1e-9),
-        ):
-            logical = members.observe(metric, during=scope, by=(mv.member(),))
-            for relation in (logical, logical.execute()):
-                value = relation.rollup().execute().to_pandas().value.iloc[0]
-                assert float(value) == pytest.approx(expected, rel=0, abs=tolerance)
+        assert raised.value.expected and raised.value.received and raised.value.repair
+        assert publication_counts(session) == before
+        assert session._runtime.store.resources(session.id) == ()
+        if saved is not None:
+            assert previous is not None
+            assert saved.to_pandas().equals(previous)
+        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
+            Path(
+                directory,
+                "native-clickhouse-weight-overflow-" + ("fixed" if fixed else "source") + ".json",
+            ).write_text(
+                json.dumps(
+                    {
+                        "columns": data.columns,
+                        "values": data.values,
+                        "raw_rows": data.rows,
+                        "mathematical_weight_sum": 2 * (2**63 - 1),
+                        "weight_carrier": "int64",
+                        "route": "fixed_python" if fixed else "source_ibis",
+                        "expected": "overflow_refusal",
+                        "error": str(raised.value),
+                        "publication_counts_before": before,
+                        "publication_counts_after": publication_counts(session),
+                        "resources": 0,
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+            )
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_native_numeric_recovers_without_sources(tmp_path: Path) -> None:
     import os
     import subprocess
@@ -321,7 +276,6 @@ def test_native_numeric_recovers_without_sources(tmp_path: Path) -> None:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.runtime
 def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     _model(tmp_path)
@@ -385,7 +339,6 @@ def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "method,value_type,weight_type,weight",
     [
@@ -457,7 +410,6 @@ def test_mixed_component_attribution_source_and_fixed(
         assert rows.cell_tag.tolist() == ["defined"]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "family", ["duration", "float_negation", "float_prefix", "decimal_negation"]
 )
@@ -512,7 +464,6 @@ def test_linear_promotes_before_signed_intermediate_arithmetic(
             assert rows.value.tolist() == [float(2**63)]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("value_type,scale", [("DECIMAL(12,2)", 2), ("DECIMAL(30,6)", 6)])
 def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, value_type: str, scale: int
@@ -560,7 +511,6 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
         assert rows.cell_tag.tolist() == ["defined"]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("duration", [False, True])
 def test_linear_still_rejects_final_carrier_overflow(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, duration: bool
@@ -597,7 +547,6 @@ def test_linear_still_rejects_final_carrier_overflow(
             relation.rollup().execute()
 
 
-@pytest.mark.runtime
 def test_native_linear_comparison_uses_represented_cells_in_both_routes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

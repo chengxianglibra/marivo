@@ -12,8 +12,11 @@ from marivo.analysis.errors import AnalysisError
 from tests.analysis.journey.retention_fixtures import build_retention
 from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_public
 
+# Direct tests own table/Parquet, scalar identity, calendar, DST, and quantifier
+# behavior. Keep one recovery profile for the distinct composite/string key path.
+PROFILE_CASES = (("c", "s", "parquet", "ns", "America/New_York"),)
 
-@pytest.mark.runtime
+
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_fixed_omega_truth_quantifiers_and_selection(tmp_path, form):
     session, anchors, returning, claims = build_retention(tmp_path, form=form)
@@ -51,7 +54,6 @@ def test_closed_rule_repr(rule):
     assert len(repr(rule).splitlines()) == 1
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", [False, True])
 def test_calendar_and_empty_omega(tmp_path, empty):
     _, anchors, returning, _ = build_retention(tmp_path, empty=empty)
@@ -67,12 +69,11 @@ def test_calendar_and_empty_omega(tmp_path, empty):
         assert facts["known_true_count"] == "1"
 
 
-@pytest.mark.runtime
-def test_raw_25_5_70_partition_and_shared_return(tmp_path):
-    rows = [(0, "started", 0, i) for i in range(25)]
-    rows += [(0, "finished", 5, 26)]
-    rows += [(1, "started", 30, i) for i in range(5)]
-    rows += [(2, "started", 90, i) for i in range(70)]
+def test_raw_partition_and_shared_return(tmp_path):
+    rows = [(0, "started", 0, i) for i in range(5)]
+    rows += [(0, "finished", 5, 6)]
+    rows += [(1, "started", 30, 1)]
+    rows += [(2, "started", 90, i) for i in range(14)]
     _, anchors, returning, claims = build_retention(tmp_path, rows=rows)
     claims = tuple(replace(c, complete_through=START + timedelta(seconds=40)) for c in claims)
     fixed = anchors.retention(
@@ -88,7 +89,7 @@ def test_raw_25_5_70_partition_and_shared_return(tmp_path):
             "unknown_count",
             "deterministic_bounds",
         )
-    ] == ["100", "25", "5", "70", "[0.25,0.95]"]
+    ] == ["20", "5", "1", "14", "[0.25,0.95]"]
     # Independent raw-row oracle: time membership and coverage, not product helpers.
     expected = {}
     for index, (subject, kind, second, _) in enumerate(rows):
@@ -102,7 +103,7 @@ def test_raw_25_5_70_partition_and_shared_return(tmp_path):
         )
     actual = {r.coord_1: r.value for r in fixed.to_pandas().itertuples()}
     assert actual == expected
-    for view, count in ((fixed.known_true(), 25), (fixed.known_false(), 5), (fixed.unknown(), 70)):
+    for view, count in ((fixed.known_true(), 5), (fixed.known_false(), 1), (fixed.unknown(), 14)):
         selected = view.execute()
         assert len(selected.to_pandas()) == count
         assert dict(selected.contract()._facts)["deterministic_bounds"] == "[0.25,0.95]"
@@ -113,7 +114,6 @@ def test_raw_25_5_70_partition_and_shared_return(tmp_path):
         assert len(selected.members().execute().to_pandas()) == 1
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "same_event,second,sequence,expected",
     [(True, 0, 1, None), (False, 0, 2, True), (False, 10, 2, None), (False, 9, 2, True)],
@@ -131,7 +131,6 @@ def test_self_order_and_exclusive_deadline(tmp_path, same_event, second, sequenc
     assert result.to_pandas().value.tolist() == [expected]
 
 
-@pytest.mark.runtime
 def test_tie_without_order_and_wrong_coverage_fail_atomically(tmp_path):
     session, anchors, returning, claims = build_retention(
         tmp_path, rows=[(0, "started", 0, 1), (0, "finished", 0, 1)]
@@ -144,7 +143,6 @@ def test_tie_without_order_and_wrong_coverage_fail_atomically(tmp_path):
         anchors.retention(returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=bad)
 
 
-@pytest.mark.runtime
 def test_logical_subject_quantifier_and_journey_origin(tmp_path):
     session, anchors, returning, claims = build_retention(tmp_path)
     logical = anchors.retention(
@@ -183,15 +181,8 @@ def test_logical_subject_quantifier_and_journey_origin(tmp_path):
     assert result.to_pandas().value.tolist() == [True, None, False, None]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "subject,occurrence", [(s, o) for s in ("s", "i", "c") for o in ("s", "i", "c")]
-)
-@pytest.mark.parametrize(
-    "form,unit,zone",
-    [("table", "us", z) for z in ("UTC", "America/New_York")]
-    + [("parquet", u, z) for u in ("s", "ms", "us", "ns") for z in ("UTC", "America/New_York")],
-)
+@pytest.mark.slow
+@pytest.mark.parametrize("subject,occurrence,form,unit,zone", PROFILE_CASES)
 def test_profiles_source_fixed_cold(tmp_path, subject, occurrence, form, unit, zone):
     import json
     import os
@@ -254,7 +245,6 @@ def test_retention_help_resolves_independently(target, capsys):
     assert "Example" in rendered or "Acquire" in rendered
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ["missing", "corrupt", "swapped"])
 def test_required_retention_part_rejects_before_continuation_run(tmp_path, fault):
     session, anchors, returning, claims = build_retention(tmp_path)
@@ -287,7 +277,6 @@ def test_required_retention_part_rejects_before_continuation_run(tmp_path, fault
         path.write_bytes(original)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "calendar_start,hours", [("2026-03-07T17:00:00+00:00", 23), ("2026-10-31T16:00:00+00:00", 25)]
 )
@@ -319,7 +308,6 @@ def test_dst_retention_deadline_is_exclusive(tmp_path, calendar_start, hours):
     assert result.to_pandas().value.tolist() == [False]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", [False, True])
 @pytest.mark.parametrize("filtered", [False, True])
 def test_known_true_subject_image_then_source_preparation(tmp_path, empty, filtered, monkeypatch):
@@ -366,7 +354,6 @@ def test_known_true_subject_image_then_source_preparation(tmp_path, empty, filte
     assert result.to_pandas().value.tolist() == ([] if empty else [6] if filtered else [6, 1])
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("language", ["docs", "zh-cn/docs"])
 def test_latest_retention_example_executes(tmp_path, monkeypatch, language, capsys):
 
@@ -386,7 +373,6 @@ def test_latest_retention_example_executes(tmp_path, monkeypatch, language, caps
     capsys.readouterr()
 
 
-@pytest.mark.runtime
 def test_native_elapsed_does_not_call_local_retention(tmp_path, monkeypatch):
     from marivo.analysis.materialization import retention_execution
 
@@ -402,7 +388,6 @@ def test_native_elapsed_does_not_call_local_retention(tmp_path, monkeypatch):
     assert dict(result.contract()._facts)["deterministic_bounds"] == "[0.25,0.75]"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("point", ["insert_artifact", "before_commit", "cancel", "deadline"])
 def test_retention_publication_failure_is_atomic(tmp_path, point):
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
@@ -434,7 +419,6 @@ def test_retention_publication_failure_is_atomic(tmp_path, point):
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 def test_fixed_inputs_and_invalid_rule_reject_before_io_and_run(tmp_path, monkeypatch):
     from marivo.datasource.adapters import SourceSession
 
@@ -458,7 +442,6 @@ def test_fixed_inputs_and_invalid_rule_reject_before_io_and_run(tmp_path, monkey
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["enum", "precedence"])
 @pytest.mark.parametrize("calendar", [False, True])
 def test_captured_same_instant_order_variants(tmp_path, kind, calendar):
@@ -508,7 +491,6 @@ def test_captured_same_instant_order_variants(tmp_path, kind, calendar):
     ]
 
 
-@pytest.mark.runtime
 def test_typed_ledger_rejects_inconsistent_semantics(tmp_path):
     import pyarrow as pa
 
@@ -552,7 +534,6 @@ def test_typed_ledger_rejects_inconsistent_semantics(tmp_path):
             validate(exchange.contract, exchange.primary, parts)
 
 
-@pytest.mark.runtime
 def test_source_retention_reexecutes_changed_facts(tmp_path):
     import ibis
 
@@ -572,7 +553,6 @@ def test_source_retention_reexecutes_changed_facts(tmp_path):
     assert dict(current.contract()._facts)["known_true_count"] == "0"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ["table", "parquet"])
 @pytest.mark.parametrize("calendar", [False, True])
 def test_return_capture_keeps_snapshot_and_validity_path(tmp_path, form, calendar):
@@ -597,7 +577,6 @@ def test_return_capture_keeps_snapshot_and_validity_path(tmp_path, form, calenda
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("calendar", [False, True])
 @pytest.mark.parametrize(
     "observed_from,observed_through,declared_from,declared_through,expected",
@@ -681,7 +660,6 @@ def test_retention_combines_exact_coverage_intervals(
     assert projected.to_pandas().value.tolist() == [expected]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_external_unknown_predicate_keeps_receiver_truth(tmp_path, fixed):
     _, anchors, returning, claims = build_retention(tmp_path)

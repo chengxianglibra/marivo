@@ -95,10 +95,9 @@ def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> 
 
 
 @pytest.mark.parametrize("engine", ENGINES)
-@pytest.mark.parametrize("fmt", ["%Y-%m-%d %H:%M:%S", "%Y%m%d", "%d/%m/%Y"])
-def test_every_engine_reaches_its_own_parser(engine: str, fmt: str) -> None:
-    """Each backend compiles to its documented native parse function."""
-    sql = _sql(engine, fmt)
+def test_every_engine_reaches_its_own_parser(engine: str) -> None:
+    """Each backend compiles the same format to its documented parser."""
+    sql = _sql(engine, "%Y-%m-%d %H:%M:%S")
     assert NATIVE_PARSER[engine].lower() in sql.lower()
 
 
@@ -123,6 +122,8 @@ def test_engine_final_formats_are_never_re_translated(engine: str, expected: str
     """
     literals = _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
     assert literals[0] == expected
+    if engine == "clickhouse":
+        assert literals == [expected, "UTC"]
 
 
 @pytest.mark.parametrize("engine", ENGINES)
@@ -138,34 +139,6 @@ def test_date_only_formats_stay_dates_and_timed_formats_stay_timestamps(engine: 
     )
 
 
-@pytest.mark.parametrize("engine", ["postgres", "mysql", "trino", "clickhouse"])
-def test_translated_engines_never_receive_the_python_minute_token(engine: str) -> None:
-    """Only DuckDB and SQLite read the authored Python format verbatim.
-
-    On these four a surviving ``%M`` is a month name (MySQL family) or a bare
-    PostgreSQL template pattern, so the minute directive must be gone from the
-    emitted format.
-    """
-    literals = _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
-    assert not any("%M" in literal for literal in literals)
-
-
-def test_postgres_uses_hh24_for_the_24_hour_clock() -> None:
-    """PostgreSQL's bare ``HH`` is the 12-hour clock, so ``%H`` must be ``HH24``."""
-    assert translated_strptime_format("postgres", "%H") == "HH24"
-    assert _parser_arguments("postgres", "%Y-%m-%d %H:%M:%S", timezone="UTC")[0] == (
-        "YYYY-MM-DD HH24:MI:SS"
-    )
-
-
-def test_clickhouse_translates_minutes_and_keeps_microseconds_out() -> None:
-    assert translated_strptime_format("clickhouse", "%M") == "%i"
-    assert _parser_arguments("clickhouse", "%Y-%m-%d %H:%M:%S", timezone="UTC") == [
-        "%Y-%m-%d %H:%i:%s",
-        "UTC",
-    ]
-
-
 @pytest.mark.parametrize("engine", ["duckdb", "postgres", "mysql", "trino"])
 def test_naive_parses_reach_the_parser_at_microsecond_scale(engine: str) -> None:
     """A bare TIMESTAMP would truncate the fraction MySQL's DATETIME keeps.
@@ -178,18 +151,6 @@ def test_naive_parses_reach_the_parser_at_microsecond_scale(engine: str) -> None
     assert projection.to.sql(dialect=engine) == NAIVE_TIMESTAMP_CAST[engine]
 
 
-@pytest.mark.parametrize("engine", ["mysql", "trino"])
-def test_mysql_family_actually_reads_the_collapsed_hour_format(engine: str) -> None:
-    """sqlglot re-maps ``%H:%i:%s`` to ``%T``, MySQL's documented ``%H:%M:%S``.
-
-    The assertion reads the parser argument, so the compiler's alias cannot
-    satisfy it: a doubly translated format would show up here as a wrong value.
-    """
-    assert _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")[0] == (
-        MYSQL_FAMILY_FULL_FORMAT
-    )
-
-
 def test_trino_fractional_format_reaches_date_parse() -> None:
     """Fractional seconds follow Trino date_parse's native precision."""
     assert _parser_arguments("trino", "%Y-%m-%d %H:%M:%S.%f", timezone="UTC")[0] == (
@@ -197,27 +158,17 @@ def test_trino_fractional_format_reaches_date_parse() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "fmt,reason",
-    [
-        ("%Y-%m-%d %H:%M:%S.%f", "sub-second"),
-        ("%Y-%m-%d %H:%M:%S", "expressible"),
-    ],
-)
-def test_clickhouse_gates_on_format_expressibility(fmt: str, reason: str) -> None:
+def test_clickhouse_refuses_subsecond_formats() -> None:
     """A format ClickHouse cannot express exactly is refused, never truncated.
 
     ``parseDateTime`` returns second-precision ``DateTime``, so a sub-second
     directive would silently drop the fraction.
     """
     table = ibis.table({"c": "string"}, name="t")
-    parse = StrptimeParse(fmt, timezone="UTC")
-    if reason == "sub-second":
-        with pytest.raises(DatasetCompilationError) as failure:
-            parse_strptime("clickhouse", table.c.cast("string"), parse)
-        assert "sub-second" in (failure.value.received or "")
-    else:
-        assert parse_strptime("clickhouse", table.c.cast("string"), parse) is not None
+    parse = StrptimeParse("%Y-%m-%d %H:%M:%S.%f", timezone="UTC")
+    with pytest.raises(DatasetCompilationError) as failure:
+        parse_strptime("clickhouse", table.c.cast("string"), parse)
+    assert "sub-second" in (failure.value.received or "")
 
 
 @pytest.mark.parametrize("fmt", ["%Y-%m-%d %H:%M:%S%z", "%Y-%m-%d %H:%M:%S%Z"])

@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
+import pytest
+
 from tests.support.typing import check
+
+pytestmark = pytest.mark.slow
 
 RECEIVERS = (
     "LogicalNumericRelation",

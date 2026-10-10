@@ -22,7 +22,6 @@ from tests.shared_fixtures import run_ids
 from tests.support.json import Json, checked, encode
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("version", ("snapshot", "validity"))
 def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
     tmp_path: Path,

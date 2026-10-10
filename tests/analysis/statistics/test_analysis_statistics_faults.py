@@ -11,7 +11,6 @@ from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ("association", "forecast"))
 def test_unreadable_receipts_reject_value_reads_and_recovery(
     analysis_dsl_case_factory: DslCaseFactory, kind: Literal["association", "forecast"]
@@ -19,7 +18,9 @@ def test_unreadable_receipts_reject_value_reads_and_recovery(
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(
+        case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1)
+    )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("statistics-integrity", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.order"))
@@ -58,7 +59,6 @@ def test_unreadable_receipts_reject_value_reads_and_recovery(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ("association", "forecast"))
 def test_source_reader_close_failure_keeps_prior_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -69,7 +69,9 @@ def test_source_reader_close_failure_keeps_prior_artifact(
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(
+        case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1)
+    )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("statistics-resources", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.order"))
@@ -99,14 +101,15 @@ def test_source_reader_close_failure_keeps_prior_artifact(
         assert conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 def test_three_quantity_search_and_forecast_views(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(
+        case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1, 5)
+    )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("a11-statistics", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.order"))
@@ -147,7 +150,7 @@ def test_three_quantity_search_and_forecast_views(
         assert table._dataset.evidence_digest().finding_count == 2
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_forecast_findings_cap_and_selection_transport(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -155,9 +158,11 @@ def test_forecast_findings_cap_and_selection_transport(
     import duckdb
 
     with duckdb.connect(str(case.database_path)) as db:
-        db.executemany(
-            "INSERT INTO customer(customer_id, region) VALUES (?, ?)",
-            [(f"cap_{i}", "zero-history") for i in range(247)],
+        # Four fixture customers plus 997 extras produce the smallest one-step
+        # forecast above the 1,000-finding cap.
+        db.execute(
+            "INSERT INTO customer(customer_id, region) "
+            "SELECT 'cap_' || CAST(i AS VARCHAR), 'zero-history' FROM range(997) AS fixtures(i)"
         )
     members = case.session.members(ms.ref.entity("sales.customer"))
     grid = mv.time_grid(
@@ -169,24 +174,18 @@ def test_forecast_findings_cap_and_selection_transport(
         via=ms.ref.relationship("sales." + case.names.buyer),
         by=(mv.member(),),
     )
-    result = history.forecast(horizon=mv.periods(4)).execute()
-    assert len(result.prediction.to_pandas()) == 1004
-    assert result.evidence_digest().finding_count == 1000
+    result = history.forecast(horizon=mv.periods(1)).execute()
     assert result._dataset is not None
     from marivo.analysis.materialization.graph_findings import _policy
 
     policy = _policy(result._dataset.verified().parts)
-    assert (policy.eligible, policy.emitted, policy.truncated) == (1004, 1000, 4)
-    page = result.findings(limit=100)
-    assert len(page.items) == 100 and page.next_cursor is not None
-    second = result.findings(limit=100, cursor=page.next_cursor)
-    assert len(second.items) == 100 and not {i.finding_id for i in page.items} & {
-        i.finding_id for i in second.items
-    }
+    assert (policy.eligible, policy.emitted, policy.truncated) == (1001, 1000, 1)
+    assert result.evidence_digest().finding_count == policy.emitted
+    page = result.findings(limit=1)
+    assert len(page.items) == 1 and page.next_cursor is not None
     empty = result.where(result.prediction.value.lt(0)).execute()
     assert empty.prediction.to_pandas().empty
-    assert empty.evidence_digest().finding_count == 1000
-    transported = empty.findings(limit=100)
+    transported = empty.findings(limit=1)
     assert tuple((i.canonical_item_key, i.value) for i in transported.items) == tuple(
         (i.canonical_item_key, i.value) for i in page.items
     )

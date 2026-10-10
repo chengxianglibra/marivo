@@ -30,6 +30,43 @@ from tests.shared_fixtures import (
 )
 from tests.support.source_trace import SourceTrace
 
+_FAST_ANALYSIS_TEST_PREFIXES = (
+    "tests/analysis/numeric/test_analysis_attribution_runtime.py::test_additive_source_and_fixed",
+    "tests/analysis/graph/test_analysis_dsl_public.py::test_public_cold_process_continues_from_retained_parts",
+    "tests/analysis/session/test_session_domains.py::",
+    "tests/analysis/graph/test_analysis_methods.py::",
+    "tests/analysis/graph/test_analysis_snapshot_dag.py::",
+    "tests/analysis/graph/test_analysis_core.py::",
+    "tests/analysis/graph/test_analysis_lowering.py::",
+    "tests/analysis/graph/test_analysis_graph_preflight.py::",
+    "tests/analysis/graph/test_consumer_rules.py::",
+    "tests/analysis/graph/test_identity_observation_lowering.py::",
+    "tests/analysis/graph/test_terminal_consumers.py::",
+    "tests/analysis/graph/test_capability_consumers.py::",
+    "tests/analysis/graph/test_observation_grain.py::",
+    "tests/analysis/numeric/test_analysis_numeric_boundaries.py::",
+    "tests/analysis/temporal/test_temporal_parsing.py::",
+)
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Keep representative and measured-fast analysis checks in the default suite."""
+    mark_expression = config.getoption("markexpr")
+    selects_slow = isinstance(mark_expression, str) and mark_expression.lstrip().startswith("slow")
+    has_explicit_path = any(
+        argument.startswith(("tests/", "./tests/")) for argument in config.invocation_params.args
+    )
+    if has_explicit_path and not selects_slow:
+        return
+    for item in items:
+        if not item.nodeid.startswith("tests/analysis/"):
+            continue
+        if item.nodeid.startswith(_FAST_ANALYSIS_TEST_PREFIXES):
+            continue
+        if item.get_closest_marker("slow") is None:
+            item.add_marker(pytest.mark.slow)
+
+
 # Cap DuckDB to a single thread per connection. DuckDB defaults to
 # hardware_concurrency() threads; with one pytest-xdist worker per CPU that
 # oversubscribes cores (N workers x N threads) and inflates test wall time

@@ -29,7 +29,6 @@ def _publications(session: mv.Session) -> tuple[int, ...]:
     return tuple(counts)
 
 
-@pytest.mark.runtime
 def test_public_schema_drift_rejects_before_business_read_and_retries(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

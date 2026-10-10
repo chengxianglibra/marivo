@@ -19,7 +19,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import run_ids
-from tests.support.json import Json, arr, encode, read
+from tests.support.json import Json, arr, encode, obj, read
 
 
 class Continuation(Protocol):
@@ -71,7 +71,10 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             "current": value.group_by().aggregate(mv.mean()),
             "original": value.rollup(),
         }
-        for name, operation in operations.items():
+        retained_operations = (
+            operations if phase == "fixed" else {"original": operations["original"]}
+        )
+        for name, operation in retained_operations.items():
             if phase == "cold":
                 with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
                     result = operation.execute()
@@ -92,8 +95,9 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             state["outputs"] = outputs
             (root / "r94-temporal.json").write_bytes(encode(state))
         else:
+            fixed_outputs = obj(state["outputs"])
             assert (
-                outputs == state["outputs"]
+                outputs == {"original": fixed_outputs["original"]}
                 and run_ids(session) == before
                 and kernels.call_count == 0
             )

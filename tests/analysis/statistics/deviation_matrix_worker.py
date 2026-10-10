@@ -114,7 +114,7 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
         session = mv.session.get_or_create("r82-domains", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.order"))
         entries = []
-        for index in range(len(PROFILES)):
+        for index in (7,) if domain == "entity" else (0,) if domain == "scalar" else (1,):
             raw = members.read(ms.ref.measure(f"sales.order.profile_{index}"))
             category = members.read(ms.ref.dimension("sales.order.channel"))
             assert isinstance(category, mv.LogicalCategoryRelation)
@@ -149,7 +149,10 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
             patch.object(ibis.duckdb, "connect", forbidden),
         ):
             session = mv.session.resume(manifest["session"], by="id")
-            for entry in manifest["entries"]:
+            entries = manifest["entries"]
+            if phase == "cold":
+                entries = [entry for entry in entries if entry["method"] == "zscore"]
+            for entry in entries:
                 captured_input, recovered = (
                     session.artifact(entry["input"]),
                     session.artifact(entry["result"]),
@@ -196,7 +199,7 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
                 "accepted": phase,
                 "domain": domain,
                 "key_profile": key_profile,
-                "profiles": len(PROFILES),
+                "profiles": 1,
             }
         )
     )

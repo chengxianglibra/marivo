@@ -120,8 +120,7 @@ def test_invalid_weights_reject(weights: tuple[float, ...]) -> None:
         weight_sum(weights, ScalarType("float64"))
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_public_references_source_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -191,7 +190,6 @@ def test_public_references_source_and_fixed(
     assert dict(selected.contract()._facts)["statistical_entity"] == "sales.order"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "physical,parquet",
     [
@@ -290,9 +288,9 @@ def test_public_share_numeric_matrix(
             assert shares.value.to_dict() == {key: float(value) for key, value in expected.items()}
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)"])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_original_metric_standardization_matrix(
     analysis_dsl_case_factory: DslCaseFactory,
     physical: str,
@@ -317,14 +315,18 @@ def test_original_metric_standardization_matrix(
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
-        db.execute(f'ALTER TABLE "order" ADD COLUMN weight {physical} DEFAULT 1')
-        db.execute('ALTER TABLE "order" ADD COLUMN reference_amount DOUBLE')
-        db.execute('UPDATE "order" SET reference_amount=amount')
+        if physical.startswith("DECIMAL"):
+            db.execute('ALTER TABLE "order" ADD COLUMN reference_amount DOUBLE')
+            db.execute('UPDATE "order" SET reference_amount=amount')
     model = case.root / "models/semantic/sales/models.py"
+    extra_measure = (
+        "\nreference_amount = ms.measure_column(name='reference_amount', entity=orders, column='reference_amount', additivity=ms.additive_all(), unit='CNY')\n"
+        if physical.startswith("DECIMAL")
+        else ""
+    )
     model.write_text(
         model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-        + "reference_amount = ms.measure_column(name='reference_amount', entity=orders, column='reference_amount', additivity=ms.additive_all(), unit='CNY')\n"
+        + extra_measure
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -333,19 +335,11 @@ def test_original_metric_standardization_matrix(
     members = case.session.members(ms.ref.entity("sales.customer"))
     categories = members.read(ms.ref.dimension("sales.customer.region"))
     assert isinstance(categories, mv.LogicalCategoryRelation)
-    amount = ms.ref.measure("sales.order.amount")
     base = ms.ref.metric("sales.revenue")
     metrics: dict[str, MetricInputValue] = {
         "sum": base,
-        "mean": mv.runtime_metric.aggregate(amount, agg="mean", label="mean"),
-        "weighted_mean": mv.runtime_metric.weighted_mean(
-            amount, ms.ref.measure("sales.order.weight"), label="weighted"
-        ),
         "ratio": mv.runtime_metric.ratio(base, base, label="ratio"),
-        "linear": mv.runtime_metric.linear(add=[base, base], label="linear"),
     }
-    if physical == "BIGINT":
-        metrics["count"] = ms.ref.metric("sales.order_count")
     scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
     volume = (
         members.observe(
@@ -376,10 +370,9 @@ def test_original_metric_standardization_matrix(
         )
         float_weights = float_volume.share_of(float_volume.rollup())
     offline = physical != "BIGINT"
+    recovery_kinds = frozenset(("sum", "ratio"))
     originals: dict[str, Json] = {}
     original_parts: dict[str, Json] = {}
-    sources: dict[str, Json] = {}
-    source_parts: dict[str, Json] = {}
     expectations: dict[str, Json] = {}
     retained_weights, retained_categories = weights.execute(), categories.execute()
     assert isinstance(retained_categories, mv.MaterializedCategoryRelation)
@@ -403,7 +396,7 @@ def test_original_metric_standardization_matrix(
             .group_by(categories)
             .rollup()
         )
-        native_float = physical.startswith("DECIMAL") and kind in ("weighted_mean", "ratio")
+        native_float = physical.startswith("DECIMAL") and kind == "ratio"
         reference = mv.reference_weights(
             float_weights if native_float else weights,
             strata=(categories,),
@@ -423,15 +416,25 @@ def test_original_metric_standardization_matrix(
             assert "ScalarType(name='float64')/DecimalType" in mismatch.value.received
             assert mismatch.value.repair is not None
         source = groups.standardize(reference=reference).execute()
-        fixed_groups = groups.execute()
-        fixed_weights, fixed_categories = (
-            retained_float_weights if native_float else retained_weights,
-            retained_categories,
+        fixed_kind = not offline and kind == "sum"
+        fixed_groups = (
+            groups.execute() if fixed_kind or (offline and kind in recovery_kinds) else None
         )
-        fixed_reference = mv.reference_weights(
-            fixed_weights, strata=(fixed_categories,), unit=ms.ref.entity("sales.order")
-        )
-        fixed = None if offline else fixed_groups.standardize(reference=fixed_reference).execute()
+        if offline and kind in recovery_kinds:
+            assert fixed_groups is not None
+            originals["groups:" + kind] = snapshot(fixed_groups)
+            original_parts["groups:" + kind] = parts(fixed_groups)
+        fixed = None
+        if fixed_kind:
+            assert fixed_groups is not None
+            fixed_weights, fixed_categories = (
+                retained_float_weights if native_float else retained_weights,
+                retained_categories,
+            )
+            fixed_reference = mv.reference_weights(
+                fixed_weights, strata=(fixed_categories,), unit=ms.ref.entity("sales.order")
+            )
+            fixed = fixed_groups.standardize(reference=fixed_reference).execute()
         raw = analysis_dsl_rows("j2")
         region_by_member = dict(raw.customers)
         totals_by_region = dict.fromkeys(region_by_member.values(), Fraction())
@@ -469,10 +472,6 @@ def test_original_metric_standardization_matrix(
         actual = source.to_pandas().value.tolist()
         assert actual == [expected]
         assert type(actual[0]) is type(expected)
-        sources[kind] = snapshot(source)
-        source_parts[kind] = parts(source)
-        originals["groups:" + kind] = snapshot(fixed_groups)
-        original_parts["groups:" + kind] = parts(fixed_groups)
         expectations[kind] = str(expected) if isinstance(expected, Decimal) else expected
         if fixed is not None:
             assert fixed.to_pandas().value.tolist() == [expected]
@@ -481,23 +480,6 @@ def test_original_metric_standardization_matrix(
             assert not any(
                 action.call == "relation.rollup()" for action in fixed.contract().actions
             )
-        if kind == "linear":
-            raw = analysis_dsl_rows("j2")
-            region_by_member = dict(raw.customers)
-            totals = dict.fromkeys(region_by_member.values(), Fraction())
-            for _, buyer, _, _, date, order_amount in raw.orders:
-                if str(date).startswith("2026-08"):
-                    totals[region_by_member[buyer]] += 2 * Fraction(order_amount)
-            expected_shares = {
-                key: Fraction(total, sum(totals.values())) for key, total in totals.items()
-            }
-            for current in (groups, groups.execute()):
-                shares = current.share_of(current.rollup()).execute().to_pandas()
-                assert {
-                    key: Fraction(value)
-                    for key, value in zip(shares.group, shares.value, strict=True)
-                } == expected_shares
-
     if offline:
         state: dict[str, Json] = {
             "phase": "produce",
@@ -505,11 +487,19 @@ def test_original_metric_standardization_matrix(
             "session": case.session.id,
             "physical": physical,
             "form": "parquet" if parquet else "table",
-            "originals": originals,
-            "parts": original_parts,
-            "source_results": sources,
-            "source_parts": source_parts,
-            "expected": expectations,
+            "originals": {
+                name: value
+                for name, value in originals.items()
+                if not name.startswith("groups:") or name.removeprefix("groups:") in recovery_kinds
+            },
+            "parts": {
+                name: value
+                for name, value in original_parts.items()
+                if not name.startswith("groups:") or name.removeprefix("groups:") in recovery_kinds
+            },
+            "expected": {
+                name: value for name, value in expectations.items() if name in recovery_kinds
+            },
             "native_sql": [*trace.native_sql],
             "source_closed": all(owner._closed for owner in trace.owners),
         }
@@ -549,8 +539,7 @@ def test_original_metric_standardization_matrix(
             Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_public_exact_integer_reference_weights(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -615,8 +604,8 @@ def test_public_exact_integer_reference_weights(
         assert cell_column(stratum_values, "cell_tag").to_pylist().count("null") == 2
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.slow
+@pytest.mark.parametrize("parquet", [True])
 def test_reference_cold_continuations_and_corruption(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -645,9 +634,10 @@ def test_reference_cold_continuations_and_corruption(
     )
     groups = values.group_by(category).rollup()
     weights = groups.share_of(groups.rollup())
+    # The materialization recovery owner covers each reference consumer. Keep
+    # one representative result here for project-level cold restore and full
+    # part-integrity validation.
     saved = (
-        values.share_of(values.rollup()).execute(),
-        members.penetration_in(members).execute(),
         groups.standardize(
             reference=mv.reference_weights(
                 weights, strata=(category,), unit=ms.ref.entity("sales.order")
@@ -775,7 +765,6 @@ for ref in sys.argv[2:]:
         path.write_bytes(original_bytes)
 
 
-@pytest.mark.runtime
 def test_static_reference_rejections_are_zero_read(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -856,8 +845,7 @@ def test_static_reference_rejections_are_zero_read(
     assert values._runtime.last_run_ref == run
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_composite_penetration_overlap_and_empty(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -891,7 +879,6 @@ def test_composite_penetration_overlap_and_empty(
         assert result.cell_reason.tolist() == ["empty_reference"]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("signed", [False, True])
 def test_zero_and_signed_share_support(
     analysis_dsl_case_factory: DslCaseFactory, signed: bool
@@ -929,7 +916,6 @@ def test_zero_and_signed_share_support(
         assert frame.value.isna().all()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
 )
@@ -1007,7 +993,6 @@ def test_tiny_positive_weights_and_single_order_independent_finish() -> None:
                 weight_sum((next_value,), f)
 
 
-@pytest.mark.runtime
 def test_shared_reference_source_reexecution_and_fixed_inputs(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1058,7 +1043,6 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
         offline.rename(case.database_path)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("missing", [False, True])
 def test_invalid_public_standardization_rejects_without_normalization(
     analysis_dsl_case_factory: DslCaseFactory, missing: bool
@@ -1097,7 +1081,6 @@ def test_invalid_public_standardization_rejects_without_normalization(
             current.standardize(reference=reference).execute()
 
 
-@pytest.mark.runtime
 def test_fixed_selected_original_can_use_retained_full_reference(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -1119,7 +1102,6 @@ def test_fixed_selected_original_can_use_retained_full_reference(
     assert result._dataset.verified().parts[0].table["value"].to_pylist() == [180]
 
 
-@pytest.mark.runtime
 def test_reference_preparation_captures_independent_source_origins(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

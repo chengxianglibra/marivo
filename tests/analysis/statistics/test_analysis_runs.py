@@ -10,7 +10,6 @@ from marivo.analysis.materialization.graph_exchange import ExchangePart, from_ar
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
 def test_ratio_without_retained_coverage_rejects_with_typed_error(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -30,7 +29,6 @@ def test_ratio_without_retained_coverage_rejects_with_typed_error(
         ratio.runs(where=ratio.value.gt(0)).execute()
 
 
-@pytest.mark.runtime
 def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -119,9 +117,9 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
                 path.write_bytes(payload)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("calendar", [False, True])
-def test_three_process_offline_runs(
+def test_offline_runs_keep_calendar_cold_recovery(
     analysis_dsl_case_factory: DslCaseFactory, calendar: bool
 ) -> None:
     import subprocess
@@ -130,8 +128,11 @@ def test_three_process_offline_runs(
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", calendar, followup=True)
-    for phase in ("produce", "fixed", "cold"):
+    prepare_profiles(
+        case, "KS", "parquet", "us", "UTC", calendar, followup=True, profile_indices=(0,)
+    )
+    phases = ("produce", "fixed", "cold") if calendar else ("produce", "fixed")
+    for phase in phases:
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
             for path in (case.root / "source_files").glob("*.parquet"):
@@ -159,7 +160,6 @@ def test_three_process_offline_runs(
         Path(attachment).write_text((case.root / "runs-recovery.json").read_text())
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_new_grid_after_subject_selection(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool

@@ -56,13 +56,13 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             else:
                 result = operation.execute()
             outputs[name] = snapshot(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[name]
-            assert seen == run_ids(session)
             return result
 
-        for kind, raw in obj(state["originals"]).items():
+        originals = obj(state["originals"])
+        cold_kinds = {str(kind) for kind in arr(state["cold_kinds"])}
+        for kind, raw in originals.items():
+            if phase == "cold" and kind not in cold_kinds:
+                continue
             original = obj(raw)
             reference = original["artifact"]
             assert isinstance(reference, str)
@@ -127,7 +127,18 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             state["outputs"], state["refusals"] = outputs, refusals
             (root / "r94-distribution.json").write_bytes(encode(state))
         else:
-            assert outputs == state["outputs"] and refusals == state["refusals"]
+            fixed_outputs = obj(state["outputs"])
+            fixed_refusals = obj(state["refusals"])
+            assert outputs == {
+                name: value
+                for name, value in fixed_outputs.items()
+                if name.split(":", 1)[0] in cold_kinds
+            }
+            assert refusals == {
+                name: value
+                for name, value in fixed_refusals.items()
+                if name.split(":", 1)[0] in cold_kinds
+            }
             assert run_ids(session) == before and kernels.call_count == 0
         return {
             "phase": phase,

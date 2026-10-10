@@ -31,8 +31,26 @@ def _demo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     return namespace
 
 
-@pytest.mark.runtime
-def test_complete_local_tutorial_and_source_offline_process_recovery(
+def _assert_documented_mixed_input_error(namespace: dict[str, object]) -> None:
+    session = namespace["session"]
+    assert isinstance(session, mv.Session)
+    page = "reference/troubleshooting"
+    setup = _example("en", "mixed-input-setup", page=page)
+    exec(compile(setup, "mixed-input-setup", "exec"), namespace)
+    before = len(session.runs().items)
+    failure = _example("en", "mixed-input-error", page=page)
+    with pytest.raises(AnalysisError) as raised:
+        exec(compile(failure, "mixed-input-error", "exec"), namespace)
+    message = str(raised.value)
+    assert "mixed" in message.lower(), message
+    assert "mixed live and materialized dependencies" in message, message
+    assert "Use matching logical inputs or exact Artifacts from this Session." in message
+    assert "marivo.help('analysis')" in message
+    assert len(session.runs().items) == before
+
+
+@pytest.mark.slow
+def test_complete_local_tutorial_error_and_offline_process_recovery(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -50,6 +68,7 @@ def test_complete_local_tutorial_and_source_offline_process_recovery(
         "east": -100,
         "west": -100,
     }
+    _assert_documented_mixed_input_error(namespace)
     session = namespace["session"]
     assert isinstance(session, mv.Session)
     before = len(session.runs().items)
@@ -73,27 +92,3 @@ def test_complete_local_tutorial_and_source_offline_process_recovery(
         timeout=60,
     )
     assert recovered.returncode == 0, recovered.stdout + recovered.stderr
-
-
-@pytest.mark.runtime
-def test_documented_mixed_input_error_is_structured_and_admits_no_run(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    namespace = _demo(tmp_path, monkeypatch)
-    session = namespace["session"]
-    assert isinstance(session, mv.Session)
-    # Save the fixed input first so the failure's own admission can be measured.
-    page = "reference/troubleshooting"
-    setup = _example("en", "mixed-input-setup", page=page)
-    exec(compile(setup, "mixed-input-setup", "exec"), namespace)
-    before = len(session.runs().items)
-    failure = _example("en", "mixed-input-error", page=page)
-    with pytest.raises(AnalysisError) as raised:
-        exec(compile(failure, "mixed-input-error", "exec"), namespace)
-    message = str(raised.value)
-    assert "mixed" in message.lower(), message
-    assert "mixed live and materialized dependencies" in message, message
-    assert "Use matching logical inputs or exact Artifacts from this Session." in message
-    assert "marivo.help('analysis')" in message
-    assert len(session.runs().items) == before

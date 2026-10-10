@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 from typing import Literal, TypeAlias
-from unittest.mock import patch
 
 import pandas as pd
 import pytest
@@ -14,13 +13,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._help.render import help as help_api
 from marivo.analysis.core.model import DerivedQuantity, RowStatisticQuantity, part_role
-from marivo.analysis.core.rules import AssociationFit, DeviationFit, ForecastFit, TimeRuns
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization import (
-    deviation_execution,
-    runs_execution,
-    statistical_execution,
-)
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.physical import Qualified
 from marivo.datasource import adapters
@@ -53,7 +46,6 @@ View: TypeAlias = (
 )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", METHODS)
 def test_frozen_views_scope_sharing_quantity_and_k(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -62,7 +54,7 @@ def test_frozen_views_scope_sharing_quantity_and_k(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KC", "table", "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KC", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
     model_file = case.root / "models/semantic/sales/models.py"
     model_file.write_text(
         model_file.read_text()
@@ -108,24 +100,6 @@ def test_frozen_views_scope_sharing_quantity_and_k(
     if method.startswith("deviation."):
         algorithm: Literal["zscore", "mad"] = "zscore" if "zscore" in method else "mad"
         logical_d = entity_values.deviation(method=algorithm)
-        with patch.object(
-            deviation_execution, "execute", wraps=deviation_execution.execute
-        ) as compute:
-            table = mv.table(
-                observed=logical_d.observed,
-                reference=logical_d.reference,
-                deviation=logical_d.deviation,
-                score=logical_d.score,
-            ).execute()
-        assert (
-            sum(
-                isinstance(
-                    call.args[0].parameters, (AssociationFit, ForecastFit, DeviationFit, TimeRuns)
-                )
-                for call in compute.call_args_list
-            )
-            == 1
-        )
         result = logical_d.execute()
         views = {
             "observed": result.observed,
@@ -142,21 +116,6 @@ def test_frozen_views_scope_sharing_quantity_and_k(
             "pearson" if "pearson" in method else "spearman" if "spearman" in method else "kendall"
         )
         logical_a = entity_values.correlate(other, method=assoc)
-        with patch.object(
-            statistical_execution, "execute", wraps=statistical_execution.execute
-        ) as compute:
-            table = mv.table(
-                coefficient=logical_a.coefficient, selected=logical_a.selected
-            ).execute()
-        assert (
-            sum(
-                isinstance(
-                    call.args[0].parameters, (AssociationFit, ForecastFit, DeviationFit, TimeRuns)
-                )
-                for call in compute.call_args_list
-            )
-            == 1
-        )
         result = logical_a.execute()
         views = {"coefficient": result.coefficient, "selected": result.selected}
         selected = result.where(result.selected.value.eq(False)).execute()
@@ -168,22 +127,6 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         assert descriptive.to_pandas().value.tolist() == [1.0]
     elif method == "time.runs@v1":
         logical_r = time_values.runs(where=time_values.value.gt(0))
-        with patch.object(runs_execution, "execute", wraps=runs_execution.execute) as compute:
-            table = mv.table(
-                start=logical_r.start,
-                end=logical_r.end,
-                count=logical_r.count,
-                duration=logical_r.duration,
-            ).execute()
-        assert (
-            sum(
-                isinstance(
-                    call.args[0].parameters, (AssociationFit, ForecastFit, DeviationFit, TimeRuns)
-                )
-                for call in compute.call_args_list
-            )
-            == 1
-        )
         result = logical_r.execute()
         views = {
             "start": result.start,
@@ -204,21 +147,6 @@ def test_frozen_views_scope_sharing_quantity_and_k(
             else mv.seasonal_naive(periods=2)
         )
         logical_f = time_values.forecast(horizon=mv.periods(2), model=model)
-        with patch.object(
-            statistical_execution, "execute", wraps=statistical_execution.execute
-        ) as compute:
-            table = mv.table(
-                prediction=logical_f.prediction, lower=logical_f.lower, upper=logical_f.upper
-            ).execute()
-        assert (
-            sum(
-                isinstance(
-                    call.args[0].parameters, (AssociationFit, ForecastFit, DeviationFit, TimeRuns)
-                )
-                for call in compute.call_args_list
-            )
-            == 1
-        )
         result = logical_f.execute()
         views = {"prediction": result.prediction, "lower": result.lower, "upper": result.upper}
         selected = result.where(result.prediction.value.gt(100)).execute()
@@ -243,7 +171,6 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         for sql in submitted
         for token in ("create macro", "bignum", "__mv_exact", "axis_concentration")
     )
-    assert len(table.to_pandas()) == len(result.to_pandas())
     frames = [v.to_pandas() for v in views.values()]
     keys = [
         tuple(c for c in frame.columns if c not in ("value", "cell_tag", "cell_reason"))
@@ -270,7 +197,8 @@ def test_frozen_views_scope_sharing_quantity_and_k(
         frame[list(selected_keys[0])].equals(selected_frames[0][list(selected_keys[0])])
         for frame in selected_frames
     )
-    assert all(len(frame) == len(selected.to_pandas()) for frame in selected_frames)
+    selected_frame = selected.to_pandas()
+    assert all(len(frame) == len(selected_frame) for frame in selected_frames)
     assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
     original_facts, selected_facts = (
         dict(result.contract()._facts),

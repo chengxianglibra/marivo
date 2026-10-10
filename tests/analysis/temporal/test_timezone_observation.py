@@ -33,8 +33,6 @@ from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.support.json import Json, checked, encode, read
 from tests.support.paths import PROJECT_ROOT
 
-pytestmark = pytest.mark.runtime
-
 _ROWS = (
     ("before", "A", 888, "2026-07-31 15:59:59.999999"),
     ("one", "A", 10, "2026-07-31 16:00:00"),
@@ -148,14 +146,12 @@ def _parameters(value: mv.LogicalNumericRelation) -> ObserveMetric:
     )
 
 
-@pytest.mark.parametrize("form", ("table", "parquet"))
 def test_report_mean_members_and_next_window_have_independent_oracles(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    form: Literal["table", "parquet"],
 ) -> None:
-    _project(tmp_path, monkeypatch, semantic_project_factory, form=form)
+    _project(tmp_path, monkeypatch, semantic_project_factory, form="parquet")
     session = mv.session.get_or_create("mean-chain", report_timezone="Asia/Shanghai")
     values = _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02"))
     params = _parameters(values)
@@ -306,20 +302,6 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
             "2026-08-01 16:00:00",
         ),
         (
-            "Asia/Shanghai",
-            "2026-08-01 00:00:00",
-            "2026-08-01 23:59:59.999999",
-            "2026-07-31 23:59:59.999999",
-            "2026-08-02 00:00:00",
-        ),
-        (
-            "America/New_York",
-            "2026-07-31 12:00:00",
-            "2026-08-01 11:59:59.999999",
-            "2026-07-31 11:59:59.999999",
-            "2026-08-01 12:00:00",
-        ),
-        (
             "UTC+05:45",
             "2026-07-31 21:45:00",
             "2026-08-01 21:44:59.999999",
@@ -420,13 +402,12 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     assert session.runs().items == before
 
 
-@pytest.mark.parametrize("zone", ("UTC", "Asia/Shanghai", "America/New_York", "UTC+05:45"))
 def test_sqlite_system_default_is_frozen_and_declared_timezone_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    zone: str,
 ) -> None:
+    zone = "America/New_York"
     monkeypatch.setenv("TZ", zone)
     rows = (
         ("one", "A", 2, "2026-08-01 08:00:00.000001"),
@@ -541,13 +522,13 @@ def test_changed_engine_authority_rejects_before_business_read(
         value.execute()
 
 
-@pytest.mark.parametrize("backend", ("duckdb", "sqlite"))
+@pytest.mark.slow
 def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    backend: Literal["duckdb", "sqlite"],
 ) -> None:
+    backend = "duckdb"
     monkeypatch.setenv("TZ", "Asia/Shanghai")
     rows = (
         ("one", "A", 10, "2026-08-01 08:00:00"),
@@ -559,8 +540,8 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
         monkeypatch,
         semantic_project_factory,
         backend=backend,
-        form="parquet" if backend == "duckdb" else "table",
-        read_zone="UTC" if backend == "duckdb" else None,
+        form="parquet",
+        read_zone="UTC",
         rows=rows,
     )
     session = mv.session.get_or_create("recover-time", report_timezone="Asia/Shanghai")

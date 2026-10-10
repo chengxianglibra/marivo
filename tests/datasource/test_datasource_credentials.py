@@ -486,6 +486,7 @@ print('credential-subprocess-ok')
     assert "pipe-only-fixture-canary" not in result.stderr
 
 
+@pytest.mark.slow
 def test_public_semantic_analysis_and_resume(
     authoring_evidence_project: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -631,7 +632,9 @@ def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True
+    )
     thread.start()
     scope = f"http://127.0.0.1:{server.server_port}/"
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))

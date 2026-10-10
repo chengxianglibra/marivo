@@ -22,8 +22,6 @@ from marivo.semantic.ir import TargetDimensionContract
 from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.source_trace import SourceTrace
 
-pytestmark = pytest.mark.runtime
-
 
 def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
     with duckdb.connect(str(case.database_path)) as connection:

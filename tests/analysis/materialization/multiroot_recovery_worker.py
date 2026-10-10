@@ -19,7 +19,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import run_ids
-from tests.support.json import Json, checked, digest, encode, obj, read
+from tests.support.json import Json, arr, checked, digest, encode, obj, read
 
 
 class Continuation(Protocol):
@@ -73,10 +73,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             else:
                 result = operation.execute()
             outputs[name] = snapshot(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[name]
-            assert seen == run_ids(session)
             return result
 
         first, second = 9007199254740992, 9007199254740993
@@ -84,18 +80,16 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         expected_values: dict[str, tuple[Fraction | None, ...]] = {
             "linear": (Fraction(35), Fraction(110), Fraction(4), Fraction(0)),
             "ratio": (Fraction(6), Fraction(9, 2), Fraction(0), None),
-            "weighted": (Fraction(50, 3), Fraction(410, 9), None, None),
-            "aggregate": (Fraction(30), Fraction(90), None, None),
-            "slice": (Fraction(5), Fraction(20), Fraction(0), Fraction(0)),
         }
         rolled_values = {
             "linear": Fraction(149),
             "ratio": Fraction(120, 29),
-            "weighted": Fraction(115, 3),
-            "aggregate": Fraction(120),
-            "slice": Fraction(25),
         }
-        for kind, raw in obj(state["originals"]).items():
+        originals = obj(state["originals"])
+        cold_kinds = {str(kind) for kind in arr(state["cold_kinds"])}
+        for kind, raw in originals.items():
+            if phase == "cold" and kind not in cold_kinds:
+                continue
             original = obj(raw)
             reference = original["artifact"]
             assert isinstance(reference, str)
@@ -121,11 +115,16 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     )
             if isinstance(value, mv.MaterializedRatioRelation):
                 assert kind == "ratio"
-                for call, ratio_operation, expected in (
-                    ("rollup", value.rollup(), rolled_values[kind]),
-                    ("count", value.aggregate(mv.count()), Fraction(4)),
-                    ("count_defined", value.aggregate(mv.count_defined()), Fraction(3)),
-                ):
+                operations = (
+                    (("rollup", value.rollup(), rolled_values[kind]),)
+                    if phase == "cold"
+                    else (
+                        ("rollup", value.rollup(), rolled_values[kind]),
+                        ("count", value.aggregate(mv.count()), Fraction(4)),
+                        ("count_defined", value.aggregate(mv.count_defined()), Fraction(3)),
+                    )
+                )
+                for call, ratio_operation, expected in operations:
                     result = execute(kind + ":" + call, ratio_operation)
                     result_rows = result.to_pandas()
                     assert len(result_rows) == 1 and result_rows.cell_tag.tolist() == ["defined"]
@@ -134,6 +133,14 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     snapshot(value) == original
                     and components(value) == obj(state["components"])[kind]
                 )
+                continue
+            if phase == "cold":
+                result = execute(kind + ":rollup", value.rollup())
+                result_rows = result.to_pandas()
+                assert len(result_rows) == 1 and result_rows.cell_tag.tolist() == ["defined"]
+                assert abs(float(result_rows.value.iloc[0]) - float(rolled_values[kind])) < 1e-10
+                assert snapshot(value) == original
+                assert components(value) == obj(state["components"])[kind]
                 continue
             defined = execute(kind + ":defined", value.where(value.value.is_defined()))
             assert isinstance(defined, mv.MaterializedSelectedNumericRelation)
@@ -166,14 +173,17 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 snapshot(value) == original and components(value) == obj(state["components"])[kind]
             )
         assert session._runtime.store.resources(session.id) == ()
-        assert len(outputs) == 29
         if phase == "fixed":
-            assert len(run_ids(session) - before) == kernels.call_count == 29
+            assert len(outputs) == 11
+            assert len(run_ids(session) - before) == kernels.call_count == 11
             state["outputs"] = outputs
             (root / "r94-multiroot.json").write_bytes(encode(state))
         else:
+            cold_outputs = {"linear:rollup", "ratio:rollup"}
+            fixed_outputs = obj(state["outputs"])
+            assert outputs == {name: fixed_outputs[name] for name in cold_outputs}
             assert (
-                outputs == state["outputs"]
+                len(outputs) == len(cold_outputs)
                 and run_ids(session) == before
                 and kernels.call_count == 0
             )

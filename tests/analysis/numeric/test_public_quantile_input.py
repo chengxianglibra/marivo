@@ -21,7 +21,6 @@ def test_observation_algorithm_override_is_not_public() -> None:
     assert not hasattr(ms, "QuantileMetricInput")
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "agg, algorithm", [("median", "QUANTILE_CONT"), ("approx_median", "T-Digest")]
 )

@@ -10,8 +10,6 @@ from ibis.backends.duckdb import Backend
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-pytestmark = pytest.mark.runtime
-
 
 def _bootstrap_project(tmp_path: Path) -> None:
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')

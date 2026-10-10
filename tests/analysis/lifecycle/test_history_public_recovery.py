@@ -1,4 +1,4 @@
-"""Finite public History recovery risks, without a backend or carrier matrix."""
+"""Public Session resume restores History without its project or source."""
 
 from __future__ import annotations
 
@@ -14,12 +14,11 @@ from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("risk", ("views", "captured_observations"))
-def test_history_public_recovery(tmp_path: Path, risk: str) -> None:
+@pytest.mark.slow
+def test_public_resume_restores_history_without_source(tmp_path: Path) -> None:
     repository = PROJECT_ROOT
     reports: list[Json] = []
-    for phase in ("produce", "fixed", "cold"):
+    for phase in ("produce", "restore"):
         report = tmp_path / (phase + ".json")
         completed = subprocess.run(
             [
@@ -27,7 +26,6 @@ def test_history_public_recovery(tmp_path: Path, risk: str) -> None:
                 "-m",
                 "tests.analysis.lifecycle.history_public_recovery_worker",
                 str(tmp_path),
-                risk,
                 phase,
                 str(report),
             ],
@@ -42,13 +40,20 @@ def test_history_public_recovery(tmp_path: Path, risk: str) -> None:
         reports.append(read(report))
         if phase == "produce":
             shutil.rmtree(tmp_path / "models")
-            for path in tmp_path.glob("source.duckdb*"):
+            for path in (*tmp_path.glob("source.duckdb*"), *tmp_path.glob("*.parquet")):
                 path.unlink()
-    assert len({obj(report)["pid"] for report in reports}) == 3
-    fixed, cold = obj(reports[1]), obj(reports[2])
-    assert fixed["outputs"] == cold["outputs"]
+    producer, cold = obj(reports[0]), obj(reports[1])
+    assert producer["pid"] != cold["pid"]
+    assert producer["history"] == cold["history"]
+    assert producer["resources"] == cold["resources"] == 0
     assert cold["kernels"] == cold["new_runs"] == 0
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(directory, "public-history-" + risk + ".json").write_bytes(
-            encode({"risk": risk, "reports": reports, "manifest": read(tmp_path / "state.json")})
+        Path(directory, "public-history-resume.json").write_bytes(
+            encode(
+                {
+                    "recovery_path": "public_session_resume",
+                    "reports": reports,
+                    "manifest": read(tmp_path / "state.json"),
+                }
+            )
         )

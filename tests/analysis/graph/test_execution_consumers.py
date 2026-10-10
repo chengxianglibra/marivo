@@ -14,15 +14,12 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.datasource.source_cases import source_case
+from tests.datasource.source_cases import source_case, source_params
 from tests.support.execution_logs import execution_records
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.parametrize("backend", source_params(("duckdb",)))
 def test_public_source_reexecution_and_fixed_hit(
     backend: str,
     tmp_path: Path,
@@ -139,7 +136,6 @@ def test_public_source_reexecution_and_fixed_hit(
         )
 
 
-@pytest.mark.runtime
 def test_independent_equal_nodes_execute_distinct_source_stages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

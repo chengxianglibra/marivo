@@ -93,8 +93,9 @@ else:
             exact = Relation(runtime, node, FrozenBinding(node)).execute()
             assert exact.artifact.artifact_ref == payload["comparison"]
             read = session.artifact(payload["read"])
-            assert read.to_pandas().value.notna().sum() == 1003
-            assert read.to_pandas().value.dropna().eq(0).all()
+            frame = read.to_pandas()
+            assert frame.value.notna().sum() == 1003
+            assert frame.value.dropna().eq(0).all()
         assert not runtime.statistics.statements
         print(json.dumps({"phase": phase, "accepted": True}))
         raise SystemExit(0)

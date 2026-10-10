@@ -168,7 +168,6 @@ def test_coordinate_tampering_and_frozen_roles(analysis_dsl_case_factory: DslCas
     assert tuple(hop.ref.path for hop in frozen.parameters.path) == (BUYER.path,)
 
 
-@pytest.mark.runtime
 def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFactory) -> None:
     session = _extend(analysis_dsl_case_factory("j1"), roles=True)
     customers, orders = session.members(CUSTOMER), session.members(ORDER)
@@ -259,7 +258,6 @@ def test_classification_scope_and_complete_components(
         members.observe(LINE_REVENUE, during=WINDOW, by=(lines.read(CATEGORY, at=grid.before_end),))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("explicit", (False, True))
 def test_classification_read_requires_owner_for_its_complete_input_scope(
     analysis_dsl_case_factory: DslCaseFactory, explicit: bool
@@ -288,7 +286,7 @@ def test_classification_read_requires_owner_for_its_complete_input_scope(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
@@ -348,7 +346,6 @@ assert fixed.group_by(ms.ref.dimension('sales.product.category')).execute().to_p
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.runtime
 def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case, order_product=True)
@@ -372,7 +369,6 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         ]
 
 
-@pytest.mark.runtime
 def test_bilingual_branch_example_and_time_grid(analysis_dsl_case_factory: DslCaseFactory) -> None:
     session = _extend(analysis_dsl_case_factory("j1"))
     namespace: dict[str, object] = {"session": session, "ms": ms, "mv": mv}
@@ -392,7 +388,6 @@ def test_bilingual_branch_example_and_time_grid(analysis_dsl_case_factory: DslCa
     assert rows["value"].sum() == 1000
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("missing_bucket", [False, True])
 def test_timed_classification_cannot_remove_consumed_contributions(
     analysis_dsl_case_factory: DslCaseFactory, missing_bucket: bool

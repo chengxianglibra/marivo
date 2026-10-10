@@ -24,16 +24,16 @@ repeated-read accounting and complete baseline outputs.
 
 ## Reproduction
 
-Run the Runtime assertions with recording mode unset:
+Run the daily assertions with recording mode unset:
 
 ```sh
-env -u MARIVO_HELP_BUDGET_RECORD make runtime-test-agent TESTS='tests/surface/test_analysis_context_budget.py::test_task_context_budget'
+env -u MARIVO_HELP_BUDGET_RECORD make test TESTS='tests/surface/test_analysis_context_budget.py::test_task_context_budget'
 ```
 
 Collect complete current outputs for inspection:
 
 ```sh
-MARIVO_HELP_BUDGET_RECORD=/tmp/marivo-help-context.json make runtime-test-agent TESTS='tests/surface/test_analysis_context_budget.py::test_task_context_budget'
+MARIVO_HELP_BUDGET_RECORD=/tmp/marivo-help-context.json make test TESTS='tests/surface/test_analysis_context_budget.py::test_task_context_budget'
 ```
 
 Recording mode collects evidence and bypasses the reduction assertions.

@@ -12,13 +12,12 @@ from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSe
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
-from tests.datasource.source_cases import ROWS, source_case
+from tests.datasource.source_cases import ROWS, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+    "backend", source_params(("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"))
 )
 def test_public_metadata_and_bounded_sample(
     backend: str,

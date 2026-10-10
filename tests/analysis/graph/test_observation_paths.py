@@ -32,25 +32,19 @@ from tests.support.documentation import _example
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
-    "backend,depth,key_type",
-    [
-        (backend, 4, "int64")
-        for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-    ]
-    + [(backend, depth, "int64") for backend in ("duckdb", "sqlite") for depth in (3, 9)]
-    + [(backend, 4, "string") for backend in ("postgres", "mysql", "trino", "clickhouse")]
-    + [("postgres", 4, "compound")],
+    "depth,key_type",
+    [(4, "int64"), (3, "int64"), (9, "int64"), (4, "string"), (4, "compound")],
 )
 def test_long_path_sum_and_count(
-    backend: Backend,
     depth: int,
     key_type: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
+    backend: Backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     instant = datetime(2026, 8, 1, tzinfo=timezone.utc)
@@ -282,7 +276,7 @@ def test_long_path_sum_and_count(
             documented = namespace["long_count"]
             assert isinstance(documented, mv.MaterializedNumericRelation)
             assert sorted(documented.to_pandas().value.tolist()) == [0, 1, 2]
-        if backend in ("duckdb", "sqlite"):
+        if backend == "duckdb":
             anchors = session.anchors(
                 ms.participant_role(event=ms.ref.event("sales.entry"), name="subject"),
                 population=population,
@@ -298,7 +292,7 @@ def test_long_path_sum_and_count(
                 assert result.to_pandas().value.tolist() == expected
         assert session._runtime.store.resources(session.id) == ()
 
-    if depth == 4:
+    if depth == 4 and key_type == "int64":
         (tmp_path / "observations.json").write_text(
             json.dumps({"session": session.id, "inputs": outputs})
         )

@@ -12,7 +12,6 @@ from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 def test_native_duckdb_anchor_preserves_opportunities(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_trace: SourceTrace
 ) -> None:
@@ -21,8 +20,9 @@ def test_native_duckdb_anchor_preserves_opportunities(
     retained = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
     ).execute()
-    assert retained.to_pandas().value.tolist() == [True, None, False, None]
-    assert retained.to_pandas().cell_tag.tolist() == ["defined", "unknown", "defined", "unknown"]
+    frame = retained.to_pandas()
+    assert frame.value.tolist() == [True, None, False, None]
+    assert frame.cell_tag.tolist() == ["defined", "unknown", "defined", "unknown"]
     assert dict(retained.contract()._facts)["omega_count"] == "4"
     assert dict(retained.contract()._facts)["deterministic_bounds"] == "[0.25,0.75]"
     assert retained._dataset is not None

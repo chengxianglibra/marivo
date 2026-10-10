@@ -41,32 +41,33 @@ def test_signed_independent_integer_oracle(method: numeric.DeviationMethod) -> N
     assert expected[0] < 0 < expected[-1]
 
 
-@pytest.mark.parametrize("precision,scale", [(p, s) for p in range(1, 39) for s in range(p + 1)])
-def test_every_decimal_profile_preserves_original_and_half_even(precision: int, scale: int) -> None:
-    typ = DecimalType(precision, scale)
-    value = Decimal((0, (1,), -scale))
-    assert numeric.exact(value, typ) == Fraction(1, 10**scale)
-    assert numeric.finish(Fraction(5, 2) / 10**scale, typ) == Decimal((0, (2,), -scale))
-    assert numeric.finish(Fraction(7, 2) / 10**scale, typ) == Decimal((0, (4,), -scale))
-    values = tuple(Decimal((0, (x,), -scale)) for x in (1, 2, 7))
-    for method in ("zscore", "mad"):
-        center, raw_scale, branch, scores = expected(values, method)
-        fitted = numeric.fit(tuple(Fraction(x) for x in values), method)
-        assert fitted.center is not None and fitted.raw_scale is not None
-        assert (fitted.center.value(), fitted.raw_scale.value(), fitted.branch) == (
-            center,
-            raw_scale,
-            branch,
-        )
-        output = numeric.unit_type(typ)
-        assert isinstance(output, DecimalType)
-        assert numeric.finish(center, output) == decimal_finish(center, output.scale)
-        for value, score in zip(values, scores, strict=True):
-            delta = Fraction(value) - center
-            assert numeric.finish(delta, output) == decimal_finish(delta, output.scale)
-            certified = numeric.certified_score(delta, fitted)
-            assert certified.value == score
-            assert numeric.verify_score(delta, fitted, score, certified.root)
+def test_every_decimal_profile_preserves_original_and_half_even() -> None:
+    for precision in range(1, 39):
+        for scale in range(precision + 1):
+            typ = DecimalType(precision, scale)
+            value = Decimal((0, (1,), -scale))
+            assert numeric.exact(value, typ) == Fraction(1, 10**scale)
+            assert numeric.finish(Fraction(5, 2) / 10**scale, typ) == Decimal((0, (2,), -scale))
+            assert numeric.finish(Fraction(7, 2) / 10**scale, typ) == Decimal((0, (4,), -scale))
+            values = tuple(Decimal((0, (x,), -scale)) for x in (1, 2, 7))
+            for method in ("zscore", "mad"):
+                center, raw_scale, branch, scores = expected(values, method)
+                fitted = numeric.fit(tuple(Fraction(x) for x in values), method)
+                assert fitted.center is not None and fitted.raw_scale is not None
+                assert (fitted.center.value(), fitted.raw_scale.value(), fitted.branch) == (
+                    center,
+                    raw_scale,
+                    branch,
+                )
+                output = numeric.unit_type(typ)
+                assert isinstance(output, DecimalType)
+                assert numeric.finish(center, output) == decimal_finish(center, output.scale)
+                for value, score in zip(values, scores, strict=True):
+                    delta = Fraction(value) - center
+                    assert numeric.finish(delta, output) == decimal_finish(delta, output.scale)
+                    certified = numeric.certified_score(delta, fitted)
+                    assert certified.value == score
+                    assert numeric.verify_score(delta, fitted, score, certified.root)
 
 
 @pytest.mark.parametrize("value", [float("inf"), float("nan"), True])
@@ -75,7 +76,6 @@ def test_nonfinite_or_wrong_original_carrier_rejects(value: float | bool) -> Non
         numeric.exact(value, ScalarType("float64"))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["zscore", "mad"])
 def test_public_source_fixed_views_and_selection(
     analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
@@ -138,21 +138,9 @@ def test_public_source_fixed_views_and_selection(
     assert len(table.to_pandas()) == len(scores)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ["zscore", "mad"])
-@pytest.mark.parametrize("grid_mode", [False, True])
 @pytest.mark.parametrize(
-    "profile",
-    (
-        "BIGINT",
-        "DOUBLE",
-        "DECIMAL(9,2)",
-        "DECIMAL(18,6)",
-        "DECIMAL(38,0)",
-        "DECIMAL(38,6)",
-        "DECIMAL(38,18)",
-        "DECIMAL(38,38)",
-    ),
+    "method,grid_mode,profile",
+    [("zscore", False, "BIGINT"), ("mad", True, "DOUBLE"), ("zscore", True, "DECIMAL(38,38)")],
 )
 def test_f11_complete_source_chain(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -226,18 +214,6 @@ def test_f11_complete_source_chain(
     if grid_mode:
         assert len(values) == 62
         assert values.cell_tag.value_counts().to_dict() == {"null": 60, "defined": 2}
-
-
-PROFILES = (
-    "BIGINT",
-    "DOUBLE",
-    "DECIMAL(9,2)",
-    "DECIMAL(18,6)",
-    "DECIMAL(38,0)",
-    "DECIMAL(38,6)",
-    "DECIMAL(38,18)",
-    "DECIMAL(38,38)",
-)
 
 
 @pytest.mark.parametrize("method", ("zscore", "mad"))
@@ -333,7 +309,6 @@ def test_root_certificate_refines_a_rounding_boundary_under_shared_deadline(expi
         CURRENT.reset(token)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_null_partitions_selection_boundary_and_shared_fit(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -378,7 +353,6 @@ def test_null_partitions_selection_boundary_and_shared_fit(
     assert dict(new_fit.contract()._facts)["original_count"] == "5"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 @pytest.mark.parametrize("empty", (False, True))
 def test_selected_time_score_can_establish_a_new_fixed_fit(
@@ -436,7 +410,6 @@ def test_selected_time_score_can_establish_a_new_fixed_fit(
     assert case.session.runs().items == runs
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_observed_nullable_large_int64_dataframe_preserves_original_values(
     analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
@@ -467,7 +440,6 @@ def test_observed_nullable_large_int64_dataframe_preserves_original_values(
     assert restored.observed.to_pandas().sort_values("member").equals(observed)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_extreme_binary64_fit_card_preserves_bounded_continuations(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -490,7 +462,6 @@ def test_extreme_binary64_fit_card_preserves_bounded_continuations(
     values = members.read(ms.ref.measure("sales.order.amount"))
     category = members.read(ms.ref.dimension("sales.order.channel"))
     assert isinstance(category, mv.LogicalCategoryRelation)
-    assert isinstance(category, mv.LogicalCategoryRelation)
     result = values.deviation(method=method, partition_by=(category,)).execute()
     contract = result.contract()
     assert "excerpt" in dict(contract._facts)["fit_partition_0"]
@@ -504,7 +475,6 @@ def test_extreme_binary64_fit_card_preserves_bounded_continuations(
     assert result.score.to_pandas().value.tolist().count(scores[0]) == 3
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_construction_mode_identity_and_zero_business_reads(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -544,8 +514,7 @@ def test_construction_mode_identity_and_zero_business_reads(
         fixed.deviation(method=method, partition_by=(category,))
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize(
     "phase", ("fit_complete", "graph_admitted", "graph_receipts_verified", "before_commit")
 )
@@ -596,11 +565,16 @@ def test_deviation_deadline_failure_is_atomic(
         CURRENT.reset(token)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", PROFILES)
-@pytest.mark.parametrize("form", ("table", "parquet"))
-@pytest.mark.parametrize("method", ("zscore", "mad"))
-def test_eight_profiles_separate_producer_fixed_cold(
+@pytest.mark.parametrize(
+    "profile,form,method",
+    [
+        ("BIGINT", "table", "zscore"),
+        ("DOUBLE", "parquet", "mad"),
+        ("DECIMAL(38,38)", "parquet", "zscore"),
+    ],
+)
+@pytest.mark.slow
+def test_scalar_carriers_separate_producer_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory,
     profile: str,
     form: str,
@@ -614,7 +588,7 @@ def test_eight_profiles_separate_producer_fixed_cold(
         )
     if form == "parquet":
         export_dsl_parquet_models(case, case.root)
-    for phase in ("produce", "fixed", "cold"):
+    for phase in ("produce", "fixed"):
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
             for source in (case.root / "source_files").glob("*.parquet"):

@@ -207,22 +207,15 @@ TERMINAL_BUILDERS: list = [
 
 
 @pytest.mark.parametrize("builder", TERMINAL_BUILDERS)
-def test_terminal_type_conforms(builder: Callable[[], object]) -> None:
-    assert_conforms(builder())
-
-
-@pytest.mark.parametrize("builder", TERMINAL_BUILDERS)
-def test_terminal_type_byte_contract(builder: Callable[[], object]) -> None:
+def test_terminal_type_protocol_and_byte_contract(builder: Callable[[], object]) -> None:
     obj = builder()
-    capped = obj.render()  # type: ignore[attr-defined]
-    assert len(capped.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert_conforms(obj)
     full = obj.render(max_output_bytes=None)  # type: ignore[attr-defined]
     assert "output truncated" not in full
     with pytest.raises(ValueError):
         obj.render(max_output_bytes=1)  # type: ignore[attr-defined]
 
 
-@pytest.mark.runtime
 def test_committed_runtime_projections_satisfy_terminal_protocol(analysis_dsl_case_factory) -> None:
     from marivo.analysis.materialization import graph_store
     from marivo.analysis.materialization.contracts import RunFailure

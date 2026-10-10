@@ -7,26 +7,18 @@ from decimal import Decimal
 import duckdb
 import pytest
 
+from tests.analysis.statistics.deviation_decimal_worker import run as run_decimal
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "precision,scale,form",
-    (
-        (1, 0, "parquet"),
-        (1, 1, "parquet"),
-        (9, 2, "parquet"),
-        (18, 6, "parquet"),
-        (38, 0, "parquet"),
-        (38, 18, "parquet"),
-        (38, 38, "parquet"),
-        (38, 6, "table"),
-        (38, 38, "table"),
-    ),
-)
-def test_decimal_carrier_boundaries_in_independent_processes(
-    analysis_dsl_case_factory: DslCaseFactory, precision: int, scale: int, form: str
+@pytest.mark.slow
+@pytest.mark.parametrize("precision,scale,form", [(38, 38, "parquet")])
+def test_decimal_carrier_boundaries_with_fresh_process_cold_recovery(
+    analysis_dsl_case_factory: DslCaseFactory,
+    precision: int,
+    scale: int,
+    form: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     models = case.root / "models/semantic/sales/models.py"
@@ -59,24 +51,26 @@ def test_decimal_carrier_boundaries_in_independent_processes(
     models.write_text(body + "\n" + "".join(declarations))
     if form == "parquet":
         export_dsl_parquet_models(case, case.root)
-    for phase in ("produce", "fixed", "cold"):
-        if phase == "fixed":
-            case.database_path.rename(case.database_path.with_suffix(".offline"))
-            for source in (case.root / "source_files").glob("*.parquet"):
-                source.rename(source.with_suffix(".offline"))
-        process = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.deviation_decimal_worker",
-                str(case.root),
-                str(precision),
-                str(scale),
-                phase,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=1800,
-        )
-        assert process.returncode == 0, process.stdout + process.stderr
-        assert f'"accepted": "{phase}"' in process.stdout
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(case.root))
+    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+    run_decimal(case.root, precision, scale, "produce")
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    for source in (case.root / "source_files").glob("*.parquet"):
+        source.rename(source.with_suffix(".offline"))
+    run_decimal(case.root, precision, scale, "fixed")
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.statistics.deviation_decimal_worker",
+            str(case.root),
+            str(precision),
+            str(scale),
+            "cold",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=1800,
+    )
+    assert process.returncode == 0, process.stdout + process.stderr
+    assert '"accepted": "cold"' in process.stdout

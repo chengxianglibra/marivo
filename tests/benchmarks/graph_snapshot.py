@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TypeVar
 
 import duckdb
-import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -44,7 +43,6 @@ def _peak(call: Callable[[], object]) -> int:
         tracemalloc.stop()
 
 
-@pytest.mark.runtime
 def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:

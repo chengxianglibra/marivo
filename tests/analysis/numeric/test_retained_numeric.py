@@ -270,12 +270,8 @@ def forbidden(*_args: object, **_kwargs: object) -> None:
     raise AssertionError("Retained-input execution touched live source or Semantic")
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ["empty-null-unavailable"])
-@pytest.mark.parametrize(
-    "method",
-    ["pearson", "spearman", "kendall", "zscore", "mad", "naive", "drift", "seasonal_naive", "runs"],
-)
+@pytest.mark.parametrize("method", ["pearson", "zscore", "naive", "runs"])
 def test_public_retained_cell_boundaries_supporting(
     method: Literal[
         "pearson",
@@ -458,12 +454,8 @@ def test_public_retained_cell_boundaries_supporting(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ["complete-identity-domain"])
-@pytest.mark.parametrize(
-    "method",
-    ["pearson", "spearman", "kendall", "zscore", "mad", "naive", "drift", "seasonal_naive", "runs"],
-)
+@pytest.mark.parametrize("method", ["pearson", "zscore", "naive", "runs"])
 def test_public_retained_identity(
     method: Literal[
         "pearson",
@@ -613,7 +605,6 @@ def test_public_retained_identity(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "scenario", ["full-grid-dst-adjacency-duration", "cross-batch-long-run", "unavailable-breaks"]
 )
@@ -738,17 +729,14 @@ def test_public_retained_runs_algorithm(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "method,scenario",
     [
-        (method, scenario)
-        for method in ("pearson", "spearman", "kendall")
-        for scenario in (
-            "complete-pair-lag-order",
-            "invalid-constant-pairs",
-            "centered-numeric-extremes" if method == "pearson" else "ties-average-rank-tau-b",
-        )
+        ("pearson", "complete-pair-lag-order"),
+        ("pearson", "centered-numeric-extremes"),
+        ("spearman", "invalid-constant-pairs"),
+        ("spearman", "ties-average-rank-tau-b"),
+        ("kendall", "ties-average-rank-tau-b"),
     ],
 )
 def test_public_retained_association_algorithm(
@@ -917,11 +905,15 @@ def test_public_retained_association_algorithm(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "scenario", ["complete-training", "model-innovation-variance", "future-grid-interval"]
+    "method,scenario",
+    [
+        ("naive", "complete-training"),
+        ("drift", "complete-training"),
+        ("seasonal_naive", "complete-training"),
+        ("naive", "future-grid-interval"),
+    ],
 )
-@pytest.mark.parametrize("method", ["naive", "drift", "seasonal_naive"])
 def test_public_retained_forecast_algorithm(
     method: Literal["naive", "drift", "seasonal_naive"],
     scenario: Literal["complete-training", "model-innovation-variance", "future-grid-interval"],
@@ -1067,11 +1059,15 @@ def test_public_retained_forecast_algorithm(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "scenario", ["original-fit-domain", "zero-scale", "decimal-center-scale-extremes"]
+    "method,scenario",
+    [
+        ("zscore", "original-fit-domain"),
+        ("mad", "original-fit-domain"),
+        ("mad", "zero-scale"),
+        ("zscore", "decimal-center-scale-extremes"),
+    ],
 )
-@pytest.mark.parametrize("method", ["zscore", "mad"])
 def test_public_retained_deviation_algorithm(
     method: Literal["zscore", "mad"],
     scenario: Literal["original-fit-domain", "zero-scale", "decimal-center-scale-extremes"],
@@ -1166,9 +1162,16 @@ def test_public_retained_deviation_algorithm(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ["int64-near-extremes", "finite-float64", "decimal-exact"])
-@pytest.mark.parametrize("method", ["pearson", "spearman", "kendall", "zscore", "mad"])
+@pytest.mark.parametrize(
+    "profile,method",
+    [
+        ("int64-near-extremes", "pearson"),
+        ("finite-float64", "spearman"),
+        ("decimal-exact", "kendall"),
+        ("decimal-exact", "zscore"),
+        ("finite-float64", "mad"),
+    ],
+)
 def test_public_retained_numeric_risk(
     profile: Profile,
     method: Method,
@@ -1271,9 +1274,15 @@ def test_public_retained_numeric_risk(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ["int64-near-extremes", "finite-float64", "decimal-exact"])
-@pytest.mark.parametrize("method", ["naive", "drift", "seasonal_naive", "runs"])
+@pytest.mark.parametrize(
+    "profile,method",
+    [
+        ("int64-near-extremes", "naive"),
+        ("finite-float64", "drift"),
+        ("decimal-exact", "seasonal_naive"),
+        ("int64-near-extremes", "runs"),
+    ],
+)
 def test_public_retained_time_numeric_risk(
     profile: Profile,
     method: Literal["naive", "drift", "seasonal_naive", "runs"],

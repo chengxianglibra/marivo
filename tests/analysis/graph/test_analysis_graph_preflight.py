@@ -61,7 +61,6 @@ from marivo.semantic.validator import normalize_target_dimension
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
-@pytest.mark.runtime
 def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,7 +82,6 @@ def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
     assert len(case.session.runs().items) == runs_before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", (False, True))
 def test_coordinate_rollup_has_one_singleton_target(
     analysis_dsl_case_factory: DslCaseFactory, empty: bool
@@ -151,7 +149,7 @@ def test_coordinate_rollup_has_one_singleton_target(
         assert rows[0]["cell_reason"] == ("empty_contribution" if empty else None)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("form", ("table", "parquet"))
 @pytest.mark.parametrize("numeric_type", ("int64", "float64"))
 def test_exact_member_builder_publishes_v7_from_authored_project(
@@ -480,7 +478,6 @@ assert read_result(store.project_root, output.descriptor).primary["value"].to_py
     assert process.returncode == 0, process.stderr
 
 
-@pytest.mark.runtime
 def test_preflight_rejects_unqualified_source_before_open(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -503,7 +500,6 @@ def test_preflight_rejects_unqualified_source_before_open(
         preflight_entities(registry, case.root, (f"{case.names.domain}.{case.names.customer}",))
 
 
-@pytest.mark.runtime
 def test_preflight_schema_change_is_not_accepted_as_selected_binding(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -524,7 +520,6 @@ def test_preflight_schema_change_is_not_accepted_as_selected_binding(
             first.verify(bound)
 
 
-@pytest.mark.runtime
 def test_string_member_view_uses_exact_graph_and_source_read(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -572,7 +567,6 @@ def test_string_member_view_uses_exact_graph_and_source_read(
     assert sorted(result.primary.column("key_0").to_pylist()) == ["A", "B", "C", "D"]
 
 
-@pytest.mark.runtime
 def test_string_dimension_binding_uses_exact_graph_and_source_read(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -645,7 +639,6 @@ def test_string_dimension_binding_uses_exact_graph_and_source_read(
     ) == {"A": "east", "B": "east"}
 
 
-@pytest.mark.runtime
 def test_string_group_is_a_qualified_source_graph_method(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -706,7 +699,7 @@ def test_string_group_is_a_qualified_source_graph_method(
     assert sorted(result.primary.column("key_0").to_pylist()) == ["east", "south", "west"]
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("form", ("table", "parquet"))
 def test_v7_member_subject_part_survives_publication_and_exact_read(
     tmp_path: Path, form: Literal["table", "parquet"]
@@ -883,7 +876,6 @@ assert tuple(part.role for part in result.parts) == ('subject',)
     assert runtime.statistics.primary_queries == reads_before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ("j2", "j4", "j4_ties"))
 def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -1092,7 +1084,6 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
                 assert row["cell_tag"] == "undefined" and row["cell_reason"] == "empty_mean"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scenario", ("j3", "j3_weighting", "zero_denominator"))
 def test_two_hop_original_sum_zero_preserves_component_state(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -1177,14 +1168,12 @@ def test_two_hop_original_sum_zero_preserves_component_state(
     ]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("form", ("table", "parquet"))
+@pytest.mark.slow
 @pytest.mark.parametrize("scenario", ("j3", "j3_weighting", "zero_denominator"))
 def test_original_ratio_preserves_independent_root_components(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,
     scenario: str,
-    form: str,
 ) -> None:
     import marivo.analysis as mv
     from marivo.analysis.core.rules import OriginalReduce
@@ -1199,8 +1188,6 @@ def test_original_ratio_preserves_independent_root_components(
     fresh.mkdir()
     shutil.copytree(case.root / "models", fresh / "models")
     shutil.copyfile(case.root / "marivo.toml", fresh / "marivo.toml")
-    if form == "parquet":
-        export_dsl_parquet_models(case, fresh)
     catalog = ms.load(workspace_dir=fresh)
     store = SessionStore(fresh)
     session = store.create_session("original-ratio")
@@ -1344,8 +1331,6 @@ def test_original_ratio_preserves_independent_root_components(
     if scenario == "j3_weighting":
         case.database_path.unlink()
         shutil.rmtree(fresh / "models")
-        if form == "parquet":
-            shutil.rmtree(fresh / "source_files")
         process = subprocess.run(
             [
                 sys.executable,

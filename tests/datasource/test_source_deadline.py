@@ -67,7 +67,6 @@ def test_native_read_budget_keeps_the_original_monotonic_start() -> None:
     assert remaining() is None
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "boundary", ["source_submission", "source_publication", "fixed_publication"]
 )
@@ -148,7 +147,6 @@ def test_ordinary_graph_starts_its_own_expiry_budget(
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["zscore", "mad"])
 def test_statistic_checks_expiry_before_native_submission(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -198,7 +196,6 @@ def test_statistic_checks_expiry_before_native_submission(
         CURRENT.reset(token)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("backend", ["duckdb", "sqlite"])
 def test_native_interrupt_keeps_cleanup_on_the_owner_thread(
     backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -282,7 +279,6 @@ def test_native_interrupt_keeps_cleanup_on_the_owner_thread(
         )
 
 
-@pytest.mark.runtime
 def test_unconfirmed_source_disconnect_prevents_publication(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

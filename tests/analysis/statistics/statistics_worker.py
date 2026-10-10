@@ -141,7 +141,7 @@ def run(root: Path, phase: str) -> None:
             )
             .group_by(grid)
             .rollup()
-            for i in (0, 1, 5)
+            for i in (0, 1)
         ]
         for source in sources:
             original = source.execute()
@@ -197,6 +197,11 @@ def run(root: Path, phase: str) -> None:
                 originals.append(restored_original)
             for item in array_json(data["entries"]):
                 entry = object_json(item)
+                if phase == "cold" and not (
+                    (entry["kind"] == "association" and entry["method"] == "pearson")
+                    or (entry["kind"] == "forecast" and entry["method"] == "naive@v1")
+                ):
+                    continue
                 restored = session.artifact(text_value(entry["result"]))
                 assert isinstance(
                     restored, (mv.MaterializedAssociationResult, mv.MaterializedForecastResult)

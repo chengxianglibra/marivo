@@ -37,8 +37,6 @@ from marivo.datasource.ir import DatasourceIR
 from tests.analysis.materialization.concurrency_worker import observation, snapshot
 from tests.shared_fixtures import DslCase
 
-pytestmark = pytest.mark.runtime
-
 
 def _evidence(name: str, value: dict[str, object]) -> None:
     destination = os.environ.get("MARIVO_SLICE4C_EVIDENCE_DIR")
@@ -50,6 +48,7 @@ def _evidence(name: str, value: dict[str, object]) -> None:
         )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kind", ["local"])
 @pytest.mark.parametrize("key", ["same", "different"])
 @pytest.mark.parametrize("mode", ["thread", "process", "reentrant"])
@@ -281,6 +280,7 @@ def test_losing_candidate_cannot_activate_busy_canonical_session(
     assert snapshot(winner)["sessions"] == 2
 
 
+@pytest.mark.slow
 def test_fresh_process_name_race_has_one_canonical_identity(tmp_path: Path) -> None:
     store = SessionStore(tmp_path)
     processes = [

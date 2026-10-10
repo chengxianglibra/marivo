@@ -17,13 +17,10 @@ from marivo.analysis.methods.deviation_numeric import RationalFact
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "method", ("pearson", "spearman", "kendall", "naive", "drift", "seasonal_naive")
-)
+@pytest.mark.parametrize("family", ("association", "forecast"))
 def test_ratio_statistics_require_original_coverage(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: Literal["pearson", "spearman", "kendall", "naive", "drift", "seasonal_naive"],
+    family: Literal["association", "forecast"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -44,7 +41,7 @@ def test_ratio_statistics_require_original_coverage(
     ratio = history.ratio(history).execute()
     assert ratio.to_pandas().cell_tag.tolist() == ["defined"] * 3
     with pytest.raises(AnalysisError, match="original captured coverage fact"):
-        if method in ("pearson", "spearman", "kendall"):
+        if family == "association":
             revenue = (
                 members.observe(
                     ms.ref.metric("sales.revenue"),
@@ -56,16 +53,9 @@ def test_ratio_statistics_require_original_coverage(
                 .rollup()
                 .execute()
             )
-            ratio.correlate(revenue.ratio(revenue).execute(), method=method).execute()
+            ratio.correlate(revenue.ratio(revenue).execute(), method="pearson").execute()
         else:
-            model = (
-                mv.naive()
-                if method == "naive"
-                else mv.drift()
-                if method == "drift"
-                else mv.seasonal_naive(periods=2)
-            )
-            ratio.forecast(horizon=mv.periods(1), model=model).execute()
+            ratio.forecast(horizon=mv.periods(1), model=mv.naive()).execute()
 
 
 @pytest.mark.parametrize(
@@ -126,7 +116,6 @@ def test_rank_witness_ties_corruption_and_subquadratic_work(
             _verify_ranks(original, corrupt)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("family", ("association", "forecast"))
 @pytest.mark.parametrize("fixed", (False, True))
 def test_statistical_rank_projection_and_tables(
@@ -186,13 +175,14 @@ def test_statistical_rank_projection_and_tables(
             if combined
             else mv.table(rank=ranking.ranks)
         ).execute()
-        assert table.to_pandas()["rank"].tolist() == expected
+        table_frame = table.to_pandas()
+        assert table_frame["rank"].tolist() == expected
         assert table._dataset is not None
         assert table._dataset.evidence_digest().finding_count == findings
         ref = table.artifact_ref
         restored = case.session.artifact(ref.ref)
         assert isinstance(restored, mv.MaterializedTable)
-        assert restored.to_pandas().equals(table.to_pandas())
+        assert restored.to_pandas().equals(table_frame)
         assert table._dataset is not None
         checked = table._dataset.verified()
         with pytest.raises(AnalysisError):

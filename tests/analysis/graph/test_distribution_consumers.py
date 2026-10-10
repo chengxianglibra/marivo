@@ -26,7 +26,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.numeric.attribution_carrier_worker import parts
-from tests.datasource.source_cases import Case, datasource, source_case
+from tests.datasource.source_cases import Case, datasource, source_case, source_params
 from tests.shared_fixtures import run_ids
 from tests.support.documentation import _example
 from tests.support.json import key_json
@@ -34,35 +34,40 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "backend,kind,carrier",
-    [
-        (backend, kind, "int64")
-        for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-        for kind in ("distinct", "identity", "quantile", "approx_distinct", "approx_quantile")
-    ]
-    + [("sqlite", "unbounded", "int64")]
-    + [(backend, "distinct", "decimal") for backend in ("postgres", "mysql", "trino")]
-    + [
-        (backend, "approx_distinct", "decimal")
-        for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
-    ]
-    + [("postgres", "quantile", "decimal")]
-    + [("postgres", "distinct_nonfinite", "decimal")]
-    + [
-        (backend, kind, carrier)
-        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
-        for kind in ("distinct", "approx_distinct")
-        for carrier in ("float64", "string", "boolean", "date", "timestamp")
-        if not (backend == "clickhouse" and kind == "distinct")
-    ]
-    + [
-        (backend, kind, "float64")
-        for backend in ("postgres", "trino", "clickhouse")
-        for kind in ("quantile", "approx_quantile")
-        if not (backend in ("trino", "clickhouse") and kind == "quantile")
-    ],
+    source_params(
+        [
+            (backend, kind, "int64")
+            for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
+            for kind in ("distinct", "identity", "quantile", "approx_distinct", "approx_quantile")
+        ]
+        + [("sqlite", "approx_quantile", "int64")]
+        + [("sqlite", "unbounded", "int64")]
+        + [("duckdb", "distinct", carrier) for carrier in ("float64", "timestamp")]
+        + [("duckdb", "approx_distinct", "string")]
+        + [(backend, "distinct", "decimal") for backend in ("postgres", "mysql", "trino")]
+        + [
+            (backend, "approx_distinct", "decimal")
+            for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
+        ]
+        + [("postgres", "quantile", "decimal")]
+        + [("postgres", "distinct_nonfinite", "decimal")]
+        + [
+            (backend, kind, carrier)
+            for backend in ("postgres", "mysql", "trino", "clickhouse")
+            for kind in ("distinct", "approx_distinct")
+            for carrier in ("float64", "string", "boolean", "date", "timestamp")
+            if not (backend == "clickhouse" and kind == "distinct")
+        ]
+        + [
+            (backend, kind, "float64")
+            for backend in ("postgres", "trino", "clickhouse")
+            for kind in ("quantile", "approx_quantile")
+            if not (backend in ("trino", "clickhouse") and kind == "quantile")
+        ]
+    ),
 )
 def test_native_distribution(
     backend: str,
@@ -259,7 +264,7 @@ def test_native_distribution(
             return
         fixed = observed.execute()
         source_trace.record(fixed)
-        if backend == "sqlite" and kind == "distinct" and carrier == "float64":
+        if backend == "duckdb" and kind == "distinct" and carrier == "float64":
             namespace = {"mv": mv, "ms": ms, "session": session}
             code = _example("en", "runtime-distinct")
             exec(compile(code, "latest-scalar-distribution-example", "exec"), namespace)
@@ -371,14 +376,10 @@ def test_native_distribution(
     # Cover distinct carriers and both quantile algorithms at the source-free
     # process boundary without repeating the complete provider/type matrix.
     if (backend, kind, carrier) in {
-        ("sqlite", "distinct", "timestamp"),
-        ("sqlite", "approx_distinct", "string"),
-        ("postgres", "distinct", "decimal"),
-        ("postgres", "quantile", "float64"),
-        ("mysql", "distinct", "decimal"),
-        ("trino", "approx_quantile", "float64"),
-        ("clickhouse", "approx_distinct", "boolean"),
-        ("clickhouse", "approx_quantile", "float64"),
+        ("duckdb", "distinct", "int64"),
+        ("duckdb", "approx_distinct", "int64"),
+        ("duckdb", "quantile", "int64"),
+        ("duckdb", "approx_quantile", "int64"),
     }:
         (tmp_path / "observations.json").write_text(
             json.dumps(

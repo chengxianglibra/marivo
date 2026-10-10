@@ -18,7 +18,6 @@ from marivo.datasource.ir import TableSourceIR
 from tests.datasource.source_cases import source_case
 
 
-@pytest.mark.runtime
 def test_sqlite_capture_freezes_all_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(snapshots, "TemporaryDirectory", partial(TemporaryDirectory, dir=tmp_path))
     with source_case("sqlite", "table", tmp_path, monkeypatch) as case:
@@ -47,7 +46,6 @@ def test_sqlite_capture_freezes_all_reads(tmp_path: Path, monkeypatch: pytest.Mo
         assert not list(tmp_path.glob("marivo-sqlite-capture-*"))
 
 
-@pytest.mark.runtime
 def test_sqlite_capture_interrupt_restores_connection(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,7 +88,6 @@ def test_sqlite_capture_interrupt_restores_connection(
         assert not list(tmp_path.glob("marivo-sqlite-capture-*"))
 
 
-@pytest.mark.runtime
 def test_sqlite_backup_checkpoint_failure_is_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

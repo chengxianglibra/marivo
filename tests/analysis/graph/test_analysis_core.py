@@ -350,7 +350,7 @@ def test_cells_are_distinct_from_pairing_and_post_is_conditional() -> None:
         CellDerive(
             "difference",
             "delta",
-            "strict",
+            "propagate",
             "CNY",
             "august",
             "source.exact_pairing@v1",
@@ -380,7 +380,7 @@ def test_cells_are_distinct_from_pairing_and_post_is_conditional() -> None:
             CellDerive(
                 "difference",
                 "delta",
-                "strict",
+                "propagate",
                 "USD",
                 "august",
                 "source.exact_pairing@v1",
@@ -393,7 +393,7 @@ def test_cells_are_distinct_from_pairing_and_post_is_conditional() -> None:
             CellDerive(
                 "difference",
                 "delta",
-                "strict",
+                "propagate",
                 "CNY",
                 "august",
                 "source.finite_numeric@v1",
@@ -551,7 +551,7 @@ def test_evidence_scope_is_not_a_queued_check_or_parent_post() -> None:
         CellDerive(
             "difference",
             "delta",
-            "strict",
+            "propagate",
             "CNY",
             "august",
             numeric_check_id="source.finite_numeric@v1",
@@ -571,7 +571,7 @@ def test_evidence_scope_is_not_a_queued_check_or_parent_post() -> None:
             CellDerive(
                 "difference",
                 "delta",
-                "strict",
+                "propagate",
                 "CNY",
                 "august",
                 numeric_check_id="source.finite_numeric@v1",
@@ -641,7 +641,7 @@ def test_all_six_rules_construct_without_source_store_or_run_io(
             CellDerive(
                 "difference",
                 "delta",
-                "strict",
+                "propagate",
                 "CNY",
                 "august",
                 "source.exact_pairing@v1",
@@ -679,7 +679,7 @@ def test_pairing_evidence_cannot_authorize_different_endpoints(change: str) -> N
     params = CellDerive(
         "difference",
         "delta",
-        "strict",
+        "propagate",
         "CNY",
         "august",
         "source.exact_pairing@v1",

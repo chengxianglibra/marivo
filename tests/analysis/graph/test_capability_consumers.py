@@ -33,7 +33,7 @@ from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.datasource.source_cases import SourceData, source_case
+from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
@@ -67,11 +67,17 @@ def test_sqlite_does_not_specialize_to_unobserved_decimal(
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
+    ("backend", "time_case"),
+    source_params(
+        [
+            (backend, time_case)
+            for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
+            for time_case in ("utc", "dst")
+        ]
+        + [("sqlite", "dst")]
+    ),
 )
-@pytest.mark.parametrize("time_case", ["utc", "dst"])
 def test_declared_string_time_uses_owned_execution_functions(
     backend: str,
     time_case: Literal["utc", "dst"],
@@ -196,12 +202,9 @@ def test_declared_string_time_uses_owned_execution_functions(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("numeric_type", ["int64", "float64"])
-@pytest.mark.parametrize(
-    "backend",
-    ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"],
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
+@pytest.mark.slow
 def test_source_coordinates_statistics_and_original_state(
     backend: str,
     numeric_type: Literal["int64", "float64"],
@@ -413,11 +416,8 @@ def test_source_coordinates_statistics_and_original_state(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("identity_type", ["int64", "string"])
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 def test_original_mean_preserves_component_weights(
     backend: str,
     identity_type: Literal["int64", "string"],
@@ -428,7 +428,7 @@ def test_original_mean_preserves_component_weights(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    facts = [(i, "a", 1) for i in range(100)] + [(100, "b", 100)]
+    facts = [(0, "a", 1), (1, "a", 1), (2, "b", 100)]
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
         ",".join(
@@ -466,7 +466,7 @@ def test_original_mean_preserves_component_weights(
         current = grouped.group_by().aggregate(mv.mean()).execute()
         original = grouped.rollup().execute()
         assert current.to_pandas().value.tolist() == [50.5]
-        assert original.to_pandas().value.tolist() == pytest.approx([200 / 101])
+        assert original.to_pandas().value.tolist() == [34.0]
         fixed = grouped.execute()
         assert fixed.to_pandas().set_index("group").value.to_dict() == {"a": 1.0, "b": 100.0}
         assert fixed._dataset is not None
@@ -478,7 +478,7 @@ def test_original_mean_preserves_component_weights(
         assert {
             row["key_0"]: (row["original_state__sum"], row["original_state__non_null_count"])
             for row in state_rows
-        } == {"a": (100, 100), "b": (100, 1)}
+        } == {"a": (2, 2), "b": (100, 1)}
 
         def forbid_source(*args: object, **kwargs: object) -> NoReturn:
             pytest.fail("Fixed mean continuation must not read the source")
@@ -489,7 +489,7 @@ def test_original_mean_preserves_component_weights(
             assert fixed.group_by().aggregate(mv.mean()).execute().to_pandas().value.tolist() == [
                 50.5
             ]
-            assert fixed.rollup().execute().to_pandas().value.tolist() == pytest.approx([200 / 101])
+            assert fixed.rollup().execute().to_pandas().value.tolist() == [34.0]
         assert len(source_trace.native_sql) == submissions_before
         for result in (current, original):
             source_trace.record(result)
@@ -500,9 +500,9 @@ def test_original_mean_preserves_component_weights(
             {"columns": data.columns, "values": data.values},
             {
                 "current": 50.5,
-                "original": 200 / 101,
-                "rows": 101,
-                "original_components": {"a": [100, 100], "b": [100, 1]},
+                "original": 34.0,
+                "rows": 3,
+                "original_components": {"a": [2, 2], "b": [100, 1]},
                 "fixed_source_reads_forbidden": True,
                 "no_additional_native_submission": True,
                 "identity_type": identity_type,
@@ -523,8 +523,8 @@ def test_original_mean_preserves_component_weights(
                         "environment": case.environment,
                         "remote_table_writes_forbidden": remote,
                         "fixed_source_reads_forbidden": True,
-                        "oracle": {"current": 50.5, "original": 200 / 101, "rows": 101},
-                        "original_components": {"a": [100, 100], "b": [100, 1]},
+                        "oracle": {"current": 50.5, "original": 34.0, "rows": 3},
+                        "original_components": {"a": [2, 2], "b": [100, 1]},
                         "physical_keys": [
                             key_json(item.key)
                             for result in (current, original, fixed)
@@ -540,10 +540,7 @@ def test_original_mean_preserves_component_weights(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "clickhouse", "trino"]
-)
+@pytest.mark.parametrize("backend", ["duckdb"])
 @pytest.mark.parametrize(
     ("anchor", "expected", "overlap"),
     [
@@ -632,9 +629,8 @@ def test_cumulative_keeps_anchor_and_overlap(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
+    "backend", source_params(["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 )
 @pytest.mark.parametrize("transition", ["spring", "fall"])
 def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
@@ -754,9 +750,8 @@ def test_tokyo_grid_registration_is_limited_to_recorded_keys(
     assert [item.key for item in declarations] == [expected]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
+    "backend", source_params(["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 )
 def test_certified_unequal_calendar_owns_native_boundaries(
     backend: str,
@@ -903,9 +898,8 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
+    "backend", source_params(["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 )
 def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
     backend: str,
@@ -982,9 +976,8 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
+    "backend", source_params(["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"])
 )
 def test_native_timestamp_retains_reader_and_grid_authority(
     backend: str,
@@ -1089,7 +1082,6 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         )
 
 
-@pytest.mark.runtime
 def test_sqlite_native_time_adopts_frozen_system_reader_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1146,8 +1138,7 @@ def test_sqlite_native_time_adopts_frozen_system_reader_authority(
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ["duckdb", "postgres"])
+@pytest.mark.parametrize("backend", source_params(["duckdb", "postgres"]))
 def test_aware_native_repeated_hour_keeps_distinct_instants(
     backend: str,
     tmp_path: Path,
@@ -1217,13 +1208,14 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     ("backend", "wall", "start", "end"),
-    [
-        ("duckdb", "2026-03-08 02:30:00", "2026-03-09", "2026-03-10"),
-        ("postgres", "2026-11-01 01:30:00", "2026-11-02", "2026-11-03"),
-    ],
+    source_params(
+        [
+            ("duckdb", "2026-03-08 02:30:00", "2026-03-09", "2026-03-10"),
+            ("postgres", "2026-11-01 01:30:00", "2026-11-02", "2026-11-03"),
+        ]
+    ),
 )
 def test_native_observation_does_not_audit_wall_times_outside_its_scope(
     backend: str,

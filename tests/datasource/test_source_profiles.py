@@ -19,10 +19,23 @@ from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.engines.base import MetadataInspectRequest
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import TableSourceIR
-from tests.datasource.source_cases import PROFILES, ROWS, SourceData, receipt, source_case
+from tests.datasource.source_cases import (
+    PROFILES,
+    ROWS,
+    SourceData,
+    receipt,
+    source_case,
+    source_params,
+)
 
-pytestmark = pytest.mark.runtime
-CASES = [(backend, profile) for backend, profiles in PROFILES.items() for profile in profiles]
+# Shared local source-profile assertions use DuckDB; SQLite-specific behavior
+# has focused owners below and in the SQLite contract tests.
+CASES = [
+    (backend, profile)
+    for backend, profiles in PROFILES.items()
+    if backend != "sqlite"
+    for profile in profiles
+]
 
 
 class FaultCursor:
@@ -48,7 +61,9 @@ class FaultCursor:
             raise OSError("source_profile close failure")
 
 
-@pytest.mark.parametrize("backend,profile", CASES, ids=[f"{b}-{p}" for b, p in CASES])
+@pytest.mark.parametrize(
+    "backend,profile", source_params(CASES), ids=[f"{b}-{p}" for b, p in CASES]
+)
 def test_source_profile(
     backend: str,
     profile: str,
@@ -193,6 +208,13 @@ RISKS = (
     "native-parsed-time-dst",
     "composite-versioned-identity",
 )
+# Local composite identity is already proved by the exact ROWS profile oracle.
+RISK_CASES = [
+    (backend, risk)
+    for risk in RISKS
+    for backend in PROFILES
+    if risk != "composite-versioned-identity" or backend not in {"duckdb", "sqlite"}
+]
 
 
 def _sqlite_decimal_refusal(
@@ -318,8 +340,11 @@ def risk_data(backend: str, risk: str) -> SourceData:
     )
 
 
-@pytest.mark.parametrize("backend", list(PROFILES))
-@pytest.mark.parametrize("risk", RISKS)
+@pytest.mark.parametrize(
+    "backend,risk",
+    source_params(RISK_CASES),
+    ids=[f"{risk}-{backend}" for backend, risk in RISK_CASES],
+)
 def test_source_type_risk(
     backend: str, risk: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

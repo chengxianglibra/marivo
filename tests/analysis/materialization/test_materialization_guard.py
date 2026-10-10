@@ -16,6 +16,7 @@ from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 
 
+@pytest.mark.slow
 def test_guard_reentrant_thread_and_process_contention(tmp_path: Path) -> None:
     lock = tmp_path / "session.lock"
 
@@ -62,6 +63,7 @@ def test_guard_releases_on_failure(tmp_path: Path) -> None:
         pass
 
 
+@pytest.mark.slow
 def test_fork_child_cannot_keep_dead_owner_session_locked(tmp_path: Path) -> None:
     lock = tmp_path / "session.lock"
     script = """

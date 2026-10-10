@@ -283,7 +283,6 @@ def test_assignments_against_exhaustive_subsequence_oracle(policy, covered):
             ] == expected
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "form,key_type", [("table", "int64"), ("parquet", "int64"), ("parquet", "string")]
 )
@@ -803,11 +802,12 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         mean.compare(mean)
 
     by_subject = fixed_values.group_by(ref.entity("sales.customers")).aggregate(mv.mean()).execute()
-    assert sorted(by_subject.to_pandas()["value"].tolist()) == [
+    by_subject_frame = by_subject.to_pandas()
+    assert sorted(by_subject_frame["value"].tolist()) == [
         timedelta(seconds=20),
         timedelta(seconds=100),
     ]
-    assert sum(by_subject.to_pandas()["value"].tolist(), timedelta(0)) / 2 == timedelta(seconds=60)
+    assert sum(by_subject_frame["value"].tolist(), timedelta(0)) / 2 == timedelta(seconds=60)
     assert by_subject.rollup().execute().to_pandas()["value"].iloc[0] == timedelta(
         microseconds=46_666_667
     )
@@ -974,23 +974,24 @@ summary = session.artifact(sys.argv[5])
 assert summary.rollup().execute().to_pandas()["value"].iloc[0] == timedelta(microseconds=46666667)
 assert "captured_precision" in dict(elapsed.contract()._facts)
 """
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            script,
-            str(store.project_root),
-            public_session.id,
-            fixed_elapsed.state.artifact_ref.ref,
-            complete.state.artifact_ref.ref,
-            mean.state.artifact_ref.ref,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-    )
+    if (form, key_type) == ("parquet", "string"):
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(store.project_root),
+                public_session.id,
+                fixed_elapsed.state.artifact_ref.ref,
+                complete.state.artifact_ref.ref,
+                mean.state.artifact_ref.ref,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        )
     victim = next(p for p in result.artifact.descriptor.parts if p.role == "journey")
     path = store.project_root / victim.local.project_relative_path / "data.parquet"
     original_bytes = path.read_bytes()

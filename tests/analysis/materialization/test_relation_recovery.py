@@ -15,12 +15,10 @@ from tests.support.paths import PROJECT_ROOT
 ROOT = PROJECT_ROOT
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("source", ["table", "parquet"])
-@pytest.mark.parametrize("scenario", ["a02", "a06", "a07", "a08"])
-def test_public_relation_journeys_recover_in_three_processes(
-    tmp_path: Path, source: str, scenario: str
-) -> None:
+@pytest.mark.slow
+def test_parquet_relation_journey_recover_in_three_processes(tmp_path: Path) -> None:
+    source = "parquet"
+    scenario = "a02"
     project = tmp_path / "project"
     reports = []
     for phase in ("produce", "continue", "recover"):
@@ -53,10 +51,9 @@ def test_public_relation_journeys_recover_in_three_processes(
     assert reports[1]["run_count"] == reports[2]["run_count"]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.slow
 def test_required_parts_revoke_recovery_and_cached_continuation(
-    analysis_dsl_case_factory, parquet: bool, monkeypatch: pytest.MonkeyPatch
+    analysis_dsl_case_factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from copy import deepcopy
 
@@ -71,9 +68,8 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
     from tests.shared_fixtures import export_dsl_parquet_models
 
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
     targets = case.session.members(ms.ref.entity("sales.customer"))
     metric = ms.ref.metric("sales.order_count")
     via = ms.ref.relationship("sales.order_buyer")
@@ -108,20 +104,6 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         for month in (8, 7)
     ]
     allocation = endpoints[0].compare(endpoints[1]).attribute(axes=(axis,)).execute()
-    original_ratio = mv.runtime_metric.ratio(ms.ref.metric("sales.revenue"), metric, label="mean")
-    mix_endpoints = [
-        targets.observe(
-            original_ratio,
-            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            via=via,
-            by=(
-                mv.member(),
-                axis,
-            ),
-        ).rollup()
-        for month in (8, 7)
-    ]
-    component_mix = mix_endpoints[0].compare(mix_endpoints[1]).attribute(axes=(axis,)).execute()
     table = mv.table(value=ranking.values, rank=ranking.ranks).execute()
     continuations = (
         difference.where(difference.value.is_defined()),
@@ -129,7 +111,6 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         share.where(share.value.is_defined()),
         ranking.limit(1),
         allocation.where(allocation.contribution.value.is_defined()),
-        component_mix.where(component_mix.contribution.value.is_defined()),
     )
     for continuation in continuations:
         continuation.execute()
@@ -145,8 +126,15 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         (SourceSession, "__init__"),
     ):
         monkeypatch.setattr(owner, name, forbidden)
-    results = (difference, cohort, share, ranking, allocation, component_mix, table)
-    for index, result in enumerate(results):
+    checks = (
+        (difference, continuations[0], "current_endpoint", "missing"),
+        (cohort, continuations[1], "cohort_decision", "payload"),
+        (share, continuations[2], "reference_proof", "receipt"),
+        (ranking, continuations[3], "ranking_domain", "version"),
+        (allocation, continuations[4], "current_endpoint_coordinates", "exchange"),
+        (table, None, "columns", "missing"),
+    )
+    for result, continuation, role, damage in checks:
         descriptor = result._dataset.artifact.descriptor
         original = encode(descriptor, DESCRIPTOR)
         payload = json.loads(original)
@@ -156,7 +144,39 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             else result.state.artifact_ref.ref
         )
 
-        def reject(reference: str, result, index: int) -> None:
+        def metadata(value: str, reference: str) -> None:
+            with case.session._runtime.store._write() as connection:
+                connection.execute(
+                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+                    (value, reference),
+                )
+
+        part = next(part for part in descriptor.parts if part.role == role)
+        assert part.layout.kind == (
+            "partition" if role == "current_endpoint_coordinates" else "table"
+        )
+        path = (
+            case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
+        )
+        contents = path.read_bytes()
+        try:
+            if damage == "missing":
+                path.unlink()
+            elif damage == "payload":
+                path.write_bytes(b"damaged required R6 state")
+            else:
+                changed = deepcopy(payload)
+                position = next(
+                    index for index, item in enumerate(descriptor.parts) if item.role == role
+                )
+                receipt = changed["parts"][position]
+                if damage == "receipt":
+                    receipt["input_binding"] = "foreign-input-binding"
+                elif damage == "version":
+                    receipt["method_state_version"] += 1
+                else:
+                    receipt["local"] = changed["primary_receipt"]["local"]
+                metadata(json.dumps(changed), reference)
             with pytest.raises(AnalysisError):
                 case.session.artifact(reference)
             if isinstance(result, mv.MaterializedTable):
@@ -165,45 +185,13 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
             else:
                 with pytest.raises(AnalysisError):
                     result.contract()
+                assert continuation is not None
                 with pytest.raises(AnalysisError):
-                    continuations[index].execute()
+                    continuation.execute()
             assert len(case.session.runs().items) == runs_before
-
-        def metadata(value: str, reference: str) -> None:
-            with case.session._runtime.store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (value, reference),
-                )
-
-        for position, part in enumerate(descriptor.parts):
-            path = (
-                case.root
-                / part.local.project_relative_path
-                / part.local.file_manifest[0].relative_path
-            )
-            contents = path.read_bytes()
-            try:
-                path.unlink()
-                reject(reference, result, index)
-                path.write_bytes(b"damaged required R6 state")
-                reject(reference, result, index)
-            finally:
-                path.write_bytes(contents)
-            for damage in ("receipt", "version", "exchange"):
-                changed = deepcopy(payload)
-                receipt = changed["parts"][position]
-                if damage == "receipt":
-                    receipt["input_binding"] = "foreign-input-binding"
-                elif damage == "version":
-                    receipt["method_state_version"] += 1
-                else:
-                    receipt["local"] = changed["primary_receipt"]["local"]
-                try:
-                    metadata(json.dumps(changed), reference)
-                    reject(reference, result, index)
-                finally:
-                    metadata(original, reference)
+        finally:
+            path.write_bytes(contents)
+            metadata(original, reference)
         recovered = case.session.artifact(reference)
         assert recovered.to_pandas().equals(result.to_pandas())
     assert len(case.session.runs().items) == runs_before

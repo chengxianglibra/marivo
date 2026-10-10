@@ -332,9 +332,18 @@ the concrete Metric's empty finish; filtered/ranked/limited or missing-version
 rows are not empty contributions. It never overwrites a Present non-Defined
 Cell. A synthesized Defined endpoint participates normally; a synthesized
 Null/Undefined retains that tag and original reason in the result (no arithmetic).
-Unknown coverage cannot authorize synthesis. The existing side still must pass
-strict numeric consumption. This explicit Null case follows original sum/mean empty
-policies; historical prose mentioning only Undefined is not a fill-zero rule.
+Unknown coverage cannot authorize synthesis. This explicit Null case follows
+original sum/mean empty policies; historical prose mentioning only Undefined is
+not a fill-zero rule.
+
+Present non-Defined operands propagate per Cell under every pairing (value
+policy `propagate`). When either operand is Null, Undefined or Unknown, the
+result does no arithmetic and takes that operand's tag and reason with a zero
+error bound. When both are non-Defined, the higher priority tag wins
+(Unknown > Undefined > Null) and a tie keeps the current side; both original
+reasons remain in the current_endpoint and baseline_endpoint projections. A
+missing Keep row is still Undefined(missing_side). Malformed Cells and
+nonfinite Defined values still fail the whole Run.
 
 ### Predicate and cohort consumption
 

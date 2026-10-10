@@ -87,7 +87,7 @@ def test_baseline_retains_complete_outputs() -> None:
         assert sum(map(len, baseline["normalized_outputs"][name])) == metrics["characters"]
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
@@ -214,10 +214,10 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     target = captured.value.repair.help_target
     trace.help(target.surface + ("." + target.canonical_id if target.canonical_id else ""))
 
-    forecast_case = analysis_dsl_case_factory("j2")
-    prepare_profiles(forecast_case, "KS", "table", "us", "UTC", False, followup=True)
-    ms.load(workspace_dir=forecast_case.root)
-    orders = forecast_case.session.members(ms.ref.entity("sales.order"))
+    prepare_profiles(case, "KS", "table", "us", "UTC", False, followup=True, profile_indices=(0,))
+    ms.load(workspace_dir=case.root)
+    forecast_session = mv.session.get_or_create("context-budget-forecast", report_timezone="UTC")
+    orders = forecast_session.members(ms.ref.entity("sales.order"))
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
     )
@@ -226,7 +226,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         .group_by(grid)
         .rollup()
     )
-    trace = traces["drift"] = Trace(forecast_case.root)
+    trace = traces["drift"] = Trace(case.root)
     trace.help("analysis")
     trace.help("analysis.methods")
     trace.help("analysis.methods.forecast")

@@ -48,7 +48,7 @@ def project(root: Path, predicate: str = "raw.amount > 0") -> None:
     )
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_transformed_grain_and_cold_fixed_continuation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

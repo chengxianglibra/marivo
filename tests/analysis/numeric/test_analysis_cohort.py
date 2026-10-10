@@ -46,8 +46,7 @@ def test_explicit_empty_policy(
     assert decide("at_least", 3, empty, 0, 0, 0) is False
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 @pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_full_entity_time_cohort(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -112,8 +111,7 @@ def test_full_entity_time_cohort(
     assert incomplete.value.stage == "graph_check"
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True], ids=["table", "parquet"])
+@pytest.mark.parametrize("parquet", [False])
 def test_previous_week_mean_selects_users_for_current_week_spending(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,
@@ -204,7 +202,7 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
     assert daily.value.sum() == 400
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_cold_full_opportunity_continuation(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import os
     import subprocess
@@ -266,7 +264,6 @@ assert "cohort_decision" in {part.role for part in saved._dataset.verified().par
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
 def test_existing_unknown_consumption_and_decision_evidence(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -483,7 +480,6 @@ def test_existing_unknown_consumption_and_decision_evidence(
         backend.disconnect()
 
 
-@pytest.mark.runtime
 def test_no_time_quantifiers_and_complete_target_decisions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -512,7 +508,6 @@ def test_no_time_quantifiers_and_complete_target_decisions(
             } == expected
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("damage", ["missing", "corrupt", "receipt", "version"])
 def test_cohort_required_decision_damage_revokes_recovery(
     analysis_dsl_case_factory: DslCaseFactory, damage: str

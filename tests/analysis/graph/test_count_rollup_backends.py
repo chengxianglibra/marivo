@@ -28,13 +28,15 @@ from tests.support.execution_logs import execution_records
 from tests.support.paths import PROJECT_ROOT
 
 
-def _data(backend: str, key_type: Literal["int64", "string"]) -> SourceData:
+def _data(
+    backend: str, key_type: Literal["int64", "string"], *, row_count: int = 1000
+) -> SourceData:
     entries: list[dict[str, object]] = []
     values: list[str] = []
-    for index in range(1, 1001):
+    for index in range(1, row_count + 1):
         identity = str(index) if key_type == "string" else index
         category = "even" if index % 2 == 0 else "odd"
-        point = datetime(2026, 9, 2 if index == 1000 else 1, tzinfo=timezone.utc)
+        point = datetime(2026, 9, 2 if index == row_count else 1, tzinfo=timezone.utc)
         entries.append({"id": identity, "category": category, "happened": point})
         literal = repr(point.replace(tzinfo=None).isoformat(sep=" "))
         values.append(
@@ -66,7 +68,9 @@ def _stage_rows(root: Path, offset: int) -> list[int]:
     return rows
 
 
-def _cold_rollup(root: Path, session_id: str, artifacts: tuple[str, ...]) -> None:
+def _cold_rollup(
+    root: Path, session_id: str, expected_count: int, artifacts: tuple[str, ...]
+) -> None:
     script = """
 import sys
 from unittest.mock import patch
@@ -79,14 +83,15 @@ def forbidden(*args, **kwargs):
 
 with patch.object(ms, 'load', forbidden), patch.object(DatasourceConnectionService, 'use_backend', forbidden):
     session = mv.session.resume(sys.argv[1], by='id')
-    for reference in sys.argv[2:]:
+    expected_count = int(sys.argv[2])
+    for reference in sys.argv[3:]:
         value = session.artifact(reference)
         assert isinstance(value, mv.MaterializedNumericRelation)
         assert any(action.call == 'relation.rollup()' for action in value.contract().actions)
-        assert value.rollup().execute().to_pandas()['value'].tolist() == [999]
+        assert value.rollup().execute().to_pandas()['value'].tolist() == [expected_count]
 """
     outcome = subprocess.run(
-        [sys.executable, "-c", script, session_id, *artifacts],
+        [sys.executable, "-c", script, session_id, str(expected_count), *artifacts],
         cwd=root,
         env={**os.environ, "MARIVO_PROJECT_ROOT": str(root), "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
@@ -97,21 +102,11 @@ with patch.object(ms, 'load', forbidden), patch.object(DatasourceConnectionServi
     assert outcome.returncode == 0, outcome.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend,profile",
-    [
-        ("duckdb", "table"),
-        ("sqlite", "table"),
-        ("sqlite", "view"),
-        ("postgres", "table"),
-        ("mysql", "innodb-table"),
-        ("trino", "iceberg"),
-        ("trino", "non-iceberg"),
-        ("clickhouse", "mergetree"),
-    ],
+    "backend,profile,key_type",
+    [("duckdb", "table", key_type) for key_type in ("int64", "string")]
+    + [("duckdb", "view", key_type) for key_type in ("int64", "string")],
 )
-@pytest.mark.parametrize("key_type", ["int64", "string"])
 def test_native_count_rollup_and_group_state(
     backend: str,
     profile: str,
@@ -122,7 +117,15 @@ def test_native_count_rollup_and_group_state(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    with source_case(backend, profile, tmp_path, monkeypatch, _data(backend, key_type)) as case:
+    row_count = 10
+    first_day_count = row_count - 1
+    with source_case(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        _data(backend, key_type, row_count=row_count),
+    ) as case:
         assert isinstance(case.source, TableSourceIR)
         arguments: dict[str, object] = dict(case.session.datasource.fields)
         arguments.update(
@@ -172,14 +175,17 @@ def test_native_count_rollup_and_group_state(
         for logical in reductions:
             offset = len(execution_records(tmp_path))
             result = logical.execute()
-            assert result.to_pandas()["value"].tolist() == [999]
+            assert result.to_pandas()["value"].tolist() == [first_day_count]
             assert _stage_rows(tmp_path, offset) == [1]
             assert result._dataset is not None
             assert all(part.table.num_rows == 1 for part in result._dataset.verified().parts)
         offset = len(execution_records(tmp_path))
         saved_groups = grouped.execute()
         frame = saved_groups.to_pandas()
-        assert frame.set_index("group")["value"].to_dict() == {"even": 499, "odd": 500}
+        assert frame.set_index("group")["value"].to_dict() == {
+            "even": first_day_count // 2,
+            "odd": (first_day_count + 1) // 2,
+        }
         assert _stage_rows(tmp_path, offset) == [2]
         assert saved_groups._dataset is not None
         coordinate = next(
@@ -213,7 +219,7 @@ def test_native_count_rollup_and_group_state(
             finally:
                 path.write_bytes(original)
         offset = len(execution_records(tmp_path))
-        assert grouped.rollup().execute().to_pandas()["value"].tolist() == [999]
+        assert grouped.rollup().execute().to_pandas()["value"].tolist() == [first_day_count]
         assert _stage_rows(tmp_path, offset) == [2]
         classification = members.read(category)
         assert isinstance(classification, mv.LogicalCategoryRelation)
@@ -231,16 +237,14 @@ def test_native_count_rollup_and_group_state(
         assert isinstance(timed, mv.LogicalNumericRelation)
         assert timed._node.root.signature.domain.kind == "group"
         offset = len(execution_records(tmp_path))
-        assert timed.rollup().execute().to_pandas()["value"].tolist() == [1000]
+        assert timed.rollup().execute().to_pandas()["value"].tolist() == [row_count]
         assert _stage_rows(tmp_path, offset) == [1]
-        if key_type == "int64" and (
-            (backend == "trino" and profile == "non-iceberg")
-            or (backend == "sqlite" and profile == "table")
-        ):
+        if key_type == "int64" and profile == "table":
             assert saved_groups is not None
             saved_members = individual.execute()
             _cold_rollup(
                 tmp_path,
                 session.id,
+                first_day_count,
                 (saved_members.state.artifact_ref.ref, saved_groups.state.artifact_ref.ref),
             )

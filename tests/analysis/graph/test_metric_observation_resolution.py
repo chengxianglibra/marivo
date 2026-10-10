@@ -26,7 +26,6 @@ from marivo.semantic.metric_graph_lowering import (
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("shape", ("catalog", "ratio", "linear2", "linear8", "linear32"))
 def test_public_observation_resolves_once_and_retains_components(
     analysis_dsl_case_factory: DslCaseFactory, shape: str
@@ -95,7 +94,6 @@ def test_public_observation_resolves_once_and_retains_components(
     assert result.iloc[0]["value"] == pytest.approx(expected)
 
 
-@pytest.mark.runtime
 def test_business_completeness_shares_resolution_and_keeps_typed_refusals(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -148,7 +146,6 @@ def test_business_completeness_shares_resolution_and_keeps_typed_refusals(
         assert normalize.call_count == 3
 
 
-@pytest.mark.runtime
 def test_next_observation_rechecks_physical_numeric_type(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,

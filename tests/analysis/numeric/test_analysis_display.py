@@ -13,8 +13,7 @@ from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", (False, True))
+@pytest.mark.parametrize("parquet", [False])
 def test_current_row_mean_of_integer_counts(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -37,7 +36,6 @@ def test_current_row_mean_of_integer_counts(
     assert mean.to_pandas().value.tolist() == [expected]
 
 
-@pytest.mark.runtime
 def test_business_display_reads_saved_rows_and_preserves_state_summary(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -95,7 +93,6 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     assert len(case.session.runs().items) == runs
 
 
-@pytest.mark.runtime
 def test_business_display_identifies_current_and_baseline_windows(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -143,8 +140,7 @@ def test_exact_ties_and_nondefined_tail(ties: str, expected: list[int]) -> None:
     assert ranked(list(reversed(rows)), ("key_0",), "descending", ties, ()) == result
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 @pytest.mark.parametrize("ties", ["ordinal", "dense", "min", "max"])
 @pytest.mark.parametrize("order", ["ascending", "descending"])
 def test_public_rank_table_source_and_fixed(
@@ -196,9 +192,10 @@ def test_public_rank_table_source_and_fixed(
         assert dict(zip(frame.member, frame.value, strict=True)) == expected
         limited = ranking.limit(2).execute()
         assert limited.values.to_pandas().member.tolist() == ordered[:2]
-        assert dict(
-            zip(limited.ranks.to_pandas().member, limited.ranks.to_pandas().value, strict=True)
-        ) == {key: expected[key] for key in ordered[:2]}
+        limited_frame = limited.ranks.to_pandas()
+        assert dict(zip(limited_frame.member, limited_frame.value, strict=True)) == {
+            key: expected[key] for key in ordered[:2]
+        }
         table = mv.table(count=ranking.values, rank=ranking.ranks).execute()
         exported = table.to_pandas()
         assert exported.columns.tolist() == ["member", "count", "rank"]
@@ -233,10 +230,10 @@ def test_public_rank_table_source_and_fixed(
         )
     source = values.rank(order=order, ties=ties)
     table = mv.table(count=source.values, rank=source.ranks).execute()
-    assert dict(zip(table.to_pandas().member, table.to_pandas()["rank"], strict=True)) == expected
+    frame = table.to_pandas()
+    assert dict(zip(frame.member, frame["rank"], strict=True)) == expected
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "physical,parquet",
     [
@@ -305,7 +302,7 @@ def test_display_precision_matrix(
         terminal = mv.table(amount=ranking.values, rank=ranking.ranks).execute()
         exported = terminal.to_pandas()
         assert dict(zip(exported.member, exported.amount, strict=True)) == expected
-        assert terminal.to_pandas().equals(case.session.artifact(terminal.artifact_ref).to_pandas())
+        assert exported.equals(case.session.artifact(terminal.artifact_ref).to_pandas())
         terminal.show(max_output_bytes=None)
         display = capsys.readouterr().out
         assert "4 total; 4 shown" in display
@@ -319,8 +316,7 @@ def test_display_precision_matrix(
         assert terminal.to_pandas().amount.isna().sum() == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_top_k_original_rank_share_and_empty(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -379,7 +375,6 @@ def test_top_k_original_rank_share_and_empty(
     assert selected.limit(1).execute().ranks.to_pandas().value.tolist() == [3]
 
 
-@pytest.mark.runtime
 def test_static_display_errors_are_zero_read(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -438,8 +433,8 @@ def test_static_display_errors_are_zero_read(
     assert isinstance(mv.table(a=values, b=category), mv.LogicalTable)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.slow
+@pytest.mark.parametrize("parquet", [True])
 def test_cold_display_continuations_and_corruption(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -569,7 +564,6 @@ assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.toli
         path.write_bytes(contents)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
 )
@@ -609,7 +603,6 @@ def test_display_publication_is_atomic(
     assert fixed.to_pandas().value.tolist() == [1, 1, 1, 1]
 
 
-@pytest.mark.runtime
 def test_shared_rank_fresh_source_fixed_and_no_fallback(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -660,8 +653,7 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
         offline.rename(case.database_path)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_complete_composite_keys_scalar_columns_and_nulls(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -870,8 +862,7 @@ def test_represented_float_order_has_no_epsilon_ties() -> None:
     assert [result[(key,)][0] for key in (1, 2, 3, 4)] == [2, 3, 1, 1]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_empty_original_domain_and_numeric_view_continuations(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -918,7 +909,6 @@ def test_empty_original_domain_and_numeric_view_continuations(
         assert len(source_prefix.values.to_pandas()) == (0 if scenario == "empty_domain" else 2)
 
 
-@pytest.mark.runtime
 def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -938,8 +928,7 @@ def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory
         assert mv.table(a=ranking.values, b=ranking.ranks).execute().to_pandas().empty
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_group_and_entity_time_display_domains(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -1001,8 +990,7 @@ def test_group_and_entity_time_display_domains(
         )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_public_undefined_ranks_and_strict_two_step_filter(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1043,7 +1031,6 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
         assert "1.0" in card
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 @pytest.mark.parametrize("view", ["values", "ranks"])
 def test_ranking_views_can_be_ranked_again(

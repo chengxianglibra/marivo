@@ -92,6 +92,28 @@ def evaluate(
     return Defined(_finish(result, physical))
 
 
+PROPAGATION_PRIORITY: tuple[str, ...] = ("unknown", "undefined", "null")
+
+
+def propagated_cell(
+    current_tag: str, current_reason: str, baseline_tag: str, baseline_reason: str
+) -> tuple[str, str] | None:
+    """Return the tag and reason a non-Defined operand passes through, without arithmetic.
+
+    Returns None when both operands are Defined. When both are non-Defined the
+    higher priority tag wins (Unknown > Undefined > Null); a tie keeps current.
+    """
+    if current_tag == "defined" and baseline_tag == "defined":
+        return None
+    if baseline_tag == "defined":
+        return current_tag, current_reason
+    if current_tag == "defined":
+        return baseline_tag, baseline_reason
+    if PROPAGATION_PRIORITY.index(baseline_tag) < PROPAGATION_PRIORITY.index(current_tag):
+        return baseline_tag, baseline_reason
+    return current_tag, current_reason
+
+
 def roundoff(value: float) -> float:
     """Return the R5 represented-float rounding envelope."""
     return 1e-12 * (1.0 + abs(value))

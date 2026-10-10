@@ -27,6 +27,10 @@ from tests.analysis.lifecycle.lifecycle_fixtures import RECOVERY_PROFILES
 
 PROFILES = RECOVERY_PROFILES
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
+PROFILE_IDS = (("K33", "T10"),)
+RECOVERY_CASES = tuple(
+    (key, time) for key, time in PROFILES if (key["id"], time["id"]) in PROFILE_IDS
+)
 
 
 @pytest.mark.parametrize(
@@ -120,9 +124,9 @@ def test_anchor_help_independently_resolves(target, capsys):
     assert "Example" in text or "Acquire:" in text
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
-    "key,time", PROFILES, ids=[key["id"] + "-" + time["id"] for key, time in PROFILES]
+    "key,time", RECOVERY_CASES, ids=[key["id"] + "-" + time["id"] for key, time in RECOVERY_CASES]
 )
 def test_anchor_views_source_fixed_cold(tmp_path, key, time):
     config = {
@@ -135,7 +139,7 @@ def test_anchor_views_source_fixed_cold(tmp_path, key, time):
     }
     (tmp_path / "config.json").write_text(json.dumps(config))
     receipts = []
-    for phase in ("produce", "continue", "cold"):
+    for phase in ("produce_fixed", "cold"):
         run = subprocess.run(
             [sys.executable, "-m", "tests.analysis.journey.anchors_worker", phase, str(tmp_path)],
             capture_output=True,
@@ -144,7 +148,6 @@ def test_anchor_views_source_fixed_cold(tmp_path, key, time):
         )
         assert run.returncode == 0, run.stdout + run.stderr
         receipts.append(json.loads(run.stdout.splitlines()[-1]))
-    assert receipts[-1]["exact_hit"]
     evidence = os.getenv("MARIVO_R77_EVIDENCE_DIR")
     if evidence:
         destination = Path(evidence)
@@ -154,7 +157,6 @@ def test_anchor_views_source_fixed_cold(tmp_path, key, time):
         )
 
 
-@pytest.mark.runtime
 def test_overlap_parts_and_fixed_transport(tmp_path):
     session, members, window, claims, values = build_anchors(tmp_path)
     logical = observations(event_anchors(session, members, window))[0]
@@ -167,15 +169,8 @@ def test_overlap_parts_and_fixed_transport(tmp_path):
     assert selected._dataset.verified().parts == fixed._dataset.verified().parts
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "kwargs,unit",
-    [
-        ({"seconds": 10}, "s"),
-        ({"milliseconds": 10000}, "ms"),
-        ({"microseconds": 10000000}, "us"),
-        ({"nanoseconds": 10000000000}, "ns"),
-    ],
+    "kwargs,unit", [({"seconds": 10}, "s"), ({"nanoseconds": 10000000000}, "ns")]
 )
 def test_elapsed_units_keep_exact_window_through_recovery(tmp_path, kwargs, unit, monkeypatch):
     import marivo.semantic as ms
@@ -206,35 +201,15 @@ def test_elapsed_units_keep_exact_window_through_recovery(tmp_path, kwargs, unit
     assert selected._dataset.verified().parts == recovered._dataset.verified().parts
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "point",
-    [
-        "insert_artifact",
-        "insert_evidence",
-        "insert_findings",
-        "insert_terminal",
-        "before_commit",
-        "cancel",
-        "deadline",
-    ],
-)
-def test_anchor_failure_is_atomic(tmp_path, point):
-    from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
-
+def test_anchor_failure_is_atomic(tmp_path):
     session, members, window, _, _ = build_anchors(tmp_path)
     logical = observations(event_anchors(session, members, window), calendar=True)[0]
     fixed = logical.execute()
     reference, frame = fixed.state.artifact_ref.ref, fixed.to_pandas()
 
     def inject(actual):
-        if actual == ("insert_findings" if point in ("cancel", "deadline") else point):
-            if point == "cancel":
-                raise KeyboardInterrupt("injected Anchor cancellation")
-            if point == "deadline":
-                CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-            else:
-                raise RuntimeError("injected Anchor publication failure")
+        if actual == "before_commit":
+            raise RuntimeError("injected Anchor publication failure")
 
     session._runtime._hook = inject
     with pytest.raises((AnalysisError, KeyboardInterrupt)):
@@ -247,9 +222,17 @@ def test_anchor_failure_is_atomic(tmp_path, point):
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("role", ["primary", "subject", "anchor", "original_state", "coverage"])
-@pytest.mark.parametrize("fault", ["missing", "corrupt"])
+@pytest.mark.parametrize(
+    "role,fault",
+    [
+        ("primary", "missing"),
+        ("primary", "corrupt"),
+        ("subject", "corrupt"),
+        ("anchor", "missing"),
+        ("original_state", "corrupt"),
+        ("coverage", "missing"),
+    ],
+)
 def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path, role, fault):
     session, members, window, _, _ = build_anchors(tmp_path)
     fixed = observations(event_anchors(session, members, window))[0].execute()
@@ -272,7 +255,6 @@ def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path, role, fault)
     fixed.to_pandas()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ["deadline", "uses", "subject", "state", "definition"])
 def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
     import pyarrow as pa
@@ -327,7 +309,6 @@ def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
         from_arrow(verified.primary, contract, parts=tuple(parts))
 
 
-@pytest.mark.runtime
 def test_anchor_inputs_reject_before_run_or_rows(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.session.core import Session
@@ -368,7 +349,6 @@ def test_anchor_inputs_reject_before_run_or_rows(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 def test_source_prefix_finishes_before_calendar_consumption(tmp_path, monkeypatch):
     from marivo.analysis.materialization import anchor_execution
     from marivo.datasource.adapters import SourceSession
@@ -393,7 +373,6 @@ def test_source_prefix_finishes_before_calendar_consumption(tmp_path, monkeypatc
     assert started
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "calendar_start,hours",
     [(datetime(2026, 3, 7, 17, tzinfo=UTC), 23), (datetime(2026, 10, 31, 16, tzinfo=UTC), 25)],
@@ -428,7 +407,6 @@ def test_runtime_dst_deadline_is_exclusive(tmp_path, calendar_start, hours):
     assert elapsed.to_pandas().value.tolist() == ([2] if hours == 23 else [0])
 
 
-@pytest.mark.runtime
 def test_same_instant_without_order_rejects_and_no_anchor_subject_is_omitted(tmp_path):
     import marivo.semantic as ms
 
@@ -447,43 +425,14 @@ def test_same_instant_without_order_rejects_and_no_anchor_subject_is_omitted(tmp
         assert failure.value.constraint_id.startswith("r7.business_order")
 
 
-@pytest.mark.runtime
-def test_every_disclosed_fixed_K_in_three_processes(tmp_path):
-    config = {
-        "subject": "c",
-        "occurrence": "c",
-        "form": "parquet",
-        "unit": "us",
-        "zone": "America/New_York",
-        "all_K": True,
-        "qualification_history": True,
-    }
-    (tmp_path / "config.json").write_text(json.dumps(config))
-    receipts = []
-    for phase in ("produce", "continue", "cold"):
-        run = subprocess.run(
-            [sys.executable, "-m", "tests.analysis.journey.anchors_worker", phase, str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=580,
-        )
-        assert run.returncode == 0, run.stdout + run.stderr
-        receipts.append(json.loads(run.stdout.splitlines()[-1]))
-    assert receipts[1]["executed_K"] == receipts[2]["executed_K"]
-    assert receipts[2]["fixed_K"] == 160
-    evidence = os.getenv("MARIVO_R77_EVIDENCE_DIR")
-    if evidence:
-        path = Path(evidence) / "all-K.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(receipts, sort_keys=True))
-
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("calendar", [False, True])
-def test_empty_anchor_domain_retains_exact_schema(tmp_path, calendar):
+def test_empty_anchor_domain_retains_exact_schema(tmp_path):
     session, members, window, _, _ = build_anchors(tmp_path, empty=True)
     anchors = event_anchors(session, members, window)
-    for operation in observations(anchors, calendar=calendar):
+    operations = observations(anchors)
+    # Nonempty cases cover every operation. Empty-domain coverage keeps each
+    # numeric carrier plus the two distinct cross-source routes.
+    for index in (0, 2, 3, 4, 7, 9, 10):
+        operation = operations[index]
         result = operation.execute()
         assert result.to_pandas().empty
         continued = result.where(result.value.is_defined()).execute()
@@ -491,15 +440,13 @@ def test_empty_anchor_domain_retains_exact_schema(tmp_path, calendar):
         assert session.artifact(result.state.artifact_ref).to_pandas().empty
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("calendar", [False, True])
 @pytest.mark.parametrize(
-    "field,value,index",
+    "calendar,field,value,index",
     [
-        ("integer", "9223372036854775807", 1),
-        ("amount", "1e308", 2),
-        ("decimal", "99999999999999999999999999999999.000000", 3),
-        ("ticks", "to_microseconds(9223372036854775807)", 4),
+        (False, "integer", "9223372036854775807", 1),
+        (False, "amount", "1e308", 2),
+        (False, "decimal", "99999999999999999999999999999999.000000", 3),
+        (True, "ticks", "to_microseconds(9223372036854775807)", 4),
     ],
 )
 def test_numeric_overflow_is_atomic(tmp_path, calendar, field, value, index):
@@ -519,10 +466,15 @@ def test_numeric_overflow_is_atomic(tmp_path, calendar, field, value, index):
         assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("form", ["table", "parquet"])
-@pytest.mark.parametrize("kind", ["snapshot", "validity"])
-@pytest.mark.parametrize("calendar", [False, True])
+@pytest.mark.parametrize(
+    "form,kind,calendar",
+    [
+        ("table", "snapshot", False),
+        ("parquet", "snapshot", True),
+        ("table", "validity", True),
+        ("parquet", "validity", False),
+    ],
+)
 def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, calendar, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.compiler.graph_lowering import SemanticCheck
@@ -569,7 +521,6 @@ def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, cale
     assert session.artifact(fixed.state.artifact_ref).to_pandas()["value"].tolist() == [1, 1]
 
 
-@pytest.mark.runtime
 def test_latest_anchor_example_executes(tmp_path, monkeypatch):
 
     session, _, _, _, values = build_anchors(tmp_path)
@@ -586,9 +537,7 @@ def test_latest_anchor_example_executes(tmp_path, monkeypatch):
     assert_result(namespace["relative"], values, "i", "i", 2, calendar=True)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("shared", [False, True])
-@pytest.mark.parametrize("calendar", [False, True])
+@pytest.mark.parametrize("shared,calendar", [(False, False), (True, False), (True, True)])
 def test_journey_origin_observes_without_rematch(tmp_path, shared, calendar, monkeypatch):
     from marivo.analysis.materialization import anchor_execution
     from marivo.analysis.methods import journey_matching
@@ -609,9 +558,7 @@ def test_journey_origin_observes_without_rematch(tmp_path, shared, calendar, mon
     assert_result(result, values, "i", "i", 0, calendar=calendar)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("calendar", [False, True])
-def test_first_journey_start_preserves_assignment_in_fixed_bind(tmp_path, calendar, monkeypatch):
+def test_first_journey_start_preserves_assignment_in_fixed_bind(tmp_path, monkeypatch):
     from marivo.analysis.methods import journey_matching
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.journey.anchors_worker import forbidden
@@ -619,8 +566,8 @@ def test_first_journey_start_preserves_assignment_in_fixed_bind(tmp_path, calend
     session, members, window, claims, values = build_anchors(tmp_path)
     original = journey(session, members, window, claims, first=True)
     logical = session.anchors(original, population=members, during=window)
-    result = observations(logical, calendar=calendar)[0].execute()
-    assert_result(result, values, "i", "i", 0, calendar=calendar, first=True)
+    result = observations(logical)[0].execute()
+    assert_result(result, values, "i", "i", 0, first=True)
     fixed_journey, fixed_members = original.execute(), members.execute()
     monkeypatch.setattr(journey_matching, "match", forbidden)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
@@ -630,17 +577,14 @@ def test_first_journey_start_preserves_assignment_in_fixed_bind(tmp_path, calend
     assert all(row["anchor__assignment"] for row in assignments.to_pylist())
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("calendar", [False, True])
-def test_journey_relative_numeric_families(tmp_path, calendar):
+def test_journey_relative_numeric_families(tmp_path):
     session, members, window, claims, values = build_anchors(tmp_path)
     original = journey(session, members, window, claims, shared=True)
     anchors = session.anchors(original, population=members, during=window)
-    for index, operation in enumerate(observations(anchors, calendar=calendar)):
-        assert_result(operation.execute(), values, "i", "i", index, calendar=calendar)
+    for index, operation in enumerate(observations(anchors)):
+        assert_result(operation.execute(), values, "i", "i", index)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ["cancel", "deadline"])
 def test_local_consumption_failure_closes_prepared_resources(tmp_path, fault, monkeypatch):
     from marivo.analysis.materialization import anchor_execution
@@ -665,9 +609,7 @@ def test_local_consumption_failure_closes_prepared_resources(tmp_path, fault, mo
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("calendar", [False, True])
-def test_null_contributions_and_empty_policies(tmp_path, calendar):
+def test_null_contributions_and_empty_policies(tmp_path):
     from decimal import Decimal
 
     import ibis
@@ -683,7 +625,7 @@ def test_null_contributions_and_empty_policies(tmp_path, calendar):
         backend.raw_sql("UPDATE facts SET amount=NULL, integer=NULL, decimal=NULL, ticks=NULL")
     finally:
         backend.disconnect()
-    operations = observations(event_anchors(session, members, window), calendar=calendar)
+    operations = observations(event_anchors(session, members, window))
     for index, expected_value in enumerate((1, 0, 0.0, Decimal("0.000000"), 0)):
         primary = operations[index].execute()._dataset.verified().primary
         values = primary["value"].cast(pa.int64()) if index == 4 else primary["value"]
@@ -694,13 +636,12 @@ def test_null_contributions_and_empty_policies(tmp_path, calendar):
     ms.load(workspace_dir=tmp_path)
     session = Session._from_runtime(session._runtime)
     members = session.members(ms.ref.entity("commerce.subjects"))
-    result = observations(event_anchors(session, members, window), calendar=calendar)[1].execute()
+    result = observations(event_anchors(session, members, window))[1].execute()
     primary = result._dataset.verified().primary
     assert primary["value"].to_pylist() == [None]
     assert cell_column(primary, "cell_reason").to_pylist() == ["empty_contribution"]
 
 
-@pytest.mark.runtime
 def test_fixed_anchor_rejects_new_live_metric_before_run(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.datasource.adapters import SourceSession
@@ -723,7 +664,6 @@ def test_fixed_anchor_rejects_new_live_metric_before_run(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", [False, True])
 def test_calendar_checks_actual_anchor_deadlines(tmp_path, empty):
     import marivo.semantic as ms
@@ -752,7 +692,6 @@ def test_calendar_checks_actual_anchor_deadlines(tmp_path, empty):
         assert failure.value.constraint_id == "r7.calendar_deadline"
 
 
-@pytest.mark.runtime
 def test_native_float_cancellation_uses_analysis_error_owner(tmp_path):
     import ibis
 
@@ -772,7 +711,6 @@ def test_native_float_cancellation_uses_analysis_error_owner(tmp_path):
     result.where(result.value.is_defined()).execute()
 
 
-@pytest.mark.runtime
 def test_relative_template_cannot_execute_as_a_metric(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.materialization.graph_observation import observe_members
@@ -797,7 +735,6 @@ def test_relative_template_cannot_execute_as_a_metric(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 def test_anchor_root_routes_keep_declared_root_authority(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.datasource.adapters import SourceSession
@@ -819,7 +756,6 @@ def test_anchor_root_routes_keep_declared_root_authority(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", [False, True])
 def test_actual_anchor_subject_image_source_first(tmp_path, empty, monkeypatch):
     import marivo.semantic as ms

@@ -14,7 +14,6 @@ from marivo.datasource.adapters import SourceSession
 from tests.analysis.lifecycle.lifecycle_fixtures import END, START, TRIGGERS, build_lifecycle_public
 
 
-@pytest.mark.runtime
 def test_public_duration_quotient_unknown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     build_lifecycle_public(tmp_path, backend_name="sqlite")

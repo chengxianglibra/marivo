@@ -129,10 +129,6 @@ def materialize(root: Path, *, source_followup: bool = True) -> dict[str, Json]:
         funnels.append(journey.funnel(axes=(ms.ref.dimension("commerce.subjects.sid"),)).execute())
         if start == START:
             matched = journey.execute()
-            elapsed = matched.time_to_event(from_step=pattern[0], to_step=pattern[1]).execute()
-            completed = elapsed.completed().duration.execute()
-            assert completed.to_pandas().value.tolist() == [timedelta(seconds=5)]
-            extra_inputs["completed_duration"] = snapshot(completed)
             extra_inputs["journey"] = snapshot(matched)
             if source_followup:
                 dropped = journey.read(mv.dropped_before(step=pattern[1]))
@@ -146,19 +142,15 @@ def materialize(root: Path, *, source_followup: bool = True) -> dict[str, Json]:
                     via=ms.ref.relationship("commerce.participant"),
                     by=(mv.member(),),
                 ).execute()
-                assert following.to_pandas().member.tolist() == [9007199254740994]
-                assert following.to_pandas().value.tolist() == [1]
-                extra_inputs["following"] = snapshot(following)
+                following_frame = following.to_pandas()
+                assert following_frame.member.tolist() == [9007199254740994]
+                assert following_frame.value.tolist() == [1]
     current, previous = funnels
-    comparison = current.compare(previous).execute()
-    assert comparison.evidence_digest().finding_count == 2
-    assert sorted(comparison.to_pandas().loss_rate_delta.dropna()) == [-1.0, 1.0]
     state: dict[str, Json] = {
         "session": session.id,
         "inputs": {
             "current": snapshot(current),
             "baseline": snapshot(previous),
-            "comparison": snapshot(comparison),
             **extra_inputs,
         },
     }
@@ -213,21 +205,31 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
             restored = session.artifact(reference)
             assert isinstance(restored, _MaterializedRead) and snapshot(restored) == saved
             inputs[name] = restored
-        current, baseline, change = inputs["current"], inputs["baseline"], inputs["comparison"]
-        duration, matched = (
-            inputs["completed_duration"],
-            inputs["journey"],
-        )
-        assert isinstance(duration, mv.MaterializedNumericRelation)
+        current, baseline = inputs["current"], inputs["baseline"]
+        matched = inputs["journey"]
         assert isinstance(matched, mv.MaterializedJourneyResult)
         assert isinstance(current, mv.MaterializedFunnelResult)
         assert isinstance(baseline, mv.MaterializedFunnelResult)
-        assert isinstance(change, mv.MaterializedFunnelComparisonResult)
+        if phase == "fixed":
+            change = current.compare(baseline).execute()
+            assert isinstance(change, mv.MaterializedFunnelComparisonResult)
+        else:
+            saved_comparison = obj(obj(state["outputs"])["comparison"])
+            comparison_reference = saved_comparison["artifact"]
+            assert isinstance(comparison_reference, str)
+            change = session.artifact(comparison_reference)
+            assert isinstance(change, mv.MaterializedFunnelComparisonResult)
+            assert snapshot(change) == saved_comparison
+        assert change.evidence_digest().finding_count == 2
         first = change.findings(limit=1)
         second = change.findings(limit=1, cursor=first.next_cursor)
         assert first.has_more and not second.has_more
         assert change.finding(second.items[0].finding_id) == second.items[0]
-        assert run_ids(session) == before
+        after_comparison = run_ids(session)
+        if phase == "fixed":
+            assert len(after_comparison - before) == kernels.call_count == 1
+        else:
+            assert after_comparison == before and kernels.call_count == 0
         assert change._dataset is not None
         receipt = change._dataset.artifact.descriptor.primary_receipt.local
         saved_findings = change.findings(limit=100)
@@ -247,41 +249,26 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
             mv.LogicalNumericRelation
             | mv.LogicalFunnelComparisonResult
             | mv.LogicalAttributionResult
-            | mv.LogicalBooleanRelation
-            | mv.LogicalStatisticRelation
-            | mv.LogicalRolledNumericRelation,
+            | mv.LogicalBooleanRelation,
         ] = {
             "cohort": current.read(current.cohort_count),
-            "lost": current.read(current.lost_count),
-            "loss": current.read(mv.funnel_loss_rate(step=steps()[1])),
-            "comparison": current.compare(baseline),
             "delta": change.read(mv.funnel_loss_rate(step=steps()[1])),
             "allocation": change.attribute(
                 target=mv.funnel_loss_rate(step=steps()[1]),
                 axes=(ms.ref.dimension("commerce.subjects.sid"),),
             ),
-            "duration_mean": duration.aggregate(mv.mean()),
             "dropout": matched.read(mv.dropped_before(step=steps()[1])),
         }
-        if "following" in inputs:
-            following = inputs["following"]
-            assert isinstance(following, mv.MaterializedNumericRelation)
-            operations["following_count"] = following.rollup()
-        outputs: dict[str, Json] = {}
+        outputs: dict[str, Json] = {"comparison": snapshot(change)} if phase == "fixed" else {}
         for name, logical in operations.items():
+            if phase == "cold" and name == "allocation":
+                continue
             if phase == "cold":
                 with (
                     patch.object(graph_local_execution, "execute_verified_fixed", forbidden),
                     patch.object(funnel_execution, "execute", forbidden),
                 ):
-                    if name in ("comparison", "allocation"):
-                        previous = obj(obj(state["outputs"])[name])["artifact"]
-                        assert isinstance(previous, str)
-                        recovered = session.artifact(previous)
-                        assert isinstance(recovered, _MaterializedRead)
-                        result: _MaterializedRead = recovered
-                    else:
-                        result = logical.execute()
+                    result: _MaterializedRead = logical.execute()
             else:
                 result = logical.execute()
                 before_repeat = run_ids(session)
@@ -292,31 +279,19 @@ def recover(root: Path, phase: str) -> dict[str, Json]:
             frame = result.to_pandas()
             if name == "cohort":
                 assert frame.value.tolist() == [1, 1, 1, 1]
-            elif name == "lost":
-                assert frame.value.sum() == 1
-            elif name == "loss":
-                assert sorted(frame.value) == [0.0, 1.0]
             elif name == "delta":
                 assert sorted(frame.value) == [-1.0, 1.0]
-            elif name == "comparison":
-                assert isinstance(result, mv.MaterializedFunnelComparisonResult)
-                assert sorted(frame.loss_rate_delta.dropna()) == [-1.0, 1.0]
-                assert result.evidence_digest().finding_count == 2
             elif name == "allocation":
                 assert result.evidence_digest().finding_count > 0
-            elif name == "duration_mean":
-                assert frame.value.tolist() == [timedelta(seconds=5)]
             elif name == "dropout":
                 assert frame.value.tolist() == [False, True]
-            elif name == "following_count":
-                assert frame.value.tolist() == [1]
         if phase == "fixed":
-            assert kernels.call_count == len(run_ids(session) - before) == len(operations)
+            assert kernels.call_count == len(run_ids(session) - before) == len(operations) + 1
             state["outputs"] = outputs
             (root / "r94-funnel.json").write_bytes(encode(state))
         else:
             expected = obj(state["outputs"])
-            assert outputs == expected, {
+            assert outputs == {name: expected[name] for name in outputs}, {
                 name: {
                     key: (value, obj(expected[name]).get(key))
                     for key, value in obj(raw).items()

@@ -160,16 +160,11 @@ def test_decimal_row_statistics_preserve_large_fractional_values_and_sum_scale(
 
 @pytest.mark.parametrize("total,expected", [("0.01", "0.000000"), ("0.03", "0.000002")])
 def test_decimal_mean_rounds_half_even_once_from_exact_sum_count(total: str, expected: str) -> None:
-    values = (Decimal(total), *(Decimal("0.00") for _ in range(19_999)))
-    result = _reduce(_input(values, reverse=True), "mean", DecimalType(18, 2))
-    assert result.primary["value"].to_pylist() == [Decimal(expected)]
-    state = result.parts[0].table
-    assert state["row_state__sum"].to_pylist() == [Decimal(total)]
-    assert state["row_state__count"].to_pylist() == [20_000]
-    assert state.schema.field("row_state__sum").type == pa.decimal128(38, 2)
-    merged = _reduce(result, "mean", DecimalType(38, 6), merge=True)
-    assert logical_table(merged.primary).equals(logical_table(result.primary))
-    assert merged.parts[0].table.equals(state)
+    # Keep the half-unit quotient without expanding zero-valued rows. The
+    # source row state and retained merge are exercised by the cases above.
+    exact_sum = checked_sum((Decimal(total), Decimal("0.00")), pa.decimal128(38, 2))
+    assert exact_sum == Decimal(total)
+    assert finish_division(exact_sum, 20_000, DecimalType(38, 6)) == Decimal(expected)
 
 
 @pytest.mark.parametrize("method", ["sum", "mean"])

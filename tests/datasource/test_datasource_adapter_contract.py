@@ -64,9 +64,10 @@ def _datasource(backend: str) -> DatasourceIR:
     )
 
 
-@pytest.fixture(params=["duckdb", "sqlite"])
+@pytest.fixture
 def session(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[SourceSession]:
-    backend_name = request.param
+    backend_name: object = getattr(request, "param", "duckdb")
+    assert isinstance(backend_name, str) and backend_name in {"duckdb", "sqlite"}
     database = tmp_path / f"source.{backend_name}"
     backend = (
         ibis.duckdb.connect(database) if backend_name == "duckdb" else ibis.sqlite.connect(database)
@@ -386,6 +387,7 @@ def test_basic_group_and_count_use_the_bound_expression(session: SourceSession) 
     ]
 
 
+@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
 def test_local_staging_preserves_nullable_int64_low_bits(session: SourceSession) -> None:
     from marivo.datasource.adapters import _native_cursor
 
@@ -536,6 +538,7 @@ def test_compiled_read_rejects_forgery_foreign_session_and_unbound_source(
         other.close()
 
 
+@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
 def test_early_close_and_empty_result_keep_fixed_schema(session: SourceSession) -> None:
     read = _read(session)
     stream = session.batches(read, chunk_size=1)
@@ -866,45 +869,38 @@ def test_cursor_close_failure_cannot_claim_success(session: SourceSession) -> No
     assert completed["error_type"] == "OSError"
 
 
-@pytest.mark.parametrize(
-    "backend,driver",
-    [
-        ("postgres", "psycopg"),
-        ("mysql", "MySQLdb"),
-        ("trino", "trino"),
-        ("clickhouse", "clickhouse_connect"),
-    ],
-)
-def test_missing_selected_driver_has_structured_install_repair(backend: str, driver: str) -> None:
+def test_missing_selected_drivers_have_structured_install_repairs() -> None:
     code = """
 import builtins
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 original = builtins.__import__
+blocked_driver = None
 def reject_driver(name, *args, **kwargs):
-    if name == DRIVER or name.startswith(DRIVER + '.'):
-        raise ModuleNotFoundError('blocked optional driver', name=DRIVER)
+    if blocked_driver is not None and (name == blocked_driver or name.startswith(blocked_driver + '.')):
+        raise ModuleNotFoundError('blocked optional driver', name=blocked_driver)
     return original(name, *args, **kwargs)
 builtins.__import__ = reject_driver
-datasource = DatasourceIR(semantic_id='missing', name='missing', backend_type=BACKEND,
-    fields={'host':'127.0.0.1','database':'analysis','catalog':'iceberg','user':'reader'},
-    env_refs={}, ai_context=AiContextIR(), python_symbol='missing',
-    location=DatasourceSourceLocation('missing.py', 1))
-try:
-    provider_for(BACKEND).open(datasource)
-except DatasourceConnectionError as error:
-    assert error.expected and error.received and error.repair
-    assert 'marivo[' + BACKEND + ']' in str(error)
-else:
-    raise AssertionError('Missing selected dependency must fail before connection')
+for backend, blocked_driver in (
+    ('postgres', 'psycopg'),
+    ('mysql', 'MySQLdb'),
+    ('trino', 'trino'),
+    ('clickhouse', 'clickhouse_connect'),
+):
+    datasource = DatasourceIR(semantic_id='missing', name='missing', backend_type=backend,
+        fields={'host':'127.0.0.1','database':'analysis','catalog':'iceberg','user':'reader'},
+        env_refs={}, ai_context=AiContextIR(), python_symbol='missing',
+        location=DatasourceSourceLocation('missing.py', 1))
+    try:
+        provider_for(backend).open(datasource)
+    except DatasourceConnectionError as error:
+        assert error.expected and error.received and error.repair
+        assert 'marivo[' + backend + ']' in str(error)
+    else:
+        raise AssertionError('Missing selected dependency must fail before connection')
 """
-    subprocess.run(
-        [sys.executable, "-c", f"BACKEND={backend!r}\nDRIVER={driver!r}\n" + code],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
 
 
 def test_sqlite_date_carriers_are_exact() -> None:
@@ -1193,6 +1189,7 @@ def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
         fromfd.assert_not_called()
 
 
+@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
 def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
     session: SourceSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

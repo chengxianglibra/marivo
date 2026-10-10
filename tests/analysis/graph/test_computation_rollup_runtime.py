@@ -19,8 +19,6 @@ import pytest
 
 from tests.analysis.numeric.rollup_worker import MONTH_EXPECTED
 
-pytestmark = pytest.mark.runtime
-
 
 def _run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
     process = subprocess.run(

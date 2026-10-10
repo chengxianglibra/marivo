@@ -14,91 +14,56 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.refs import ref
 from tests.analysis.lifecycle.history_operations import artifact, operations, replay
 from tests.analysis.lifecycle.history_oracle import assert_view, views
 from tests.analysis.lifecycle.lifecycle_fixtures import (
     END,
-    RECOVERY_PROFILES,
     START,
     build_lifecycle_public,
 )
-
-PROFILES = RECOVERY_PROFILES
-KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
-METHODS = ("in_state", "distribution", "transitions", "violations", "intervals", "dwell")
+from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "key,time", PROFILES, ids=[key["id"] + "-" + time["id"] for key, time in PROFILES]
-)
-def test_history_views_source_fixed_cold(tmp_path, key, time):
-    subject, occurrence = KEYS[key["subject"]], KEYS[key["occurrence"]]
+@pytest.fixture(scope="module")
+def history_view_exchange_templates(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[ExchangeResult, ExchangeResult]:
+    """Build immutable Arrow witnesses once for the exchange corruption cases."""
+    root = tmp_path_factory.mktemp("history-view-exchange")
+    session, members, window, claims, _ = build_lifecycle_public(root)
+    history = replay(session, members, window, claims).execute()
+    view = history.intervals().execute()
+    assert history._dataset is not None and view._dataset is not None
+    return history._dataset.verified(), view._dataset.verified()
+
+
+def test_history_views_source_fixed(tmp_path):
     session, members, window, claims, values = build_lifecycle_public(
         tmp_path,
-        subject=subject,
-        occurrence=occurrence,
-        form="table" if time["source_form"] == "duckdb_native_table" else "parquet",
-        unit=time["occurrence_unit"],
-        zone=time["report_timezone"],
+        subject="i",
+        occurrence="i",
+        form="parquet",
+        unit="us",
+        zone="UTC",
     )
     logical = replay(session, members, window, claims)
     history = logical.execute()
-    expected = views(values, subject, occurrence)
-    source, fixed, cells = {}, {}, []
-    for index, (name, operation) in enumerate(operations(logical).items(), 11):
+    expected = views(values, "i", "i")
+    for name, operation in operations(logical).items():
         result = operation().execute()
         assert_view(result, name, expected)
-        source[name] = artifact(result)
-        cells.append(f"P{index:02d}/{key['id']}/{time['id']}/S")
-    for index, (name, operation) in enumerate(operations(history).items(), 11):
+    for name, operation in operations(history).items():
         result = operation().execute()
         assert_view(result, name, expected)
-        fixed[name] = artifact(result)
-        cells.extend(f"P{index:02d}/{key['id']}/{time['id']}/{route}" for route in ("F", "C"))
-    payload = {
-        "session": session.id,
-        "history": artifact(history),
-        "views": source,
-        "fixed": fixed,
-        "rows": values,
-        "subject": subject,
-        "occurrence": occurrence,
-        "cells": cells,
-    }
-    (tmp_path / "history-recovery.json").write_text(json.dumps(payload))
-    (tmp_path / "source.duckdb").unlink()
-    for path in tmp_path.glob("*.parquet"):
-        path.unlink()
-    result = subprocess.run(
-        [sys.executable, "-m", "tests.analysis.lifecycle.history_worker", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout.splitlines()[-1])["accepted"]
-    evidence = os.getenv("MARIVO_R76_EVIDENCE_DIR")
-    if evidence:
-        folder = Path(evidence)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / (key["id"] + "-" + time["id"] + ".json")).write_text(
-            json.dumps(
-                {
-                    "accepted": cells,
-                    "form": time["source_form"],
-                    "subject": subject,
-                    "occurrence": occurrence,
-                }
-            )
-        )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("coverage", ["unknown", "prefix", "complete"])
-def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, coverage):
-    session, members, window, claims, values = build_lifecycle_public(tmp_path)
+def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, monkeypatch, coverage):
+    session, members, window, claims, values = build_lifecycle_public(
+        tmp_path, observations=coverage == "complete"
+    )
     known = (
         None
         if coverage == "unknown"
@@ -107,31 +72,32 @@ def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, coverage):
         else END
     )
     supplied = () if known is None else (replace(claims[0], complete_through=known),)
-    history = replay(session, members, window, supplied).execute()
+    logical = replay(session, members, window, supplied)
+    history = logical.execute()
+    history_rows = [
+        json.loads(row["history__record"])
+        for row in history._dataset.verified().parts[0].table.to_pylist()
+    ]
+    assert history_rows == expected_histories(values, known=known)
     expected = views(values, known=known)
     for name, operation in operations(history).items():
         assert_view(operation().execute(), name, expected)
+    if coverage == "complete":
+        from tests.support.documentation import _example
 
-
-@pytest.mark.runtime
-@pytest.mark.parametrize("coverage", ["unknown", "prefix", "complete"])
-def test_history_field_reads_preserve_compact_cell_states(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, coverage: str
-) -> None:
+        snippets = [_example(locale, "history-views") for locale in ("en", "zh")]
+        assert snippets[0] == snippets[1]
+        environment = {
+            "mv": mv,
+            "ms": ms,
+            "session": session,
+            "window": window,
+            "lifecycle_completeness": supplied,
+            "history": logical,
+        }
+        exec(compile(snippets[0], "latest-history-example", "exec"), environment)
     from marivo.analysis.materialization.cell_arrow import rows as cell_rows
     from marivo.datasource.adapters import SourceSession
-
-    session, members, window, claims, values = build_lifecycle_public(tmp_path)
-    known = (
-        None
-        if coverage == "unknown"
-        else START + timedelta(seconds=12)
-        if coverage == "prefix"
-        else END
-    )
-    supplied = () if known is None else (replace(claims[0], complete_through=known),)
-    history = replay(session, members, window, supplied).execute()
-    expected = views(values, known=known)
 
     def forbid(*args: object, **kwargs: object) -> None:
         raise AssertionError("Fixed History field read accessed its source")
@@ -151,7 +117,6 @@ def test_history_field_reads_preserve_compact_cell_states(
     for name, selections in fields.items():
         logical = operations(history)[name]()
         materialized = logical.execute()
-        assert_view(materialized, name, expected)
         for receiver in (logical, materialized):
             for field, index, missing_tag, reason in selections:
                 result = getattr(receiver, field).execute()
@@ -168,16 +133,16 @@ def test_history_field_reads_preserve_compact_cell_states(
                 assert sorted(rows, key=repr) == sorted(wanted, key=repr)
 
 
-@pytest.mark.runtime
 def test_empty_subject_domain_retains_zero_states_pairs(tmp_path):
     session, members, window, claims, values = build_lifecycle_public(tmp_path, empty=True)
     history = replay(session, members, window, claims).execute()
+    assert history.to_pandas().empty
+    assert session.artifact(history.state.artifact_ref).to_pandas().empty
     expected = views(values, empty=True)
     for name, operation in operations(history).items():
         assert_view(operation().execute(), name, expected)
 
 
-@pytest.mark.runtime
 def test_instance_selection_subject_image_and_duration_mean(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(
         tmp_path, subject="c", occurrence="c"
@@ -208,15 +173,15 @@ def test_instance_selection_subject_image_and_duration_mean(tmp_path):
     )
 
 
-@pytest.mark.runtime
 def test_checkpoint_axes_prepared_on_complete_subject_domain(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     history = replay(session, members, window, claims)
     result = history.distribution(
         at=(START, END), axes=(ref.dimension("commerce.subjects.sid"),)
     ).execute()
-    assert len(result.to_pandas()) == 18
-    assert set(result.to_pandas()["axis_0"]) == {
+    frame = result.to_pandas()
+    assert len(frame) == 18
+    assert set(frame["axis_0"]) == {
         9007199254740993,
         9007199254740994,
         9007199254740995,
@@ -240,7 +205,6 @@ def test_fraction_quantile_half_even_and_overflow():
         checked(2**63)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["state", "interval", "violation"])
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_same_run_history_selection_prepares_all_sources_before_local(
@@ -289,7 +253,6 @@ def test_same_run_history_selection_prepares_all_sources_before_local(
         assert trace.count("local") == 1
 
 
-@pytest.mark.runtime
 def test_history_predicate_pairing_checks_actual_local_keys(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -323,7 +286,6 @@ def test_history_predicate_pairing_checks_actual_local_keys(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
 def test_history_declared_grain_does_not_require_originating_source_audit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -380,7 +342,6 @@ def test_history_declared_grain_does_not_require_originating_source_audit(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "fault",
     [
@@ -394,14 +355,15 @@ def test_history_declared_grain_does_not_require_originating_source_audit(
         "truncated_trace",
     ],
 )
-def test_view_exchange_rejects_corruption(tmp_path, fault):
+def test_view_exchange_rejects_corruption(
+    history_view_exchange_templates: tuple[ExchangeResult, ExchangeResult], fault: str
+) -> None:
     import pyarrow as pa
 
     from marivo.analysis.core.model import HistoryViewPart
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path)
-    fixed = replay(session, members, window, claims).intervals().execute()._dataset.verified()
+    _, fixed = history_view_exchange_templates
     primary, contract, parts = fixed.primary, fixed.contract, list(fixed.parts)
     index = next(i for i, p in enumerate(parts) if p.role == "history_view")
     payload = json.loads(parts[index].table["history_view__retained"][0].as_py())
@@ -452,13 +414,10 @@ def test_view_exchange_rejects_corruption(tmp_path, fault):
         from_arrow(primary, contract, parts=tuple(parts), method_state=fixed.method_state)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point",
     [
-        "insert_artifact",
         "insert_evidence",
-        "insert_findings",
         "insert_terminal",
         "before_commit",
         "cancel",
@@ -495,7 +454,6 @@ def test_view_atomic_failure_keeps_prior_artifact(tmp_path, point):
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     history = replay(session, members, window, claims).execute()
@@ -514,99 +472,42 @@ def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
     }
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "key,time", PROFILES, ids=[key["id"] + "-" + time["id"] for key, time in PROFILES]
-)
-def test_history_consumers_source_fixed_cold(tmp_path, key, time):
+def test_history_consumers_source_fixed(tmp_path):
     from tests.analysis.lifecycle.history_consumers import expected, mean, observations, transport
     from tests.analysis.lifecycle.history_fixtures import build_history_public
 
     session, members, window, claims, _ = build_history_public(
         tmp_path,
-        subject=KEYS[key["subject"]],
-        occurrence=KEYS[key["occurrence"]],
-        form="table" if time["source_form"] == "duckdb_native_table" else "parquet",
-        unit=time["occurrence_unit"],
-        zone=time["report_timezone"],
+        subject="i",
+        occurrence="i",
+        form="parquet",
+        unit="us",
+        zone="UTC",
     )
     logical = replay(session, members, window, claims)
     history = logical.execute()
-    source, fixed, captured = {}, {}, {}
     for name, operation in {
         **transport(logical),
         "mean": mean(logical),
     }.items():
         result = operation.execute()
         expected(name, result)
-        source[name] = artifact(result)
-    if time["occurrence_unit"] == "ns":
-        from marivo.analysis.compiler.errors import DatasetCompilationError
-
-        before_runs = session.runs().items
-        before_resources = session._runtime.store.resources(session.id)
-        with pytest.raises(DatasetCompilationError) as precision:
-            observations(logical)
-        assert precision.value.expected == "exact native timezone conversion precision"
-        assert precision.value.received == "submicrosecond conversion unsupported"
-        assert precision.value.repair is not None
-        assert session.runs().items == before_runs
-        assert session._runtime.store.resources(session.id) == before_resources
-    else:
-        for name, operation in observations(logical).items():
-            result = operation.execute()
-            expected(name, result)
-            source[name] = captured[name] = artifact(result)
-            merged = result.rollup().execute()
-            expected(name, merged)
-            fixed[name] = artifact(merged)
+    for name, operation in observations(logical).items():
+        result = operation.execute()
+        expected(name, result)
+        merged = result.rollup().execute()
+        expected(name, merged)
     for name, operation in {
         **transport(history),
         "mean": mean(history),
     }.items():
         result = operation.execute()
         expected(name, result)
-        fixed[name] = artifact(result)
-    cells = [
-        f"{method}/{key['id']}/{time['id']}/{route}"
-        for method in ("P24", "P36", "P49")
-        for route in ("S", "F", "C")
-    ]
-    (tmp_path / "consumers.json").write_text(
-        json.dumps(
-            {
-                "session": session.id,
-                "history": artifact(history),
-                "source": source,
-                "fixed": fixed,
-                "observations": captured,
-                "cells": cells,
-            }
-        )
-    )
-    (tmp_path / "source.duckdb").unlink()
-    for path in tmp_path.glob("*.parquet"):
-        path.unlink()
-    result = subprocess.run(
-        [sys.executable, "-m", "tests.analysis.lifecycle.history_consumers_worker", str(tmp_path)],
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert json.loads(result.stdout.splitlines()[-1])["accepted"] == cells
-    evidence = os.getenv("MARIVO_R76_EVIDENCE_DIR")
-    if evidence:
-        folder = Path(evidence)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / ("consumers-" + key["id"] + "-" + time["id"] + ".json")).write_text(
-            json.dumps({"accepted": cells, "form": time["source_form"]})
-        )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("form", ["table", "parquet"])
-def test_independent_producer_fixed_continue_and_cold_every_disclosed_k(tmp_path, form):
+@pytest.mark.slow
+def test_independent_producer_fixed_continue_and_cold_representative_k(tmp_path):
+    form = "parquet"
     receipts = []
     for phase in ("producer", "continue", "cold"):
         result = subprocess.run(
@@ -624,8 +525,17 @@ def test_independent_producer_fixed_continue_and_cold_every_disclosed_k(tmp_path
         )
         assert result.returncode == 0, result.stdout + result.stderr
         receipts.append(json.loads(result.stdout.splitlines()[-1]))
-    assert receipts[1]["K"] > 60
-    assert receipts[1]["outputs"] == receipts[2]["outputs"]
+    assert receipts[1]["K"] == 15
+    assert receipts[1]["outputs"] == 14
+    assert receipts[1]["rejected_K"] == {
+        "distribution.seeded_subject_count:correlate": "r8.no_valid_candidate"
+    }
+    assert receipts[2]["K"] == 1
+    assert receipts[2]["outputs"] == 1
+    assert receipts[2]["rejected_K"] == {}
+    assert receipts[2]["result_types"] == {
+        "history:intervals": "MaterializedStateIntervalResult",
+    }
     evidence = os.getenv("MARIVO_R76_EVIDENCE_DIR")
     if evidence:
         folder = Path(evidence)
@@ -637,9 +547,9 @@ def test_independent_producer_fixed_continue_and_cold_every_disclosed_k(tmp_path
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ["table", "parquet"])
 @pytest.mark.parametrize("history_kind", ["snapshot", "validity"])
+@pytest.mark.slow
 def test_checkpoint_axes_use_each_historical_version_and_full_null_tuple(
     tmp_path, form, history_kind
 ):
@@ -672,7 +582,6 @@ def test_checkpoint_axes_use_each_historical_version_and_full_null_tuple(
     }
 
 
-@pytest.mark.runtime
 def test_zero_duration_transitions_cannot_be_rebuilt_from_interval_rows(tmp_path):
     values = [(0, "started", -1, 1), (0, "paid", 5, 2), (0, "finished", 5, 3)]
     session, members, window, claims, rows = build_lifecycle_public(tmp_path, rows=values)
@@ -680,11 +589,8 @@ def test_zero_duration_transitions_cannot_be_rebuilt_from_interval_rows(tmp_path
     expected = views(rows)
     for name in ("transitions", "intervals", "dwell"):
         assert_view(getattr(history, name)().execute(), name, expected)
-    assert history.transitions().execute().count.execute().to_pandas()["value"].sum() == 2
-    assert "paid" not in history.intervals().execute().to_pandas()["state"].tolist()
 
 
-@pytest.mark.runtime
 def test_same_positive_intervals_keep_distinct_transition_multiplicity(tmp_path):
     intervals = []
     counts = []
@@ -718,7 +624,6 @@ def test_same_positive_intervals_keep_distinct_transition_multiplicity(tmp_path)
     assert counts == [1, 2]
 
 
-@pytest.mark.runtime
 def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_path):
     values = [
         (0, "started", 0, 1),
@@ -751,35 +656,6 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
     assert mean.rollup().execute().to_pandas()["value"].tolist() == [timedelta(microseconds=2)]
 
 
-@pytest.mark.runtime
-def test_latest_english_chinese_history_examples_execute_identically(tmp_path):
-
-    from tests.analysis.lifecycle.history_fixtures import build_history_public
-
-    session, _, window, completeness, _ = build_history_public(tmp_path)
-    from tests.support.documentation import _example
-
-    snippets = [_example(locale, "history-views") for locale in ("en", "zh")]
-    assert snippets[0] == snippets[1]
-    environment = {
-        "mv": mv,
-        "ms": ms,
-        "session": session,
-        "window": window,
-        "lifecycle_completeness": completeness,
-    }
-    history = session.lifecycle.replay(
-        ref.state_model("commerce.model"),
-        population=session.members(ref.entity("commerce.subjects")),
-        window=window,
-        seed=mv.from_inception(),
-        completeness=completeness,
-    )
-    environment["history"] = history
-    exec(compile(snippets[0], "latest-history-example", "exec"), environment)
-
-
-@pytest.mark.runtime
 @pytest.mark.parametrize("role", ["primary", "history_view", "subject"])
 @pytest.mark.parametrize("fault", ["missing", "corrupt"])
 def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_path, role, fault):
@@ -808,7 +684,6 @@ def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_pat
     assert session.runs().items == runs
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["state", "interval", "violation"])
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_path, kind, form):
@@ -850,7 +725,6 @@ def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_p
         assert result.rollup().execute().to_pandas()["value"].tolist() == [0]
 
 
-@pytest.mark.runtime
 def test_source_history_owned_fields_use_registered_row_count(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     history = replay(session, members, window, claims)

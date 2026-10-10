@@ -120,7 +120,7 @@ def _difference(left, right):
         CellDerive(
             "difference",
             "difference",
-            "strict",
+            "propagate",
             "CNY",
             "september",
             "source.exact_pairing@v1",

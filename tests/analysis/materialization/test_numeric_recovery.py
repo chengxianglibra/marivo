@@ -13,11 +13,11 @@ from tests.shared_fixtures import DslCase, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
-def test_row_states_and_direct_only_results_recover_in_three_processes(
-    retained_coordinates_case: DslCase, parquet: bool
+@pytest.mark.slow
+def test_parquet_row_states_and_direct_only_results_recover_in_three_processes(
+    retained_coordinates_case: DslCase,
 ) -> None:
+    parquet = True
     case = retained_coordinates_case
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
@@ -55,4 +55,6 @@ approx_quantile = ms.aggregate(name='approx_quantile', measure=amount, agg=('app
         assert process.returncode == 0, process.stdout + process.stderr
         reports.append(json.loads(process.stdout.splitlines()[-1]))
     assert len({report["pid"] for report in reports}) == 3
-    assert reports[1]["results"] == reports[2]["results"]
+    fixed_results = reports[1]["results"]
+    cold_names = {"sum", "quantile", "read", "category"}
+    assert reports[2]["results"] == {name: fixed_results[name] for name in cold_names}

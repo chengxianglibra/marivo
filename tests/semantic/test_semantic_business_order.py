@@ -96,7 +96,7 @@ def test_order_loads_with_exact_ref_and_transitive_state_model_identity(
     assert order_ir.conflicts[0].before_event == "commerce.activated"
     assert registry.state_models["commerce.order_model"].business_order == order_ir.semantic_id
 
-    catalog = ms.load(workspace_dir=project._workspace_dir)
+    catalog = project.catalog()
     ref = ms.ref.business_order("commerce.subject_order")
     entry = catalog.require(ref)
     assert isinstance(entry, BusinessOrderEntry)

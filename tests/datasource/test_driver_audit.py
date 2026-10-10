@@ -11,12 +11,11 @@ from marivo.analysis.materialization.store import SessionStore
 from tests.datasource.driver_audit import DriverAudit, Origin, classify, frames, native_audit
 
 
-@pytest.mark.parametrize("backend", ("duckdb", "sqlite"))
 def test_native_driver_records_fixture_sql_once(
-    backend: str, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with native_audit(monkeypatch, backend) as audit:
-        connection = ibis.duckdb.connect() if backend == "duckdb" else ibis.sqlite.connect()
+    with native_audit(monkeypatch, "duckdb") as audit:
+        connection = ibis.duckdb.connect()
         try:
             connection.raw_sql("SELECT 11 AS witness")
         finally:

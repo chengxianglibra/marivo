@@ -1,4 +1,4 @@
-.PHONY: test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
+.PHONY: test slow-test runtime-test runtime-test-agent release-test typecheck lint lint-agent format \
 	check check-agent release-check docs-api docs-api-agent pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
@@ -30,6 +30,10 @@ PYPI_DIST_DIR := dist/pypi
 test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
+
+slow-test:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -m "slow and not release and not runtime" $(if $(findstring ::,$(TESTS)),-n 0,) $(TESTS)
 
 runtime-test:
 	@./scripts/require-venv.sh pytest
@@ -89,7 +93,7 @@ check: lint typecheck test docs-api
 check-agent: lint-agent typecheck test docs-api-agent
 
 release-check:
-	@$(MAKE) check runtime-test release-test TESTS=
+	@$(MAKE) check slow-test runtime-test release-test TESTS=
 
 docs-api: ## Build the Sphinx Python API reference into site/public/api/
 	@./scripts/require-venv.sh sphinx-build

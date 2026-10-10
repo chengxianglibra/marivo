@@ -102,6 +102,25 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
     state = read(path)
     identity = state["session"]
     assert isinstance(identity, str)
+    all_originals = obj(state["originals"])
+    methods = []
+    for raw in arr(state["methods"]):
+        assert isinstance(raw, str)
+        methods.append(raw)
+    if phase == "cold":
+        family = state["family"]
+        assert isinstance(family, str)
+        retained_method = (
+            "sum"
+            if family == "int64" or family.startswith("duration")
+            else "mean"
+            if family in ("float64", "decimal")
+            else None
+        )
+        assert retained_method is not None and retained_method in methods
+        methods = [retained_method]
+        retained = {retained_method + ":" + label for label in ("difference", "allocation")}
+        all_originals = {name: value for name, value in all_originals.items() if name in retained}
     assert not any(
         (root / name).exists() for name in ("models", "warehouse.duckdb", "source_files")
     )
@@ -120,7 +139,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
     ):
         session = mv.session.resume(identity, by="id")
         originals: dict[str, _MaterializedRead] = {}
-        for name, raw in obj(state["originals"]).items():
+        for name, raw in all_originals.items():
             saved = obj(raw)
             reference = saved["artifact"]
             assert isinstance(reference, str)
@@ -131,8 +150,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
         before = run_ids(session)
         outputs: dict[str, Json] = {}
         output_parts: dict[str, Json] = {}
-        for raw in arr(state["methods"]):
-            assert isinstance(raw, str)
+        for raw in methods:
             difference = originals[raw + ":difference"]
             assert isinstance(difference, mv.MaterializedDifferenceRelation)
             operation = difference.attribute(axes=(ms.ref.dimension("sales.order.channel"),))
@@ -142,7 +160,8 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             else:
                 result = operation.execute()
             check_allocation(result, raw)
-            for label in ("allocation", "expanded"):
+            labels = ("allocation", "expanded") if phase == "fixed" else ("allocation",)
+            for label in labels:
                 source = originals[raw + ":" + label]
                 assert isinstance(source, mv.MaterializedAttributionResult)
                 check_allocation(source, raw)
@@ -161,8 +180,14 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             state["outputs"], state["output_parts"] = outputs, output_parts
             path.write_bytes(encode(state))
         else:
-            assert outputs == state["outputs"] and output_parts == state["output_parts"]
-            assert current == before and kernels.call_count == 0
+            if "outputs" in state:
+                saved_outputs = obj(state["outputs"])
+                saved_parts = obj(state["output_parts"])
+                assert outputs == {name: saved_outputs[name] for name in methods}
+                assert output_parts == {name: saved_parts[name] for name in methods}
+                assert current == before and kernels.call_count == 0
+            else:
+                assert len(current - before) == kernels.call_count == len(outputs)
         return {
             "phase": phase,
             "pid": os.getpid(),

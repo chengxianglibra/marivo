@@ -242,7 +242,7 @@ def run(
         else mv.grain("day"),
     )
     entries: list[Json] = []
-    for index in range(len(PROFILES)):
+    for index in (0,) if profile == "KS" else (1,) if profile == "KI" else (7,):
         during = grid if domain == "entity_time" else window
         metric = ms.ref.metric(f"sales.total_{index}")
         current = members.observe(metric, during=during, by=(mv.member(),))

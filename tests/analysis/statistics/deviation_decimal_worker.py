@@ -1,4 +1,4 @@
-"""Public Decimal law qualification in independent producer/fixed/cold processes."""
+"""Public Decimal laws through a source producer, offline fixed and cold recovery."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def verify(
     assert original["value"].to_pylist() == [*values, None]
     assert original.schema.field("value").type == pa.decimal128(precision, scale)
     center, _, _, scores = expected(values, method)
-    assert result.score.to_pandas().sort_values("member").value.iloc[:3].tolist() == list(scores)
+    assert views["score__value"].to_pylist()[:3] == list(scores)
     assert views["reference__value"].to_pylist() == [decimal_finish(center, max(scale, 6))] * 4
     assert views["deviation__value"].to_pylist() == [
         *(decimal_finish(Fraction(x) - center, max(scale, 6)) for x in values),
@@ -101,11 +101,17 @@ def run(root: Path, precision: int, scale: int, phase: str) -> None:
             patch.object(ibis.duckdb, "connect", forbidden),
         ):
             session = mv.session.resume(manifest["session"], by="id")
+            input_ref = manifest["entries"][0]["input"]
+            assert all(entry["input"] == input_ref for entry in manifest["entries"])
+            original = session.artifact(input_ref)
+            assert isinstance(original, mv.MaterializedNumericRelation)
+            cold_input = (
+                original.rank(order="ascending", ties="dense").values.execute()
+                if phase == "cold"
+                else None
+            )
             for entry in manifest["entries"]:
-                captured_input = session.artifact(entry["input"])
                 source_result = session.artifact(entry["result"])
-                assert isinstance(captured_input, mv.MaterializedNumericRelation)
-                original = captured_input
                 assert isinstance(source_result, mv.MaterializedDeviationResult)
                 verify(source_result, precision, entry["scale"], entry["method"], "ibis_python")
                 fixed = original.deviation(method=entry["method"]).execute()
@@ -115,7 +121,7 @@ def run(root: Path, precision: int, scale: int, phase: str) -> None:
                     entry["fixed"] = artifact_ref
                 else:
                     assert artifact_ref == entry["fixed"]
-                    cold_input = original.rank(order="ascending", ties="dense").values.execute()
+                    assert cold_input is not None
                     cold_logical = cold_input.deviation(method=entry["method"])
                     cold = cold_logical.execute()
                     verify(cold, precision, entry["scale"], entry["method"], "artifact_python")

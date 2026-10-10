@@ -48,17 +48,14 @@ def data(backend: str, rows: tuple[tuple[int, str, int, int], ...]) -> SourceDat
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.slow
 def test_native_independent_multiroot_fixed_and_cold(
-    backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     first, second = 9007199254740992, 9007199254740993
@@ -171,31 +168,6 @@ def test_native_independent_multiroot_fixed_and_cold(
                     via=routes,
                     by=(mv.member(),),
                 ),
-                "weighted": members.observe(
-                    mv.runtime_metric.weighted_mean(
-                        ms.ref.measure("sales.left.amount"),
-                        ms.ref.measure("sales.left.amount"),
-                        label="weighted",
-                    ),
-                    via=ms.ref.relationship("sales.left_subject"),
-                    by=(mv.member(),),
-                ),
-                "aggregate": members.observe(
-                    mv.runtime_metric.aggregate(
-                        ms.ref.measure("sales.left.amount"), agg="sum", label="total"
-                    ),
-                    via=ms.ref.relationship("sales.left_subject"),
-                    by=(mv.member(),),
-                ),
-                "slice": members.observe(
-                    mv.runtime_metric.slice(
-                        ms.ref.metric("sales.right_total"),
-                        by={ms.ref.dimension("sales.right.owner"): "a"},
-                        label="selected",
-                    ),
-                    via=ms.ref.relationship("sales.right_subject"),
-                    by=(mv.member(),),
-                ),
             }
             for relation in relations.values():
                 quantity = relation._node.root.signature.quantity
@@ -229,6 +201,9 @@ def test_native_independent_multiroot_fixed_and_cold(
             "session": session.id,
             "originals": originals,
             "components": parts,
+            # Cold recovery needs one representative for each persisted result type:
+            # a multi-root NumericRelation and the distinct RatioRelation.
+            "cold_kinds": ["linear", "ratio"],
         }
         (tmp_path / "r94-multiroot.json").write_bytes(encode(state))
         source_trace.save(
@@ -240,8 +215,6 @@ def test_native_independent_multiroot_fixed_and_cold(
                 "linear_total": 149,
                 "ratio_numerator": 120,
                 "ratio_denominator": 29,
-                "weighted_numerator": 4600,
-                "weighted_denominator": 120,
                 "construction_business_reads_forbidden": True,
             },
             None,

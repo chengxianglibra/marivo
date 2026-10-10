@@ -18,12 +18,11 @@ from marivo.datasource.errors import DatasourceRawSqlError, DatasourceSourceCapa
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
-from tests.datasource.source_cases import ROWS, source_case
+from tests.datasource.source_cases import ROWS, source_case, source_params
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+    "backend", source_params(("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"))
 )
 def test_terminal_native_timeout_is_not_analysis_cancellation(
     backend: str,
@@ -132,10 +131,7 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.parametrize("backend", source_params(("duckdb",)))
 def test_terminal_exact_rows_and_typed_reentry_refusal(
     backend: str,
     tmp_path: Path,

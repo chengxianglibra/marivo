@@ -5,20 +5,18 @@ import sys
 
 import pytest
 
-from tests.analysis.statistics.deviation_fixture import RECOVERY_PROFILES, prepare_profiles
+from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "key_profile,form,unit,zone,calendar,domain",
-    (
-        *((key, "parquet", "us", "UTC", False, "entity") for key in ("KS", "KI", "KC")),
-        *(
-            (key, form, unit, zone, calendar, "entity_time")
-            for key, form, unit, zone, calendar in RECOVERY_PROFILES
-        ),
-    ),
+    [
+        ("KS", "parquet", "us", "UTC", False, "entity"),
+        ("KI", "parquet", "us", "UTC", False, "entity_time"),
+        ("KC", "parquet", "us", "America/New_York", True, "entity_time"),
+    ],
 )
 def test_captured_contributions_followup_profiles(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -30,7 +28,16 @@ def test_captured_contributions_followup_profiles(
     domain: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, key_profile, form, unit, zone, calendar, followup=True)
+    prepare_profiles(
+        case,
+        key_profile,
+        form,
+        unit,
+        zone,
+        calendar,
+        followup=True,
+        profile_indices=(0 if key_profile == "KS" else 1 if key_profile == "KI" else 7,),
+    )
     source_unit = "ms" if form == "parquet" and unit == "s" else unit
     process = subprocess.run(
         [

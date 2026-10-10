@@ -149,7 +149,7 @@ def test_shared_output_ends_group_and_is_consumed_once(monkeypatch: pytest.Monke
         CellDerive(
             "difference",
             "difference",
-            "strict",
+            "propagate",
             "units",
             "all",
             "source.exact_pairing@v1",

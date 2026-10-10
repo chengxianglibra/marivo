@@ -2,6 +2,8 @@
 
 This opt-in environment supplies ready services for native source reads, driver
 control, and analysis recovery tests. Pytest and Make test gates never start it.
+Services are reused across cases and repeated test invocations. Fresh client
+processes, connections and UUID-named tables do not recreate containers.
 All lifecycle commands target the dedicated `marivo-multisource` Colima socket;
 other Colima profiles, containers, and volumes are outside its ownership.
 
@@ -11,9 +13,9 @@ other Colima profiles, containers, and volumes are outside its ownership.
 | --- | --- | --- |
 | Source profiles, physical types, identity and decoding | `tests/datasource/test_source_profiles.py`, `test_source_adapters_runtime.py` | `make runtime-test` |
 | Read-only settings, timezone and native control | `tests/datasource/test_control_boundaries.py` | `make test` for local contracts; `make runtime-test` for services |
-| Acquisition expiry and atomic snapshot publication | `tests/datasource/test_acquisition_timeout.py`, `test_mysql_authoring_deadline.py` | `make runtime-test` |
+| Acquisition expiry and atomic snapshot publication | `tests/datasource/test_acquisition_timeout.py`, `test_mysql_authoring_deadline.py` | `make test` for local sources; `make runtime-test` for services |
 | Native cancellation, cleanup and independent server observation | `tests/datasource/test_source_deadline.py`, `test_mysql_cancellation.py`, `test_datasource_clickhouse_cancellation.py` | `make runtime-test` |
-| Governed, provider, terminal and Store SQL authority | `tests/datasource/test_sql_audit.py`, `test_driver_audit.py`, `test_sql_runtime.py` | `make test` for static/local witnesses; `make runtime-test` for public execution |
+| Governed, provider, terminal and Store SQL authority | `tests/datasource/test_sql_audit.py`, `test_driver_audit.py`, `test_sql_runtime.py` | `make test` for static/local witnesses; `make runtime-test` for service execution |
 | Installed package source execution and cold recovery | `tests/packaging/test_installed_sources.py` | `make installed-multisource-test` |
 
 Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,

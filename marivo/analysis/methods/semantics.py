@@ -988,14 +988,16 @@ class MethodSemantics:
     @property
     def cell_policy(
         self,
-    ) -> Literal["strict", "count_all", "defined_only", "input_owned", "pair_null"]:
+    ) -> Literal["strict", "propagate", "count_all", "defined_only", "input_owned", "pair_null"]:
         if self.key.name.startswith("association."):
             return "pair_null"
         if self.key.name == "row.count":
             return "count_all"
         if self.key.name == "row.count_defined":
             return "defined_only"
-        if self.rule in ("cell_derive@v1", "row_state@v1"):
+        if self.rule == "cell_derive@v1":
+            return "propagate"
+        if self.rule == "row_state@v1":
             return "strict"
         return "input_owned"
 

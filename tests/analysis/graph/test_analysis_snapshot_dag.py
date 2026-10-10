@@ -87,7 +87,7 @@ def _pair(left: MethodNode, right: MethodNode) -> MethodNode:
         CellDerive(
             "difference",
             "difference",
-            "strict",
+            "propagate",
             "count",
             "all",
             "source.exact_pairing@v1",
@@ -286,7 +286,7 @@ def test_retained_closure_shares_definitions_but_does_not_schedule_them() -> Non
         CellDerive(
             "difference",
             "difference",
-            "strict",
+            "propagate",
             "count",
             "all",
             "source.exact_pairing@v1",

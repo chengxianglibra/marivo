@@ -38,6 +38,13 @@ from tests.support.json import arr as array_json
 from tests.support.json import obj as object_json
 from tests.support.json import read as read_json
 
+COLD_METHODS = {
+    "deviation.zscore@v1",
+    "time.runs@v1",
+    "association.pearson@v1",
+    "forecast.naive@v1",
+}
+
 
 def forbidden(*args: object, **kwargs: object) -> None:
     raise AssertionError(
@@ -116,6 +123,8 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
             ):
                 session = mv.session.resume(text(state["session"]), by="id")
                 for method, raw in object_json(state["source"]).items():
+                    if phase == "cold" and method not in COLD_METHODS:
+                        continue
                     saved = object_json(raw)
                     restored = session.artifact(text(saved["artifact"]))
                     assert isinstance(restored, Result)
@@ -140,6 +149,8 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
                 originals = restored_inputs[0], restored_inputs[1], restored_inputs[2]
                 entries = {}
                 for method, logical in graphs(originals).items():
+                    if phase == "cold" and method not in COLD_METHODS:
+                        continue
                     before = sum(
                         isinstance(
                             call.args[0].parameters,

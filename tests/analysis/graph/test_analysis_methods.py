@@ -678,7 +678,7 @@ def test_cell_semantics_are_not_adapter_options() -> None:
     parameters = CellDerive(
         "ratio",
         "ratio",
-        "strict",
+        "propagate",
         "1",
         "september",
         "source.exact_pairing@v1",

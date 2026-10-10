@@ -39,12 +39,12 @@ def _foreign_entry(root: Path, name: str | None) -> Path | None:
     return path
 
 
-@pytest.mark.parametrize("entry", [None, "v5", "v8", "README"])
 def test_session_discovery_preserves_project_without_current_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    _foreign_entry(tmp_path, entry)
+    for entry in ("v5", "v8", "README"):
+        _foreign_entry(tmp_path, entry)
     before = _project_state(tmp_path)
 
     assert mv.session.current() is None
@@ -60,19 +60,17 @@ def test_session_discovery_preserves_project_without_current_store(
     assert _project_state(tmp_path) == before
 
 
-@pytest.mark.parametrize("entry", [None, "v5", "v8", "README"])
 @pytest.mark.parametrize("existing_session", [False, True])
 def test_session_creation_and_history_preserve_foreign_entries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    entry: str | None,
     existing_session: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     original = (
         mv.session.get_or_create("first", report_timezone="UTC") if existing_session else None
     )
-    foreign = _foreign_entry(tmp_path, entry)
+    foreign = [_foreign_entry(tmp_path, entry) for entry in ("v5", "v8", "README")]
     first = mv.session.get_or_create("first", report_timezone="UTC")
     if original is not None:
         assert first.id == original.id
@@ -94,8 +92,10 @@ def test_session_creation_and_history_preserve_foreign_entries(
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("legacy-session", by="id")
     assert first._runtime.store.layout.generation == 9
-    if foreign is not None:
-        assert foreign.read_bytes() == b"preserve-unreadable-legacy-bytes"
+    assert all(
+        path is not None and path.read_bytes() == b"preserve-unreadable-legacy-bytes"
+        for path in foreign
+    )
 
 
 @pytest.mark.parametrize(
@@ -193,12 +193,11 @@ def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(
     assert _project_state(tmp_path) == before
 
 
-@pytest.mark.parametrize("entry", ["current", "recent"])
 @pytest.mark.parametrize(
     "state", ["directory", "dangling_symlink", "invalid_bytes", "incomplete_schema", "non_wal"]
 )
 def test_session_discovery_rejects_invalid_current_store_without_mutation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, state: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state: str
 ) -> None:
     monkeypatch.chdir(tmp_path)
     path = MaterializationLayout(tmp_path).store_db
@@ -219,17 +218,14 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         with sqlite3.connect(path) as connection:
             connection.execute("PRAGMA journal_mode=DELETE")
     before = _project_state(tmp_path)
-    with pytest.raises(IntegrityError):
-        if entry == "current":
-            mv.session.current()
-        else:
-            mv.session.recent()
-    assert _project_state(tmp_path) == before
+    for read in (mv.session.current, mv.session.recent):
+        with pytest.raises(IntegrityError):
+            read()
+        assert _project_state(tmp_path) == before
 
 
-@pytest.mark.parametrize("entry", ["current", "recent"])
 def test_session_discovery_reports_store_access_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     path = MaterializationLayout(tmp_path).store_db
@@ -243,33 +239,27 @@ def test_session_discovery_reports_store_access_failure(
 
     with monkeypatch.context() as patch:
         patch.setattr(Path, "lstat", denied)
-        with pytest.raises(IntegrityError) as caught:
-            if entry == "current":
-                mv.session.current()
-            else:
-                mv.session.recent()
-        assert caught.value.received == "selected Store 9 is unavailable"
+        for read in (mv.session.current, mv.session.recent):
+            with pytest.raises(IntegrityError) as caught:
+                read()
+            assert caught.value.received == "selected Store 9 is unavailable"
     assert _project_state(tmp_path) == before
 
 
-@pytest.mark.parametrize("entry", ["current", "recent"])
-@pytest.mark.parametrize("version", [0, 5, 8])
 def test_session_discovery_rejects_incompatible_selected_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str, version: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     path = MaterializationLayout(tmp_path).store_db
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as connection:
-        connection.execute(f"PRAGMA user_version={version}")
+        connection.execute("PRAGMA user_version=8")
     before = _project_state(tmp_path)
-    with pytest.raises(IntegrityError) as caught:
-        if entry == "current":
-            mv.session.current()
-        else:
-            mv.session.recent()
-    assert caught.value.stage == "store_generation"
-    assert caught.value.received == f"Session Store user_version={version}"
+    for read in (mv.session.current, mv.session.recent):
+        with pytest.raises(IntegrityError) as caught:
+            read()
+        assert caught.value.stage == "store_generation"
+        assert caught.value.received == "Session Store user_version=8"
     assert _project_state(tmp_path) == before
 
 

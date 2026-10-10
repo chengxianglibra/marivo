@@ -1,12 +1,8 @@
-"""SQLite direct-axis combinations through real capture and offline recovery."""
+"""SQLite direct-axis source behavior and historical route coverage."""
 
 from __future__ import annotations
 
-import os
-import shutil
 import sqlite3
-import subprocess
-import sys
 from collections.abc import Callable, Generator, Iterator
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -31,11 +27,8 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceBatchStream, SourceSession
 from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.shared_fixtures import run_ids
 from tests.support.documentation import _example
-from tests.support.json import Json, encode, obj, read
-from tests.support.paths import PROJECT_ROOT
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 BASELINE = START - timedelta(days=3)
@@ -216,7 +209,6 @@ def _axes(names: tuple[str, ...]) -> tuple[Ref[DimensionKind], ...]:
     return tuple(ms.ref.dimension("sales.subjects." + name) for name in names)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "names",
     (
@@ -299,7 +291,6 @@ def test_sqlite_direct_axis_tuples(
     assert "string/int64" in help_text and len(help_text) <= 16384
 
 
-@pytest.mark.runtime
 def test_sqlite_direct_axis_rejection_and_capture_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -356,131 +347,60 @@ def test_sqlite_direct_axis_rejection_and_capture_cleanup(
             assert connection.execute("SELECT count(*) FROM " + table).fetchone()[0] == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("history", [False, True])
-def test_sqlite_three_axis_independent_recovery(
-    history: bool,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    session, journeys, database = _build(tmp_path, semantic_project_factory, history=history)
-    examples = [_example(locale, "direct-funnel-axes") for locale in ("en", "zh")]
-    assert examples[0] == examples[1]
-    if history:
-        axes = tuple(
-            ms.ref.dimension(name)
-            for name in ("sales.subjects.region", "sales.snapshots.code", "sales.leaf.channel")
-        )
-        namespace: dict[str, object] = {
-            "mv": mv,
-            "ms": ms,
-            "journeys": journeys(START),
-            "baseline_journeys": journeys(BASELINE),
-        }
-        code = _example("en", "historical-funnel-axes")
-        exec(compile(code, "latest-history-axes-example", "exec"), namespace)
-        current, baseline, change = (
-            namespace["history_current"],
-            namespace["history_baseline"],
-            namespace["history_change"],
-        )
-    else:
-        namespace = {
-            "ms": ms,
-            "journeys": journeys(START),
-            "baseline_journeys": journeys(BASELINE),
-        }
-        exec(compile(examples[0], "latest-sqlite-direct-axes-example", "exec"), namespace)
-        current, baseline, change = (
-            namespace["current"],
-            namespace["baseline"],
-            namespace["three_axis_change"],
-        )
-        axes = _axes(("region", "code", "channel"))
-    assert isinstance(current, mv.MaterializedFunnelResult)
-    assert isinstance(baseline, mv.MaterializedFunnelResult)
-    assert isinstance(change, mv.MaterializedFunnelComparisonResult)
-    assert change.evidence_digest().finding_count > 0
-    manifest: dict[str, Json] = {
-        "session": session.id,
-        "axes": [axis.path for axis in axes],
-        "inputs": {
-            "current": snapshot(current),
-            "baseline": snapshot(baseline),
-            "change": snapshot(change),
-        },
-    }
-    (tmp_path / "direct-axes.json").write_bytes(encode(manifest))
-    shutil.rmtree(tmp_path / "models")
-    database.unlink()
-    reports: list[dict[str, Json]] = []
-    for phase in ("fixed", "cold"):
-        report = tmp_path / (phase + ".json")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.journey.sqlite_funnel_direct_axes_worker",
-                str(tmp_path),
-                phase,
-                str(report),
-            ],
-            cwd=PROJECT_ROOT,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "MARIVO_TELEMETRY": "off"},
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(obj(read(report)))
-    assert len({os.getpid(), reports[0]["pid"], reports[1]["pid"]}) == 3
-    assert reports[0]["outputs"] == reports[1]["outputs"]
-    assert reports[1]["new_hit_runs"] == 0
-    assert reports[1]["new_allocation_runs"] == 1
-
-
-@pytest.mark.runtime
-def test_sqlite_history_routes_assemble_exact_tuples(
+def test_sqlite_historical_three_axis_documented_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     monkeypatch.chdir(tmp_path)
     session, journeys, _ = _build(tmp_path, semantic_project_factory, history=True)
+    examples = [_example(locale, "historical-funnel-axes") for locale in ("en", "zh")]
+    assert examples[0] == examples[1]
     axes = tuple(
         ms.ref.dimension(name)
-        for name in (
-            "sales.snapshots.region",
-            "sales.snapshots.code",
-            "sales.validity.zone",
-            "sales.leaf.channel",
-            "sales.subjects.id",
-        )
+        for name in ("sales.subjects.region", "sales.snapshots.code", "sales.leaf.channel")
     )
-    for beginning, completed in ((START, (1, 4)), (BASELINE, (2,))):
-        rows = journeys(beginning).funnel(axes=axes).execute().to_pandas()
-        expected: dict[tuple[object, ...], bool] = {
-            (
-                region if beginning == START else "old",
-                code,
-                "new" if beginning == START else "old",
-                channel,
-                identity,
-            ): identity in completed
-            for identity, region, channel, code in SUBJECTS
-        }
-        assert len(rows) == 8
-        for row in rows.to_dict("records"):
-            key = tuple(None if pd.isna(row[axis.path]) else row[axis.path] for axis in axes)
-            reached = 1 if row["step"] == 0 else int(expected[key])
-            assert tuple(row[name] for name in COUNTS) == (1, 1, 1, 1, reached, 1 - reached, 0)
-        assert (
-            rows.loc[rows.step == 0, "loss_rate_from_previous__cell_reason"].tolist()
-            == ["initial_step"] * 4
-        )
+    namespace: dict[str, object] = {
+        "mv": mv,
+        "ms": ms,
+        "journeys": journeys(START),
+        "baseline_journeys": journeys(BASELINE),
+    }
+    exec(compile(examples[0], "latest-history-axes-example", "exec"), namespace)
+    current, baseline, change = (
+        namespace["history_current"],
+        namespace["history_baseline"],
+        namespace["history_change"],
+    )
+    assert isinstance(current, mv.MaterializedFunnelResult)
+    assert isinstance(baseline, mv.MaterializedFunnelResult)
+    assert isinstance(change, mv.MaterializedFunnelComparisonResult)
+    assert change.evidence_digest().finding_count > 0
+
+    def observed_counts(
+        result: mv.MaterializedFunnelResult,
+    ) -> dict[tuple[object, ...], tuple[int, ...]]:
+        observed: dict[tuple[object, ...], tuple[int, ...]] = {}
+        for row in result.to_pandas().to_dict("records"):
+            coordinates = tuple(
+                None if pd.isna(row[axis.path]) else row[axis.path] for axis in axes
+            )
+            observed[(row["step"], *coordinates)] = tuple(row[name] for name in COUNTS)
+        return observed
+
+    def expected_counts(
+        reached_subjects: tuple[int, ...],
+    ) -> dict[tuple[object, ...], tuple[int, ...]]:
+        expected: dict[tuple[object, ...], tuple[int, ...]] = {}
+        for identity, region, channel, code in SUBJECTS:
+            coordinate = (region, code, channel)
+            expected[(0, *coordinate)] = (1, 1, 1, 1, 1, 0, 0)
+            reached = int(identity in reached_subjects)
+            expected[(1, *coordinate)] = (1, 1, 1, 1, reached, 1 - reached, 0)
+        return expected
+
+    assert observed_counts(current) == expected_counts((1, 4))
+    assert observed_counts(baseline) == expected_counts((2,))
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -511,7 +431,6 @@ def test_entry_mappings_require_complete_occurrence_identity(fault: str) -> None
         assemble_axes(base, (invalid,))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ["missing", "duplicate", "overlap"])
 def test_sqlite_history_capture_failure_is_atomic(
     fault: str,

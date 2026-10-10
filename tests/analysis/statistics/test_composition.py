@@ -25,6 +25,7 @@ from marivo.analysis.materialization import (
 )
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.datasource.adapters import SourceBatchStream
+from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.journeys import (
     METHODS,
     Result,
@@ -38,7 +39,6 @@ from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ("parquet",))
 def test_direct_score_runs_and_next_business_round(
     analysis_dsl_case_factory: DslCaseFactory, form: str
@@ -111,7 +111,6 @@ def test_direct_score_runs_and_next_business_round(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", METHODS)
 def test_shared_method_and_transport_are_distinct_from_new_kernels(
     analysis_dsl_case_factory: DslCaseFactory, method: str
@@ -184,7 +183,6 @@ def test_shared_method_and_transport_are_distinct_from_new_kernels(
         )
 
 
-@pytest.mark.runtime
 def test_two_separate_axes_and_joint_keep_the_original_target(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -233,8 +231,8 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
         assert dict(result.contract()._facts)["complete_partition"] == "True"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ("parquet",))
+@pytest.mark.slow
 def test_nine_methods_three_independent_processes(tmp_path: Path, form: str) -> None:
     project = tmp_path / "project"
     reports: list[Json] = []
@@ -267,7 +265,6 @@ def test_nine_methods_three_independent_processes(tmp_path: Path, form: str) -> 
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ("parquet",))
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_score_select_members_followup_one_dag(
@@ -336,13 +333,30 @@ def test_score_select_members_followup_one_dag(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ("parquet",))
+@pytest.mark.slow
 def test_category_time_three_methods_three_models(
     analysis_dsl_case_factory: DslCaseFactory, form: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    session = prepare(case, form)
+    prepare_profiles(
+        case,
+        "KC",
+        form,
+        "us",
+        "UTC",
+        False,
+        followup=True,
+        profile_indices=(0, 1, 5),
+    )
+    models = case.root / "models/semantic/sales/models.py"
+    models.write_text(
+        models.read_text()
+        + "\ncopy_0 = ms.measure_column(name='copy_0', entity=orders, column='profile_0', "
+        "additivity=ms.additive_all(), unit='CNY')\n"
+    )
+    ms.load(workspace_dir=case.root)
+    session = mv.session.get_or_create("r86", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.order"))
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")

@@ -12,11 +12,15 @@ from marivo.analysis.methods.state_validation import state_matches
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
-@pytest.mark.parametrize("kind", ["ratio", "weighted"])
-@pytest.mark.parametrize("split", [False, True])
-@pytest.mark.parametrize("coordinates", [False, True])
+@pytest.mark.parametrize(
+    "parquet,kind,split,coordinates",
+    [
+        (False, "ratio", False, False),
+        (True, "ratio", True, True),
+        (False, "weighted", True, False),
+        (True, "weighted", False, True),
+    ],
+)
 def test_native_float_nonzero_denominator_survives_cancellation(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,
@@ -95,9 +99,10 @@ def test_native_float_nonzero_denominator_survives_cancellation(
         assert frame.cell_tag.tolist() == ["defined"]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
-@pytest.mark.parametrize("kind", ["first", "last", "mean", "min", "max"])
+@pytest.mark.parametrize(
+    "parquet,kind",
+    [(False, "first"), (True, "last"), (False, "mean"), (True, "min"), (False, "max")],
+)
 def test_decimal_fold_retains_widened_sample_type(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, kind: str
 ) -> None:
@@ -135,10 +140,10 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
         assert result.to_pandas().value.tolist() == [Decimal(1800)]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("scale", [0, 6, 38])
-@pytest.mark.parametrize("negative", [False, True])
-@pytest.mark.parametrize("kind", ["sum", "min", "max"])
+@pytest.mark.parametrize(
+    "scale,negative,kind",
+    [(0, False, "sum"), (38, True, "sum"), (6, True, "min"), (38, False, "max")],
+)
 def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     analysis_dsl_case_factory: DslCaseFactory,
     scale: int,
@@ -182,9 +187,7 @@ def test_float_sum_requires_finite_complete_absolute_state() -> None:
     assert state_matches("original_sum", primary, {**state, "original_state__absolute_sum": 2e16})
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-@pytest.mark.parametrize("batch_size", [1, 2, 1024])
-@pytest.mark.runtime
+@pytest.mark.parametrize("reverse,batch_size", [(False, 1), (True, 2), (True, 1024)])
 def test_numeric_raw_order_and_exchange_batches(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,

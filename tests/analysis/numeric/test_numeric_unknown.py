@@ -17,12 +17,11 @@ from marivo.datasource.adapters import SourceSession
 from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_public
 
 
-@pytest.mark.runtime
 def test_public_unknown_duration_deviation_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    session, population, window, claims, _ = build_lifecycle_public(tmp_path, backend_name="sqlite")
+    session, population, window, claims, _ = build_lifecycle_public(tmp_path, backend_name="duckdb")
     history = session.lifecycle.replay(
         ms.ref.state_model("commerce.model"),
         population=population,

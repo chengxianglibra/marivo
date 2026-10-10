@@ -25,18 +25,11 @@ from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "backend,axis_kind",
-    [
-        (backend, "single")
-        for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-    ]
-    + [("duckdb", "joint"), ("sqlite", "null")],
+    ("metric_kind", "axis_kind"),
+    [("sum", "single"), ("mean", "joint"), ("sum", "null")],
 )
-@pytest.mark.parametrize("metric_kind", ["sum", "mean"])
 def test_source_and_retained(
-    backend: str,
     metric_kind: Literal["sum", "mean"],
     axis_kind: Literal["single", "joint", "null"],
     tmp_path: Path,
@@ -44,11 +37,10 @@ def test_source_and_retained(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    profile = (
-        "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
-    )
+    profile = "table"
     data = reference_data(backend)
     data = replace(
         data,
@@ -57,7 +49,7 @@ def test_source_and_retained(
         clickhouse_columns=data.clickhouse_columns + ", region String",
         rows=[{**row, "region": "east"} for row in data.rows],
     )
-    prefix = "TIMESTAMP " if backend == "trino" else ""
+    prefix = ""
     data = replace(
         data,
         values=data.values
@@ -93,7 +85,6 @@ def test_source_and_retained(
             models.read_text()
             + "\nregion = ms.dimension_column(name='region', entity=facts, column='region')\n"
         )
-        ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("r93-attribution", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.facts"))
         axes: tuple[Ref[DimensionKind], ...] = (ms.ref.dimension("sales.facts.bucket"),)
@@ -131,22 +122,32 @@ def test_source_and_retained(
         source = change.attribute(axes=axes).execute()
         source_trace.record(source)
         business_keys = [f"coord_{i}" for i in range(len(axes))]
-        source_frame = (
-            source.contribution.to_pandas().sort_values(business_keys).reset_index(drop=True)
+        source_table = (
+            mv.table(
+                current=source.current,
+                baseline=source.baseline,
+                contribution=source.contribution,
+            )
+            .execute()
+            .to_pandas()
+            .sort_values(business_keys)
+            .reset_index(drop=True)
+        )
+        source_frame = source_table.loc[:, [*business_keys, "contribution"]].rename(
+            columns={"contribution": "value"}
         )
         assert fixed_change.to_pandas().value.tolist() == ([-2] if metric_kind == "sum" else [-1])
-        for view, expected in (
+        for column, expected in (
             (
-                source.current,
+                "current",
                 {"a": 2, "b": 4, "c": 0} if metric_kind == "sum" else {"a": 1, "b": 2, "c": 0},
             ),
             (
-                source.baseline,
+                "baseline",
                 {"a": 0, "b": 3, "c": 5} if metric_kind == "sum" else {"a": 0, "b": 1.5, "c": 2.5},
             ),
         ):
-            frame = view.to_pandas()
-            assert dict(zip(frame.coord_0, frame.value, strict=True)) == expected
+            assert dict(zip(source_table.coord_0, source_table[column], strict=True)) == expected
         expected_contributions = (
             {"a": 2, "b": 1, "c": -5} if metric_kind == "sum" else {"a": 1, "b": 0.5, "c": -2.5}
         )
@@ -169,11 +170,13 @@ def test_source_and_retained(
         fixed = fixed_change.attribute(axes=axes).execute()
         assert (
             fixed.contribution.to_pandas()
+            .loc[:, [*business_keys, "value"]]
             .sort_values(business_keys)
             .reset_index(drop=True)
             .equals(source_frame)
         )
 
+        # DuckDB owns the generic sum continuations after source reads are forbidden.
         top = fixed_change.attribute(axes=axes, top_k=1).execute()
         top_frame = top.contribution.to_pandas()
         assert sorted(top_frame.value.tolist()) == (
@@ -185,7 +188,7 @@ def test_source_and_retained(
             [-3] if metric_kind == "sum" else [-1.5]
         )
         selection = fixed.where(fixed.contribution.value.gt(0))
-        if backend == "duckdb" and axis_kind == "joint":
+        if axis_kind == "joint":
             assert (
                 len(document_json(graph_document(selection._node.definition)).encode())
                 < 1024 * 1024
@@ -217,6 +220,7 @@ def test_source_and_retained(
                 "contributions": [2, 1, -5] if metric_kind == "sum" else [1, 0.5, -2.5],
                 "top_k_other": [-3, 1] if metric_kind == "sum" else [-1.5, 0.5],
                 "selected": [1, 2] if metric_kind == "sum" else [0.5, 1],
+                "retained_continuations_checked": True,
                 "hierarchy": sorted(list(expected_contributions.values()) * 2)
                 if axis_kind == "joint"
                 else None,

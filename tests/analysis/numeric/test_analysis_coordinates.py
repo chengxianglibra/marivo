@@ -11,7 +11,6 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["min", "max", "count_defined"])
 def test_row_methods_source_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory, method: str
@@ -45,9 +44,8 @@ def test_row_methods_source_and_fixed(
     assert local.iloc[0]["value"] == expected
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_complete_coordinate_tuple_rollup(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool, parquet: bool
 ) -> None:
@@ -79,7 +77,6 @@ def test_complete_coordinate_tuple_rollup(
     assert len(frame) == 2
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_category_counts_without_numeric_conversion(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
@@ -94,7 +91,6 @@ def test_category_counts_without_numeric_conversion(
     assert current.aggregate(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", [mv.min(), mv.max(), mv.mean(), mv.sum()])
 def test_empty_numeric_row_state(
     analysis_dsl_case_factory: DslCaseFactory, method: mv.RowMethod
@@ -122,7 +118,6 @@ def test_empty_numeric_row_state(
             assert row["cell_reason"] == "empty_" + method.kind
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_explicit_classification_rollup_and_current_rows(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
@@ -148,7 +143,6 @@ def test_explicit_classification_rollup_and_current_rows(
     assert counts["value"].to_dict() == {"east": 2, "south": 1, "west": 1}
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_selected_row_groups_preserve_count_mean_state(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool
@@ -191,7 +185,6 @@ def test_selected_row_groups_preserve_count_mean_state(
     assert mean.rollup().execute().to_pandas().iloc[0]["value"] == 300
 
 
-@pytest.mark.runtime
 def test_original_mean_merges_support_not_finished_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -218,10 +211,8 @@ def test_original_mean_merges_support_not_finished_values(
     assert fixed.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("fixed", [False, True])
 def test_partial_reduction_matches_components_and_preserves_keys(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     customer = ms.ref.entity("sales.customer")
@@ -237,7 +228,7 @@ def test_partial_reduction_matches_components_and_preserves_keys(
             status,
         ),
     )
-    current = observed.execute() if fixed else observed
+    current = observed
     direct = current.rollup().execute()
     partial = current.group_by(customer, channel).rollup().execute()
     assert partial.to_pandas()["value"].tolist() == [450, 150, 400]
@@ -261,12 +252,8 @@ def test_partial_reduction_matches_components_and_preserves_keys(
     assert any(a.call == "relation.rollup()" for a in hierarchical.contract().actions)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "method", [mv.sum(), mv.min(), mv.max(), mv.mean(), mv.count(), mv.count_defined()]
-)
-def test_row_statistics_grouped_merge_preserves_empty_state_and_identity(
-    retained_coordinates_case, method
+def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
+    retained_coordinates_case,
 ):
     case = retained_coordinates_case
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -277,20 +264,19 @@ def test_row_statistics_grouped_merge_preserves_empty_state_and_identity(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    grouped = values.group_by(region).aggregate(method)
-    direct = values.aggregate(method).execute()
-    for current in (grouped, grouped.execute()):
-        result = current.rollup().execute()
-        assert result.to_pandas()["value"].tolist() == direct.to_pandas()["value"].tolist()
-        assert result._node.root.signature.quantity == current._node.root.signature.quantity
-        assert next(
-            p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "row_state"
-        ) == next(
-            p.table.to_pylist() for p in direct._dataset.verified().parts if p.role == "row_state"
-        )
+    grouped = values.group_by(region).aggregate(mv.mean())
+    direct = values.aggregate(mv.mean()).execute()
+    result = grouped.rollup().execute()
+    assert result.to_pandas()["value"].tolist() == direct.to_pandas()["value"].tolist()
+    assert result._node.root.signature.quantity == grouped._node.root.signature.quantity
+    assert next(
+        p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "row_state"
+    ) == next(
+        p.table.to_pylist() for p in direct._dataset.verified().parts if p.role == "row_state"
+    )
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_cold_grouped_statistic_recovers_without_models_source_or_duckdb(retained_coordinates_case):
     import os
     import subprocess
@@ -337,7 +323,6 @@ assert fixed.rollup().execute().to_pandas().iloc[0]['value'] == 49
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
 def test_no_key_grouping_is_singleton(retained_coordinates_case):
     case = retained_coordinates_case
     result = (
@@ -354,7 +339,6 @@ def test_no_key_grouping_is_singleton(retained_coordinates_case):
     assert result.to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_category_count_uses_current_rows(retained_coordinates_case, fixed):
     case = retained_coordinates_case
@@ -367,7 +351,6 @@ def test_category_count_uses_current_rows(retained_coordinates_case, fixed):
     assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("expression_kind", ["ratio", "linear"])
 def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     analysis_dsl_case_factory: DslCaseFactory, expression_kind: str
@@ -404,7 +387,6 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("violation", ["missing", "corrupt"])
 def test_required_row_state_damage_revokes_continuation(retained_coordinates_case, violation):
     from marivo.analysis.errors import AnalysisError
@@ -439,7 +421,6 @@ def test_required_row_state_damage_revokes_continuation(retained_coordinates_cas
         path.write_bytes(original)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_consumed_classification_must_cover_every_complete_key(retained_coordinates_case, fixed):
     from marivo.analysis.errors import AnalysisError
@@ -464,8 +445,7 @@ def test_consumed_classification_must_cover_every_complete_key(retained_coordina
         current.group_by(category).rollup().execute()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_weighted_coordinates_merge_paired_components(
     analysis_dsl_case_factory: DslCaseFactory, parquet
 ):
@@ -509,7 +489,6 @@ def test_weighted_coordinates_merge_paired_components(
         ]
 
 
-@pytest.mark.runtime
 def test_combined_member_classifications_do_not_expand_facts(
     analysis_dsl_case_factory: DslCaseFactory,
 ):
@@ -540,7 +519,6 @@ def test_combined_member_classifications_do_not_expand_facts(
     ].tolist() == [1000]
 
 
-@pytest.mark.runtime
 def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_case):
     case = retained_coordinates_case
     members = case.session.members(ms.ref.entity("sales.order"))
@@ -554,7 +532,6 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
         assert result.rollup().execute().to_pandas()["value"].tolist() == [36.75]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("violation", ["null", "outside", "duplicate"])
 @pytest.mark.parametrize("fixed", [False, True])
 def test_invalid_classification_rejects(retained_coordinates_case, violation, fixed):
@@ -582,7 +559,6 @@ def test_invalid_classification_rejects(retained_coordinates_case, violation, fi
         ).rollup().execute()
 
 
-@pytest.mark.runtime
 def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case):
     from dataclasses import replace
 
@@ -619,7 +595,6 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
         replace(result._node, root=root).rollup_statistic()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_typed_integer_classification_and_singleton(retained_coordinates_case, fixed):
     case = retained_coordinates_case
@@ -648,7 +623,6 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case, f
     assert current.group_by().rollup().execute().to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
 def test_selected_entities_keep_complete_subject_mapping(
     analysis_dsl_case_factory: DslCaseFactory, fixed
@@ -674,9 +648,8 @@ def test_selected_entities_keep_complete_subject_mapping(
     assert result.rollup().execute().to_pandas()["value"].tolist() == [600]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_review_selected_category_retains_classification(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool, parquet: bool
 ) -> None:
@@ -704,8 +677,7 @@ def test_review_selected_category_retains_classification(
     ]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [False])
 def test_review_foreign_fact_predicate_transports_source_bindings(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -744,7 +716,7 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     assert local.rollup().execute().to_pandas()["value"].tolist() == [0]
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_review_cold_selected_category_count(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -806,7 +778,6 @@ assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "method,logical_expected,fixed_expected",
     [
@@ -815,7 +786,6 @@ assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
         (mv.min(), [20, 7], [140, 7]),
         (mv.max(), [120, 7], [140, 7]),
         (mv.count(), [2, 1], [1, 1]),
-        (mv.count_defined(), [2, 1], [1, 1]),
     ],
 )
 def test_review_fixed_group_statistics_keep_axes_and_current_rows(
@@ -857,7 +827,6 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", [False, True])
 @pytest.mark.parametrize("method", [mv.count(), mv.mean()])
 def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(

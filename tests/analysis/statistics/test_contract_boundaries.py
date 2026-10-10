@@ -8,7 +8,6 @@ from marivo.analysis.materialization.contracts import canonical_json
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
 def test_artifact_rejects_unknown_evidence_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

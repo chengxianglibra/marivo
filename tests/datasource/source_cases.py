@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +18,7 @@ import ibis
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from _pytest.mark.structures import ParameterSet
 
 from marivo.datasource.adapters import SourceIR, SourceSession, provider_for
 from marivo.datasource.ir import (
@@ -60,6 +61,20 @@ FLAGS = {
     "trino": "MARIVO_TRINO_ANALYSIS_TEST",
     "clickhouse": "MARIVO_CLICKHOUSE_ANALYSIS_TEST",
 }
+
+
+def source_params(
+    cases: Iterable[str | tuple[object, ...]], *, backend_index: int = 0
+) -> list[ParameterSet]:
+    """Route actual service cases to Runtime while keeping embedded sources daily."""
+    parameters: list[ParameterSet] = []
+    for case in cases:
+        values = (case,) if isinstance(case, str) else case
+        backend = values[backend_index]
+        parameters.append(
+            pytest.param(*values, marks=pytest.mark.runtime if backend in FLAGS else ())
+        )
+    return parameters
 
 
 def datasource(
@@ -124,7 +139,7 @@ def json_server(
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = Thread(target=server.serve_forever, daemon=True)
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}", seen

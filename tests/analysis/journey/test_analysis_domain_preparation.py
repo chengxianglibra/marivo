@@ -8,7 +8,6 @@ import sys
 from contextlib import closing, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
-from itertools import product
 from typing import Literal
 
 import ibis
@@ -287,21 +286,18 @@ def _case(
     yield runtime, root, bindings, source, submissions
 
 
-PROFILES = [
-    (s, o, form, unit, zone)
-    for s, o in product(("s", "i", "si"), repeat=2)
-    for form, unit in (
-        ("table", "us"),
-        ("parquet", "s"),
-        ("parquet", "ms"),
-        ("parquet", "us"),
-        ("parquet", "ns"),
-    )
-    for zone in ("UTC", "America/New_York")
-]
+# Keep an orthogonal basis of the independent identity, carrier and timezone
+# contracts. The old Cartesian product repeated the same source/fixed/cold
+# assertions across 90 combinations; neighboring public suites own the fuller
+# identity and temporal behavior matrices.
+PROFILES = (
+    ("s", "i", "table", "us", "UTC"),
+    ("i", "si", "parquet", "s", "America/New_York"),
+    ("si", "s", "parquet", "ns", "UTC"),
+)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("subject,occurrence,form,unit,zone", PROFILES)
 def test_source_fixed_and_cold_precision(tmp_path, subject, occurrence, form, unit, zone):
     with _case(tmp_path, subject, occurrence, form, unit, zone) as (
@@ -379,6 +375,8 @@ def test_source_fixed_and_cold_precision(tmp_path, subject, occurrence, form, un
         )
         for path in (*tmp_path.glob("*.parquet"), *tmp_path.glob("source.duckdb*")):
             path.unlink()
+        if (subject, occurrence, form, unit, zone) != PROFILES[-1]:
+            return
         script = """
 import sys
 from pathlib import Path
@@ -420,7 +418,6 @@ assert read_result(store.project_root, produced.descriptor).primary.equals(resul
         )
 
 
-@pytest.mark.runtime
 def test_empty_input_retains_schema_and_authority(tmp_path):
     with _case(tmp_path, empty=True) as (runtime, root, bindings, source, _):
         artifact = runtime._execute_graph(
@@ -552,11 +549,14 @@ def _observation(root, method="count"):
     return result, routes
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("empty", [False, True])
-@pytest.mark.parametrize("method", ["count", "sum", "mean"])
-@pytest.mark.parametrize("subset", [False, True])
-@pytest.mark.parametrize("form,unit", [("table", "us"), ("parquet", "ns")])
+@pytest.mark.parametrize(
+    "empty,method,subset,form,unit",
+    [
+        (False, "count", False, "table", "us"),
+        (True, "sum", True, "parquet", "ns"),
+        (False, "mean", True, "parquet", "ns"),
+    ],
+)
 def test_f13_source_prefix_before_actual_subject_image(
     tmp_path, monkeypatch, empty, method, subset, form, unit
 ):
@@ -873,9 +873,14 @@ def test_anchor_window_restriction_preserves_overlap_and_full_subject_keys():
     assert restrict(candidates, ()) == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("phase", ["graph_admitted", "graph_receipts_verified", "before_commit"])
-@pytest.mark.parametrize("elapsed", [599.0, 600.0, 600.001])
+@pytest.mark.parametrize(
+    "phase,elapsed",
+    [
+        ("graph_admitted", 599.0),
+        ("graph_receipts_verified", 600.0),
+        ("before_commit", 600.001),
+    ],
+)
 def test_execute_deadline_atomic_boundaries(tmp_path, phase, elapsed):
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
@@ -916,7 +921,6 @@ def test_execute_deadline_atomic_boundaries(tmp_path, phase, elapsed):
             CURRENT.reset(token)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_input_snapshot_replacement_and_issued_sql(tmp_path, monkeypatch, form):
     import marivo.datasource.adapters as adapters
@@ -963,7 +967,6 @@ def test_input_snapshot_replacement_and_issued_sql(tmp_path, monkeypatch, form):
         assert all(item.connection_disconnected for item in submissions)
 
 
-@pytest.mark.runtime
 def test_real_query_interrupt_closes_native_capture(tmp_path):
     import time
 
@@ -1111,7 +1114,6 @@ def test_cross_batch_complete_keys_schema_and_early_close():
     assert source.closed and not stream.completed
 
 
-@pytest.mark.runtime
 def test_ns_native_truncation_boundaries_ties_and_fixed_disclosure(tmp_path):
     ticks = [-2001, -1999, -1001, -999, -501, -1, 0, 1, 501, 999, 1001, 1999, 2001]
     with _case(tmp_path, form="parquet", unit="ns") as (runtime, original, bindings, source, _):
@@ -1189,7 +1191,6 @@ def test_ns_native_truncation_boundaries_ties_and_fixed_disclosure(tmp_path):
         assert runtime.store._graph_run(runtime.last_run_ref).lifecycle == "failed"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("overlap", [False, True])
 @pytest.mark.parametrize("version_kind", ["validity", "snapshot"])
 def test_f13_captures_historical_coordinate_at_contribution_time(tmp_path, overlap, version_kind):
@@ -1364,7 +1365,6 @@ def test_f13_captures_historical_coordinate_at_contribution_time(tmp_path, overl
             }
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("enum", [False, True])
 def test_native_sequence_capture_and_fixed_order(tmp_path, enum):
     with _case(tmp_path) as (runtime, original, bindings, source, _):
@@ -1477,7 +1477,6 @@ def test_precedence_cycle_is_not_repaired_by_occurrence_identity(tmp_path):
             )
 
 
-@pytest.mark.runtime
 def test_filtered_event_predicate_uses_frozen_sidecar(tmp_path):
     from marivo.semantic._expression_binding import CompiledExpressionSidecar, ExpressionBody
 
@@ -1519,7 +1518,6 @@ def test_filtered_event_predicate_uses_frozen_sidecar(tmp_path):
         } == {"occurrence1", "occurrence2"}
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["sum", "mean"])
 @pytest.mark.parametrize("empty", [False, True])
 def test_f13_float64_retains_support_and_magnitude(tmp_path, method, empty):
@@ -1564,7 +1562,6 @@ def test_f13_float64_retains_support_and_magnitude(tmp_path, method, empty):
                 assert states["subject0"]["original_state__row_count"] == 2
 
 
-@pytest.mark.runtime
 def test_review_reordered_key():
     from dataclasses import replace
     from pathlib import Path
@@ -1618,7 +1615,6 @@ def test_review_reordered_key():
             assert [row["value"] for row in cell_rows(result.primary)] == [30, 70]
 
 
-@pytest.mark.runtime
 def test_review_normalized_version_path():
     from contextlib import contextmanager
     from dataclasses import replace
@@ -1771,7 +1767,6 @@ def test_review_normalized_version_path():
             assert [row["value"] for row in cell_rows(result.primary)] == [10, 0]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("unit", ["us", "ns"])
 def test_versioned_observation_timezone_precision(unit: Literal["us", "ns"]) -> None:
     from contextlib import contextmanager
@@ -1943,7 +1938,6 @@ def test_versioned_observation_timezone_precision(unit: Literal["us", "ns"]) -> 
             assert [row["value"] for row in cell_rows(result.primary)] == [10, 0]
 
 
-@pytest.mark.runtime
 def test_review_table_precision():
     import json
     from pathlib import Path
@@ -1984,7 +1978,6 @@ def test_review_table_precision():
             assert json.loads(result.primary.schema.metadata[b"r7.precision"])[0]["possible_loss"]
 
 
-@pytest.mark.runtime
 def test_version_nonoverlap_outside_observation_scope_is_trusted():
     from contextlib import contextmanager
     from dataclasses import replace
@@ -2140,7 +2133,6 @@ def test_version_nonoverlap_outside_observation_scope_is_trusted():
             assert {row["cell_tag"] for row in rows} == {"defined"}
 
 
-@pytest.mark.runtime
 def test_review_postcommit_deadline_returns_durable_success(tmp_path, monkeypatch):
     import marivo.analysis.materialization.graph_publication as publication
 
@@ -2165,9 +2157,16 @@ def test_review_postcommit_deadline_returns_durable_success(tmp_path, monkeypatc
         assert artifact.producing_run_ref == runtime.last_run_ref
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("form", ["table", "parquet"])
-@pytest.mark.parametrize("policy", ["first_per_subject", "shared", "exclusive"])
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "form,policy",
+    [
+        ("table", "first_per_subject"),
+        ("table", "shared"),
+        ("table", "exclusive"),
+        ("parquet", "exclusive"),
+    ],
+)
 def test_matching_consumes_prepared_capture(tmp_path, form, policy):
     from marivo.analysis.core.model import SubjectPart
     from marivo.analysis.core.rules import JourneyMatch

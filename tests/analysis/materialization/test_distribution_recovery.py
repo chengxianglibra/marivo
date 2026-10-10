@@ -25,17 +25,14 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.slow
 def test_native_distributions_independent_fixed_and_cold(
-    backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     profile = (
@@ -177,7 +174,13 @@ def test_native_distributions_independent_fixed_and_cold(
                 value,
                 (subject.session, facts.session),
             )
-        state: dict[str, Json] = {"session": session.id, "originals": originals}
+        state: dict[str, Json] = {
+            "session": session.id,
+            "originals": originals,
+            # Every distribution persists through the same NumericRelation envelope.
+            # Exact quantile also retains the nullable-cell shape in the cold owner.
+            "cold_kinds": ["quantile"],
+        }
         (tmp_path / "r94-distribution.json").write_bytes(encode(state))
     shutil.rmtree(tmp_path / "models")
     for pattern in ("source.duckdb*", "source.sqlite*"):

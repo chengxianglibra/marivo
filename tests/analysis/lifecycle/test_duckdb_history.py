@@ -16,7 +16,6 @@ from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.runtime
 def test_native_duckdb_history_preserves_original_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source_trace: SourceTrace
 ) -> None:

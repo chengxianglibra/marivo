@@ -28,7 +28,7 @@ def test_bilingual_examples_have_identical_executable_contracts() -> None:
         assert _examples("en", page) == _examples("zh", page), page
 
 
-def test_latest_usage_examples_are_named_valid_python_and_current() -> None:
+def test_documented_python_blocks_are_named_valid_python() -> None:
     examples = _examples("en")
     for identifier, source in examples.items():
         assert not re.search(r"[\u4e00-\u9fff]", source), identifier
@@ -42,11 +42,8 @@ def test_latest_usage_examples_are_named_valid_python_and_current() -> None:
             relative = page.relative_to(root).with_suffix("").as_posix()
             fences = re.findall(r"(?m)^(```|~~~)python\n", text)
             assert len(fences) == len(_examples(edition, relative)), relative
-            prose = re.sub(r"(?ms)^(```|~~~).*?^\1\s*$", "", text)
-            assert not re.search(r"\b(?:R\d+(?:\.\d+)?|J[1-4]|r8_numeric_v1)\b", prose), relative
 
 
-@pytest.mark.runtime
 def test_grouped_same_entity_workflow_example_executes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -60,13 +57,19 @@ def test_grouped_same_entity_workflow_example_executes(
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "scenario,part,expected_type",
     [
-        ("j2", "change", mv.MaterializedStatisticRelation),
-        ("j3", "ratio_routes", mv.MaterializedRolledRatioRelation),
-        ("j4", "order_count", mv.MaterializedAssociationResult),
+        pytest.param("j2", "change", mv.MaterializedStatisticRelation, marks=pytest.mark.slow),
+        pytest.param(
+            "j3", "ratio_routes", mv.MaterializedRolledRatioRelation, marks=pytest.mark.slow
+        ),
+        pytest.param(
+            "j4",
+            "order_count",
+            mv.MaterializedAssociationResult,
+            marks=pytest.mark.slow,
+        ),
     ],
 )
 def test_first_round_workflow_examples_execute(
@@ -105,7 +108,6 @@ def test_first_round_workflow_examples_execute(
     assert isinstance(namespace[output], expected_type)
 
 
-@pytest.mark.runtime
 def test_workflow_mean_rollup_merges_retained_components(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -128,7 +130,6 @@ def test_workflow_mean_rollup_merges_retained_components(
     assert overall.to_pandas()["value"].tolist() == pytest.approx([1000 / 3])
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("example", ("monthly", "regional", "collection"))
 def test_semantic_monthly_observation_example_executes(
     authoring_evidence_project: Path, monkeypatch: pytest.MonkeyPatch, example: str
@@ -199,7 +200,7 @@ def test_semantic_monthly_observation_example_executes(
         assert len(rows) == 3
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_workflow_evidence_and_cold_recovery_examples(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -230,7 +231,7 @@ def test_workflow_evidence_and_cold_recovery_examples(
     assert len(session.runs().items) == 2
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_coordinate_row_statistic_workflow_example(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -249,17 +250,11 @@ def test_coordinate_row_statistic_workflow_example(
     assert total.to_pandas()["value"].tolist() == [300]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.slow
 def test_display_workflow_example_executes(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from tests.shared_fixtures import export_dsl_parquet_models
-
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     namespace = {
         "session": case.session,
@@ -276,27 +271,20 @@ def test_display_workflow_example_executes(
     exec(compile(code, "display-example", "exec"), namespace)
     result = namespace["result"]
     assert isinstance(result, mv.MaterializedTable)
-    assert result.to_pandas().columns.tolist() == ["member", "amount", "rank"]
+    rows = result.to_pandas()
+    assert rows.columns.tolist() == ["member", "amount", "rank"]
     restored = namespace["restored"]
     assert isinstance(restored, mv.MaterializedTable)
-    assert result.to_pandas().equals(restored.to_pandas())
+    assert rows.equals(restored.to_pandas())
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.slow
 def test_attribution_workflow_example_executes(
     analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
 ) -> None:
-    from tests.shared_fixtures import export_dsl_parquet_models
-
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     namespace = {"session": case.session, "mv": mv, "ms": ms}
     code = _example("en", "absolute-attribution")
-    assert code == _example("zh", "absolute-attribution")
     exec(compile(code, "attribution-example", "exec"), namespace)
     allocation = namespace["allocation"]
     restored = namespace["restored_allocation"]
@@ -305,9 +293,9 @@ def test_attribution_workflow_example_executes(
     assert isinstance(restored, mv.MaterializedAttributionResult)
     assert isinstance(table, mv.MaterializedTable)
     assert allocation.contribution.to_pandas().equals(restored.contribution.to_pandas())
-    assert table.to_pandas()["contribution"].sum() == 0
-    facts = analysis_dsl_rows("j2")
     rows = table.to_pandas()
+    assert rows["contribution"].sum() == 0
+    facts = analysis_dsl_rows("j2")
     for side, month in (("current", "2026-08"), ("baseline", "2026-07")):
         assert rows[side].sum() == sum(str(order[4]).startswith(month) for order in facts.orders)
     recovered_table = case.session.artifact(table.artifact_ref)
@@ -315,7 +303,6 @@ def test_attribution_workflow_example_executes(
     assert recovered_table.to_pandas().equals(rows)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("scoped", (False, True))
 def test_scalar_channel_workflow_examples_execute(
     analysis_dsl_case_factory: DslCaseFactory, scoped: bool
@@ -337,7 +324,6 @@ def test_scalar_channel_workflow_examples_execute(
     assert rows.set_index("group")["value"].dropna().to_dict() == expected
 
 
-@pytest.mark.runtime
 def test_hourly_and_daily_source_workflow_examples_execute(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

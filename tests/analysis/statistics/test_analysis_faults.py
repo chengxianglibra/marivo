@@ -36,7 +36,6 @@ from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", METHODS)
 def test_source_parts_versions_keys_scope_and_finding_authority(
     analysis_dsl_case_factory: DslCaseFactory, method: str
@@ -177,7 +176,6 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "fault", ("missing_interval", "duration", "input_row", "overlap", "termination", "schema")
 )
@@ -238,7 +236,6 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("selection", ("full", "subset", "empty"))
 def test_run_owned_fields_compare_logical_cells(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -294,7 +291,6 @@ def test_run_owned_fields_compare_logical_cells(
                 )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", METHODS)
 def test_every_receipt_part_read_recovery_and_hit(
     analysis_dsl_case_factory: DslCaseFactory, method: str
@@ -357,21 +353,25 @@ def test_every_receipt_part_read_recovery_and_hit(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", METHODS)
 @pytest.mark.parametrize(
-    "fault",
-    (
-        "cancel",
-        "close",
-        "bad_batch",
-        "before_commit",
-        "after_commit",
-        "timeout_below",
-        "timeout_at",
-        "timeout_above",
-        "late_result",
-    ),
+    "method,fault",
+    [
+        *(
+            ("deviation.zscore@v1", fault)
+            for fault in (
+                "cancel",
+                "close",
+                "bad_batch",
+                "before_commit",
+                "after_commit",
+                "timeout_below",
+                "timeout_at",
+                "timeout_above",
+                "late_result",
+            )
+        ),
+        *((method, "before_commit") for method in METHODS if method != "deviation.zscore@v1"),
+    ],
 )
 def test_resources_atomic_publication_and_deadline(
     analysis_dsl_case_factory: DslCaseFactory,

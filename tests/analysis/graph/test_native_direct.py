@@ -99,7 +99,6 @@ def _forbid_staging(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapters, "_inline_exchange", forbidden)
 
 
-@pytest.mark.runtime
 def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,7 +155,6 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.runtime
 def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -199,7 +197,6 @@ def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("empty", (False, True))
 def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
     empty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -214,7 +211,6 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("defect", ("schema", "checks"))
 def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
     defect: Literal["schema", "checks"],
@@ -283,7 +279,6 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.runtime
 def test_native_field_consumption_rejects_owner_removed_after_key_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -329,7 +324,6 @@ def test_native_field_consumption_rejects_owner_removed_after_key_check(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.runtime
 def test_source_local_comparison_keeps_its_existing_staged_prefix(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

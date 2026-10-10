@@ -75,7 +75,7 @@ def test_business_coverage_refuses_unbound_claims(fault: str) -> None:
         normalize(spans, grid)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("form", ["table", "parquet"])
 def test_public_full_grid_unknown(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -234,7 +234,6 @@ assert session._runtime.store.resources(session._runtime.session_ref) == ()
         )
 
 
-@pytest.mark.runtime
 def test_public_duration_business_coverage(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -282,7 +281,6 @@ def test_public_duration_business_coverage(
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
-@pytest.mark.runtime
 def test_business_coverage_source_selection_keeps_original_support(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

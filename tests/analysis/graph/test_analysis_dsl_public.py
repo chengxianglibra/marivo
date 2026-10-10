@@ -19,7 +19,6 @@ from tests.shared_fixtures import DSL_NAMES, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
 def test_public_j1_total_uses_registered_source(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -45,7 +44,6 @@ def test_public_j1_total_uses_registered_source(
     assert result.to_pandas().iloc[0]["value"] == 1000
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     ("report_timezone", "expected"),
     (("Asia/Shanghai", 677), ("America/Los_Angeles", 649)),
@@ -89,7 +87,6 @@ def test_public_j1_scope_uses_persisted_report_timezone(
     assert absolute_total.to_pandas().iloc[0]["value"] == 1000
 
 
-@pytest.mark.runtime
 def test_public_contract_actions_and_result_card(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
@@ -149,7 +146,6 @@ def test_public_contract_actions_and_result_card(
         offline.rename(case.database_path)
 
 
-@pytest.mark.runtime
 def test_public_empty_and_undefined_cards(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
@@ -190,7 +186,6 @@ def test_public_empty_and_undefined_cards(
     assert "weighting: original numerator and denominator components" in card
 
 
-@pytest.mark.runtime
 def test_public_member_read_and_category_selection(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -244,7 +239,6 @@ def test_public_member_read_and_category_selection(
     assert len(case.session.runs().items) == before
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("explicit_none", (False, True))
 def test_public_grouped_same_entity_observation_allows_omitted_route(
     analysis_dsl_case_factory: DslCaseFactory, explicit_none: bool
@@ -266,7 +260,6 @@ def test_public_grouped_same_entity_observation_allows_omitted_route(
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
 
-@pytest.mark.runtime
 def test_public_singleton_same_entity_observation_allows_omitted_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -282,7 +275,6 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     assert observed.rollup().execute().to_pandas()["value"].tolist() == [1000]
 
 
-@pytest.mark.runtime
 def test_public_grouped_foreign_entity_observation_infers_unique_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -315,7 +307,6 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     assert values.loc[["west"]].isna().all()
 
 
-@pytest.mark.runtime
 def test_public_category_does_not_expose_grouping(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -331,7 +322,6 @@ def test_public_category_does_not_expose_grouping(
     assert case.session.runs().items == before
 
 
-@pytest.mark.runtime
 def test_public_fixed_coordinate_rollup_uses_retained_group_state(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -355,7 +345,6 @@ def test_public_fixed_coordinate_rollup_uses_retained_group_state(
     assert fixed_group.to_pandas().equals(source_group.to_pandas())
 
 
-@pytest.mark.runtime
 def test_public_mixed_fixed_and_live_rejects_before_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -375,7 +364,6 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     assert len(case.session.runs().items) == count_before
 
 
-@pytest.mark.runtime
 def test_public_comparison_rejects_different_members_and_metric_units(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -401,7 +389,6 @@ def test_public_comparison_rejects_different_members_and_metric_units(
     assert len(case.session.runs().items) == before
 
 
-@pytest.mark.runtime
 def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -430,7 +417,6 @@ def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
         offline.rename(case.database_path)
 
 
-@pytest.mark.runtime
 def test_public_j2_selected_members_and_next_month_mean(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -461,7 +447,6 @@ def test_public_j2_selected_members_and_next_month_mean(
     assert result.to_pandas().iloc[0]["value"] == 15
 
 
-@pytest.mark.runtime
 def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
@@ -523,7 +508,6 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
         offline.rename(case.database_path)
 
 
-@pytest.mark.runtime
 def test_public_j4_spearman_and_fixed_coefficient_selection(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -585,7 +569,6 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     assert restored_boolean_view.to_pandas().equals(boolean_rows)
 
 
-@pytest.mark.runtime
 def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -638,7 +621,6 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     assert selected_frame.iloc[0]["value"] == pytest.approx(-0.4)
 
 
-@pytest.mark.runtime
 def test_public_snapshot_mismatch_rejects_exact_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -670,7 +652,6 @@ def test_public_snapshot_mismatch_rejects_exact_artifact(
     assert mismatch.value.repair.help_target.canonical_id == "actions.execute"
 
 
-@pytest.mark.runtime
 def test_public_missing_key_and_wrong_relationship_reject(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -694,7 +675,6 @@ def test_public_missing_key_and_wrong_relationship_reject(
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
 
 
-@pytest.mark.runtime
 def test_public_missing_retained_part_blocks_recovery(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -729,7 +709,6 @@ def test_public_missing_retained_part_blocks_recovery(
         offline.rename(path)
 
 
-@pytest.mark.runtime
 def test_public_cold_process_continues_from_retained_parts(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -766,7 +745,6 @@ assert saved.rollup().execute().to_pandas().iloc[0]["value"] == 1000
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
 def test_retired_grouping_calls_reject_before_execution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

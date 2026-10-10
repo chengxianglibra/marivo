@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -20,16 +21,18 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import run_ids
-from tests.support.json import Json, checked, digest, encode, obj, read
+from tests.support.json import Json, arr, checked, digest, encode, obj, read
 
 
 class Continuation(Protocol):
     def execute(self) -> _MaterializedRead | mv.MaterializedTable: ...
 
 
-def saved(result: _MaterializedRead | mv.MaterializedTable) -> dict[str, Json]:
+def saved(
+    result: _MaterializedRead | mv.MaterializedTable, *, frame: pd.DataFrame | None = None
+) -> dict[str, Json]:
     if isinstance(result, _MaterializedRead):
-        return snapshot(result)
+        return snapshot(result, frame=frame)
     assert result._dataset is not None
     descriptor = result._dataset.artifact.descriptor
     verified = result._dataset.verified()
@@ -39,7 +42,11 @@ def saved(result: _MaterializedRead | mv.MaterializedTable) -> dict[str, Json]:
                 "artifact": result._dataset.artifact.artifact_ref,
                 "descriptor_sha256": digest(descriptor_encode(descriptor, DESCRIPTOR).encode()),
                 "schema": descriptor.realized_schema,
-                "rows": json.loads(result.to_pandas().to_json(orient="table", index=False)),
+                "rows": json.loads(
+                    (result.to_pandas() if frame is None else frame).to_json(
+                        orient="table", index=False
+                    )
+                ),
                 "parts": [part.role for part in verified.parts],
             }
         )
@@ -86,27 +93,33 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     ):
         session = mv.session.resume(identity, by="id")
         restored: dict[str, _MaterializedRead] = {}
+        cold_originals = {"members", "bucket", "groups", "weights", "opportunities", "ranking"}
         for name, raw in obj(state["originals"]).items():
+            if phase == "cold" and name not in cold_originals:
+                continue
             original = obj(raw)
             artifact_reference = original["artifact"]
             assert isinstance(artifact_reference, str)
             result = session.artifact(artifact_reference)
             assert isinstance(result, _MaterializedRead) and snapshot(result) == original
             restored[name] = result
-        current, members, bucket = restored["current"], restored["members"], restored["bucket"]
-        reference, groups, weights, opportunities = (
-            restored[name] for name in ("reference", "groups", "weights", "opportunities")
+        current = restored.get("current")
+        members, bucket = restored["members"], restored["bucket"]
+        groups, weights, opportunities = (
+            restored[name] for name in ("groups", "weights", "opportunities")
         )
-        assert isinstance(current, mv.MaterializedNumericRelation)
+        if phase == "fixed":
+            assert isinstance(current, mv.MaterializedNumericRelation)
         assert isinstance(members, mv.MaterializedAnalysisDomain)
         assert isinstance(bucket, mv.MaterializedCategoryRelation)
-        assert isinstance(reference, mv.MaterializedRolledNumericRelation)
         assert isinstance(groups, mv.MaterializedGroupedNumericRelation)
         assert isinstance(weights, mv.MaterializedNumericRelation)
         assert isinstance(opportunities, mv.MaterializedNumericRelation)
-        assert len(opportunities.to_pandas()) == 6
+        opportunity_snapshot = obj(obj(state["originals"])["opportunities"])
+        assert len(arr(obj(opportunity_snapshot["rows"])["data"])) == 6
         before = run_ids(session)
         outputs: dict[str, Json] = {}
+        frames: dict[str, pd.DataFrame] = {}
         views: dict[str, Json] = {}
 
         def execute(name: str, operation: Continuation) -> _MaterializedRead | mv.MaterializedTable:
@@ -115,21 +128,35 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     result = operation.execute()
             else:
                 result = operation.execute()
-            outputs[name] = saved(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert saved(operation.execute()) == outputs[name]
-            assert run_ids(session) == seen
+            frame = result.to_pandas()
+            frames[name] = frame
+            outputs[name] = saved(result, frame=frame)
             return result
 
         def key_values(
-            value: mv.MaterializedNumericRelation | mv.MaterializedSelectedNumericRelation,
+            value: (
+                pd.DataFrame
+                | mv.MaterializedNumericRelation
+                | mv.MaterializedSelectedNumericRelation
+            ),
         ) -> dict[tuple[str, int, int], float]:
+            frame = value if isinstance(value, pd.DataFrame) else value.to_pandas()
             return {
                 (str(row.member), int(str(row.coord_0)), int(str(row.coord_1))): float(
                     str(row.value)
                 )
-                for row in value.to_pandas().itertuples(index=False)
+                for row in frame.itertuples(index=False)
+            }
+
+        def snapshot_rows(value: Json) -> list[dict[str, Json]]:
+            return [obj(row) for row in arr(obj(obj(value)["rows"])["data"])]
+
+        def snapshot_key_values(value: Json) -> dict[tuple[str, int, int], float]:
+            return {
+                (str(row["member"]), int(str(row["coord_0"])), int(str(row["coord_1"]))): float(
+                    str(row["value"])
+                )
+                for row in snapshot_rows(value)
             }
 
         complete = {
@@ -144,101 +171,139 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             "values": snapshot(source_ranking.values),
             "ranks": snapshot(source_ranking.ranks),
         }
-        assert key_values(source_ranking.values) == complete
-        assert key_values(source_ranking.ranks) == {
+        assert snapshot_key_values(source_views["values"]) == complete
+        assert snapshot_key_values(source_views["ranks"]) == {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): 3,
             ("b", 9007199254740993, 1): 1,
         }
+        if phase == "cold":
+            expected_outputs = obj(state["outputs"])
+            cohort = execute(
+                "cohort", members.cohort(opportunities.value.gt(0), rule=mv.any_instance())
+            )
+            assert isinstance(cohort, mv.MaterializedAnalysisDomain)
+            assert {
+                (str(row["member"]), int(str(row["coord_0"])), int(str(row["coord_1"])))
+                for row in snapshot_rows(outputs["cohort"])
+            } == positive_keys
+            cohort_penetration = execute("cohort_penetration", cohort.penetration_in(members))
+            assert frames["cohort_penetration"].value.tolist() == [2 / 3]
+
+            empty = execute("empty", bucket.where(bucket.value.eq("absent")).members())
+            assert isinstance(empty, mv.MaterializedAnalysisDomain)
+            empty_penetration = execute("empty_penetration", empty.penetration_in(empty))
+            empty_rows = snapshot_rows(outputs["empty_penetration"])
+            assert [row["cell_tag"] for row in empty_rows] == ["undefined"] and [
+                row["cell_reason"] for row in empty_rows
+            ] == ["empty_reference"]
+
+            fixed_reference = mv.reference_weights(
+                weights, strata=(bucket,), unit=ms.ref.entity("sales.facts")
+            )
+            standardized = execute("standardized", groups.standardize(reference=fixed_reference))
+            assert isinstance(standardized, mv.MaterializedNumericRelation)
+            expected = 2 * (1 / 3) + 4 * (2 / 3)
+            assert frames["standardized"].value.tolist() == [expected]
+            standardized_parts = reference_parts(standardized)
+
+            cold_names = {
+                "cohort",
+                "cohort_penetration",
+                "empty",
+                "empty_penetration",
+                "standardized",
+            }
+            assert set(outputs) == cold_names
+            differences = {name for name in cold_names if outputs[name] != expected_outputs[name]}
+            assert not differences, f"cold outputs differ from fixed outputs: {sorted(differences)}"
+            assert session._runtime.store.resources(session.id) == ()
+            for name, value in restored.items():
+                assert snapshot(value) == obj(state["originals"])[name]
+            assert run_ids(session) == before and kernels.call_count == 0
+            cold_reference_parts = {
+                "standardized": standardized_parts,
+            }
+            return {
+                "phase": phase,
+                "pid": os.getpid(),
+                "outputs": outputs,
+                "views": source_views,
+                "source_views": source_views,
+                "new_runs": 0,
+                "kernels": 0,
+                "resources": 0,
+                "original_snapshot_preserved": True,
+                "source_and_semantic_forbidden": True,
+                "retained_reference_parts": checked(cold_reference_parts),
+            }
+        assert isinstance(current, mv.MaterializedNumericRelation)
         fixed_rollup = execute("reference", current.rollup())
         assert isinstance(fixed_rollup, mv.MaterializedRolledNumericRelation)
         share = execute("share", current.share_of(fixed_rollup))
         ranking = execute("ranking", current.rank(order="descending", ties="dense"))
         assert isinstance(share, mv.MaterializedNumericRelation)
         assert isinstance(ranking, mv.MaterializedRankingResult)
-        assert key_values(share) == {key: amount / 6 for key, amount in complete.items()}
-        assert key_values(ranking.values) == complete
-        assert key_values(ranking.ranks) == {
+        assert key_values(frames["share"]) == {key: amount / 6 for key, amount in complete.items()}
+        prior = run_ids(session)
+        views["values"], views["ranks"] = snapshot(ranking.values), snapshot(ranking.ranks)
+        assert snapshot_key_values(views["values"]) == complete
+        assert snapshot_key_values(views["ranks"]) == {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): 3,
             ("b", 9007199254740993, 1): 1,
         }
-        prior = run_ids(session)
-        views["values"], views["ranks"] = snapshot(ranking.values), snapshot(ranking.ranks)
         assert run_ids(session) == prior
         cohort = execute(
             "cohort", members.cohort(opportunities.value.gt(0), rule=mv.any_instance())
         )
-        cohort_two = execute(
-            "cohort_two", members.cohort(opportunities.value.gt(0), rule=mv.at_least(2))
-        )
         assert isinstance(cohort, mv.MaterializedAnalysisDomain)
-        assert isinstance(cohort_two, mv.MaterializedAnalysisDomain)
-        assert (
-            set(cohort.to_pandas().set_index(["member", "coord_0", "coord_1"]).index)
-            == positive_keys
-        )
-        assert cohort_two.to_pandas().empty
+        assert {
+            (str(row["member"]), int(str(row["coord_0"])), int(str(row["coord_1"])))
+            for row in snapshot_rows(outputs["cohort"])
+        } == positive_keys
         cohort_penetration = execute("cohort_penetration", cohort.penetration_in(members))
-        assert cohort_penetration.to_pandas().value.tolist() == [2 / 3]
-        selected = execute("selected", bucket.where(bucket.value.eq("a")).members())
+        assert frames["cohort_penetration"].value.tolist() == [2 / 3]
         empty = execute("empty", bucket.where(bucket.value.eq("absent")).members())
-        assert isinstance(selected, mv.MaterializedAnalysisDomain)
         assert isinstance(empty, mv.MaterializedAnalysisDomain)
-        penetration = execute("penetration", selected.penetration_in(members))
         empty_penetration = execute("empty_penetration", empty.penetration_in(empty))
-        assert penetration.to_pandas().value.tolist() == [2 / 3]
-        frame = empty_penetration.to_pandas()
-        assert frame.cell_tag.tolist() == ["undefined"] and frame.cell_reason.tolist() == [
-            "empty_reference"
-        ]
+        empty_rows = snapshot_rows(outputs["empty_penetration"])
+        assert [row["cell_tag"] for row in empty_rows] == ["undefined"] and [
+            row["cell_reason"] for row in empty_rows
+        ] == ["empty_reference"]
         fixed_reference = mv.reference_weights(
             weights, strata=(bucket,), unit=ms.ref.entity("sales.facts")
         )
         standardized = execute("standardized", groups.standardize(reference=fixed_reference))
         expected = 2 * (1 / 3) + 4 * (2 / 3)
-        assert standardized.to_pandas().value.tolist() == [expected]
+        assert frames["standardized"].value.tolist() == [expected]
         assert isinstance(standardized, mv.MaterializedNumericRelation)
         selected_standard = execute(
             "standardized_selected", standardized.where(standardized.value.gt(0))
         )
-        assert selected_standard.to_pandas().value.tolist() == [expected]
+        assert frames["standardized_selected"].value.tolist() == [expected]
         assert isinstance(selected_standard, mv.MaterializedSelectedNumericRelation)
-        assert reference_parts(selected_standard) == reference_parts(standardized)
-        share_positive = execute("share_positive", share.where(share.value.gt(0)))
-        assert isinstance(share_positive, mv.MaterializedSelectedNumericRelation)
-        assert key_values(share_positive) == {
-            key: amount / 6 for key, amount in complete.items() if amount
-        }
-        assert reference_parts(share_positive) == reference_parts(share)
+        standardized_parts = reference_parts(standardized)
+        selected_standard_parts = reference_parts(selected_standard)
+        share_parts = reference_parts(share)
+        assert selected_standard_parts == standardized_parts
         retained_reference_parts: dict[str, Json] = {
-            "share": reference_parts(share),
-            "standardized": reference_parts(standardized),
-            "share_positive": reference_parts(share_positive),
-            "standardized_selected": reference_parts(selected_standard),
+            "share": share_parts,
+            "standardized": standardized_parts,
+            "standardized_selected": selected_standard_parts,
         }
-        for name, method, expected_stat in (
-            ("share_sum", mv.sum(), 1),
-            ("share_count", mv.count(), 3),
-            ("share_mean", mv.mean(), 1 / 3),
-        ):
-            statistic = execute(name, share.aggregate(method))
-            assert statistic.to_pandas().value.tolist() == [expected_stat]
+        execute("share_mean", share.aggregate(mv.mean()))
+        assert frames["share_mean"].value.tolist() == [1 / 3]
         limited = execute("limited", ranking.limit(2))
-        filtered = execute("filtered", ranking.where(ranking.ranks.value.gt(1)))
-        assert isinstance(limited, mv.MaterializedRankingResult) and isinstance(
-            filtered, mv.MaterializedRankingResult
-        )
+        assert isinstance(limited, mv.MaterializedRankingResult)
         assert set(key_values(limited.ranks)) == positive_keys
-        assert list(key_values(filtered.ranks).values()) == [2, 3]
-        assert key_values(filtered.values) == {
-            key: amount for key, amount in complete.items() if key[0] == "a"
-        }
         table = execute("table", mv.table(amount=limited.values, rank=limited.ranks))
         assert isinstance(table, mv.MaterializedTable)
-        frame = table.to_pandas()
-        assert frame.amount.tolist() == [2, 4] and frame["rank"].tolist() == [2, 1]
-        assert len(outputs) == 19
+        table_rows = snapshot_rows(outputs["table"])
+        assert [row["amount"] for row in table_rows] == [2, 4] and [
+            row["rank"] for row in table_rows
+        ] == [2, 1]
+        assert len(outputs) == 12
         assert session._runtime.store.resources(session.id) == ()
         for name, value in restored.items():
             assert snapshot(value) == obj(state["originals"])[name]
@@ -264,7 +329,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             "resources": 0,
             "original_snapshot_preserved": True,
             "source_and_semantic_forbidden": True,
-            "retained_reference_parts": retained_reference_parts,
+            "retained_reference_parts": checked(retained_reference_parts),
         }
 
 

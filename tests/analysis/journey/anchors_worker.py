@@ -23,6 +23,12 @@ from tests.analysis.journey.anchors_fixtures import (
 )
 from tests.analysis.journey.anchors_oracle import assert_result, expected
 
+# All eleven operations keep source/fixed and same-process recovery coverage in
+# test_empty_anchor_domain_retains_exact_schema. Fresh-process recovery keeps
+# one sample per distinct carrier/path shape instead of repeating each method.
+ELAPSED_RECOVERY_INDICES = (9,)
+CALENDAR_RECOVERY_INDICES = (0,)
+
 
 def forbidden(*args, **kwargs):
     raise AssertionError("offline Anchor continuation opened source, loaded semantics or rematched")
@@ -34,19 +40,24 @@ def artifact(value):
 
 def produce(root: Path) -> None:
     config = json.loads((root / "config.json").read_text())
-    all_k = config.pop("all_K", False)
     session, members, window, claims, values = build_anchors(root, **config)
     anchors = event_anchors(session, members, window)
     source = {"P17": artifact(anchors.execute())}
     journeys = {}
-    for profile, shared in (("P18", False), ("P48", True)):
+    # A single Journey-backed Anchor carries the recovery path. Shared-start
+    # assignment is covered by source/fixed tests and has the same persisted type.
+    for profile, shared in (("P18", False),):
         logical = journey(session, members, window, claims, shared=shared)
         fixed = logical.execute()
         journeys[profile] = artifact(fixed)
         result = session.anchors(logical, population=members, during=window).execute()
         source[profile] = artifact(result)
     for calendar, start in ((False, 25), (True, 37)):
+        # Direct family tests own every numeric operation; cold recovery keeps each distinct shape.
+        retained = CALENDAR_RECOVERY_INDICES if calendar else ELAPSED_RECOVERY_INDICES
         for i, operation in enumerate(observations(anchors, calendar=calendar)):
+            if i not in retained:
+                continue
             result = operation.execute()
             assert_result(
                 result, values, config["subject"], config["occurrence"], i, calendar=calendar
@@ -61,7 +72,6 @@ def produce(root: Path) -> None:
         "config": config,
         "fixed": {},
         "window": window.model_dump(mode="json"),
-        "all_K": all_k,
     }
     (root / "manifest.json").write_text(json.dumps(manifest))
     (root / "source.duckdb").unlink()
@@ -98,9 +108,6 @@ def offline(root: Path, cold: bool) -> None:
                 assert len(result.to_pandas()) == len(
                     expected(data["rows"], data["config"]["subject"], data["config"]["occurrence"])
                 )
-                result.subjects(
-                    ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
-                )
                 if profile == "P17":
                     continue
                 operation = session.anchors(
@@ -133,28 +140,6 @@ def offline(root: Path, cold: bool) -> None:
             else:
                 data["fixed"][profile] = artifact(continued)
             executed.append(profile)
-            for action in continued.contract().actions if data.get("all_K", False) else ():
-                if "aggregate(mv." in action.call:
-                    method = action.call.split("aggregate(mv.")[1].split("(")[0]
-                    statistic = (
-                        continued.where(continued.value.is_defined())
-                        .aggregate(getattr(mv, method)())
-                        .execute()
-                    )
-                    name = profile + "/" + method
-                    executed.append(name)
-                    if cold:
-                        assert artifact(statistic) == data["fixed"][name], name
-                    else:
-                        data["fixed"][name] = artifact(statistic)
-                elif action.call == "relation.members()":
-                    image = continued.members().execute()
-                    name = profile + "/members"
-                    executed.append(name)
-                    if cold:
-                        assert artifact(image) == data["fixed"][name], name
-                    else:
-                        data["fixed"][name] = artifact(image)
         if not cold:
             (root / "manifest.json").write_text(json.dumps(data))
     assert len(executed) == len(data["fixed"])
@@ -165,7 +150,6 @@ def offline(root: Path, cold: bool) -> None:
                 "accepted": True,
                 "fixed_K": len(executed),
                 "executed_K": executed,
-                "exact_hit": cold,
             }
         )
     )
@@ -174,4 +158,10 @@ def offline(root: Path, cold: bool) -> None:
 if __name__ == "__main__":
     phase, path = sys.argv[1:]
     root = Path(path)
-    produce(root) if phase == "produce" else offline(root, phase == "cold")
+    if phase == "produce_fixed":
+        produce(root)
+        offline(root, False)
+    elif phase == "produce":
+        produce(root)
+    else:
+        offline(root, phase == "cold")

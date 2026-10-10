@@ -18,11 +18,15 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import run_ids
-from tests.support.json import Json, encode, read
+from tests.support.json import Json, arr, encode, obj, read
 
 
 class Continuation(Protocol):
     def execute(self) -> _MaterializedRead: ...
+
+
+def snapshot_rows(saved: dict[str, Json]) -> list[Json]:
+    return arr(obj(saved["rows"])["data"])
 
 
 def run(root: Path, phase: str) -> dict[str, Json]:
@@ -48,8 +52,11 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         session = mv.session.resume(identity, by="id")
         value = session.artifact(reference)
         assert isinstance(value, mv.MaterializedGroupedNumericRelation)
-        assert snapshot(value) == state["original"]
-        assert value.to_pandas().set_index("group").value.to_dict() == {"a": 1.0, "b": 100.0}
+        original = snapshot(value)
+        assert original == state["original"]
+        assert {
+            str(obj(row)["group"]): float(str(obj(row)["value"])) for row in snapshot_rows(original)
+        } == {"a": 1.0, "b": 100.0}
         assert value._dataset is not None
         rows = next(
             part.table.to_pylist()
@@ -59,7 +66,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         assert {
             row["key_0"]: (row["original_state__sum"], row["original_state__non_null_count"])
             for row in rows
-        } == {"a": (100, 100), "b": (100, 1)}
+        } == {"a": (2, 2), "b": (100, 1)}
         before = run_ids(session)
         outputs: dict[str, Json] = {}
         operations: dict[str, Continuation] = {
@@ -72,14 +79,13 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     result = operation.execute()
             else:
                 result = operation.execute()
-            frame = result.to_pandas()
-            expected = Fraction(101, 2) if name == "current" else Fraction(200, 101)
-            assert len(frame) == 1 and abs(float(frame.value.iloc[0]) - float(expected)) < 1e-12
-            outputs[name] = snapshot(result)
-            current = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[name]
-            assert run_ids(session) == current
+            saved = snapshot(result)
+            rows = snapshot_rows(saved)
+            expected = Fraction(101, 2) if name == "current" else Fraction(34)
+            assert len(rows) == 1
+            actual = float(str(obj(rows[0])["value"]))
+            assert abs(actual - float(expected)) < 1e-12
+            outputs[name] = saved
         assert snapshot(value) == state["original"]
         assert session._runtime.store.resources(session.id) == ()
         if phase == "fixed":

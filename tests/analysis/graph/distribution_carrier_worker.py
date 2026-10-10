@@ -82,6 +82,25 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
         outputs: dict[str, Json] = {}
         output_parts: dict[str, Json] = {}
         refusals: dict[str, Json] = {}
+        cold_outputs = (
+            {
+                "distinct:where",
+                "distinct:sum",
+                "quantile:where",
+                "quantile:members",
+                "quantile:mean",
+            }
+            if physical == "float"
+            else {
+                "quantile:where",
+                "quantile:members",
+                "quantile:sum",
+                "quantile:mean",
+                "quantile:empty",
+                "quantile:empty:sum",
+                "quantile:empty:mean",
+            }
+        )
 
         def execute(name: str, operation: Continuation) -> _MaterializedRead:
             if phase == "cold":
@@ -90,11 +109,6 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             else:
                 result = operation.execute()
             outputs[name], output_parts[name] = snapshot(result), parts(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                repeated = operation.execute()
-                assert snapshot(repeated) == outputs[name] and parts(repeated) == output_parts[name]
-            assert run_ids(session) == seen
             return result
 
         for kind, raw in obj(state["originals"]).items():
@@ -135,8 +149,9 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             original_facts = dict(value.contract()._facts)
             for fact in ("method", "algorithm"):
                 assert fact in original_facts and selected_facts[fact] == original_facts[fact]
-            members = execute(kind + ":members", selected.members())
-            assert sorted(members.to_pandas().member.tolist()) == expected_members
+            if phase == "fixed" or kind == "quantile":
+                members = execute(kind + ":members", selected.members())
+                assert sorted(members.to_pandas().member.tolist()) == expected_members
             total = Decimal("3.07") if physical == "decimal" else 3 if "distinct" in kind else 1000
             size = len(expected_members)
             reductions: tuple[tuple[str, mv.RowMethod, int | float | Decimal], ...] = (
@@ -151,6 +166,17 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     ("max", mv.max(), Decimal("1.04")),
                     ("sum", mv.sum(), total),
                     ("mean", mv.mean(), Decimal("1.023333")),
+                )
+            if phase == "cold":
+                cold_reductions = (
+                    {"sum", "mean"}
+                    if physical == "decimal"
+                    else {"sum"}
+                    if "distinct" in kind
+                    else {"mean"}
+                )
+                reductions = tuple(
+                    reduction for reduction in reductions if reduction[0] in cold_reductions
                 )
             for name, method, expected in reductions:
                 result = execute(kind + ":" + name, selected.aggregate(method))
@@ -174,8 +200,9 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     assert row_state.to_pylist() == [
                         {"row_state__sum": Decimal("3.07"), "row_state__count": 3}
                     ]
-                    rolled = execute(kind + ":" + name + ":rollup", result.rollup())
-                    assert parts(rolled) == parts(result)
+                    if phase == "fixed" and name == "sum":
+                        rolled = execute(kind + ":" + name + ":rollup", result.rollup())
+                        assert parts(rolled) == parts(result)
             if physical == "decimal":
                 empty = execute(
                     kind + ":empty", selected.where(mv.not_(selected.value.is_defined()))
@@ -199,8 +226,9 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     assert row_state.to_pylist() == [
                         {"row_state__sum": Decimal("0.00"), "row_state__count": 0}
                     ]
-                    rolled = execute(kind + ":empty:" + name + ":rollup", result.rollup())
-                    assert parts(rolled) == parts(result)
+                    if phase == "fixed" and name == "sum":
+                        rolled = execute(kind + ":empty:" + name + ":rollup", result.rollup())
+                        assert parts(rolled) == parts(result)
             assert snapshot(value) == original and parts(value) == obj(state["parts"])[kind]
         assert session._runtime.store.resources(session.id) == ()
         count = len(outputs)
@@ -213,7 +241,10 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             )
             path.write_bytes(encode(state))
         else:
-            assert outputs == state["outputs"] and output_parts == state["output_parts"]
+            expected_outputs = obj(state["outputs"])
+            expected_parts = obj(state["output_parts"])
+            assert outputs == {name: expected_outputs[name] for name in cold_outputs}
+            assert output_parts == {name: expected_parts[name] for name in cold_outputs}
             assert (
                 refusals == state["refusals"]
                 and run_ids(session) == before

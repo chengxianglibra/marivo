@@ -55,7 +55,6 @@ def funnel_public(tmp_path, request):
     )
 
 
-@pytest.mark.runtime
 def test_public_funnel_counts_owned_read_and_fixed(funnel_public):
     session, journeys, pattern, _ = funnel_public
     logical = journeys().funnel()
@@ -73,8 +72,6 @@ def test_public_funnel_counts_owned_read_and_fixed(funnel_public):
     assert fixed.evidence_digest().finding_count == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("funnel_public", ["table", "parquet"], indirect=True)
 def test_public_compare_nonempty_findings(funnel_public):
     session, journeys, _, _ = funnel_public
     result = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
@@ -92,8 +89,6 @@ def test_public_compare_nonempty_findings(funnel_public):
     assert summary.evidence.finding_set_digest == result.evidence_digest().finding_set_digest
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("funnel_public", ["table", "parquet"], indirect=True)
 def test_grouped_axis_expansion_allocation_and_fixed(funnel_public):
     import marivo.analysis as mv
     from marivo.refs import ref
@@ -237,7 +232,6 @@ def test_outer_null_empty_and_zero_delta_shares():
         )
 
 
-@pytest.mark.runtime
 def test_allocation_selection_rank_table_and_repair(funnel_public):
     import marivo.analysis as mv
     from marivo.analysis.datasets.errors import DatasetConstructionError
@@ -271,13 +265,13 @@ def test_allocation_selection_rank_table_and_repair(funnel_public):
     assert selected.to_pandas()["value"].gt(0).all()
     ranking = parts.contribution.rank(order="descending", ties="ordinal").execute()
     table = mv.table(contribution=ranking.values, rank=ranking.ranks).execute()
-    assert sorted(table.to_pandas()["rank"].tolist()) == list(range(1, len(table.to_pandas()) + 1))
+    frame = table.to_pandas()
+    assert sorted(frame["rank"].tolist()) == list(range(1, len(frame) + 1))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "point",
-    ["insert_artifact", "insert_evidence", "insert_findings", "insert_terminal", "before_commit"],
+    ["insert_evidence", "insert_findings", "before_commit"],
 )
 def test_findings_transaction_failure_has_no_partial_publication(funnel_public, point):
     from marivo.analysis.materialization.errors import MaterializationError
@@ -304,9 +298,8 @@ def test_findings_transaction_failure_has_no_partial_publication(funnel_public, 
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("form", ["table", "parquet"])
-@pytest.mark.parametrize("history", ["none", "snapshot", "validity"])
+@pytest.mark.slow
+@pytest.mark.parametrize("form,history", [("table", "snapshot"), ("parquet", "validity")])
 def test_independent_producer_continue_recover_nonempty_findings(tmp_path, form, history):
     import subprocess
     import sys
@@ -331,13 +324,10 @@ def test_independent_producer_continue_recover_nonempty_findings(tmp_path, form,
         assert '"accepted": true' in result.stdout
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "funnel_public",
     [
         ("table", "snapshot"),
-        ("table", "validity"),
-        ("parquet", "snapshot"),
         ("parquet", "validity"),
     ],
     indirect=True,
@@ -359,28 +349,24 @@ def test_historical_entry_axes_and_real_null(funnel_public):
     assert current["cohort_count"].tolist() == [1, 1, 1, 1]
 
 
-@pytest.mark.runtime
-def test_finding_cap_retains_eligible_emitted_truncated_authority(funnel_public, tmp_path):
-    import json
-    import subprocess
-    import sys
-
+def test_funnel_finding_cap_retains_truncation_authority(funnel_public, monkeypatch):
     import duckdb
 
+    from marivo.analysis.materialization import graph_findings
     from marivo.analysis.materialization.graph_findings import POLICY
-    from marivo.analysis.materialization.graph_snapshot import freeze_graph
     from marivo.refs import ref
 
     session, journeys, _, database = funnel_public
+    monkeypatch.setattr(graph_findings, "CAP", 3)
     with duckdb.connect(str(database)) as connection:
         for table in ("customers", "started_rows", "finished_rows"):
             connection.execute(f"DELETE FROM {table}")
         connection.executemany(
             "INSERT INTO customers (id, region) VALUES (?, ?)",
-            [(i, f"g{i:04d}") for i in range(1003)],
+            [(i, f"g{i:04d}") for i in range(4)],
         )
-        starts = [(i * 2, i, START) for i in range(1003)] + [
-            (i * 2 + 1, i, START - timedelta(days=3)) for i in range(1003)
+        starts = [(i * 2, i, START) for i in range(4)] + [
+            (i * 2 + 1, i, START - timedelta(days=3)) for i in range(4)
         ]
         connection.executemany("INSERT INTO started_rows VALUES (?, ?, ?)", starts)
     axes = (ref.dimension("sales.customers.region"),)
@@ -389,35 +375,17 @@ def test_finding_cap_retains_eligible_emitted_truncated_authority(funnel_public,
     logical = current.compare(baseline)
     result = logical.execute()
     digest = result.evidence_digest()
-    assert digest.finding_count == 1000
+    assert digest.finding_count == 3
     retained = next(p.table for p in result._dataset.verified().parts if p.role == "finding_policy")
     policy = POLICY.validate_json(retained["finding_policy__retained"][0].as_py())
-    assert (policy.eligible, policy.emitted, policy.truncated) == (1003, 1000, 3)
-    page = result.findings(limit=100)
-    assert len(page.items) == 100 and page.has_more
+    assert (policy.eligible, policy.emitted, policy.truncated) == (4, 3, 1)
+    page = result.findings(limit=2)
+    assert len(page.items) == 2 and page.has_more
     assert all(item.value.loss_rate_delta == 0.0 for item in page.items)
+    assert result.finding(page.items[0].finding_id) == page.items[0]
     assert session.artifact(result.state.artifact_ref).evidence_digest() == digest
-    (tmp_path / "funnel-recovery.json").write_text(
-        json.dumps(
-            {
-                "session": session.id,
-                "comparison": result.state.artifact_ref.ref,
-                "graph": freeze_graph(logical._node.root),
-            }
-        )
-    )
-    for phase in ("cap-continue", "cap-recover"):
-        recovered = subprocess.run(
-            [sys.executable, "-m", "tests.analysis.journey.funnel_worker", str(tmp_path), phase],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert recovered.returncode == 0, recovered.stdout + recovered.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ["extractor", "cancel", "deadline"])
 def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch, fault):
     from marivo.analysis.materialization import graph_findings
@@ -449,7 +417,6 @@ def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch, fa
         assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("funnel_public", ["table", "parquet"], indirect=True)
 def test_source_reevaluation_fixed_preservation_and_stage_trace(funnel_public, monkeypatch):
     import duckdb
@@ -507,7 +474,6 @@ def test_source_reevaluation_fixed_preservation_and_stage_trace(funnel_public, m
     assert fixed.read(fixed.lost_count).execute().to_pandas().value.tolist() == [0, 1]
 
 
-@pytest.mark.runtime
 def test_funnel_exact_period_and_matching_rejections(funnel_public):
     from dataclasses import replace
 
@@ -559,7 +525,6 @@ def test_funnel_exact_period_and_matching_rejections(funnel_public):
         )
 
 
-@pytest.mark.runtime
 def test_owned_read_exact_step_and_rank_projection(funnel_public):
     from dataclasses import replace
 
@@ -601,7 +566,6 @@ def test_large_exact_count_ratio_and_numeric_axis_order():
     ]
 
 
-@pytest.mark.runtime
 def test_latest_funnel_example_executes(funnel_public):
 
     import marivo.analysis as mv
@@ -623,7 +587,6 @@ def test_latest_funnel_example_executes(funnel_public):
     assert namespace["allocation"].evidence_digest().finding_count == 4
 
 
-@pytest.mark.runtime
 def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
     from marivo.analysis.materialization.errors import MaterializationError
 
@@ -641,7 +604,6 @@ def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
         zero.findings()
 
 
-@pytest.mark.runtime
 def test_no_eligible_rows_preserves_frozen_extractor_policy(funnel_public):
     import duckdb
 

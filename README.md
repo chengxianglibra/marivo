@@ -190,22 +190,34 @@ make check
 
 Before final checks, apply Ruff fixes and formatting only to the Python files
 owned by the change. `make format` formats the whole checkout.
-`make test` runs the daily regression suite with compact output, short failure
-tracebacks, and a five-failure limit. `make typecheck` also uses compact output;
-both preserve check failures and exit status. `make check` and `make check-agent`
-combine daily tests, static checks, and API documentation checks. Ordinary commits
-keep their installed hooks and do not run the full Runtime suite.
+`make test` runs the fast daily regression selection with compact output, short
+failure tracebacks, and a five-failure limit. `make slow-test` runs the extended
+local acceptance cases kept out of that selection. `make typecheck` also uses
+compact output; all commands preserve check failures and exit status. `make check`
+and `make check-agent` combine fast daily tests, static checks, and API
+documentation checks. Ordinary commits keep their installed hooks and do not run
+the full Runtime suite.
 
-`make release-check` adds the full multi-stage analysis, real-source/worker, and
-process-recovery Runtime suite and packaging checks. Functional tests use local
-Parquet files, with native engine cases for engine-specific contracts. No object
-storage service is required. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites.
-Use
-`make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'` for a focused
-Runtime test only when needed to verify the development change; daily development
-does not automatically run the full Runtime suite. `runtime-test-agent` provides
-compact output for the same selected scope. Both Runtime targets default to two
-workers; use `RUNTIME_WORKERS=4` to override after measuring available host capacity.
+Fast daily tests target completion within two minutes and include embedded
+DuckDB/SQLite, local files, loopback HTTP fixtures and static native
+compilation/decoding contracts. The analysis slice keeps one source/fixed path
+and two cold recovery representatives, plus measured-fast graph rules,
+serialization, lowering, consumer, observation-grain, datasource-capability,
+numeric-boundary and temporal-parser tests. One extended coordinate-statistics
+case remains in `make slow-test`.
+The remaining local analysis tests, extended worker execution and composed
+cases are available through `make slow-test`. Runtime tests require ready external datasource services
+and cover basic source operations plus backend-specific risks; they do not repeat
+the entire local analysis matrix. Service containers are shared across cases and
+invocations, while each case owns its tables, schemas and connections.
+
+`make release-check` adds slow, Runtime and packaging checks to the fast daily
+gate. See [CONTRIBUTING.md](CONTRIBUTING.md) for release prerequisites. Use
+`make runtime-test TESTS='tests/datasource/test_source_profiles.py'` for focused
+native source checks when needed; daily development does not automatically run
+the full Runtime suite. `runtime-test-agent` provides compact output for the same
+selection. Both Runtime targets default to two workers to bound shared-service
+load; use `RUNTIME_WORKERS=4` to override after measuring available host capacity.
 An explicit test node id containing `::` runs serially. The limit applies per
 invocation, so concurrent test tasks share the host's remaining capacity.
 Tests use work-stealing across workers to avoid slow-module tails.

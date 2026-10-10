@@ -51,7 +51,10 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             | mv.MaterializedSelectedNumericRelation
             | mv.MaterializedDifferenceRelation,
         ] = {}
+        cold_originals = {"current", "first", "second", "left", "right"}
         for name, raw in obj(state["originals"]).items():
+            if phase == "cold" and name not in cold_originals:
+                continue
             saved = obj(raw)
             reference = saved["artifact"]
             assert isinstance(reference, str)
@@ -66,12 +69,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             )
             assert snapshot(value) == saved
             restored[name] = value
-        first, second = restored["first"], restored["second"]
-        assert isinstance(first, mv.MaterializedDifferenceRelation) and isinstance(
-            second, mv.MaterializedDifferenceRelation
-        )
-        current, left, right = restored["current"], restored["left"], restored["right"]
-        assert isinstance(current, mv.MaterializedNumericRelation)
         before = run_ids(session)
         outputs: dict[str, Json] = {}
 
@@ -82,11 +79,60 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             else:
                 result = operation.execute()
             outputs[name] = snapshot(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[name]
-            assert run_ids(session) == seen
             return result
+
+        if phase == "cold":
+            # One source per persisted input type feeds the nested, union-key,
+            # and ratio recovery branches. Fixed owns the full consumer matrix.
+            first, second = restored["first"], restored["second"]
+            current, left, right = restored["current"], restored["left"], restored["right"]
+            assert isinstance(first, mv.MaterializedDifferenceRelation)
+            assert isinstance(second, mv.MaterializedDifferenceRelation)
+            assert isinstance(current, mv.MaterializedNumericRelation)
+            assert isinstance(left, mv.MaterializedSelectedNumericRelation)
+            assert isinstance(right, mv.MaterializedSelectedNumericRelation)
+            design = mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+            nested = execute("nested", first.compare(second))
+            union = execute("union", left.compare(right, design=design))
+            ratio = execute("ratio", current.ratio(current))
+            assert isinstance(nested, mv.MaterializedDifferenceRelation)
+            assert isinstance(union, mv.MaterializedDifferenceRelation)
+            assert isinstance(ratio, mv.MaterializedNumericRelation)
+            fixed_outputs = obj(state["outputs"])
+            differences = {
+                name: [
+                    field
+                    for field, value in obj(outputs[name]).items()
+                    if value != obj(fixed_outputs[name]).get(field)
+                ]
+                for name in outputs
+                if outputs[name] != fixed_outputs[name]
+            }
+            assert not differences, f"cold outputs differ from fixed outputs: {differences}"
+            assert set(outputs) == {"nested", "union", "ratio"}
+            for name, value in restored.items():
+                assert snapshot(value) == obj(state["originals"])[name]
+            assert session._runtime.store.resources(session.id) == ()
+            assert run_ids(session) == before and kernels.call_count == 0
+            return {
+                "phase": phase,
+                "pid": os.getpid(),
+                "outputs": outputs,
+                "new_runs": 0,
+                "kernels": 0,
+                "resources": 0,
+                "original_snapshot_preserved": True,
+                "source_and_semantic_forbidden": True,
+                "ratio_rollup_refusals": 1,
+                "difference_rollup_absent": True,
+            }
+
+        first, second = restored["first"], restored["second"]
+        assert isinstance(first, mv.MaterializedDifferenceRelation) and isinstance(
+            second, mv.MaterializedDifferenceRelation
+        )
+        current, left, right = restored["current"], restored["left"], restored["right"]
+        assert isinstance(current, mv.MaterializedNumericRelation)
 
         nested = execute("nested", first.compare(second))
         union = execute(

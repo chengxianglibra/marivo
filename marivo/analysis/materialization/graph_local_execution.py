@@ -91,7 +91,7 @@ from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_reference import part_keys
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
-from marivo.analysis.methods.comparison import propagated_error, roundoff
+from marivo.analysis.methods.comparison import propagated_cell, propagated_error, roundoff
 from marivo.analysis.methods.local import arithmetic, count, count_defined
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, merge_original
 from marivo.analysis.methods.physical import (
@@ -1518,26 +1518,35 @@ def _difference_stage(
                     }
                 else:
                     row = {"value": None, "cell_tag": None, "cell_reason": None}
-            elif (
-                (both or params.pairing == "metric_empty")
-                and row["cell_tag"] != "defined"
-                and not (
+            elif row["cell_tag"] != "defined" and (
+                row["cell_tag"] not in ("null", "undefined", "unknown")
+                or row["value"] is not None
+                or not isinstance(row["cell_reason"], str)
+                or (
                     duration_ratio
                     and row["cell_tag"] == "unknown"
-                    and row["value"] is None
                     and row["cell_reason"]
-                    in ("coverage_censored", "entry_unknown", "insufficient_business_coverage")
+                    not in ("coverage_censored", "entry_unknown", "insufficient_business_coverage")
                 )
             ):
-                raise _invalid("comparison requires finite Defined existing operands")
+                raise _invalid("comparison operand is not a well-formed Cell")
             endpoints.append(row)
         left, right = endpoints
+        passed = (
+            None
+            if not both and params.pairing == "keep"
+            else propagated_cell(
+                str(left["cell_tag"]),
+                str(left["cell_reason"]),
+                str(right["cell_tag"]),
+                str(right["cell_reason"]),
+            )
+        )
         if not both and params.pairing == "keep":
             value, tag, reason = None, "undefined", "missing_side"
-        elif left["cell_tag"] != "defined" or right["cell_tag"] != "defined":
-            empty = left if left["cell_tag"] != "defined" else right
+        elif passed is not None:
             value = None
-            tag, reason = str(empty["cell_tag"]), str(empty["cell_reason"])
+            tag, reason = passed
         else:
             try:
                 cell = evaluate_comparison(

@@ -43,7 +43,7 @@ from tests.datasource.driver_protocols import (
     _MysqlCursor,
     _NativeClickHouseRead,
 )
-from tests.datasource.source_cases import source_case
+from tests.datasource.source_cases import source_case, source_params
 from tests.shared_fixtures import run_ids
 from tests.support.json import Json, checked, encode
 
@@ -684,8 +684,7 @@ def graph_abort(
             )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "trino", "clickhouse"))
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
 def test_graph_deadline_preserves_publication_and_proves_remote_termination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -695,8 +694,7 @@ def test_graph_deadline_preserves_publication_and_proves_remote_termination(
     graph_abort(tmp_path, monkeypatch, semantic_project_factory, backend, "deadline")
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("postgres", "mysql", "trino", "clickhouse"))
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
 def test_graph_sigint_preserves_publication_and_proves_remote_termination(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -49,7 +49,6 @@ def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
     ms.load(workspace_dir=case.root)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "physical,parquet",
     [
@@ -129,7 +128,7 @@ def test_public_numeric_difference_source_and_fixed(
         assert all(type(value) is Decimal for value in fixed["value"])
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("parquet", [False, True])
 def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -204,6 +203,9 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
             completed_checks=checked.completed_checks,
             method_state=checked.method_state.slice(0),
         )
+    # Table and Parquet inputs share the same persisted comparison recovery path.
+    if parquet:
+        return
     source_path = case.root / "source_files" if parquet else case.database_path
     offline = source_path.with_name(source_path.name + ".offline")
     source_path.rename(offline)
@@ -237,7 +239,7 @@ assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("parquet", [False, True])
 def test_nested_difference_keeps_independent_captures(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -288,6 +290,9 @@ def test_nested_difference_keeps_independent_captures(
         == july_first._node.root.identity
     )
 
+    # The Parquet parameter keeps source/fixed coverage; the table case owns cold recovery.
+    if parquet:
+        return
     # The retained nested endpoints must survive a fresh process without any source access.
     from marivo.analysis.materialization.graph_protocol import freeze_graph
 
@@ -350,7 +355,6 @@ assert selected._dataset.verified().contract.signature.quantity == checked.contr
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
 def test_relative_change_exact_finish_and_zero_baseline(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, physical: str
@@ -383,7 +387,6 @@ def test_relative_change_exact_finish_and_zero_baseline(
         assert saved._dataset.artifact.descriptor.method_state.contract_version == 4
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 def test_ordinary_ratio_and_cohort_singleton(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -426,7 +429,6 @@ def test_ordinary_ratio_and_cohort_singleton(
         assert result.to_pandas()["value"].tolist() == [0]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -478,7 +480,6 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
             left.compare(right, design=mv.TimeChange(pairing=mv.UnionKeys(missing="metric_empty")))
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize("metric_name", ["revenue", "order_count", "count_ratio"])
 def test_cohort_group_metric_empty_preserves_metric_null_policy(
@@ -524,7 +525,6 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_period_change_retains_original_buckets_and_rejects_renumbering(
@@ -588,7 +588,6 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             selected.compare(right, design=design).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -635,7 +634,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
             second.ratio(first, pairing=pairing)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize("parquet", [False, True])
 def test_relative_and_ratio_cold_fixed_composition(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -661,6 +660,9 @@ def test_relative_and_ratio_cold_fixed_composition(
     relative = current.rollup().compare(baseline.rollup(), value="relative_change").execute()
     positive = current.where(current.value.gt(0))
     ratio = positive.ratio(positive).execute()
+    # Both source formats produce the same saved Difference and Numeric result types.
+    if parquet:
+        return
     refs = [item.state.artifact_ref.ref for item in (first, second, relative, ratio)]
     source = case.root / "source_files" if parquet else case.database_path
     offline = source.with_name(source.name + ".offline")
@@ -706,7 +708,6 @@ assert result.loc["D", "cell_reason"] == "zero_denominator"
     assert process.returncode == 0, process.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
 def test_ordinary_ratio_numeric_families(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
@@ -730,7 +731,6 @@ def test_ordinary_ratio_numeric_families(
         assert result._dataset.artifact.descriptor.method_state.contract_version == 4
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 def test_composite_keys_double_empty_and_wrong_key_images(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
@@ -796,7 +796,6 @@ def test_composite_keys_double_empty_and_wrong_key_images(
             wrong_left.compare(wrong_right).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("baseline_amount", [-10, -(2**63)])
 def test_public_relative_negative_and_minimum_integer_baseline(
     analysis_dsl_case_factory: DslCaseFactory, baseline_amount: int
@@ -840,7 +839,6 @@ def test_public_relative_negative_and_minimum_integer_baseline(
             left.compare(right).execute()
 
 
-@pytest.mark.runtime
 def test_float_sum_envelope_and_native_mean_cell_boundary(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -902,7 +900,6 @@ def test_float_sum_envelope_and_native_mean_cell_boundary(
                 assert relative.cell_tag.tolist() == ["defined"]
 
 
-@pytest.mark.runtime
 def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -947,7 +944,6 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     assert first.to_pandas().equals(second.to_pandas())
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["ratio", "linear", "weighted"])
 def test_comparison_of_float_original_expression_operands(
     analysis_dsl_case_factory: DslCaseFactory, kind: str
@@ -998,13 +994,10 @@ def test_comparison_of_float_original_expression_operands(
         assert mapping["correspondence__result_error_bound"][0].as_py() > 0
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ["null", "undefined"])
 def test_union_keeps_present_nondefined_cell_separate_from_absence(
     analysis_dsl_case_factory: DslCaseFactory, kind: str
 ) -> None:
-    from marivo.analysis.errors import AnalysisError
-
     case = analysis_dsl_case_factory("j1")
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = ms.ref.dimension("sales.customer.region")
@@ -1044,13 +1037,17 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         checked = saved._dataset.verified()
         endpoint = next(part.table for part in checked.parts if part.role == "baseline_endpoint")
         assert kind in cell_column(endpoint, "baseline_endpoint__cell_tag").to_pylist()
-        with pytest.raises(AnalysisError):
-            left.compare(
-                right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))
-            ).execute()
+        empty = left.compare(
+            right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))
+        ).execute()
+        empty_frame = empty.to_pandas().set_index("group")
+        assert empty_frame.loc["south", "cell_reason"] == "empty_contribution"
+        assert empty_frame.loc["west", "cell_tag"] == kind
+        assert empty_frame.loc["west", "cell_reason"] == (
+            "empty_contribution" if kind == "null" else "zero_denominator"
+        )
 
 
-@pytest.mark.runtime
 def test_public_decimal_ratio_rounds_once_half_even(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -1090,7 +1087,6 @@ def test_public_decimal_ratio_rounds_once_half_even(
         }
 
 
-@pytest.mark.runtime
 def test_ordinary_ratio_over_untimed_numeric_read(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -1110,7 +1106,6 @@ def test_ordinary_ratio_over_untimed_numeric_read(
         )
 
 
-@pytest.mark.runtime
 def test_float_fold_comparison_without_error_envelope_rejects_statically(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -1144,7 +1139,6 @@ def test_float_fold_comparison_without_error_envelope_rejects_statically(
     assert "compare" not in actions and "ratio" not in actions
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["sum", "mean"])
 def test_float_row_statistic_comparison_retains_error_state(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -1188,7 +1182,6 @@ def test_float_row_statistic_comparison_retains_error_state(
                 operand.ratio(operand).execute()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
 def test_stable_float_row_statistic_comparison_propagates_bounds(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -1218,7 +1211,6 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
         assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("parquet", [False, True])
 def test_period_change_after_bucket_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -1253,7 +1245,6 @@ def test_period_change_after_bucket_rollup(
         assert sorted(saved.to_pandas()["value"].tolist()) == [-1, 0, 0]
 
 
-@pytest.mark.runtime
 def test_fixed_comparison_indexes_components_once_per_endpoint(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,

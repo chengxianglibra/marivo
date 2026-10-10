@@ -48,7 +48,21 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         before = run_ids(session)
         outputs: dict[str, Json] = {}
         restored: dict[str, _MaterializedRead] = {}
+        all_keys = [
+            (9007199254740992, "a"),
+            (9007199254740993, "a"),
+            (9007199254740993, "b"),
+        ]
+        cold_originals = {
+            "validity:august",
+            "validity:numeric",
+            "validity:category",
+            "validity:boolean",
+            "validity:temporal",
+        }
         for name, raw in obj(state["originals"]).items():
+            if phase == "cold" and name not in cold_originals:
+                continue
             original = obj(raw)
             reference = original["artifact"]
             assert isinstance(reference, str)
@@ -64,13 +78,51 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             else:
                 result = operation.execute()
             outputs[name] = snapshot(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[name]
-            assert seen == run_ids(session)
             return result
 
-        all_keys = [(9007199254740992, "a"), (9007199254740993, "a"), (9007199254740993, "b")]
+        if phase == "cold":
+            # Recover one value for each persisted result type; fixed owns both
+            # versioning modes and the full attribute/consumer matrix.
+            domain = restored["validity:august"]
+            numeric = restored["validity:numeric"]
+            category = restored["validity:category"]
+            boolean = restored["validity:boolean"]
+            temporal = restored["validity:temporal"]
+            assert isinstance(domain, mv.MaterializedAnalysisDomain)
+            assert isinstance(numeric, mv.MaterializedNumericRelation)
+            assert isinstance(category, mv.MaterializedCategoryRelation)
+            assert isinstance(boolean, mv.MaterializedBooleanRelation)
+            assert isinstance(temporal, mv.MaterializedTemporalRelation)
+            selected = execute("validity:numeric:where", numeric.where(numeric.value.gt(15)))
+            assert isinstance(selected, mv.MaterializedSelectedNumericRelation)
+            assert selected.to_pandas().value.tolist() == [20, 30]
+            cold_members = execute("validity:numeric:members", selected.members())
+            member_frame = cold_members.to_pandas()
+            assert list(zip(member_frame.member, member_frame.coord_0, strict=True)) == all_keys[1:]
+            total = execute("validity:numeric:sum", selected.aggregate(mv.sum()))
+            assert total.to_pandas().value.tolist() == [50]
+            cold_names = {
+                "validity:numeric:where",
+                "validity:numeric:members",
+                "validity:numeric:sum",
+            }
+            fixed_outputs = obj(state["outputs"])
+            assert outputs == {name: fixed_outputs[name] for name in cold_names}
+            for name, restored_value in restored.items():
+                assert snapshot(restored_value) == obj(state["originals"])[name]
+            assert session._runtime.store.resources(session.id) == ()
+            assert run_ids(session) == before and kernels.call_count == 0
+            return {
+                "phase": phase,
+                "pid": os.getpid(),
+                "outputs": outputs,
+                "new_runs": 0,
+                "kernels": 0,
+                "resources": 0,
+                "original_snapshot_preserved": True,
+                "source_and_semantic_forbidden": True,
+            }
+
         for kind in ("snapshot", "validity"):
             numeric = restored[kind + ":numeric"]
             category = restored[kind + ":category"]

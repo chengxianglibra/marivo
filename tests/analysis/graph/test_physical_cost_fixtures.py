@@ -67,7 +67,7 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    with workload("duckdb", profile, 1000, "baseline", tmp_path, monkeypatch) as work:
+    with workload("duckdb", profile, 16, "baseline", tmp_path, monkeypatch) as work:
         logical = work.session.members(ms.ref.entity("cost.facts")).observe(
             ms.ref.metric("cost.facts_total"),
             during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
@@ -76,11 +76,11 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         assert isinstance(logical, mv.LogicalNumericRelation)
         captured = logical.execute()
         frame = captured.to_pandas()
-        assert len(frame) == 1000
-        assert set(frame["coord_0"]) == set(range(9007199254740992, 9007199254740992 + 1000))
-        assert frame.cell_tag.tolist() == ["defined"] * 1000
+        assert len(frame) == 16
+        assert set(frame["coord_0"]) == set(range(9007199254740992, 9007199254740992 + 16))
+        assert frame.cell_tag.tolist() == ["defined"] * 16
         total = captured.rollup().execute()
-        expected = sum(index % 17 + 1 for index in range(1000) if index % 23)
+        expected = sum(index % 17 + 1 for index in range(16) if index % 23)
         assert total.to_pandas().value.tolist() == [expected]
         assert work.identity(captured)["root_route"] == "ibis"
 

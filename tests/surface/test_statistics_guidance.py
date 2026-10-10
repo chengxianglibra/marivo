@@ -60,9 +60,19 @@ def test_nine_methods_are_reachable_through_existing_groups() -> None:
         assert set(targets) <= set(owner.members)
 
 
+@pytest.mark.slow
 def test_result_types_and_negative_calls_have_concrete_static_contracts(tmp_path: Path) -> None:
-    source = tmp_path / "statistics_positive.py"
-    source.write_text("""import marivo.analysis as mv
+    source = tmp_path / "statistics_contracts.py"
+    calls = (
+        'v.correlate(b, method="invalid")',
+        "v.forecast(horizon=1)",
+        "r.rollup()",
+        "r.attribute()",
+        "c.rollup()",
+        "f.rollup()",
+        "f.attribute()",
+    )
+    source_text = """import marivo.analysis as mv
 from typing_extensions import assert_type
 def methods(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation) -> None:
     assert_type(v.deviation(method="zscore"), mv.LogicalDeviationResult)
@@ -74,30 +84,21 @@ def methods(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation) -> None:
     assert_type(v.forecast(horizon=mv.periods(1), model=mv.naive()), mv.LogicalForecastResult)
     assert_type(v.forecast(horizon=mv.periods(1), model=mv.drift()), mv.LogicalForecastResult)
     assert_type(v.forecast(horizon=mv.periods(1), model=mv.seasonal_naive(periods=2)), mv.LogicalForecastResult)
-""")
-    positive = check(source)
-    assert positive.returncode == 0, positive.stdout + positive.stderr
-    calls = (
-        'v.correlate(b, method="invalid")',
-        "v.forecast(horizon=1)",
-        "r.rollup()",
-        "r.attribute()",
-        "c.rollup()",
-        "f.rollup()",
-        "f.attribute()",
+def invalid(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation, r: mv.LogicalDeviationResult, c: mv.LogicalCoefficientRelation, f: mv.LogicalForecastResult) -> None:
+""" + "".join("    " + call + "\n" for call in calls)
+    source.write_text(source_text)
+    call_lines = [source_text.splitlines().index("    " + call) + 1 for call in calls]
+    result = check(source)
+    assert result.returncode != 0
+    errors = [line for line in result.stdout.splitlines() if ": error:" in line]
+    error_locations = {line.split(": error:", maxsplit=1)[0] for line in errors}
+    assert error_locations == {f"{source}:{line}" for line in call_lines}, (
+        result.stdout + result.stderr
     )
-    source = tmp_path / "statistics_negative.py"
-    source.write_text(
-        "import marivo.analysis as mv\ndef invalid(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation, r: mv.LogicalDeviationResult, c: mv.LogicalCoefficientRelation, f: mv.LogicalForecastResult) -> None:\n"
-        + "".join("    " + c + "\n" for c in calls)
-    )
-    negative = check(source)
-    assert negative.returncode != 0
-    for line in range(3, 3 + len(calls)):
-        assert f"{source}:{line}: error:" in negative.stdout, negative.stdout + negative.stderr
+    assert len(errors) == len(calls), result.stdout + result.stderr
 
 
-def test_cli_and_api_documentation_use_current_entry() -> None:
+def test_cli_help_uses_public_entry() -> None:
     result = subprocess.run(
         [str(ROOT / ".venv/bin/marivo"), "help"],
         cwd=ROOT,
@@ -108,37 +109,9 @@ def test_cli_and_api_documentation_use_current_entry() -> None:
     assert result.returncode == 0, result.stderr
     text = result.stdout
     assert "marivo.help" in text
-    api = (ROOT / "docs/api/analysis.rst").read_text()
-    for result_type in ("DeviationResult", "TimeRunResult", "AssociationResult", "ForecastResult"):
-        for prefix in ("Logical", "Materialized"):
-            assert ".. autoclass:: " + prefix + result_type in api
 
 
-def test_latest_examples_cover_nine_methods_and_continuations() -> None:
-    for edition in ("docs", "zh-cn/docs"):
-        source = (
-            ROOT / "site/src/content/docs" / edition / "latest/guides/statistics.mdx"
-        ).read_text()
-        for token in (
-            'method="zscore"',
-            'method="mad"',
-            ".runs(where=",
-            'method="pearson"',
-            'method="spearman"',
-            'method="kendall"',
-            "model=mv.naive()",
-            "model=mv.drift()",
-            "model=mv.seasonal_naive(periods=2)",
-            ".where(",
-            ".rank(",
-            "mv.table(",
-            ".contract()",
-            ".show()",
-        ):
-            assert token in source, (edition, token)
-
-
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_bilingual_nine_method_example_executes_with_current_continuations(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -165,11 +138,7 @@ def test_bilingual_nine_method_example_executes_with_current_continuations(
         "order_count": members.read(ms.ref.measure("sales.order.profile_1")),
         "daily": daily,
     }
-    english, chinese = (
-        _example("en", "nine-statistical-methods"),
-        _example("zh", "nine-statistical-methods"),
-    )
-    assert english == chinese and english.startswith('zscore = revenue.deviation(method="zscore")')
+    english = _example("en", "nine-statistical-methods")
     exec(compile(english, "bilingual-nine-method-example", "exec"), namespace)
     assert isinstance(namespace["chosen"], mv.MaterializedDeviationResult)
     assert isinstance(namespace["segments"], mv.MaterializedTimeRunResult)

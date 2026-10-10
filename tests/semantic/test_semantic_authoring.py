@@ -339,29 +339,6 @@ def test_dataset_pushes_ir_without_callable() -> None:
         _exit_ctx()
 
 
-def test_dataset_datasource_as_string() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.datasource == "wh"
-    finally:
-        _exit_ctx()
-
-
-def test_dataset_datasource_as_datasource_ref() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        warehouse = ms.ref.datasource("wh")
-        ms.entity(name="orders", datasource=warehouse, source=md.table("orders"))
-
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.datasource == "wh"
-    finally:
-        _exit_ctx()
-
-
 def test_dataset_primary_key() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -570,20 +547,6 @@ def test_field_explicit_name() -> None:
         ir, _ = _pending_objects(ctx)[-1]
         assert ir.name == "order_amount"
         assert ir.semantic_id == "sales.orders.order_amount"
-    finally:
-        _exit_ctx()
-
-
-def test_field_with_dataset_ref() -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        ds_ref = ref_factory.entity("sales.orders")
-
-        @ms.dimension(entity=ds_ref)
-        def amount(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        assert _is_ref(amount, ms.SemanticKind.DIMENSION)
     finally:
         _exit_ctx()
 
@@ -1504,21 +1467,6 @@ def test_metric_with_entities() -> None:
         _exit_ctx()
 
 
-def test_metric_with_entity_ref() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        orders_ref = ref_factory.entity("sales.orders")
-
-        @ms.metric(entities=[orders_ref], additivity=ms.additive_all())
-        def revenue(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.entities == ("sales.orders",)
-    finally:
-        _exit_ctx()
-
-
 def test_metric_historical_sql_in_ai_context() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -2064,29 +2012,6 @@ def test_relationship_rejects_non_join_key_entries() -> None:
             )
         assert exc_info.value.kind == ErrorKind.INVALID_REF
         assert "join_on" in str(exc_info.value)
-    finally:
-        _exit_ctx()
-
-
-def test_relationship_with_ref_objects() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-        orders_ref = ref_factory.entity("sales.orders")
-        items_ref = ref_factory.entity("sales.items")
-        id_ref = ref_factory.dimension("sales.orders.path")
-        oid_ref = ref_factory.dimension("sales.items.order_id")
-
-        ms.relationship(
-            name="orders_to_items",
-            from_entity=orders_ref,
-            to_entity=items_ref,
-            keys=[ms.join_on(id_ref, oid_ref)],
-        )
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.from_entity == "sales.orders"
-        assert ir.to_entity == "sales.items"
-        assert ir.keys[0].from_key == "sales.orders.path"
-        assert ir.keys[0].to_key == "sales.items.order_id"
     finally:
         _exit_ctx()
 

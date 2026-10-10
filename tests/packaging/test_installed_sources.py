@@ -24,16 +24,12 @@ NATIVE_OWNERS = (
     "tests/datasource/test_source_deadline.py",
     "tests/analysis/graph/test_method_consumers.py",
     "tests/analysis/materialization/test_producer_recovery.py",
-    "tests/analysis/graph/test_remote_domain_consumers.py",
     "tests/analysis/journey/test_native_funnel_recovery.py",
     "tests/analysis/numeric/test_native_numeric.py",
     "tests/datasource/test_source_profiles.py",
     "tests/analysis/materialization/test_graph_transport_phases.py",
-    "tests/analysis/graph/test_reference_consumers.py",
     "tests/analysis/graph/test_distribution_consumers.py",
     "tests/analysis/graph/test_multiroot_consumers.py",
-    "tests/analysis/numeric/test_comparison_consumers.py",
-    "tests/analysis/materialization/test_attribution_recovery.py",
 )
 METHOD_SELECTIONS = {
     "test_distribution_consumers.py": (
@@ -105,21 +101,24 @@ def test_installed_public_multisource_journey(
     assert obj(produced["result"])["session"] == obj(cold["result"])["session"]
 
 
-@pytest.mark.parametrize("engine", ("postgres", "mysql", "trino", "clickhouse"))
-@pytest.mark.parametrize("owner", NATIVE_OWNERS)
+@pytest.mark.parametrize(
+    "owner,engine",
+    [
+        (owner, engine)
+        for engine in ("postgres", "mysql", "trino", "clickhouse")
+        for owner in NATIVE_OWNERS
+        if not owner.endswith("test_graph_transport_phases.py") or engine in ("mysql", "trino")
+        if not owner.endswith(("test_mysql_authoring_deadline.py", "test_source_deadline.py"))
+        or engine == "mysql"
+        if not owner.endswith("test_method_consumers.py") or engine in ("mysql", "clickhouse")
+    ],
+)
 def test_installed_native_behavior_owners(
     engine: str, owner: str, installed_multisource_wheel: InstalledWheel
 ) -> None:
     selected = os.environ.get("MARIVO_INSTALLED_BACKENDS", ",".join(BACKENDS)).split(",")
     if engine not in selected:
         pytest.skip("backend not selected for this serial service group")
-    if owner.endswith("test_graph_transport_phases.py") and engine not in ("mysql", "trino"):
-        pytest.skip("transport phase owner applies only to MySQL and Trino")
-    if (
-        owner.endswith(("test_mysql_authoring_deadline.py", "test_source_deadline.py"))
-        and engine != "mysql"
-    ):
-        pytest.skip("affected MySQL reader cancellation owner")
     candidate = installed_multisource_wheel
     opt_ins = {
         name: value
@@ -151,6 +150,8 @@ def test_installed_native_behavior_owners(
             "-q",
             "--tb=short",
             "--maxfail=5",
+            "-m",
+            "runtime",
             "--basetemp=" + str(projects / name),
             "-k",
             expression,

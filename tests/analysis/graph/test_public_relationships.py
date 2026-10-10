@@ -108,7 +108,6 @@ def test_authored_relationship_keys_construct_without_source_io(
     assert not (relationship_project / "warehouse.duckdb").exists()
 
 
-@pytest.mark.runtime
 def test_authored_relationship_keys_execute_metric_and_event(relationship_project: Path) -> None:
     with duckdb.connect(str(relationship_project / "warehouse.duckdb")) as database:
         database.execute("CREATE TABLE orders (order_id BIGINT, region VARCHAR)")

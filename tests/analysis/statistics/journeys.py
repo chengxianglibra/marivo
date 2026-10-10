@@ -57,7 +57,7 @@ Result: TypeAlias = (
 
 
 def prepare(case: DslCase, form: str) -> mv.Session:
-    prepare_profiles(case, "KC", form, "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KC", form, "us", "UTC", False, followup=True, profile_indices=(0,))
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text()

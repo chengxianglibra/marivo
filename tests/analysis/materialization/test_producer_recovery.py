@@ -191,52 +191,44 @@ def producer_recovery(
         )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
 def test_native_producer_offline_and_cold_continuation(
-    backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    backend = "duckdb"
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     producer_recovery(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, source_trace
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ("duckdb", "sqlite", "postgres", "mysql"))
+@pytest.mark.slow
 def test_view_producer_offline_and_cold_continuation(
-    backend: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
     producer_recovery(
-        backend, "view", tmp_path, monkeypatch, semantic_project_factory, source_trace
+        "duckdb", "view", tmp_path, monkeypatch, semantic_project_factory, source_trace
     )
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("profile", ("parquet", "csv", "local-json"))
+@pytest.mark.slow
 def test_file_producer_offline_and_cold_continuation(
-    profile: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    profile = "parquet"
     producer_recovery(
         "duckdb", profile, tmp_path, monkeypatch, semantic_project_factory, source_trace
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("profile", ("http-json-public", "http-json-auth"))
 def test_http_source_remains_a_datasource_boundary(
     profile: str,

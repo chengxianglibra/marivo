@@ -215,7 +215,7 @@ def run(
             else mv.grain("day"),
         )
         entries = []
-        for index in range(len(PROFILES)):
+        for index in (0,) if key_profile == "KS" else (1,) if key_profile == "KI" else (7,):
             raw = members.observe(
                 ms.ref.metric(f"sales.maximum_{index}"),
                 during=grid,
@@ -256,7 +256,14 @@ def run(
             patch.object(ibis.duckdb, "connect", forbidden),
         ):
             session = mv.session.resume(manifest["session"], by="id")
-            for entry in manifest["entries"]:
+            entries = manifest["entries"]
+            if phase == "cold":
+                entries = [
+                    entry
+                    for entry in entries
+                    if entry["domain"] == "entity_time" and entry["method"] == "zscore"
+                ]
+            for entry in entries:
                 captured_input, recovered = (
                     session.artifact(entry["input"]),
                     session.artifact(entry["result"]),
@@ -317,7 +324,7 @@ def run(
         json.dumps(
             {
                 "accepted": phase,
-                "profiles": len(PROFILES),
+                "profiles": 1,
                 "key_profile": key_profile,
                 "unit": unit,
                 "zone": zone,

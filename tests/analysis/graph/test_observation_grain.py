@@ -17,7 +17,6 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
 def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     entity = ms.ref.entity("sales.customer")
@@ -45,7 +44,6 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         assert relation.members().execute().to_pandas()["member"].tolist() == ["A", "B", "C", "D"]
 
 
-@pytest.mark.runtime
 def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -86,7 +84,6 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     assert restored.to_pandas().equals(grouped.to_pandas())
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("member_first", [True, False])
 def test_member_channel_axes_keep_identity_and_selected_scope(
     analysis_dsl_case_factory: DslCaseFactory, member_first: bool
@@ -120,7 +117,6 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     assert filtered.to_pandas()["value"].tolist() == [626, 150]
 
 
-@pytest.mark.runtime
 def test_component_domains_union_complete_tuples(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     model = case.root / "models/semantic/sales/models.py"
@@ -155,7 +151,6 @@ mobile_total = ms.aggregate(name='mobile_total', measure=amount, agg='sum', time
     assert grouped.rollup().execute().to_pandas()["value"].tolist() == [700]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("keep_member", [False, True])
 def test_member_classification_survives_rollup_for_fixed_attribution(
     analysis_dsl_case_factory: DslCaseFactory, keep_member: bool
@@ -180,7 +175,6 @@ def test_member_classification_survives_rollup_for_fixed_attribution(
     assert rows.set_index("coord_0")["value"].to_dict() == {"east": 523, "south": 400}
 
 
-@pytest.mark.runtime
 def test_grid_observation_keeps_time_without_member_axis(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -219,7 +213,6 @@ def test_grid_observation_keeps_time_without_member_axis(
     assert contribution_groups["cell_tag"].tolist().count("null") == 1
 
 
-@pytest.mark.runtime
 def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("empty_domain")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -240,7 +233,6 @@ def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFa
     assert total.to_pandas()["cell_tag"].tolist() == ["null"]
 
 
-@pytest.mark.runtime
 def test_overall_bucket_coverage_marks_unknown_after_aggregation(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -271,7 +263,6 @@ def test_overall_bucket_coverage_marks_unknown_after_aggregation(
         fixed.rollup()
 
 
-@pytest.mark.runtime
 def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     entity = ms.ref.entity("sales.order")
@@ -294,7 +285,6 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     assert not hasattr(members, "group_by")
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "method", ["sum", "count", "mean", "weighted_mean", "median", "percentile", "count_distinct"]
 )
@@ -362,7 +352,6 @@ def test_direct_aggregate_uses_selected_contributions(
             recovered.rollup()
 
 
-@pytest.mark.runtime
 def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     entity = ms.ref.entity("sales.customer")
@@ -379,7 +368,7 @@ def test_overall_ratio_differs_from_member_mean(analysis_dsl_case_factory: DslCa
     assert individual.aggregate(mv.mean()).execute().to_pandas()["value"].iloc[0] == 50.5
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_overall_linear_and_fixed_group_recovery(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     entity = ms.ref.entity("sales.customer")
@@ -421,7 +410,6 @@ assert grouped.rollup().execute().to_pandas()['value'].tolist() == [1000]
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.runtime
 def test_complete_member_entity_keeps_compound_key(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -463,7 +451,6 @@ def test_complete_member_entity_keeps_compound_key(
     assert set(zip(rows.iloc[:, 0], rows.iloc[:, 1], strict=True)) == expected
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("logical_axes", [False, True])
 def test_multiple_member_classifications_keep_complete_time_keys(
     analysis_dsl_case_factory: DslCaseFactory, logical_axes: bool
@@ -516,7 +503,6 @@ def test_multiple_member_classifications_keep_complete_time_keys(
         assert continued.to_pandas().equals(frame)
 
 
-@pytest.mark.runtime
 def test_member_groups_preserve_live_and_fixed_comparisons(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

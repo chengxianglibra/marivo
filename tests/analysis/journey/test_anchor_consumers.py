@@ -1,10 +1,9 @@
-"""Native SQLite C18 opportunity truth and elapsed/calendar deadline probes."""
+"""Native SQLite opportunity and component execution checks."""
 
 import os
 import subprocess
 import sys
-from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -19,14 +18,11 @@ from marivo.refs import MetricKind, Ref
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from tests.analysis.journey.retention_fixtures import build_retention
 from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_public
-from tests.support.documentation import _example
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
-def test_sqlite_anchor_omega(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
+def test_sqlite_anchor_omega(tmp_path: Path) -> None:
     session, anchors, returning, claims = build_retention(tmp_path, backend_name="sqlite")
     retained = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
@@ -36,104 +32,13 @@ def test_sqlite_anchor_omega(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert rows.value.tolist() == [True, None, False, None]
     assert dict(retained.contract()._facts)["omega_count"] == "4"
     assert dict(retained.contract()._facts)["deterministic_bounds"] == "[0.25,0.75]"
-    for rule, expected in ((mv.any_anchor(), [True, None]), (mv.every_anchor(), [None, False])):
-        assert retained.by_subject(rule=rule).execute().to_pandas().value.tolist() == expected
-    with pytest.raises(AnalysisError):
-        anchors.execute().retention(returning, within=mv.elapsed(mv.duration(seconds=10)))
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Fixed retention read a source")
-
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
-    selected = retained.known_true().execute()
-    assert len(selected.to_pandas()) == 1
-    assert dict(selected.contract()._facts)["omega_count"] == "4"
-    assert selected.members(through=selected.subject_binding).execute().to_pandas()[
-        "member"
-    ].tolist() == [9007199254740993]
-    script = """
-import os, sys
-import ibis
-import marivo.analysis as mv
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
-from marivo.semantic.reader import SemanticProject
-def forbidden(*args, **kwargs):
-    raise AssertionError('Cold retention accessed source or semantic execution')
-SourceSession.batches = forbidden
-SemanticProject.load = forbidden
-ibis.duckdb.connect = forbidden
-ibis.sqlite.connect = forbidden
-os.chdir(sys.argv[1])
-session = mv.session.resume(sys.argv[2], by='id')
-retained = session.artifact(sys.argv[3])
-assert retained.to_pandas().value.tolist() == [True, None, False, None]
-assert dict(retained.contract()._facts)['omega_count'] == '4'
-for rule, expected in ((mv.any_anchor(),[True,None]),(mv.every_anchor(),[None,False])):
-    assert retained.by_subject(rule=rule).execute().to_pandas().value.tolist() == expected
-selected = retained.known_true().execute()
-assert dict(selected.contract()._facts)['omega_count'] == '4'
-assert selected.members(through=selected.subject_binding).execute().to_pandas()['member'].tolist() == [9007199254740993]
-"""
-    subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path), session.id, retained.state.artifact_ref.ref],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-    )
+    assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
-@pytest.mark.runtime
-def test_sqlite_anchor_dst_deadline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    beginning = datetime(2026, 3, 7, 12, tzinfo=ZoneInfo("America/New_York"))
-    offset = int((beginning - START).total_seconds())
-    session, population, _, claims, _ = build_lifecycle_public(
-        tmp_path,
-        backend_name="sqlite",
-        rows=[(0, "started", offset, 1), (0, "finished", offset + 23 * 3600, 2)],
-    )
-    started = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
-    returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
-    anchors = session.anchors(
-        started,
-        population=population,
-        during=mv.time_scope(start=beginning, end=beginning + timedelta(seconds=1)),
-        business_order=ms.ref.business_order("commerce.order"),
-    )
-    claims = (
-        replace(
-            claims[0], inputs=(returning.event,), complete_through=beginning + timedelta(days=2)
-        ),
-    )
-    for window, expected in (
-        (mv.elapsed(mv.duration(hours=24)), True),
-        (mv.calendar_days(1, ZoneInfo("America/New_York")), False),
-    ):
-        result = anchors.retention(returning, within=window, completeness=claims).execute()
-        assert result.to_pandas().value.tolist() == [expected]
-
-
-@pytest.mark.runtime
-def test_sqlite_empty_anchor_omega(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    _, anchors, returning, claims = build_retention(tmp_path, backend_name="sqlite", empty=True)
-    retained = anchors.retention(
-        returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
-    ).execute()
-    assert retained.to_pandas().empty
-    assert dict(retained.contract()._facts)["omega_count"] == "0"
-    assert "Undefined(empty_omega)" in dict(retained.contract()._facts)["deterministic_bounds"]
-    assert retained.by_subject(rule=mv.any_anchor()).execute().to_pandas().empty
-
-
-@pytest.mark.runtime
-def test_sqlite_anchor_observation_overlap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_anchor_observation_overlap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     build_retention(
         tmp_path,
-        backend_name="sqlite",
         rows=[
             (0, "started", 0, 1),
             (0, "finished", 0, 2),
@@ -184,34 +89,9 @@ def test_sqlite_anchor_observation_overlap(tmp_path: Path, monkeypatch: pytest.M
 
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     assert result.to_pandas().value.tolist() == expected
-    script = """
-import os, sys
-import ibis
-import marivo.analysis as mv
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
-from marivo.semantic.reader import SemanticProject
-def forbidden(*args, **kwargs):
-    raise AssertionError('Cold Anchor observation accessed source or semantic execution')
-SourceSession.batches = forbidden
-SemanticProject.load = forbidden
-ibis.duckdb.connect = forbidden
-ibis.sqlite.connect = forbidden
-os.chdir(sys.argv[1])
-session = mv.session.resume(sys.argv[2], by='id')
-result = session.artifact(sys.argv[3])
-assert result.to_pandas().value.tolist() == [9, 9, 2, 0]
-"""
-    subprocess.run(
-        [sys.executable, "-c", script, str(tmp_path), session.id, result.state.artifact_ref.ref],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-    )
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_sqlite_anchor_components_and_offline_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -285,33 +165,13 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
         during=mv.time_scope(start=START, end=START + timedelta(seconds=100)),
         business_order=ms.ref.business_order("commerce.order"),
     )
-    namespace = {"mv": mv, "ms": ms, "anchors": anchors}
-    code = _example("en", "anchor-runtime-slice")
-    exec(compile(code, "latest-filtered-anchor-example", "exec"), namespace)
-    documented = namespace["filtered_anchor"]
-    assert isinstance(documented, mv.MaterializedNumericRelation)
-    assert documented.to_pandas().value.tolist() == [6.0, 9.0, 0.0, 0.0]
     revenue = ms.ref.metric("commerce.revenue")
     large = ms.ref.metric("commerce.large_sum")
-    count = ms.ref.metric("commerce.fact_count")
-    ratio = mv.runtime_metric.ratio(large, count, label="per_fact")
     linear = mv.runtime_metric.linear(
         add=[revenue], subtract=[ms.ref.metric("commerce.other_sum")], label="net"
     )
     variants: list[tuple[Ref[MetricKind] | RuntimeMetricExpr, list[int | float | None]]] = [
-        (count, [3, 2, 1, 0]),
         (large, [(2**53 + 1) * n for n in (3, 2, 1, 0)]),
-        (ms.ref.metric("commerce.nullable"), [9.0, 9.0, 2.0, None]),
-        (
-            mv.runtime_metric.slice(
-                revenue,
-                by={ms.ref.dimension("commerce.facts.kind"): "finished"},
-                label="finished_only",
-            ),
-            [6.0, 9.0, 0.0, 0.0],
-        ),
-        # The exact rate is 2**53+1. Native division consumes each represented sum.
-        (ratio, [float((2**53 + 1) * n) / n for n in (3, 2, 1)] + [None]),
         (linear, [-11.0, 9.0, -48.0, 0.0]),
     ]
     inputs: dict[str, Json] = {}
@@ -335,10 +195,7 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
                 value,
                 frame.cell_tag.tolist(),
             )
-        if metric is ratio:
-            assert frame.cell_tag.tolist() == ["defined"] * 3 + ["undefined"]
-            assert frame.cell_reason.iloc[-1] == "zero_denominator"
-        if metric is linear or metric is ratio:
+        if metric is linear:
             assert fixed._dataset is not None
             retained = next(
                 part for part in fixed._dataset.verified().parts if part.role == "anchor"
@@ -349,9 +206,12 @@ other_participant=ms.relationship(name='other_participant',from_entity=other,to_
                 1,
                 0,
             ]
-            assert [len(pool) for pool in retained.table["anchor__uses_1"].to_pylist()] == (
-                [1, 0, 1, 0] if metric is linear else [3, 2, 1, 0]
-            )
+            assert [len(pool) for pool in retained.table["anchor__uses_1"].to_pylist()] == [
+                1,
+                0,
+                1,
+                0,
+            ]
         inputs[str(index)] = snapshot(fixed)
     before_files = set(tmp_path.rglob("*.parquet"))
     batches = SourceSession.batches

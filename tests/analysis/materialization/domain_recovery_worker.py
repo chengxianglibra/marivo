@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -42,7 +43,7 @@ def forbidden(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError("Offline native domain accessed source, Semantic or event replay")
 
 
-def snapshot(result: _MaterializedRead) -> dict[str, Json]:
+def snapshot(result: _MaterializedRead, *, frame: pd.DataFrame | None = None) -> dict[str, Json]:
     assert result._dataset is not None
     descriptor = result._dataset.artifact.descriptor
     verified = result._dataset.verified()
@@ -55,7 +56,11 @@ def snapshot(result: _MaterializedRead) -> dict[str, Json]:
                 "schema": descriptor.realized_schema,
                 "execution_key_digest": descriptor.execution_key_digest,
                 "continuation_snapshot_digest": descriptor.continuation_snapshot_digest,
-                "rows": json.loads(result.to_pandas().to_json(orient="table", index=False)),
+                "rows": json.loads(
+                    (result.to_pandas() if frame is None else frame).to_json(
+                        orient="table", index=False
+                    )
+                ),
                 "parts": [part.role for part in verified.parts],
                 "contract": json.loads(json.dumps(asdict(result.contract()), default=str)),
                 "evidence": json.loads(json.dumps(asdict(evidence), default=str)),

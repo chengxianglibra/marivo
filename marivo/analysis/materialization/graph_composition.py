@@ -553,7 +553,7 @@ def combine_observations(
             CellDerive(
                 arithmetic,
                 definition,
-                "strict",
+                "propagate",
                 ratio_unit(quantity.unit, second.signature.quantity.unit)
                 if arithmetic == "ratio"
                 else quantity.unit,

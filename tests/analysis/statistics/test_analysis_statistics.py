@@ -14,7 +14,7 @@ from marivo.analysis.materialization.graph_exchange import ExchangePart, from_ar
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_three_process_offline_statistics(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import os
     import subprocess
@@ -24,7 +24,16 @@ def test_three_process_offline_statistics(analysis_dsl_case_factory: DslCaseFact
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
+    prepare_profiles(
+        case,
+        "KS",
+        "parquet",
+        "us",
+        "UTC",
+        False,
+        followup=True,
+        profile_indices=(0, 1),
+    )
     for phase in ("produce", "fixed", "cold"):
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
@@ -48,7 +57,6 @@ def test_three_process_offline_statistics(analysis_dsl_case_factory: DslCaseFact
         Path(attachment).write_text((case.root / "statistics-recovery.json").read_text())
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("pearson", "spearman", "kendall"))
 def test_public_source_fixed_association(
     analysis_dsl_case_factory: DslCaseFactory, method: Literal["pearson", "spearman", "kendall"]
@@ -113,7 +121,6 @@ def test_public_source_fixed_association(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("model", (mv.naive(), mv.drift(), mv.seasonal_naive(periods=2)))
 def test_public_source_fixed_forecast(
     analysis_dsl_case_factory: DslCaseFactory, model: mv.ForecastModel
@@ -132,13 +139,12 @@ def test_public_source_fixed_forecast(
     logical = history.forecast(horizon=mv.periods(2), model=model)
     result = logical.execute()
     prediction = result.prediction.to_pandas()
+    lower = result.lower.to_pandas()
+    upper = result.upper.to_pandas()
     assert len(prediction) == 8
-    assert list(result.lower.to_pandas().value <= prediction.value) == [True] * 8
-    assert list(result.upper.to_pandas().value >= prediction.value) == [True] * 8
-    assert (
-        logical.lower.execute().to_pandas().value.tolist()
-        == result.lower.to_pandas().value.tolist()
-    )
+    assert list(lower.value <= prediction.value) == [True] * 8
+    assert list(upper.value >= prediction.value) == [True] * 8
+    assert logical.lower.execute().to_pandas().value.tolist() == lower.value.tolist()
     fixed = history.execute().forecast(horizon=mv.periods(2), model=model).execute()
     assert fixed.prediction.to_pandas().value.tolist() == prediction.value.tolist()
     table = mv.table(prediction=result.prediction, lower=result.lower, upper=result.upper).execute()
@@ -175,7 +181,6 @@ def test_public_source_fixed_forecast(
         result.lower.aggregate(mv.sum())
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("arity", (3, 16))
 def test_all_requested_pairs_and_static_ceiling(
     analysis_dsl_case_factory: DslCaseFactory, arity: int
@@ -218,7 +223,6 @@ def test_all_requested_pairs_and_static_ceiling(
     assert ceiling.value.code == "r8.candidate_ceiling"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("calendar", (False, True))
 def test_lag_counts_ties_and_approved_future(
     analysis_dsl_case_factory: DslCaseFactory, calendar: bool
@@ -227,7 +231,9 @@ def test_lag_counts_ties_and_approved_future(
     from tests.analysis.statistics.deviation_time_worker import publish_calendar
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", "parquet", "us", "UTC", calendar, followup=True)
+    prepare_profiles(
+        case, "KS", "parquet", "us", "UTC", calendar, followup=True, profile_indices=(0, 5)
+    )
     catalog = ms.load(workspace_dir=case.root)
     if calendar:
         publish_calendar(catalog, "UTC")
@@ -294,7 +300,6 @@ def test_lag_counts_ties_and_approved_future(
         assert exhausted.value.code == "r8.future_grid"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("point", ("insert_evidence", "insert_findings", "before_commit"))
 def test_statistical_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory, point: str
@@ -334,7 +339,6 @@ def test_statistical_failure_is_atomic(
         assert conn.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
 def test_forecast_prediction_is_a_complete_numeric_receiver(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

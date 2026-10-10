@@ -37,7 +37,6 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     assert session.runs().items == ()
 
 
-@pytest.mark.runtime
 def test_observe_uses_registered_global_datasource(
     authoring_evidence_project: Path, tmp_path: Path, monkeypatch
 ):

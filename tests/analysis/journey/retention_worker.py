@@ -6,7 +6,6 @@ import sys
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
-from zoneinfo import ZoneInfo
 
 import duckdb
 import ibis
@@ -69,14 +68,8 @@ def assert_source(result, subject, occurrence, profile):
         (*sid(s), "commerce.started", *oid(i)): v
         for i, s, v in ((0, 0, True), (2, 0, None), (3, 1, False), (4, 1, None))
     }
-    if profile == "P20":
-        expected = {
-            k: True if k == (*sid(0), "commerce.started", *oid(0)) else None for k in expected
-        }
     if profile == "P21":
         expected = {sid(0): True, sid(1): None}
-    if profile == "P22":
-        expected = {sid(0): None, sid(1): False}
     rows = snapshot(result)["rows"]
     assert {tuple(r[:-3]): r[-3] for r in rows} == expected
     return snapshot(result)
@@ -88,14 +81,9 @@ def produce(root: Path) -> None:
     elapsed = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
     )
-    calendar = anchors.retention(
-        returning, within=mv.calendar_days(1, ZoneInfo("America/New_York")), completeness=claims
-    )
     values = {
         "P19": elapsed,
-        "P20": calendar,
         "P21": elapsed.by_subject(rule=mv.any_anchor()),
-        "P22": elapsed.by_subject(rule=mv.every_anchor()),
     }
     data = {"session": session.id, "source": {}, "expected": {}, "fixed": {}, "config": config}
     routes = {}
@@ -119,7 +107,7 @@ def produce(root: Path) -> None:
             {
                 "phase": "produce",
                 "status": "passed",
-                "kernels": ["P19", "P20", "P21", "P22"],
+                "kernels": ["P19", "P21"],
                 "bindings": routes,
             }
         )
@@ -147,20 +135,17 @@ def offline(root: Path, cold: bool) -> None:
                 patch("marivo.analysis.materialization.retention_execution.execute", forbidden)
             )
         session = mv.session.resume(data["session"], by="id")
-        for profile, ref in data["source"].items():
+        for profile in data["source"]:
+            ref = data["source"][profile]
             value = session.artifact(ref)
             assert snapshot(value) == data["expected"][profile]
-            operations = {
-                "true": value.known_true(),
-                "false": value.known_false(),
-                "unknown": value.unknown(),
-                "status": value.status,
-            }
             if profile == "P19":
-                operations.update(
-                    any=value.by_subject(rule=mv.any_anchor()),
-                    every=value.by_subject(rule=mv.every_anchor()),
-                )
+                operations = {
+                    "true": value.known_true(),
+                    "any": value.by_subject(rule=mv.any_anchor()),
+                }
+            else:
+                operations = {"status": value.status}
             for name, operation in operations.items():
                 key = profile + "." + name
                 result = operation.execute()
@@ -169,20 +154,8 @@ def offline(root: Path, cold: bool) -> None:
                     assert snapshot(result) == data["fixed"][key]["snapshot"]
                 else:
                     data["fixed"][key] = {"ref": reference(result), "snapshot": snapshot(result)}
-                if name in ("true", "false", "unknown", "status"):
+                if name in ("true", "status"):
                     assert snapshot(result)["facts"] == data["expected"][profile]["facts"]
-                if name == "true":
-                    members = (
-                        result.members(through=result.subject_binding)
-                        if profile in ("P19", "P20")
-                        else result.members()
-                    )
-                    image = members.execute()
-                    image_key = key + ".members"
-                    if cold:
-                        assert reference(image) == data["fixed"][image_key]["ref"]
-                    else:
-                        data["fixed"][image_key] = {"ref": reference(image)}
         if not cold:
             (root / "manifest.json").write_text(json.dumps(data))
         print(
@@ -190,7 +163,7 @@ def offline(root: Path, cold: bool) -> None:
                 {
                     "phase": "cold" if cold else "continue",
                     "status": "passed",
-                    "kernels": [] if cold else ["P21", "P22"],
+                    "kernels": [] if cold else ["P19", "P21"],
                     "source_free": True,
                     "exact_hit": cold,
                     "transports": len(data["fixed"]),

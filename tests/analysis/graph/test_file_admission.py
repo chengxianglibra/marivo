@@ -86,7 +86,6 @@ def test_local_file_declarations_are_closed_to_verified_methods() -> None:
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("profile", ("csv", "local-json"))
 @pytest.mark.parametrize("case_kind", ("metadata", "float-sum", "integer-mean"))
 def test_file_construction_and_refusals_never_submit_business_rows(
@@ -158,7 +157,6 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("request_kind", ("http", "shadow-http", "parameterized"))
 def test_json_request_sources_are_refused_before_source_open(
     tmp_path: Path,
@@ -208,7 +206,6 @@ def test_json_request_sources_are_refused_before_source_open(
         assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.runtime
 def test_local_csv_workflow_example_executes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

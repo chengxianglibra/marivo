@@ -92,7 +92,6 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     ("profile", "route"),
     (
@@ -109,7 +108,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    facts = _rows(1000, "baseline")
+    facts = _rows(4, "baseline")
     amounts = [row["amount"] for row in facts]
     assert all(amount is None or type(amount) is int for amount in amounts)
     total = sum(amount for amount in amounts if isinstance(amount, int))
@@ -124,7 +123,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
             yield batch
 
     monkeypatch.setattr(SourceBatchStream, "_iterate", captured)
-    with workload("duckdb", profile, 1000, "baseline", tmp_path, monkeypatch) as work:
+    with workload("duckdb", profile, len(facts), "baseline", tmp_path, monkeypatch) as work:
         result = work.source(route)
         assert work.validate(result)["passed"] is True
         identity = work.identity(result)
@@ -148,7 +147,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
                 if {"key_0", "key_1", "key_2"} <= set(batch.schema.names)
                 for row in batch.to_pylist()
             }
-            assert keys == {("a", 2**53 + index, 1) for index in range(1000)}
+            assert keys == {("a", 2**53 + index, 1) for index in range(len(facts))}
             assert all(
                 batch.schema.field("key_1").type == pa.int64()
                 and batch.schema.field("key_2").type == pa.int64()

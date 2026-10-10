@@ -14,12 +14,12 @@ from marivo.analysis.core.model import TableFitsPart
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
+from tests.analysis.statistics.deviation_display_worker import run as run_display
 from tests.analysis.statistics.deviation_oracle import expected
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
 def test_local_display_pairing_rejects_different_current_keys(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -32,10 +32,15 @@ def test_local_display_pairing_rejects_different_current_keys(
         mv.table(score=selected, original=raw).execute()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
-@pytest.mark.parametrize("mode", ("category", "original", "other_fit", "ranks"))
-@pytest.mark.parametrize("reverse", (False, True))
+@pytest.mark.parametrize(
+    "method,mode,reverse",
+    [
+        ("zscore", "category", False),
+        ("mad", "original", True),
+        ("zscore", "other_fit", True),
+        ("mad", "ranks", False),
+    ],
+)
 def test_mixed_table_preserves_each_current_value_and_original_fit(
     analysis_dsl_case_factory: DslCaseFactory,
     method: DeviationMethod,
@@ -108,7 +113,6 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     assert failure.value.code == "r8.retained_part"
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_rank_projection_disclosure_and_fixed_table_keep_fit_scope(
     analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
@@ -139,7 +143,6 @@ def test_rank_projection_disclosure_and_fixed_table_keep_fit_scope(
         assert case.session.runs().items == runs
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("fault", ("missing", "corrupt"))
 def test_table_fit_receipt_is_required_for_recovery_and_exact_hit(
     analysis_dsl_case_factory: DslCaseFactory, fault: Literal["missing", "corrupt"]
@@ -170,32 +173,36 @@ def test_table_fit_receipt_is_required_for_recovery_and_exact_hit(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
-def test_source_fixed_and_cold_display_in_independent_processes(
-    analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
+@pytest.mark.slow
+def test_source_fixed_and_fresh_process_cold_display(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
-    for phase in ("produce", "fixed", "cold"):
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.deviation_display_worker",
-                str(case.root),
-                phase,
-                method,
-            ],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(case.root))
+    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
+    run_display(case.root, "produce")
+    case.database_path.rename(case.database_path.with_suffix(".offline"))
+    for source in (case.root / "source_files").glob("*.parquet"):
+        source.rename(source.with_suffix(".offline"))
+    run_display(case.root, "fixed")
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.analysis.statistics.deviation_display_worker",
+            str(case.root),
+            "cold",
+        ],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod

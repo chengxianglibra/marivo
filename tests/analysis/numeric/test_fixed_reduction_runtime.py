@@ -93,7 +93,6 @@ def _publications(case: DslCase) -> tuple[int, ...]:
     return tuple(counts)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ["sum", "count", "mean", "ratio", "weighted_mean", "linear"])
 def test_public_original_chain_has_independent_oracle_and_exact_cache(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, method: Method
@@ -143,7 +142,6 @@ def test_public_original_chain_has_independent_oracle_and_exact_cache(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("failure", ["missing", "duplicate", "overflow", "timeout", "cancel"])
 def test_group_failure_has_no_retry_or_partial_publication(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, failure: str
@@ -206,7 +204,6 @@ def test_group_failure_has_no_retry_or_partial_publication(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.runtime
 def test_materialized_intermediate_ends_l8(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -222,7 +219,7 @@ def test_materialized_intermediate_ends_l8(
     assert intermediate.rollup().execute().to_pandas().value.tolist() == [32.5]
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_cold_reduction_reads_saved_primary_and_continues_without_sources(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -281,7 +278,6 @@ assert session._runtime.store.resources(session.id) == ()
     assert process.returncode == 0, process.stdout + process.stderr
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("boundary", ["time_mapping", "fold"])
 def test_time_coarsening_and_ordered_fold_keep_ordinary_execution(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, boundary: str

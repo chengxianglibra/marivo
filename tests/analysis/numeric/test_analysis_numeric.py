@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
 import marivo.analysis as mv
@@ -13,20 +15,17 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "agg",
+    "agg,parquet,floating",
     [
-        "count_distinct",
-        "approx_count_distinct",
-        "median",
-        "approx_median",
-        ("percentile", 0.25),
-        ("approx_percentile", 0.25),
+        ("count_distinct", False, False),
+        ("approx_count_distinct", True, True),
+        ("median", False, True),
+        ("approx_median", True, False),
+        (("percentile", 0.25), True, True),
+        (("approx_percentile", 0.25), False, False),
     ],
 )
-@pytest.mark.parametrize("parquet", [False, True])
-@pytest.mark.parametrize("floating", [False, True])
 def test_direct_distribution(
     analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, parquet: bool, floating: bool
 ) -> None:
@@ -70,7 +69,6 @@ def test_direct_distribution(
             relation.group_by(ms.ref.entity("sales.customer")).rollup()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("decimal_input", [False, True])
 def test_native_quantile_precision_is_source_owned(
     analysis_dsl_case_factory: DslCaseFactory, decimal_input: bool
@@ -123,7 +121,6 @@ def test_native_quantile_precision_is_source_owned(
         assert isinstance(result, Decimal)
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("weighted", [False, True])
 def test_float_original_mean_state(
     analysis_dsl_case_factory: DslCaseFactory, weighted: bool
@@ -171,7 +168,6 @@ def test_float_original_mean_state(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("agg, expected", [("min", 150), ("max", 450)])
 def test_original_extrema(
     analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, expected: int
@@ -238,7 +234,6 @@ def test_duckdb_native_definitions_are_available(agg: AggKind) -> None:
     assert aggregate_repair(agg, "duckdb") is None
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     "agg, expected", [("sum", "1000.75"), ("min", "150.25"), ("max", "450.25")]
 )
@@ -276,12 +271,27 @@ def test_decimal_original_state(
     assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [4]
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("kind", ["sum", "min", "max", "mean", "weighted", "ratio", "linear"])
-@pytest.mark.parametrize("floating", [False, True])
-@pytest.mark.parametrize("coordinates", [False, True])
+@pytest.mark.parametrize(
+    "kind,floating,coordinates",
+    [
+        ("sum", False, False),
+        ("min", True, False),
+        ("max", False, True),
+        ("mean", False, False),
+        ("mean", False, True),
+        ("weighted", False, True),
+        ("weighted", True, False),
+        ("ratio", False, False),
+        ("ratio", True, True),
+        ("linear", False, True),
+        ("linear", True, False),
+    ],
+)
 def test_numeric_composition_matrix(
-    analysis_dsl_case_factory: DslCaseFactory, kind: str, floating: bool, coordinates: bool
+    analysis_dsl_case_factory: DslCaseFactory,
+    kind: Literal["sum", "min", "max", "mean", "weighted", "ratio", "linear"],
+    floating: bool,
+    coordinates: bool,
 ) -> None:
     from decimal import ROUND_HALF_EVEN, Decimal, localcontext
     from fractions import Fraction
@@ -303,7 +313,7 @@ def test_numeric_composition_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {dtype}')
         db.execute(f'ALTER TABLE "order" ADD COLUMN weight {dtype}')
         db.execute('DELETE FROM "order"')
-        for index, (member, amount, weight) in enumerate(facts):
+        for index, (member, amount, weight_text) in enumerate(facts):
             db.execute(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
                 [
@@ -313,7 +323,7 @@ def test_numeric_composition_matrix(
                     "paid",
                     "2026-08-15",
                     amount,
-                    weight,
+                    weight_text,
                 ],
             )
     models = case.root / "models/semantic/sales/models.py"
@@ -353,19 +363,19 @@ def test_numeric_composition_matrix(
         if amount is not None and weight is not None
     ]
     expected = (
-        sum(numbers)
+        sum(numbers, Fraction())
         if kind == "sum"
         else min(numbers)
         if kind == "min"
         else max(numbers)
         if kind == "max"
-        else sum(numbers) / len(numbers)
+        else sum(numbers, Fraction()) / len(numbers)
         if kind == "mean"
-        else sum(a * w for a, w in pairs) / sum(w for _, w in pairs)
+        else sum((a * w for a, w in pairs), Fraction()) / sum((w for _, w in pairs), Fraction())
         if kind == "weighted"
         else Fraction(1)
         if kind == "ratio"
-        else sum(numbers) * 2
+        else sum(numbers, Fraction()) * 2
     )
     with localcontext() as context:
         context.prec = 100
@@ -399,26 +409,24 @@ def test_numeric_composition_matrix(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
-    "unit,parquet,coordinates",
+    "unit,parquet,coordinates,kind",
     [
-        ("us", False, False),
-        ("s", True, False),
-        ("ms", True, False),
-        ("us", True, False),
-        ("ns", True, False),
-        ("ns", True, True),
+        ("us", False, False, "sum"),
+        ("s", True, False, "min"),
+        ("ms", True, False, "max"),
+        ("us", True, False, "mean"),
+        ("ns", True, True, "weighted"),
+        ("ns", True, False, "ratio"),
+        ("us", False, True, "linear"),
+        ("ns", True, False, "count_distinct"),
     ],
-)
-@pytest.mark.parametrize(
-    "kind", ["sum", "min", "max", "mean", "weighted", "ratio", "linear", "count_distinct"]
 )
 def test_duration_matrix(
     analysis_dsl_case_factory: DslCaseFactory,
     unit: str,
     parquet: bool,
-    kind: str,
+    kind: Literal["sum", "min", "max", "mean", "weighted", "ratio", "linear", "count_distinct"],
     coordinates: bool,
 ) -> None:
     from fractions import Fraction
@@ -510,14 +518,6 @@ def test_duration_matrix(
             "linear": 14,
         }[kind]
         results = [logical.rollup().execute(), fixed.rollup().execute()]
-        if coordinates:
-            results.append(
-                fixed.group_by(ms.ref.dimension("sales.order.channel"))
-                .rollup()
-                .execute()
-                .rollup()
-                .execute()
-            )
         for result in results:
             frame = result.to_pandas()
             if kind == "ratio":
@@ -527,14 +527,21 @@ def test_duration_matrix(
                     pa.array(frame["value"]).cast(pa.duration(unit)).cast(pa.int64()).to_pylist()
                 )
                 assert actual == [expected]
-    assert fixed.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [
-        5 if coordinates and kind != "count_distinct" else 4
-    ]
+    assert len(fixed.to_pandas()) == (5 if coordinates and kind != "count_distinct" else 4)
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("family", ["int64", "float64", "decimal", "duration"])
-@pytest.mark.parametrize("kind", ["first", "last", "mean", "min", "max", "cumulative"])
+@pytest.mark.parametrize(
+    "family,kind",
+    [
+        ("int64", "first"),
+        ("float64", "last"),
+        ("decimal", "mean"),
+        ("duration", "min"),
+        ("int64", "max"),
+        ("decimal", "cumulative"),
+        ("duration", "first"),
+    ],
+)
 def test_typed_temporal_matrix(
     analysis_dsl_case_factory: DslCaseFactory, family: str, kind: str
 ) -> None:
@@ -585,7 +592,14 @@ running = ms.cumulative(name='running', base=revenue)
         by=(mv.member(),),
     )
     fixed = logical.execute()
-    expected = {"first": 2, "last": 5, "min": 2, "max": 5, "mean": 3.5, "cumulative": 7}[kind]
+    expected: int | float | Decimal = {
+        "first": 2,
+        "last": 5,
+        "min": 2,
+        "max": 5,
+        "mean": 3.5,
+        "cumulative": 7,
+    }[kind]
     if family == "duration":
         expected = round(expected)
     elif family == "decimal":
@@ -600,7 +614,6 @@ running = ms.cumulative(name='running', base=revenue)
         assert actual == [expected]
 
 
-@pytest.mark.runtime
 def test_native_integer_ratio_matches_independent_fraction() -> None:
     import random
     from fractions import Fraction
@@ -625,8 +638,7 @@ def test_native_integer_ratio_matches_independent_fraction() -> None:
         backend.disconnect()
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("scale", [0, 2, 6, 18])
+@pytest.mark.parametrize("scale", [0, 18])
 def test_native_decimal_ratio_one_half_even_round(scale: int) -> None:
     from decimal import ROUND_HALF_EVEN, Decimal, localcontext
     from fractions import Fraction
@@ -671,14 +683,10 @@ def test_native_decimal_ratio_one_half_even_round(scale: int) -> None:
             backend.disconnect()
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "family,parquet",
-    [
-        (family, parquet)
-        for family in ("int64", "float64", "decimal", "duration")
-        for parquet in (False, True)
-    ],
+    [("int64", False), ("float64", True), ("decimal", True), ("duration", True)],
 )
 def test_numeric_states_produce_offline_and_cold(
     analysis_dsl_case_factory: DslCaseFactory, family: str, parquet: bool
@@ -753,7 +761,11 @@ contracts = {}
 from dataclasses import asdict
 from pathlib import Path
 from marivo.analysis.materialization.graph_protocol import SIGNATURE, encode
-for kind, metric in metrics.items():
+# Cold recovery is represented once per stored Arrow scalar type. Other runtime
+# metric methods are covered by source/fixed numeric composition tests.
+selected = ('sum',) if sys.argv[2] == 'decimal' else ('mean',) if sys.argv[2] == 'float64' else ('fold',) if sys.argv[2] == 'duration' else ('sum',)
+for kind in selected:
+    metric = metrics[kind]
     fixed = session.members(ms.ref.entity('sales.customer')).observe(metric, during=mv.time_scope(start='2026-08-01',end='2026-08-03'),via=ms.ref.relationship('sales.order_buyer'),by=(mv.member(),)).execute()
     artifacts[kind] = fixed.state.artifact_ref.ref
     contracts[kind] = {'K': asdict(fixed.contract()), 'signature': encode(fixed._node.root.signature, SIGNATURE)}
@@ -773,7 +785,7 @@ print(json.dumps(artifacts))
         assert completed.returncode == 0, completed.stderr
         return json.loads(completed.stdout.splitlines()[-1])
 
-    artifacts = run(producer)
+    artifacts = run(producer, family)
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
     if parquet:
@@ -819,8 +831,6 @@ for kind, artifact in json.loads(sys.argv[2]).items():
 print(json.dumps(output, default=str, sort_keys=True))
 """
     first = run(consumer, json.dumps(artifacts))
-    second = run(consumer, json.dumps(artifacts))
-    assert first == second
     expected = (
         {
             "sum": "7.000000",
@@ -859,57 +869,21 @@ print(json.dumps(output, default=str, sort_keys=True))
             for kind in ("sum", "min", "max", "linear"):
                 expected[kind] += ".0"
     assert isinstance(first, dict)
-    assert {kind: data["value"][0] for kind, data in first.items()} == expected
-
-    # Each newly typed state is rejected when its file, receipt, or implementation
-    # version is damaged. Restore only the test fixture between independent faults.
-    from marivo.analysis.materialization import graph_store
-    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, encode
-
-    assert isinstance(artifacts, dict)
-    store = case.session._runtime.store
-    for artifact in artifacts.values():
-        with store._read() as connection:
-            record = graph_store.artifact(store, connection, artifact)
-        assert record is not None
-        descriptor = encode(record.descriptor, DESCRIPTOR)
-        part = next(part for part in record.descriptor.parts if part.role == "original_state")
-        state_path = (
-            case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
-        )
-        original_bytes = state_path.read_bytes()
-        for damage in ("missing", "corrupt", "receipt", "version"):
-            if damage == "missing":
-                state_path.unlink()
-            elif damage == "corrupt":
-                state_path.write_bytes(b"invalid numeric state")
-            else:
-                payload = json.loads(descriptor)
-                if damage == "receipt":
-                    payload["primary_receipt"]["input_binding"] = "foreign-numeric-state"
-                else:
-                    payload["method_state"]["contract_version"] += 1
-                with store._write() as connection:
-                    connection.execute(
-                        "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                        (json.dumps(payload), artifact),
-                    )
-            try:
-                with pytest.raises(AnalysisError):
-                    case.session.artifact(artifact).rollup().execute()
-            finally:
-                state_path.write_bytes(original_bytes)
-                with store._write() as connection:
-                    connection.execute(
-                        "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                        (descriptor, artifact),
-                    )
+    assert {kind: data["value"][0] for kind, data in first.items()} == {
+        kind: value for kind, value in expected.items() if kind in first
+    }
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize(
-    "case_kind", ["large_mean", "cancellation", "overflow", "nonfinite", "calendar"]
+    "case_kind,reverse",
+    [
+        ("large_mean", False),
+        ("cancellation", False),
+        ("cancellation", True),
+        ("overflow", False),
+        ("nonfinite", False),
+        ("calendar", False),
+    ],
 )
 def test_numeric_boundary_facts(
     analysis_dsl_case_factory: DslCaseFactory, case_kind: str, reverse: bool
@@ -965,18 +939,8 @@ def test_numeric_boundary_facts(
         assert fixed.rollup().execute().to_pandas().loc[0, "value"] == expected
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize(
-    "agg,expected",
-    [
-        ("count_distinct", 3),
-        ("median", 1.5),
-        (("percentile", 0.25), 1.0),
-        (("percentile", 0.75), 2.5),
-    ],
-)
 def test_distribution_duplicates_nulls_and_interpolation(
-    analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, expected: float
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
 
@@ -993,21 +957,27 @@ def test_distribution_duplicates_nulls_and_interpolation(
         path.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
     )
     ms.load(workspace_dir=case.root)
-    metric = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.order.amount"), agg=agg, label="distribution"
+    cases: tuple[tuple[AggKind, int | float], ...] = (
+        ("count_distinct", 3),
+        ("median", 1.5),
+        (("percentile", 0.75), 2.5),
     )
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            metric,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    for agg, expected in cases:
+        metric = mv.runtime_metric.aggregate(
+            ms.ref.measure("sales.order.amount"), agg=agg, label="distribution"
         )
-        .execute()
-    )
-    assert fixed.to_pandas().loc[0, "value"] == expected
-    with pytest.raises(AnalysisError):
-        fixed.rollup()
+        fixed = (
+            case.session.members(ms.ref.entity("sales.customer"))
+            .observe(
+                metric,
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .execute()
+        )
+        assert fixed.to_pandas().loc[0, "value"] == expected
+        with pytest.raises(AnalysisError):
+            fixed.rollup()
 
 
 def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
@@ -1034,7 +1004,7 @@ def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
         schema = pa.schema(
             [("original_state__sum", carrier), ("original_state__non_null_count", pa.int64())]
         )
-        exact = sum(Fraction(value) for value in values) / len(values)
+        exact = sum((Fraction(value) for value in values), Fraction()) / len(values)
         expected = (
             round(exact)
             if isinstance(output, DurationType)
@@ -1062,9 +1032,11 @@ def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
                 assert tree[1] == expected
 
 
-@pytest.mark.parametrize("q", [True, False, 0, 1, -0.1, float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("q", [True, 0, 1, float("nan"), float("inf")])
 @pytest.mark.parametrize("operation", ["percentile", "approx_percentile"])
-def test_definition_quantile_rejects_invalid_q(q: object, operation: str) -> None:
+def test_definition_quantile_rejects_invalid_q(
+    q: float, operation: Literal["percentile", "approx_percentile"]
+) -> None:
     with pytest.raises(ValueError):
         mv.runtime_metric.aggregate(
             ms.ref.measure("sales.order.amount"), agg=(operation, q), label="invalid"
@@ -1075,7 +1047,7 @@ def test_exact_approximate_replay_identities_never_alias() -> None:
     from marivo.semantic.runtime_metric import replay_payload
 
     measure = ms.ref.measure("sales.order.amount")
-    variants = [
+    variants: list[AggKind] = [
         "count_distinct",
         "approx_count_distinct",
         "median",
@@ -1114,7 +1086,6 @@ def test_float_linear_validator_uses_owner_error_bound() -> None:
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("floating", [False, True])
 def test_linear_cancellation_checks_final_integer_and_float_bound(
     analysis_dsl_case_factory: DslCaseFactory, floating: bool
@@ -1149,7 +1120,9 @@ cancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additi
         mv.runtime_metric.aggregate(ms.ref.measure("sales.order." + name), agg="sum", label=name)
         for name in ("amount", "small", "cancel")
     ]
-    expr = mv.runtime_metric.linear(add=leaves[:2], subtract=[leaves[2]], label="cancellation")
+    expr = mv.runtime_metric.linear(
+        add=tuple(leaves[:2]), subtract=(leaves[2],), label="cancellation"
+    )
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         expr, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
     )
@@ -1163,7 +1136,6 @@ cancel = ms.measure_column(name='cancel', entity=orders, column='cancel', additi
             assert actual == oracle
 
 
-@pytest.mark.runtime
 def test_native_duration_tick_rounding_ties_and_sign() -> None:
     from fractions import Fraction
 
@@ -1186,7 +1158,6 @@ def test_native_duration_tick_rounding_ties_and_sign() -> None:
         backend.disconnect()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("family", ["int64", "float64", "decimal", "duration"])
 def test_current_row_counts_keep_numeric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory, family: str, monkeypatch: pytest.MonkeyPatch

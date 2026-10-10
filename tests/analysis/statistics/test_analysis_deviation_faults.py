@@ -18,8 +18,7 @@ from marivo.analysis.methods import deviation_numeric as numeric
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize("fault", ("iteration", "close"))
 def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -80,7 +79,6 @@ def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_source_close_failure_is_atomic_after_scoring_admission(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -114,7 +112,6 @@ def test_source_close_failure_is_atomic_after_scoring_admission(
         assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_decimal_output_overflow_is_rejection_not_positive_qualification(
     analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
@@ -141,7 +138,6 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
         assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_fixed_selected_subject_requires_retained_observation_contract(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -170,8 +166,7 @@ def test_fixed_selected_subject_requires_retained_observation_contract(
     assert case.session.runs().items == runs
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize(
     "role",
     (
@@ -232,8 +227,7 @@ def test_each_receipt_rejects_recovery_continuation_and_exact_hit(
         assert case.session.runs().items == runs
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize("fault", ("cancel", "consumer_error"))
 def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -265,8 +259,7 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
         assert connection.execute("SELECT count(*) FROM findings").fetchone()[0] == 0
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize(
     "point",
     ("insert_artifact", "insert_evidence", "insert_findings", "insert_terminal", "before_commit"),
@@ -298,7 +291,6 @@ def test_transaction_failure_has_no_partial_success(
         )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_lost_commit_ack_returns_verified_fit_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,

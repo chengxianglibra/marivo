@@ -97,7 +97,6 @@ def _capture(case: DslCase, kind: _Kind) -> tuple[GraphDataset, tuple[GraphDatas
     )
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("kind", ("association", "forecast", "runs", "deviation"))
 def test_projection_reads_each_receipt_once_per_call(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, kind: _Kind
@@ -154,7 +153,6 @@ def test_projection_reads_each_receipt_once_per_call(
     assert case.session.runs().items == before
 
 
-@pytest.mark.runtime
 def test_multiple_findings_read_once_and_keep_owned_paging(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -201,7 +199,7 @@ def test_multiple_findings_read_once_and_keep_owned_paging(
     assert calls == 1
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_cold_projection_reads_once_without_source(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

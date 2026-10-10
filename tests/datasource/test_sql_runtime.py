@@ -16,12 +16,11 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.driver_audit import native_audit
-from tests.datasource.source_cases import ROWS, source_case
+from tests.datasource.source_cases import ROWS, source_case, source_params
 from tests.support.execution_logs import execution_records
 
-pytestmark = pytest.mark.runtime
 
-
+@pytest.mark.runtime
 def test_clickhouse_owned_control_sql_audit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -143,7 +142,7 @@ def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+    "backend", source_params(("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 )
 def test_public_sql_owner_audit(
     backend: str,

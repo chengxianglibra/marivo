@@ -601,7 +601,6 @@ def test_time_product_keeps_each_cell_mapping() -> None:
         ) == [7, 10]
 
 
-@pytest.mark.runtime
 def test_public_identity_observation_executes_and_retains_outside_window_members(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,

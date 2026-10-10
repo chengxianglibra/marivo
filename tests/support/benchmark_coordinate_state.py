@@ -28,7 +28,6 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("cardinality", [2, 1000])
 def test_coordinate_state_cost(
     analysis_dsl_case_factory: DslCaseFactory,

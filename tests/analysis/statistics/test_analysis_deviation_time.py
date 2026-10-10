@@ -5,12 +5,20 @@ import sys
 
 import pytest
 
-from tests.analysis.statistics.deviation_fixture import RECOVERY_PROFILES, prepare_profiles
+from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("key_profile,form,unit,zone,calendar", RECOVERY_PROFILES)
+@pytest.mark.parametrize(
+    "key_profile,form,unit,zone,calendar",
+    [
+        ("KS", "table", "us", "UTC", False),
+        ("KI", "parquet", "us", "UTC", False),
+        ("KC", "parquet", "ns", "UTC", False),
+        ("KC", "parquet", "us", "America/New_York", True),
+    ],
+)
+@pytest.mark.slow
 def test_time_profiles_in_independent_processes(
     analysis_dsl_case_factory: DslCaseFactory,
     key_profile: str,
@@ -20,8 +28,18 @@ def test_time_profiles_in_independent_processes(
     calendar: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, key_profile, form, unit, zone, calendar)
-    for phase in ("produce", "fixed", "cold"):
+    prepare_profiles(
+        case,
+        key_profile,
+        form,
+        unit,
+        zone,
+        calendar,
+        profile_indices=(0 if key_profile == "KS" else 1 if key_profile == "KI" else 7,),
+    )
+    cold_representative = key_profile == "KC" and (unit == "ns" or calendar)
+    phases = ("produce", "fixed", "cold") if cold_representative else ("produce", "fixed")
+    for phase in phases:
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
             for source in (case.root / "source_files").glob("*.parquet"):

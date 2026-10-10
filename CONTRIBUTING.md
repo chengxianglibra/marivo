@@ -124,13 +124,16 @@ cd site && npm run build
 
 ### 运行测试
 ```bash
-# 运行日常回归测试（并行）
+# 运行两分钟内的快速日常回归测试（并行）
 make test
 
-# Run focused Runtime checks when the change needs them
-make runtime-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
+# Run extended local process recovery
+make slow-test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 
-# Run daily tests, static checks, and API documentation checks
+# Run focused checks against already-running external services
+make runtime-test TESTS='tests/datasource/test_source_profiles.py'
+
+# Run fast daily tests, static checks, and API documentation checks
 make check-agent
 
 # Run a specific test file with compact output
@@ -151,18 +154,21 @@ make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_sess
 日常开发仅在修改需要时执行相关的 `runtime-test TESTS=...`；不自动执行完整
 Runtime suite。`runtime-test-agent` 为同一指定范围提供精简输出。
 
-Runtime Make targets default to two workers to leave capacity for their nested
-execution and read subprocesses. Use `RUNTIME_WORKERS=<count>` to override the
+Runtime Make targets default to two workers to bound load on shared external
+datasource services. Use `RUNTIME_WORKERS=<count>` to override the
 per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
 containing `::` run serially. Account for other concurrent test tasks on the host.
 
-`make check` 和 `make check-agent` 均不执行完整 Runtime suite。完整多阶段分析、
-真实数据源、worker 和进程恢复验收归入发布准备与发布 CI，由 `make release-check`
-连同日常检查、安装和打包检查一起执行。不需要对象存储测试服务。
+`make test` 目标是在两分钟内完成，运行快速本地 DuckDB/SQLite、文件、loopback HTTP
+和 SQL 编译契约，并包含测量过的快速图规则、序列化、lowering、消费者、观测粒度、
+数据源能力、数值边界和时间解析用例。较长的坐标统计、worker、独立进程恢复和组合场景由 `make slow-test` 执行；完整的本地验收
+可通过 `make test` 与 `make slow-test` 两个入口运行。`runtime` 仅标记需要已启动
+外部数据源服务的用例，覆盖基本数据源能力和后端特有风险。相同数据源共享服务
+容器，每个用例独立管理自己的表、schema 和连接；pytest 不启停服务。
 
-Functional Runtime acceptance uses local Parquet files. Retain native engine
-cases for engine-specific execution, receipts, and recovery. See
-[Runtime test coverage](docs/testing/runtime-coverage.md).
+`make check` 和 `make check-agent` 执行快速日常检查。发布准备与发布 CI 通过
+`make release-check` 加上 slow、Runtime、安装和打包检查。Runtime 不重复全部日常
+分析验收矩阵。See [Runtime test coverage](docs/testing/runtime-coverage.md).
 
 For test performance investigations, measure the same suite with
 `.venv/bin/pytest -m runtime -n 2 --durations=40 <selected-tests>`, then compare

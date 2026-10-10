@@ -67,7 +67,6 @@ def _publications(session: mv.Session) -> tuple[int, ...]:
     return tuple(counts)
 
 
-@pytest.mark.runtime
 def test_public_selection_parts_contract_members_summary_rollup_and_cache(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -112,7 +111,6 @@ def test_public_selection_parts_contract_members_summary_rollup_and_cache(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize("failure", ["predicate", "duplicate", "timeout", "cancel"])
 def test_fused_failure_never_retries_or_publishes(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -175,7 +173,7 @@ def test_fused_failure_never_retries_or_publishes(
     assert saved.to_pandas().equals(frame)
 
 
-@pytest.mark.runtime
+@pytest.mark.slow
 def test_cold_selection_reads_result_and_computes_new_chain_without_source(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -236,7 +234,6 @@ assert session._runtime.store.resources(session.id) == ()
     assert process.returncode == 0, process.stdout + process.stderr
 
 
-@pytest.mark.runtime
 def test_fixed_difference_endpoints_follow_selected_complete_keys(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -284,7 +281,6 @@ def test_fixed_difference_endpoints_follow_selected_complete_keys(
         assert part.table["key_0"].to_pylist() == ["A", "D"]
 
 
-@pytest.mark.runtime
 def test_display_and_fixed_reference_selection_keep_the_original_scope(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:

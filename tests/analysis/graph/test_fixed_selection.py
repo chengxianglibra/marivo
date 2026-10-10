@@ -146,7 +146,7 @@ def test_shared_intermediate_is_materialized_and_used_once(monkeypatch: pytest.M
         CellDerive(
             "difference",
             "difference",
-            "strict",
+            "propagate",
             "units",
             "all",
             "source.exact_pairing@v1",

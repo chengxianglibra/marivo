@@ -17,10 +17,9 @@ from marivo.datasource.adapters import SourceSession
 from tests.analysis.lifecycle.lifecycle_fixtures import END, START, build_lifecycle_public
 
 
-@pytest.mark.runtime
-@pytest.mark.parametrize("backend", ["duckdb", "sqlite"])
+@pytest.mark.parametrize("backend", ["duckdb"])
 def test_public_duration_ratio_preserves_unknown(
-    backend: Literal["duckdb", "sqlite"], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    backend: Literal["duckdb"], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     rows = [

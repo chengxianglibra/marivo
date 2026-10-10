@@ -10,8 +10,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCase
 
-pytestmark = pytest.mark.runtime
-
 
 @pytest.mark.parametrize(
     "representation", ["declared_utc", "native_naive", "native_aware", "strptime"]

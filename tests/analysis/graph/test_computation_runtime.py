@@ -24,8 +24,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis import runtime_metric as rm
-
-pytestmark = pytest.mark.runtime
+from tests.datasource.source_cases import source_params
 
 _ROWS = "INSERT INTO orders VALUES (1,'2026-07-01',15.75,5.25,3), (2,'2026-07-01',4.25,1.75,1)"
 
@@ -332,7 +331,7 @@ def _remote_matrix_case(
         _drop_remote_table(backend, table)
 
 
-@pytest.mark.parametrize("backend", ["postgres", "mysql", "clickhouse"])
+@pytest.mark.parametrize("backend", source_params(["postgres", "mysql", "clickhouse"]))
 def test_remote_computed_measure_decimal_sum_is_exact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
@@ -341,7 +340,7 @@ def test_remote_computed_measure_decimal_sum_is_exact(
     _remote_matrix_case(tmp_path, monkeypatch, backend, "net_total", Decimal("51.50"))
 
 
-@pytest.mark.parametrize("backend", ["postgres", "mysql", "clickhouse"])
+@pytest.mark.parametrize("backend", source_params(["postgres", "mysql", "clickhouse"]))
 def test_remote_decimal_linear_publishes_exact_decimal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
@@ -350,7 +349,7 @@ def test_remote_decimal_linear_publishes_exact_decimal(
     _remote_matrix_case(tmp_path, monkeypatch, backend, "net_linear", Decimal("0.00"))
 
 
-@pytest.mark.parametrize("backend", ["mysql"])
+@pytest.mark.parametrize("backend", source_params(["mysql"]))
 def test_mysql_decimal_mean_stays_rejected_until_the_mean_equation_lands(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
@@ -451,6 +450,7 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
             admin.cursor().execute(f"DROP TABLE IF EXISTS {table}").fetchall()
 
 
+@pytest.mark.runtime
 def test_trino_computed_measure_decimal_sum_is_exact(
     trino_session: mv.Session,
 ) -> None:
@@ -467,6 +467,7 @@ def test_trino_computed_measure_decimal_sum_is_exact(
     assert value == Decimal("51.50")
 
 
+@pytest.mark.runtime
 def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
     """AVG stays at the input scale and rounds, so the mean cell stays closed."""
     from marivo.analysis.errors import AnalysisError

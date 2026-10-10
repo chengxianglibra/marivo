@@ -93,6 +93,11 @@ def run_process(
         manifest.write_text(json.dumps(output, default=str, sort_keys=True))
     else:
         saved = json.loads(manifest.read_text())
+        if phase == "recover":
+            # Continue exercises the full numeric matrix. Cold recovery keeps
+            # one result for each independent relation type and access route.
+            cold_names = {"sum", "quantile", "read", "category"}
+            saved = {name: value for name, value in saved.items() if name in cold_names}
         output = {}
         expected = {"sum": 147, "min": 7, "max": 120, "mean": 49, "count": 3, "count_defined": 3}
         for name, original in saved.items():

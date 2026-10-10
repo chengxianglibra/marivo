@@ -98,7 +98,6 @@ class _ObservedSQLiteFetch:
         self._native.close()
 
 
-@pytest.mark.runtime
 @pytest.mark.parametrize(
     ("backend", "phase", "mode"),
     (
@@ -350,6 +349,8 @@ def test_local_graph_native_interrupt_preserves_publication(
             and current.table.equals(original.table, check_metadata=True)
             for current, original in zip(preserved_tables.parts, original_tables.parts, strict=True)
         )
+        previous_artifact_preserved = snapshot(previous) == original_snapshot
+        publication_counts_after = _publication_counts(session)
         report = checked(
             {
                 "backend": backend,
@@ -365,7 +366,7 @@ def test_local_graph_native_interrupt_preserves_publication(
                 ],
                 "compiled_sql": compiled,
                 "publication_counts_before": before,
-                "publication_counts_after": _publication_counts(session),
+                "publication_counts_after": publication_counts_after,
                 "new_runs": len(run_ids(session) - before_runs),
                 "run_lifecycle": run.lifecycle,
                 "resources": len(runtime.store.resources(runtime.session_ref)),
@@ -373,7 +374,7 @@ def test_local_graph_native_interrupt_preserves_publication(
                 "cursor_close_threads": cursor_close_threads,
                 "interrupt_threads": interrupt_threads,
                 "owner_thread": owner_thread,
-                "previous_artifact_preserved": snapshot(previous) == original_snapshot,
+                "previous_artifact_preserved": previous_artifact_preserved,
                 "previous_primary_and_part_values_preserved": full_parts_preserved,
                 "boundary": "One actual local graph phase. SQLite native timer interruption is owned by the existing SourceSession expiry case and the same graph deadline guard; no phase cross product is claimed.",
             }
@@ -421,8 +422,8 @@ def test_local_graph_native_interrupt_preserves_publication(
             for source in owners
             for submission in source.submissions
         )
-        assert _publication_counts(session) == before
-        assert snapshot(previous) == original_snapshot
+        assert publication_counts_after == before
+        assert previous_artifact_preserved
         assert full_parts_preserved
         assert len(run_ids(session) - before_runs) == 1
         assert run.lifecycle == "failed"

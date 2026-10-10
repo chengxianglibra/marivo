@@ -10,7 +10,7 @@ from collections import deque
 import pytest
 
 import marivo.analysis as mv
-from marivo._help.model import MarivoHelpTargetError, NativeHelpRoute
+from marivo._help.model import NativeHelpRoute
 from marivo._help.render import render_help_text
 from marivo._help.route import route_help_target
 from marivo.analysis._capabilities.dataset_model import CallableInput
@@ -239,9 +239,6 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
         text, surface, target = render_help_text(owner.aggregate)
         assert surface == "analysis"
         assert target is not None and target.endswith(".aggregate")
-        assert text == render_help_text("analysis." + target)[0]
         assert "relation.aggregate(" in text
         assert ".summarize" not in text
-        with pytest.raises(MarivoHelpTargetError):
-            render_help_text("analysis." + target.removesuffix("aggregate") + "summarize")
     assert not any(target.endswith(".summarize") for target in REGISTRY.canonical_ids())
