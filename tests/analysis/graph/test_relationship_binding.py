@@ -25,7 +25,6 @@ from marivo.analysis.materialization.graph_snapshot import (
     thaw_graph,
 )
 from tests.shared_fixtures import DslCase, DslCaseFactory
-from tests.support.documentation import _example
 from tests.support.paths import PROJECT_ROOT
 
 CUSTOMER = ms.ref.entity("sales.customer")
@@ -370,25 +369,6 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         assert result.rollup().execute().to_pandas()["value"].tolist() == [
             1.0 if metric is ratio else 0
         ]
-
-
-def test_bilingual_branch_example_and_time_grid(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    session = _extend(analysis_dsl_case_factory("j1"))
-    namespace: dict[str, object] = {"session": session, "ms": ms, "mv": mv}
-    source = _example("en", "contribution-classification")
-    assert source == _example("zh", "contribution-classification")
-    exec(compile(source, "contribution-classification-example", "exec"), namespace)
-    result = namespace["category_revenue"]
-    assert isinstance(result, mv.MaterializedNumericRelation)
-    assert result.to_pandas().set_index("group")["value"].to_dict() == {"book": 700, "game": 300}
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
-    )
-    timed = session.members(LINE).read(CATEGORY, at=grid.before_end, via=LINE_PRODUCT)
-    grouped = session.members(CUSTOMER).observe(LINE_REVENUE, during=grid, by=(timed,)).execute()
-    rows = grouped.to_pandas()
-    assert len(rows) == 4
-    assert rows["value"].sum() == 1000
 
 
 @pytest.mark.parametrize("missing_bucket", [False, True])

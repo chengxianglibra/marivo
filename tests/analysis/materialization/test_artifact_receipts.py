@@ -18,8 +18,13 @@ def _local() -> c.LocalReceipt:
     )
 
 
-def test_closed_receipt_round_trip() -> None:
+def test_closed_receipt_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     receipt = _local()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("metadata-only receipt accessed storage")
+
+    monkeypatch.setattr(Path, "open", forbidden)
     payload = c.receipt_payload(receipt)
     recovered = c.decode_receipt(c.parse_json(c.canonical_json(payload)))
     assert recovered == receipt
@@ -38,15 +43,3 @@ def test_local_receipt_rejects_unregistered_or_mutable_authority() -> None:
         payload[field] = value
         with pytest.raises(IntegrityError):
             c.decode_receipt(payload)
-
-
-def test_receipt_codec_does_not_open_storage(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    receipt = _local()
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("metadata-only receipt accessed storage")
-
-    monkeypatch.setattr(Path, "open", forbidden)
-    assert c.decode_receipt(c.receipt_payload(receipt)) == receipt

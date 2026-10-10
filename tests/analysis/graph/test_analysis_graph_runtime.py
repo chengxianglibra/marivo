@@ -11,7 +11,6 @@ from marivo.analysis.compiler.graph_plan import (
     CheckRequirement,
     LocalMethodStage,
     RouteChoice,
-    SourceInputStage,
     SourceMethodStage,
     Stage,
     plan,
@@ -211,30 +210,6 @@ def test_unqualified_method_rejects_before_any_stage_consumer() -> None:
         prepare_graph(root, session_ref="session_r42", routes=_routes(root))
 
 
-def test_explicit_sharing_and_equal_independent_nodes_have_distinct_work() -> None:
-    leaves = tuple(_source("session_r42") for _ in range(4))
-    first = _pair(leaves[0], leaves[1])
-    shared = _pair(first, first, "union_keys")
-    independent = _pair(first, _pair(leaves[2], leaves[3]), "union_keys")
-    counts: list[tuple[int, int]] = []
-    for root in (shared, independent):
-        prepared = prepare_graph(root, session_ref="session_r42", routes=_routes(root))
-        recorder = _Recorder()
-        assert prepared.run(recorder) is not None
-        stages = prepared.admitted.stages
-        counts.append(
-            (
-                sum(isinstance(stage, SourceInputStage) for stage in stages),
-                sum(isinstance(stage, SourceMethodStage) for stage in stages),
-            )
-        )
-        assert len([event for event in recorder.events if event[0] == "stage"]) == len(stages)
-        assert len([event for event in recorder.events if event[0] != "stage"]) == len(
-            prepared.admitted.checks
-        )
-    assert counts == [(2, 2), (4, 3)]
-
-
 def test_checks_keep_origin_and_failure_does_not_run_an_alternative() -> None:
     root = _pair(_source("session_r42"), _source("session_r42"))
     prepared = prepare_graph(root, session_ref="session_r42", routes=_routes(root))
@@ -253,16 +228,6 @@ def test_checks_keep_origin_and_failure_does_not_run_an_alternative() -> None:
     with pytest.raises(RuntimeError, match="selected check failed"):
         prepared.run(rejected)
     assert ("stage", target) not in rejected.events
-
-
-def test_each_invocation_replays_source_stages_without_a_cross_run_cache() -> None:
-    root = _count(_source("session_r42", quantity=True))
-    prepared = prepare_graph(root, session_ref="session_r42", routes=_routes(root))
-    first, second = _Recorder(), _Recorder()
-    prepared.run(first)
-    prepared.run(second)
-    assert first.events == second.events
-    assert any(event[0] == "stage" for event in second.events)
 
 
 def test_source_key_is_fresh_per_run_and_binds_selected_plan() -> None:

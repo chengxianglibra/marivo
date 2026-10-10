@@ -1,7 +1,6 @@
 """Public integer-sum consumers and exact route-registration regressions."""
 
 from pathlib import Path
-from typing import Literal
 
 import pytest
 
@@ -86,16 +85,14 @@ def test_duckdb_local_original_sum_consumes_group_input(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.parametrize("name", ("cell.difference", "attribution.additive_difference"))
-def test_cost_sum_increment_does_not_grant_other_duckdb_local_consumers(
-    name: Literal["cell.difference", "attribution.additive_difference"],
-) -> None:
-    assert not any(
-        isinstance(item.key.shape, SourceShape)
-        and item.key.shape.backend == "duckdb"
-        and item.key.shape.time == TimeShape("instant", "us", "UTC")
-        and item.key.route == "ibis_python"
-        and isinstance(item.qualification, Qualified)
-        and item.qualification.implementation_id.startswith("r93.c09.local.duckdb.")
-        for item in implementations(MethodKey(name))
-    )
+def test_cost_sum_increment_does_not_grant_other_duckdb_local_consumers() -> None:
+    for name in ("cell.difference", "attribution.additive_difference"):
+        assert not any(
+            isinstance(item.key.shape, SourceShape)
+            and item.key.shape.backend == "duckdb"
+            and item.key.shape.time == TimeShape("instant", "us", "UTC")
+            and item.key.route == "ibis_python"
+            and isinstance(item.qualification, Qualified)
+            and item.qualification.implementation_id.startswith("r93.c09.local.duckdb.")
+            for item in implementations(MethodKey(name))
+        )

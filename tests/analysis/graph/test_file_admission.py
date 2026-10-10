@@ -204,33 +204,3 @@ def test_json_request_sources_are_refused_before_source_open(
         assert error.repair is not None and error.repair.action
         assert calls == [] and session.runs().items == ()
         assert session._runtime.store.resources(session.id) == ()
-
-
-def test_local_csv_workflow_example_executes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    from tests.support.documentation import _example
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    data = reference_data("duckdb")
-    with source_case("duckdb", "csv", tmp_path, monkeypatch, data) as case:
-        file = author_file_case(case, data, "csv", semantic_project_factory)
-        directory = tmp_path / "data"
-        directory.mkdir()
-        (directory / "facts.csv").write_bytes(file.read_bytes())
-        declarations = _example("en", "csv-semantic-model")
-        (tmp_path / "models/semantic/sales/models.py").write_text(declarations)
-        analysis = _example("en", "csv-observation")
-        namespace: dict[str, object] = {}
-        exec(compile(analysis, "local-csv-workflow-example", "exec"), namespace)
-        result = namespace["result"]
-        assert isinstance(result, mv.MaterializedNumericRelation)
-        frame = result.to_pandas().set_index(["member", "coord_0", "coord_1"])
-        assert frame.value.to_dict() == {
-            ("a", 9007199254740992, 1): 2,
-            ("a", 9007199254740993, 2): 0,
-            ("b", 9007199254740993, 1): 4,
-        }

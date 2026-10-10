@@ -93,6 +93,29 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
     mv.session.abandon_run(session_id=case.session.id, run_id=run_ids[0])
     assert {run.run_id for run in case.session.runs(status="failed").items} == set(run_ids)
 
+    original = MaterializationError(
+        expected="the exact synthetic source contract",
+        received="an incompatible source",
+        repair="Restore the exact synthetic source contract.",
+        stage="graph_check",
+        help_target="dsl.LogicalAnalysisDomain.execute",
+    )
+    repair = original.repair
+
+    def fail_with_typed_error(*args: object, **kwargs: object) -> NoReturn:
+        raise original
+
+    with monkeypatch.context() as patch:
+        patch.setattr(SourceSession, "batches", fail_with_typed_error)
+        with pytest.raises(MaterializationError) as caught:
+            logical.execute()
+    assert caught.value is original
+    assert original.expected == "the exact synthetic source contract"
+    assert original.received == "an incompatible source"
+    assert original.repair is repair
+    assert original.run_ref is not None
+    assert case.session.get_run(original.run_ref).lifecycle == "failed"
+
 
 def test_real_identity_check_failure_is_bound_to_its_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -107,35 +130,6 @@ def test_real_identity_check_failure_is_bound_to_its_failed_run(
     assert case.session.get_run(error.run_ref).lifecycle == "failed"
     assert case.session.graph().artifacts == ()
     assert case.session._runtime.store.resources(case.session.id) == ()
-
-
-def test_typed_execution_failure_keeps_original_fields_and_repair(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    logical = _members(case)
-    original = MaterializationError(
-        expected="the exact synthetic source contract",
-        received="an incompatible source",
-        repair="Restore the exact synthetic source contract.",
-        stage="graph_check",
-        help_target="dsl.LogicalAnalysisDomain.execute",
-    )
-    repair = original.repair
-
-    def fail(*args: object, **kwargs: object) -> NoReturn:
-        raise original
-
-    monkeypatch.setattr(SourceSession, "batches", fail)
-    with pytest.raises(MaterializationError) as caught:
-        logical.execute()
-    assert caught.value is original
-    assert original.expected == "the exact synthetic source contract"
-    assert original.received == "an incompatible source"
-    assert original.repair is repair
-    assert original.run_ref is not None
-    assert case.session.get_run(original.run_ref).lifecycle == "failed"
 
 
 def test_pre_admission_failure_never_inherits_the_previous_run(
@@ -177,14 +171,6 @@ def test_pre_admission_failure_never_inherits_the_previous_run(
         else:
             assert error.__cause__ is original
 
-
-def test_pre_admission_recovery_failure_preserves_its_original_run(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    logical = _members(case)
-    previous = logical.execute()
     original = RecoveryPendingError(
         expected="an original publication acknowledgement",
         received="unconfirmed acknowledgement",
@@ -192,10 +178,10 @@ def test_pre_admission_recovery_failure_preserves_its_original_run(
         run_ref=previous.state.producing_run_ref,
     )
 
-    def fail(*args: object, **kwargs: object) -> NoReturn:
+    def fail_reconciliation(*args: object, **kwargs: object) -> NoReturn:
         raise original
 
-    monkeypatch.setattr(graph_publication, "reconcile_session", fail)
+    monkeypatch.setattr(graph_publication, "reconcile_session", fail_reconciliation)
     with pytest.raises(RecoveryPendingError) as caught:
         logical.execute()
     assert caught.value is original
