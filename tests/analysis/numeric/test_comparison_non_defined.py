@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import itertools
+import os
+import subprocess
+import sys
 
 import duckdb
 import pandas as pd
@@ -15,6 +18,7 @@ from marivo.analysis.methods.comparison import propagated_cell
 from marivo.refs import MetricKind, Ref
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.support.paths import PROJECT_ROOT
 
 _TAGS = ("defined", "null", "undefined", "unknown")
 
@@ -191,3 +195,63 @@ def test_null_on_both_sides_stays_null(
         frame = left.compare(right).execute().to_pandas()
         assert frame["cell_tag"].eq("null").all()
         assert frame["cell_reason"].eq("empty_contribution").all()
+
+
+def test_nonfinite_operand_still_fails_the_whole_run(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    case = analysis_dsl_case_factory("j2")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
+        connection.execute("UPDATE \"order\" SET amount = 'NaN' WHERE order_id = 'j2_sa'")
+    ms.load(workspace_dir=case.root)
+    members = _members(case)
+    metric = ms.ref.metric("sales.revenue")
+    current, baseline = _monthly(members, metric, 9), _monthly(members, metric, 8)
+    with pytest.raises(MaterializationError):
+        current.compare(baseline).execute()
+
+
+@pytest.mark.slow
+def test_propagated_null_survives_cold_recovery(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    members = _members(case)
+    metric = ms.ref.metric("sales.revenue")
+    saved = _monthly(members, metric, 9).compare(_monthly(members, metric, 8)).execute()
+    source = case.database_path
+    offline = source.with_name(source.name + ".offline")
+    source.rename(offline)
+    script = """
+import sys
+import duckdb
+import marivo.analysis as mv
+import marivo.semantic as ms
+def unavailable(*args, **kwargs):
+    raise AssertionError("cold comparison cannot reopen sources or Semantic")
+duckdb.connect = unavailable
+ms.load = unavailable
+saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
+assert isinstance(saved, mv.MaterializedDifferenceRelation)
+frame = saved.to_pandas().set_index("member")
+assert frame.loc["D", "cell_tag"] == "null"
+assert frame.loc["D", "cell_reason"] == "empty_contribution"
+defined = saved.where(saved.value.is_defined()).execute().to_pandas()
+assert sorted(defined["member"].tolist()) == ["A", "B", "C"]
+"""
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", script, case.session.id, saved.state.artifact_ref.ref],
+            cwd=case.root,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    finally:
+        offline.rename(source)
+    assert completed.returncode == 0, completed.stderr
