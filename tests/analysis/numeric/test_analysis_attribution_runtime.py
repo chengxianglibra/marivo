@@ -837,12 +837,8 @@ def test_numeric_view_rank_uses_typed_other_order(
         assert rows.coord_1.tolist() == [0, 0, 1]
 
 
-@pytest.mark.parametrize(
-    "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
-)
 def test_attribution_publication_cleans_only_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
-    point: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -860,24 +856,27 @@ def test_attribution_publication_cleans_only_failed_run(
     fixed = change.execute()
     expected = fixed.to_pandas()
     for difference in (change, fixed):
-        before = set((case.root / ".marivo").rglob("*.parquet"))
-        succeeded = case.session.runs(status="succeeded").items
+        for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
+            before = set((case.root / ".marivo").rglob("*.parquet"))
+            succeeded = case.session.runs(status="succeeded").items
 
-        def fail(event: str) -> None:
-            if event == point:
-                raise RuntimeError("injected attribution publication failure")
+            def fail(event: str, stage: str = point) -> None:
+                if event == stage:
+                    raise RuntimeError("injected attribution publication failure")
 
-        difference._runtime._hook = fail
-        try:
-            with pytest.raises((AnalysisError, RuntimeError)):
-                difference.attribute(axes=axes).execute()
-        finally:
-            difference._runtime._hook = None
-        assert set((case.root / ".marivo").rglob("*.parquet")) == before
-        assert case.session.runs(status="succeeded").items == succeeded
-        assert fixed.to_pandas().equals(expected)
-        with difference._runtime.store._read() as conn:
-            assert conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
+            difference._runtime._hook = fail
+            try:
+                with pytest.raises((AnalysisError, RuntimeError)):
+                    difference.attribute(axes=axes).execute()
+            finally:
+                difference._runtime._hook = None
+            assert set((case.root / ".marivo").rglob("*.parquet")) == before
+            assert case.session.runs(status="succeeded").items == succeeded
+            assert fixed.to_pandas().equals(expected)
+            with difference._runtime.store._read() as conn:
+                assert (
+                    conn.execute("SELECT count(*) FROM action_resource_journal").fetchone()[0] == 0
+                )
         # A clean retry reaches the same registered method without replaying a failed publication.
         result = difference.attribute(axes=axes).execute()
         assert len(result._dataset.verified().parts) == 8

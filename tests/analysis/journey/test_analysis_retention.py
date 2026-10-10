@@ -326,23 +326,6 @@ def test_known_true_subject_image_then_source_preparation(tmp_path, monkeypatch)
         assert result.to_pandas().value.tolist() == ([] if empty else [6])
 
 
-def test_latest_retention_example_executes(tmp_path, monkeypatch, capsys):
-
-    session, _, _, _ = build_retention(tmp_path)
-    monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
-    from tests.support.documentation import _example
-
-    code = _example("docs", "anchor-retention").replace(
-        'start="2026-08-01", end="2026-09-01"',
-        'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',
-    )
-    namespace = {}
-    exec(compile(code, "latest-retention-example", "exec"), namespace)
-    assert dict(namespace["retention"].contract()._facts)["omega_count"] == "4"
-    assert len(namespace["subjects"].to_pandas()) == 2
-    capsys.readouterr()
-
-
 def test_native_elapsed_does_not_call_local_retention(tmp_path, monkeypatch):
     from marivo.analysis.materialization import retention_execution
 

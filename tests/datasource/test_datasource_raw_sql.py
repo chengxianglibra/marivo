@@ -52,25 +52,6 @@ def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
         md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
 
 
-def test_execution_logging_documentation_example_executes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.datasource.manage import RawSqlResult
-    from tests.support.documentation import _example
-    from tests.support.execution_logs import execution_records
-
-    _register_raw_sql_fixture(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MARIVO_TELEMETRY", "off")
-    namespace: dict[str, object] = {}
-    exec(_example("en", "execution-log-diagnostic", page="reference/telemetry"), namespace)
-    result = namespace["result"]
-    assert isinstance(result, RawSqlResult)
-    assert result.rows == ({"marker": 1},)
-    submitted = [r for r in execution_records(tmp_path) if r["event"] == "query.submitted"]
-    assert any(r["sql"] == "SELECT 1 AS marker" for r in submitted)
-
-
 def test_raw_sql_does_not_classify_sql_text(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 

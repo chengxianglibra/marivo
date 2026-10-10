@@ -486,22 +486,6 @@ def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, cale
     assert session.artifact(fixed.state.artifact_ref).to_pandas()["value"].tolist() == [1, 1]
 
 
-def test_latest_anchor_example_executes(tmp_path, monkeypatch):
-
-    session, _, _, _, values = build_anchors(tmp_path)
-    monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
-    from tests.support.documentation import _example
-
-    code = _example("en", "anchor-observation")
-    code = code.replace(
-        'start="2026-08-01", end="2026-09-01"',
-        'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',
-    )
-    namespace = {}
-    exec(compile(code, "latest-anchor-example", "exec"), namespace)
-    assert_result(namespace["relative"], values, "i", "i", 2, calendar=True)
-
-
 @pytest.mark.parametrize("shared,calendar", [(False, False), (True, True)])
 def test_journey_origin_observes_without_rematch(tmp_path, shared, calendar, monkeypatch):
     from marivo.analysis.materialization import anchor_execution

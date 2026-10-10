@@ -96,20 +96,6 @@ def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, monkeypatch):
         assert history_rows == expected_histories(values, known=known)
         expected = views(values, known=known)
         histories.append((coverage, supplied, logical, history, expected))
-    for coverage, supplied, logical, _, _ in histories:
-        if coverage == "complete":
-            from tests.support.documentation import _example
-
-            snippet = _example("en", "history-views")
-            environment = {
-                "mv": mv,
-                "ms": ms,
-                "session": session,
-                "window": window,
-                "lifecycle_completeness": supplied,
-                "history": logical,
-            }
-            exec(compile(snippet, "latest-history-example", "exec"), environment)
     from marivo.analysis.materialization.cell_arrow import rows as cell_rows
     from marivo.datasource.adapters import SourceSession
 

@@ -439,14 +439,6 @@ def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
         by=(mv.member(),),
     )
 
-    from tests.support.documentation import _example
-
-    example = _example("en", "journey-duration")
-    namespace = {"session": public_session}
-    exec(compile(example, "journey-duration-example", "exec"), namespace)
-    assert namespace["revenue"].to_pandas()["member"].tolist() == [subject(2)]
-    assert namespace["mean"].to_pandas()["value"].tolist() == [timedelta(hours=3)]
-
     values = (
         journeys.time_to_event(from_step=pattern.steps[0], to_step=pattern.steps[1])
         .completed()

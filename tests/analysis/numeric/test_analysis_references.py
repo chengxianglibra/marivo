@@ -913,11 +913,8 @@ def test_zero_and_signed_share_support(
         assert frame.value.isna().all()
 
 
-@pytest.mark.parametrize(
-    "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
-)
 def test_reference_publication_faults_are_atomic(
-    analysis_dsl_case_factory: DslCaseFactory, point: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -936,22 +933,24 @@ def test_reference_publication_faults_are_atomic(
         if path.is_file() and path.suffix == ".parquet"
     }
 
-    def fail(event: str) -> None:
-        if event == point:
-            raise RuntimeError("injected reference publication failure")
+    for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
 
-    values._runtime._hook = fail
-    try:
-        with pytest.raises(AnalysisError):
-            values.share_of(values.rollup()).execute()
-    finally:
-        values._runtime._hook = None
-    after = {
-        path
-        for path in (case.root / ".marivo").rglob("*")
-        if path.is_file() and path.suffix == ".parquet"
-    }
-    assert after == before
+        def fail(event: str, stage: str = point) -> None:
+            if event == stage:
+                raise RuntimeError("injected reference publication failure")
+
+        values._runtime._hook = fail
+        try:
+            with pytest.raises(AnalysisError):
+                values.share_of(values.rollup()).execute()
+        finally:
+            values._runtime._hook = None
+        after = {
+            path
+            for path in (case.root / ".marivo").rglob("*")
+            if path.is_file() and path.suffix == ".parquet"
+        }
+        assert after == before
     assert fixed.to_pandas().value.tolist() == [1, 1, 1, 1]
     assert values.share_of(values.rollup()).execute().to_pandas().value.tolist() == [0.25] * 4
 

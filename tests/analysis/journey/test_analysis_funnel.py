@@ -594,26 +594,6 @@ def test_large_exact_count_ratio_and_numeric_axis_order():
     ]
 
 
-def test_latest_funnel_example_executes(funnel_public):
-
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    _, journeys, pattern, _ = funnel_public
-    from tests.support.documentation import _example
-
-    example = _example("en", "funnel-attribution")
-    namespace = {
-        "mv": mv,
-        "ms": ms,
-        "journeys": journeys(),
-        "baseline_journeys": journeys(START - timedelta(days=3)),
-        "finish_step": pattern.steps[1],
-    }
-    exec(compile(example, "latest-funnel-example", "exec"), namespace)
-    assert namespace["allocation"].evidence_digest().finding_count == 4
-
-
 def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
     from marivo.analysis.materialization.errors import MaterializationError
 

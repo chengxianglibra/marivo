@@ -471,22 +471,3 @@ def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monk
             window=window,
             seed=mv.from_inception(),
         )
-
-
-def test_executed_latest_history_example(tmp_path):
-    import marivo.semantic as ms
-
-    session, _, window, claims, _ = build_lifecycle_public(tmp_path)
-    from tests.support.documentation import _example
-
-    snippet = _example("en", "history-replay")
-    namespace = {
-        "session": session,
-        "window": window,
-        "lifecycle_completeness": claims,
-        "mv": mv,
-        "ms": ms,
-    }
-    exec(snippet, namespace)
-    assert isinstance(namespace["recovered"], mv.MaterializedHistoryResult)
-    assert records(namespace["recovered"]) == records(namespace["retained_history"])

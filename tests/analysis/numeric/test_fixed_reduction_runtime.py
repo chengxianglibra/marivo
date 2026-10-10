@@ -29,7 +29,7 @@ Method: TypeAlias = Literal["sum", "count", "mean", "ratio", "weighted_mean", "l
 Saved: TypeAlias = mv.MaterializedNumericRelation | mv.MaterializedRatioRelation
 
 
-def _saved(case: DslCase, method: Method = "sum") -> Saved:
+def _saved_many(case: DslCase, methods: tuple[Method, ...]) -> dict[Method, Saved]:
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order"')
         db.execute('ALTER TABLE "order" ADD COLUMN weight DOUBLE')
@@ -47,33 +47,40 @@ def _saved(case: DslCase, method: Method = "sum") -> Saved:
     ms.load(workspace_dir=case.root)
     amount = ms.ref.measure("sales.order.amount")
     base = ms.ref.metric("sales.revenue")
-    metric = (
-        ms.ref.metric("sales.orders_count")
-        if method == "count"
-        else mv.runtime_metric.aggregate(amount, agg="mean", label="mean")
-        if method == "mean"
-        else mv.runtime_metric.ratio(base, base, label="ratio")
-        if method == "ratio"
-        else mv.runtime_metric.weighted_mean(
-            amount, ms.ref.measure("sales.order.weight"), label="weighted"
+    saved: dict[Method, Saved] = {}
+    for method in methods:
+        metric = (
+            ms.ref.metric("sales.orders_count")
+            if method == "count"
+            else mv.runtime_metric.aggregate(amount, agg="mean", label="mean")
+            if method == "mean"
+            else mv.runtime_metric.ratio(base, base, label="ratio")
+            if method == "ratio"
+            else mv.runtime_metric.weighted_mean(
+                amount, ms.ref.measure("sales.order.weight"), label="weighted"
+            )
+            if method == "weighted_mean"
+            else mv.runtime_metric.linear(add=[base, base], subtract=[base], label="linear")
+            if method == "linear"
+            else base
         )
-        if method == "weighted_mean"
-        else mv.runtime_metric.linear(add=[base, base], subtract=[base], label="linear")
-        if method == "linear"
-        else base
-    )
-    fixed = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+        fixed = (
+            case.session.members(ms.ref.entity("sales.customer"))
+            .observe(
+                metric,
+                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .execute()
         )
-        .execute()
-    )
-    assert isinstance(fixed, (mv.MaterializedNumericRelation, mv.MaterializedRatioRelation))
-    return fixed
+        assert isinstance(fixed, (mv.MaterializedNumericRelation, mv.MaterializedRatioRelation))
+        saved[method] = fixed
+    return saved
+
+
+def _saved(case: DslCase, method: Method = "sum") -> Saved:
+    return _saved_many(case, (method,))[method]
 
 
 def _forbid_source(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,13 +100,12 @@ def _publications(case: DslCase) -> tuple[int, ...]:
     return tuple(counts)
 
 
-@pytest.mark.parametrize("method", ["sum", "count", "mean", "ratio", "weighted_mean", "linear"])
 def test_public_original_chain_has_independent_oracle_and_exact_cache(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, method: Method
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    saved = _saved(case, method)
-    chain = saved.group_by(ms.ref.entity("sales.customer")).rollup().rollup()
+    methods: tuple[Method, ...] = ("sum", "count", "mean", "ratio", "weighted_mean", "linear")
+    saved_by_method = _saved_many(case, methods)
     _forbid_source(monkeypatch)
     groups: list[int] = []
     execute = local._reduction_group_result
@@ -111,97 +117,104 @@ def test_public_original_chain_has_independent_oracle_and_exact_cache(
         return execute(group, source, binding)
 
     monkeypatch.setattr(local, "_reduction_group_result", grouped)
-    result = chain.execute()
-    expected = (
-        4
-        if method == "count"
-        else 130 / 4
-        if method == "mean"
-        else 1
-        if method == "ratio"
-        else 280 / 6
-        if method == "weighted_mean"
-        else 130
-    )
-    assert result.to_pandas().value.tolist() == [expected]
-    assert groups == [2]
-    direct = saved.rollup().execute()
-    assert direct.to_pandas().equals(result.to_pandas())
-    assert direct._dataset is not None and result._dataset is not None
-    assert [(p.role, p.table.to_pylist()) for p in direct._dataset.verified().parts] == [
-        (p.role, p.table.to_pylist()) for p in result._dataset.verified().parts
-    ]
-    restored = case.session.artifact(result.state.artifact_ref)
-    assert isinstance(
-        restored, (mv.MaterializedRolledNumericRelation, mv.MaterializedRolledRatioRelation)
-    )
-    assert asdict(restored.contract()) == asdict(result.contract())
-    before = run_ids(case.session)
-    assert chain.execute().state.artifact_ref == result.state.artifact_ref
-    assert run_ids(case.session) == before and groups == [2]
+    expected_by_method: dict[Method, int | float] = {
+        "sum": 130,
+        "count": 4,
+        "mean": 130 / 4,
+        "ratio": 1,
+        "weighted_mean": 280 / 6,
+        "linear": 130,
+    }
+    for method in methods:
+        saved = saved_by_method[method]
+        chain = saved.group_by(ms.ref.entity("sales.customer")).rollup().rollup()
+        groups.clear()
+        result = chain.execute()
+        assert result.to_pandas().value.tolist() == [expected_by_method[method]]
+        assert groups == [2]
+        direct = saved.rollup().execute()
+        assert direct.to_pandas().equals(result.to_pandas())
+        assert direct._dataset is not None and result._dataset is not None
+        assert [(p.role, p.table.to_pylist()) for p in direct._dataset.verified().parts] == [
+            (p.role, p.table.to_pylist()) for p in result._dataset.verified().parts
+        ]
+        restored = case.session.artifact(result.state.artifact_ref)
+        assert isinstance(
+            restored, (mv.MaterializedRolledNumericRelation, mv.MaterializedRolledRatioRelation)
+        )
+        assert asdict(restored.contract()) == asdict(result.contract())
+        before = run_ids(case.session)
+        assert chain.execute().state.artifact_ref == result.state.artifact_ref
+        assert run_ids(case.session) == before and groups == [2]
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.parametrize("failure", ["missing", "duplicate", "overflow", "timeout", "cancel"])
 def test_group_failure_has_no_retry_or_partial_publication(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, failure: str
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     saved = _saved(case)
     chain = saved.group_by(ms.ref.entity("sales.customer")).rollup().rollup()
     _forbid_source(monkeypatch)
-    before = _publications(case)
-    attempts: list[int] = []
     execute = local._reduction_group_result
+    for failure in ("missing", "duplicate", "overflow", "timeout", "cancel"):
+        before = _publications(case)
+        attempts: list[int] = []
 
-    def grouped(
-        group: tuple[LoweredLocal, ...], source: ExchangeResult, binding: str
-    ) -> ExchangeResult:
-        attempts.append(len(group))
-        if failure == "cancel":
-            raise KeyboardInterrupt()
-        if failure == "timeout":
-            deadline = execute_deadline.CURRENT.get()
-            assert deadline is not None
-            object.__setattr__(deadline, "start", deadline.start - 601)
-        parts = list(source.parts)
-        if failure == "missing":
-            parts = [p for p in parts if p.role != "original_state"]
-        elif failure == "duplicate":
-            index = next(i for i, p in enumerate(parts) if p.role == "original_state")
-            table = parts[index].table
-            parts[index] = ExchangePart(
-                "original_state", pa.concat_tables((table, table.slice(0, 1)))
-            )
-        elif failure == "overflow":
-            index = next(i for i, p in enumerate(parts) if p.role == "original_state")
-            table = parts[index].table
-            column = table.schema.get_field_index("original_state__sum")
-            table = table.set_column(
-                column, "original_state__sum", pa.array([2**63 - 1, 90, 0, 0], type=pa.int64())
-            )
-            parts[index] = ExchangePart("original_state", table)
-            source = replace(
-                source,
-                primary=source.primary.set_column(
-                    1, "value", pa.array([2**63 - 1, 90, 0, None], type=pa.int64())
-                ),
-            )
-        return execute(group, replace(source, parts=tuple(parts)), binding)
+        def grouped(
+            group: tuple[LoweredLocal, ...],
+            source: ExchangeResult,
+            binding: str,
+            fault: str = failure,
+            recorded: list[int] = attempts,
+        ) -> ExchangeResult:
+            recorded.append(len(group))
+            if fault == "cancel":
+                raise KeyboardInterrupt()
+            if fault == "timeout":
+                deadline = execute_deadline.CURRENT.get()
+                assert deadline is not None
+                object.__setattr__(deadline, "start", deadline.start - 601)
+            parts = list(source.parts)
+            if fault == "missing":
+                parts = [p for p in parts if p.role != "original_state"]
+            elif fault == "duplicate":
+                index = next(i for i, p in enumerate(parts) if p.role == "original_state")
+                table = parts[index].table
+                parts[index] = ExchangePart(
+                    "original_state", pa.concat_tables((table, table.slice(0, 1)))
+                )
+            elif fault == "overflow":
+                index = next(i for i, p in enumerate(parts) if p.role == "original_state")
+                table = parts[index].table
+                column = table.schema.get_field_index("original_state__sum")
+                table = table.set_column(
+                    column,
+                    "original_state__sum",
+                    pa.array([2**63 - 1, 90, 0, 0], type=pa.int64()),
+                )
+                parts[index] = ExchangePart("original_state", table)
+                source = replace(
+                    source,
+                    primary=source.primary.set_column(
+                        1, "value", pa.array([2**63 - 1, 90, 0, None], type=pa.int64())
+                    ),
+                )
+            return execute(group, replace(source, parts=tuple(parts)), binding)
 
-    monkeypatch.setattr(local, "_reduction_group_result", grouped)
-    error = (
-        KeyboardInterrupt
-        if failure == "cancel"
-        else DomainPreparationError
-        if failure == "timeout"
-        else MaterializationError
-    )
-    with pytest.raises(error):
-        chain.execute()
-    assert attempts == [2]
-    assert _publications(case) == before
-    assert case.session._runtime.store.resources(case.session.id) == ()
+        monkeypatch.setattr(local, "_reduction_group_result", grouped)
+        error = (
+            KeyboardInterrupt
+            if failure == "cancel"
+            else DomainPreparationError
+            if failure == "timeout"
+            else MaterializationError
+        )
+        with pytest.raises(error):
+            chain.execute()
+        assert attempts == [2]
+        assert _publications(case) == before
+        assert case.session._runtime.store.resources(case.session.id) == ()
 
 
 def test_materialized_intermediate_ends_l8(

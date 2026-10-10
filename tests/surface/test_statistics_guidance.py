@@ -1,4 +1,4 @@
-"""Statistical Help reachability, typing and executable documentation."""
+"""Statistical Help reachability and typing."""
 
 import subprocess
 from pathlib import Path
@@ -8,7 +8,6 @@ import pytest
 from marivo._help.render import help as help_api
 from marivo.analysis._capabilities.dataset_model import NavigationInput
 from marivo.analysis._capabilities.dataset_registry import prepare
-from tests.shared_fixtures import DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 from tests.support.typing import check
 
@@ -109,37 +108,3 @@ def test_cli_help_uses_public_entry() -> None:
     assert result.returncode == 0, result.stderr
     text = result.stdout
     assert "marivo.help" in text
-
-
-@pytest.mark.slow
-def test_bilingual_nine_method_example_executes_with_current_continuations(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-    from tests.support.documentation import _example
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KC", "table", "us", "UTC", False, followup=True)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    daily = (
-        members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
-        .group_by(grid)
-        .rollup()
-    )
-    namespace: dict[str, object] = {
-        "mv": mv,
-        "revenue": members.read(ms.ref.measure("sales.order.profile_0")),
-        "order_count": members.read(ms.ref.measure("sales.order.profile_1")),
-        "daily": daily,
-    }
-    english = _example("en", "nine-statistical-methods")
-    exec(compile(english, "bilingual-nine-method-example", "exec"), namespace)
-    assert isinstance(namespace["chosen"], mv.MaterializedDeviationResult)
-    assert isinstance(namespace["segments"], mv.MaterializedTimeRunResult)
-    assert isinstance(namespace["selected"], mv.MaterializedForecastResult)

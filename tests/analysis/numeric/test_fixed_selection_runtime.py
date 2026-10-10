@@ -111,66 +111,78 @@ def test_public_selection_parts_contract_members_summary_rollup_and_cache(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.parametrize("failure", ["predicate", "duplicate", "timeout", "cancel"])
 def test_fused_failure_never_retries_or_publishes(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    failure: Literal["predicate", "duplicate", "timeout", "cancel"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     saved = _saved(case)
     logical = _chain(saved)
     _forbid_source(monkeypatch)
-    before = _publications(case.session)
-    runs = run_ids(case.session)
     frame = saved.to_pandas()
-    attempts: list[int] = []
     execute = local._selection_group_result
-
-    def grouped(
-        group: tuple[LoweredLocal, ...], source: ExchangeResult, binding: str
-    ) -> ExchangeResult:
-        attempts.append(len(group))
-        if failure == "duplicate":
-            source = replace(
-                source, primary=pa.concat_tables((source.primary, source.primary.slice(0, 1)))
-            )
-        return execute(group, source, binding)
-
-    monkeypatch.setattr(local, "_selection_group_result", grouped)
     evaluate = evaluate_leaf
+    failures: tuple[Literal["predicate", "duplicate", "timeout", "cancel"], ...] = (
+        "predicate",
+        "duplicate",
+        "timeout",
+        "cancel",
+    )
+    for failure in failures:
+        before = _publications(case.session)
+        runs = run_ids(case.session)
+        attempts: list[int] = []
 
-    def broken(
-        predicate: ValuePredicate, left: dict[str, object], right: dict[str, object] | None
-    ) -> bool | None:
-        if predicate.operator == "lt":
-            if failure == "predicate":
-                return evaluate(predicate, {**left, "cell_tag": "null", "value": None}, right)
-            if failure == "cancel":
-                raise KeyboardInterrupt()
-            if failure == "timeout":
-                deadline = execute_deadline.CURRENT.get()
-                assert deadline is not None
-                object.__setattr__(deadline, "start", deadline.start - 601)
-        return evaluate(predicate, left, right)
+        def grouped(
+            group: tuple[LoweredLocal, ...],
+            source: ExchangeResult,
+            binding: str,
+            fault: Literal["predicate", "duplicate", "timeout", "cancel"] = failure,
+            recorded: list[int] = attempts,
+        ) -> ExchangeResult:
+            recorded.append(len(group))
+            if fault == "duplicate":
+                source = replace(
+                    source, primary=pa.concat_tables((source.primary, source.primary.slice(0, 1)))
+                )
+            return execute(group, source, binding)
 
-    monkeypatch.setattr(local, "evaluate_leaf", broken)
-    expected = {
-        "predicate": CoreRuleError,
-        "duplicate": MaterializationError,
-        "timeout": DomainPreparationError,
-        "cancel": KeyboardInterrupt,
-    }[failure]
-    with pytest.raises(expected) as error:
-        logical.execute()
-    if failure == "predicate":
-        assert isinstance(error.value, CoreRuleError)
-        assert error.value.location == f"analysis.predicate.{logical._node.root.identity}"
-    assert attempts == [2]
-    assert _publications(case.session) == before
-    assert len(run_ids(case.session) - runs) == 1
-    assert case.session._runtime.store.resources(case.session.id) == ()
-    assert saved.to_pandas().equals(frame)
+        monkeypatch.setattr(local, "_selection_group_result", grouped)
+
+        def broken(
+            predicate: ValuePredicate,
+            left: dict[str, object],
+            right: dict[str, object] | None,
+            fault: Literal["predicate", "duplicate", "timeout", "cancel"] = failure,
+        ) -> bool | None:
+            if predicate.operator == "lt":
+                if fault == "predicate":
+                    return evaluate(predicate, {**left, "cell_tag": "null", "value": None}, right)
+                if fault == "cancel":
+                    raise KeyboardInterrupt()
+                if fault == "timeout":
+                    deadline = execute_deadline.CURRENT.get()
+                    assert deadline is not None
+                    object.__setattr__(deadline, "start", deadline.start - 601)
+            return evaluate(predicate, left, right)
+
+        monkeypatch.setattr(local, "evaluate_leaf", broken)
+        expected = {
+            "predicate": CoreRuleError,
+            "duplicate": MaterializationError,
+            "timeout": DomainPreparationError,
+            "cancel": KeyboardInterrupt,
+        }[failure]
+        with pytest.raises(expected) as error:
+            logical.execute()
+        if failure == "predicate":
+            assert isinstance(error.value, CoreRuleError)
+            assert error.value.location == f"analysis.predicate.{logical._node.root.identity}"
+        assert attempts == [2]
+        assert _publications(case.session) == before
+        assert len(run_ids(case.session) - runs) == 1
+        assert case.session._runtime.store.resources(case.session.id) == ()
+        assert saved.to_pandas().equals(frame)
 
 
 @pytest.mark.slow

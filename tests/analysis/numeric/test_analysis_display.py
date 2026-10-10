@@ -550,11 +550,8 @@ assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.toli
         path.write_bytes(contents)
 
 
-@pytest.mark.parametrize(
-    "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
-)
 def test_display_publication_is_atomic(
-    analysis_dsl_case_factory: DslCaseFactory, point: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -569,17 +566,19 @@ def test_display_publication_is_atomic(
     fixed = values.execute()
     before = set((case.root / ".marivo").rglob("*.parquet"))
 
-    def fail(event: str) -> None:
-        if event == point:
-            raise RuntimeError("injected display publication failure")
+    for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
 
-    values._runtime._hook = fail
-    try:
-        with pytest.raises(AnalysisError):
-            values.rank(order="ascending", ties="ordinal").execute()
-    finally:
-        values._runtime._hook = None
-    assert set((case.root / ".marivo").rglob("*.parquet")) == before
+        def fail(event: str, stage: str = point) -> None:
+            if event == stage:
+                raise RuntimeError("injected display publication failure")
+
+        values._runtime._hook = fail
+        try:
+            with pytest.raises(AnalysisError):
+                values.rank(order="ascending", ties="ordinal").execute()
+        finally:
+            values._runtime._hook = None
+        assert set((case.root / ".marivo").rglob("*.parquet")) == before
     assert fixed.to_pandas().value.tolist() == [1, 1, 1, 1]
 
 
