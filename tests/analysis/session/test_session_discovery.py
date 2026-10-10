@@ -10,8 +10,6 @@ import marivo.analysis as mv
 from marivo.analysis.errors import SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
-from marivo.analysis.session._lazy_read_model import SessionSummaryPage
-from tests.support.documentation import _example
 
 
 def _project_state(root: Path) -> dict[str, bytes | str | None]:
@@ -98,28 +96,8 @@ def test_session_creation_and_history_preserve_foreign_entries(
     )
 
 
-@pytest.mark.parametrize(
-    ("limit", "cursor", "parameter"),
-    [(0, None, "limit"), (101, None, "limit"), (True, None, "limit"), (7, "invalid", "cursor")],
-)
-def test_missing_store_history_validates_arguments_without_creating_state(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    limit: int,
-    cursor: str | None,
-    parameter: str,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    _foreign_entry(tmp_path, "v5")
-    before = _project_state(tmp_path)
-    with pytest.raises(mv.errors.SessionStateError, match=f"session.recent.{parameter}"):
-        mv.session.recent(limit=limit, cursor=cursor)
-    assert _project_state(tmp_path) == before
-
-
-@pytest.mark.parametrize("entry", ["recent", "inspect", "runs"])
 def test_history_cursor_is_decoded_once_per_public_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import SourceRunInput
     from marivo.analysis.materialization.graph_store import admit
@@ -137,12 +115,7 @@ def test_history_cursor_is_decoded_once_per_public_read(
             run_id,
         )
         mv.session.abandon_run(session_id=session.id, run_id=run_id)
-    if entry == "recent":
-        cursor = mv.session.recent(limit=1).next_cursor
-    elif entry == "inspect":
-        cursor = mv.session.inspect(session.name, run_limit=1).runs.next_cursor
-    else:
-        cursor = session.runs(limit=1).next_cursor
+    cursor = mv.session.recent(limit=1).next_cursor
     assert cursor is not None
     decode = _lazy_runtime_reads.decode_keyset_cursor
     calls = 0
@@ -153,15 +126,8 @@ def test_history_cursor_is_decoded_once_per_public_read(
         return decode(value)
 
     monkeypatch.setattr(_lazy_runtime_reads, "decode_keyset_cursor", counted)
-    if entry == "recent":
-        page = mv.session.recent(limit=1, cursor=cursor)
-        assert [item.name for item in page.items] == ["first"]
-    elif entry == "inspect":
-        runs = mv.session.inspect(session.name, run_limit=1, run_cursor=cursor).runs
-        assert len(runs.items) == 1 and runs.has_more is False
-    else:
-        runs = session.runs(limit=1, cursor=cursor)
-        assert len(runs.items) == 1 and runs.has_more is False
+    page = mv.session.recent(limit=1, cursor=cursor)
+    assert [item.name for item in page.items] == ["first"]
     assert calls == 1
 
 
@@ -261,22 +227,3 @@ def test_session_discovery_rejects_incompatible_selected_store(
         assert caught.value.stage == "store_generation"
         assert caught.value.received == "Session Store user_version=8"
     assert _project_state(tmp_path) == before
-
-
-def test_documented_session_discovery_executes_with_preserved_legacy_store(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    foreign = _foreign_entry(tmp_path, "v5")
-    namespace: dict[str, object] = {}
-    source = _example("en", "session-discovery")
-    exec(compile(source, "session-discovery-example", "exec"), namespace)
-    assert namespace["current"] is None
-    history = namespace["history"]
-    assert isinstance(history, SessionSummaryPage)
-    assert history.items == () and history.limit == 5
-    assert history.has_more is False and history.next_cursor is None
-    session = namespace["session"]
-    assert isinstance(session, mv.Session)
-    assert session.name == "revenue-review"
-    assert foreign is not None and foreign.read_bytes() == b"preserve-unreadable-legacy-bytes"

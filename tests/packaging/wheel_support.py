@@ -60,7 +60,7 @@ PROBE_MODULES = (
     "tests.analysis.statistics.test_composition",
     "tests.analysis.materialization.test_public_schema_drift",
     "tests.analysis.journey.test_anchor_consumers",
-    "tests.analysis.journey.sqlite_anchor_components_worker",
+    "tests.analysis.journey.anchor_components_worker",
 )
 
 

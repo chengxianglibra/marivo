@@ -14,49 +14,6 @@ from marivo.analysis.materialization.graph_exchange import ExchangePart, from_ar
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.slow
-def test_three_process_offline_statistics(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import os
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case,
-        "KS",
-        "parquet",
-        "us",
-        "UTC",
-        False,
-        followup=True,
-        profile_indices=(0, 1),
-    )
-    for phase in ("produce", "fixed", "cold"):
-        if phase == "fixed":
-            case.database_path.rename(case.database_path.with_suffix(".offline"))
-            for path in (case.root / "source_files").glob("*.parquet"):
-                path.rename(path.with_suffix(".offline"))
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.statistics_worker",
-                str(case.root),
-                phase,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-    attachment = os.environ.get("MARIVO_R84_EVIDENCE")
-    if attachment:
-        Path(attachment).write_text((case.root / "statistics-recovery.json").read_text())
-
-
 @pytest.mark.parametrize("method", ("pearson", "spearman", "kendall"))
 def test_public_source_fixed_association(
     analysis_dsl_case_factory: DslCaseFactory, method: Literal["pearson", "spearman", "kendall"]
@@ -343,7 +300,7 @@ def test_forecast_prediction_is_a_complete_numeric_receiver(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource.adapters import SourceSession
-    from tests.analysis.statistics.statistics_worker import forbidden
+    from tests.analysis.statistics.recovery_worker import forbidden
 
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))

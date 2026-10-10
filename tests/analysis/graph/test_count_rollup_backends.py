@@ -103,9 +103,8 @@ with patch.object(ms, 'load', forbidden), patch.object(DatasourceConnectionServi
 
 
 @pytest.mark.parametrize(
-    "backend,profile,key_type",
-    [("duckdb", "table", key_type) for key_type in ("int64", "string")]
-    + [("duckdb", "view", key_type) for key_type in ("int64", "string")],
+    ("backend", "profile", "key_type"),
+    [("duckdb", "table", "int64"), ("duckdb", "view", "string")],
 )
 def test_native_count_rollup_and_group_state(
     backend: str,

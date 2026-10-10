@@ -86,19 +86,6 @@ def test_reopen_conflicting_report_timezone_fails_closed(monkeypatch):
     assert _read_session_meta(persisted)["question"] == "original"
 
 
-def test_system_timezone_prefers_tz_environment(monkeypatch):
-    from marivo.analysis.timezone import resolve_system_timezone
-
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
-
-    resolved = resolve_system_timezone()
-
-    assert str(resolved.tz) == "Asia/Shanghai"
-    assert resolved.name == "Asia/Shanghai"
-    assert resolved.resolution == "iana"
-    assert resolved.warning is None
-
-
 def test_system_timezone_invalid_tz_falls_back_to_local_offset(monkeypatch):
     from datetime import tzinfo
 

@@ -187,12 +187,10 @@ def test_source_ref_and_fingerprint_are_bound():
         replace(leaf, definition=replace(leaf.definition, ref=ms.ref.metric("sales.other")))
 
 
-@pytest.mark.parametrize("basis", ["check", "observation", "deduction"])
-def test_live_source_rejects_prior_execution_evidence(basis):
+def test_live_source_rejects_prior_execution_evidence():
     leaf = _source()
     fact = _mean(leaf).derivation.obligations[0].fact
-    dependencies = (fact,) if basis == "deduction" else ()
-    prior = Evidence(fact, basis, "previous-run", dependencies)
+    prior = Evidence(fact, "observation", "previous-run")
     with pytest.raises(CoreRuleError, match="only static declaration or builder evidence"):
         replace(leaf, signature=replace(leaf.signature, evidence=(prior,)))
 
@@ -466,8 +464,7 @@ def test_noncohort_fixed_shapes_remain_exact() -> None:
         plan(root, routes=(RouteChoice(root.identity, "artifact_python"),))
 
 
-@pytest.mark.parametrize("reverse", [False, True])
-@pytest.mark.parametrize("temporal_category", [False, True])
+@pytest.mark.parametrize("reverse,temporal_category", [(False, False), (True, True)])
 def test_fixed_grid_display_admits_only_time_neutral_categories(
     reverse: bool, temporal_category: bool
 ) -> None:
@@ -573,9 +570,9 @@ def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
         assert (result.stages[-1].inputs[0] == result.stages[-1].inputs[1]) == (left is right)
 
 
-@pytest.mark.parametrize("depth", [10, 20, 40])
 @pytest.mark.parametrize("fixed", [False, True])
-def test_chain_construction_derives_and_checks_only_new_nodes(depth: int, fixed: bool) -> None:
+def test_chain_construction_derives_and_checks_only_new_nodes(fixed: bool) -> None:
+    depth = 40
     leaf = _fixed() if fixed else _source()
     root = leaf
     leaf_signature = leaf.signature

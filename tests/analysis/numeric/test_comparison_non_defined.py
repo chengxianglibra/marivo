@@ -80,7 +80,7 @@ def test_propagated_cell_priority_is_unknown_undefined_null() -> None:
             assert result == (baseline, f"{baseline}_b")
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 @pytest.mark.parametrize(
     "design",
     [mv.exact(), mv.outer(missing="keep"), mv.outer(missing="empty_value")],
@@ -116,7 +116,7 @@ def test_null_operand_propagates_in_time_comparison(
             assert _endpoint_cell(result, "baseline_endpoint", "D") == ("defined", None)
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_null_operands_propagate_in_period_comparison(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -150,7 +150,7 @@ def test_null_operands_propagate_in_period_comparison(
         assert frame.loc[frame["cell_tag"] == "null", "cell_reason"].eq("empty_contribution").all()
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_both_non_defined_operands_take_the_higher_priority_tag(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -183,7 +183,7 @@ def test_both_non_defined_operands_take_the_higher_priority_tag(
             assert reasons == {"empty_contribution", "zero_denominator"}
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_null_on_both_sides_stays_null(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:

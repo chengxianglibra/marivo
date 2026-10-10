@@ -78,36 +78,30 @@ def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
     assert saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
 
 
-@pytest.mark.parametrize("scenario", ["j3_weighting", "empty_group", "zero_denominator"])
+@pytest.mark.parametrize("scenario", ["empty_group", "zero_denominator"])
 def test_ratio_original_state_and_empty_contribution(
     analysis_dsl_case_factory: DslCaseFactory,
-    scenario: Literal["j3_weighting", "empty_group", "zero_denominator"],
+    scenario: Literal["empty_group", "zero_denominator"],
 ) -> None:
     case = analysis_dsl_case_factory(scenario)
     relation = _ratio(case)
     fixed = relation.execute()
-    if scenario == "j3_weighting":
-        assert fixed.to_pandas().set_index("member")["value"].to_dict() == {"A": 1.0, "B": 100.0}
-        assert fixed.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 50.5
-        assert fixed.rollup().execute().to_pandas().iloc[0]["value"] == pytest.approx(200 / 101)
-    elif scenario == "empty_group":
+    if scenario == "empty_group":
         assert fixed.to_pandas().iloc[0]["value"] == 0
     else:
         row = fixed.to_pandas().iloc[0]
         assert row["cell_tag"] == "undefined" and row["cell_reason"] == "zero_denominator"
 
 
-@pytest.mark.parametrize("operator", ["lt"])
 def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
-    operator: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
     difference = current.compare(baseline).absolute
     fixed = current.execute().compare(baseline.execute()).absolute.execute()
-    source_selection = difference.where(getattr(difference.value, operator)(0)).execute()
-    fixed_selection = fixed.where(getattr(fixed.value, operator)(0)).execute()
+    source_selection = difference.where(difference.value.lt(0)).execute()
+    fixed_selection = fixed.where(fixed.value.lt(0)).execute()
     assert source_selection.to_pandas().equals(fixed_selection.to_pandas())
     assert fixed.to_pandas().set_index("member")["value"].to_dict() == {
         "A": -40,

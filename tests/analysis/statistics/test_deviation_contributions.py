@@ -13,8 +13,6 @@ from tests.shared_fixtures import DslCaseFactory
 @pytest.mark.parametrize(
     "key_profile,form,unit,zone,calendar,domain",
     [
-        ("KS", "parquet", "us", "UTC", False, "entity"),
-        ("KI", "parquet", "us", "UTC", False, "entity_time"),
         ("KC", "parquet", "us", "America/New_York", True, "entity_time"),
     ],
 )

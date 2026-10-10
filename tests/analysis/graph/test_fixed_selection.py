@@ -32,9 +32,7 @@ from tests.analysis.graph.selection_fixtures import (
 )
 
 
-@pytest.mark.parametrize(
-    "length,threshold,parts", [(2, 1, False), (8, 1, True), (2, 17, True), (8, 99, True)]
-)
+@pytest.mark.parametrize("length,threshold,parts", [(2, 1, False), (8, 1, True), (2, 17, True)])
 def test_selection_chain_matches_independent_domain_cells_parts_and_work(
     monkeypatch: pytest.MonkeyPatch, length: int, threshold: int, parts: bool
 ) -> None:

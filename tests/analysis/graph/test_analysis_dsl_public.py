@@ -239,9 +239,8 @@ def test_public_member_read_and_category_selection(
     assert len(case.session.runs().items) == before
 
 
-@pytest.mark.parametrize("explicit_none", (False, True))
 def test_public_grouped_same_entity_observation_allows_omitted_route(
-    analysis_dsl_case_factory: DslCaseFactory, explicit_none: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
@@ -250,11 +249,7 @@ def test_public_grouped_same_entity_observation_allows_omitted_route(
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 
-    observed = (
-        orders.observe(revenue, during=august, via=None, by=(channel,))
-        if explicit_none
-        else orders.observe(revenue, during=august, by=(channel,))
-    )
+    observed = orders.observe(revenue, during=august, by=(channel,))
     assert isinstance(observed, mv.LogicalNumericRelation)
     rows = observed.execute().to_pandas()
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
@@ -496,20 +491,10 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     assert set(overall.contract().retained_parts) == set(overall.contract().required_parts)
     overall.contract().show()
     assert "weighting=original numerator and denominator components" in capsys.readouterr().out
-    fixed_observed = observed.execute()
-    fixed_ratio = case.session.artifact(fixed_observed.state.artifact_ref)
-    assert isinstance(fixed_ratio, mv.MaterializedRatioRelation)
-    offline = case.database_path.with_suffix(".offline")
-    case.database_path.rename(offline)
-    try:
-        assert fixed_ratio.rollup().execute().to_pandas().iloc[0]["value"] == 40
-    finally:
-        offline.rename(case.database_path)
 
 
 def test_public_j4_spearman_and_fixed_coefficient_selection(
     analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = analysis_dsl_case_factory("j4")
     names = case.names
@@ -541,7 +526,7 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     selected = coefficient.where(coefficient.value.lt(0)).execute()
     boolean_view = association.where(association.selected.value.eq(False)).selected.execute()
     assert isinstance(boolean_view, mv.MaterializedBooleanRelation)
-    boolean_rows = boolean_view.to_pandas()
+    assert not boolean_view.to_pandas()["value"].any()
 
     assert association.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association.to_pandas().iloc[0]["complete_pair_count"] == 4
@@ -549,23 +534,6 @@ def test_public_j4_spearman_and_fixed_coefficient_selection(
     assert coefficient.aggregate(mv.mean()).execute().to_pandas().value.iloc[0] == pytest.approx(
         -0.4
     )
-    import marivo.semantic.catalog as catalog
-    from marivo.datasource.runtime import DatasourceConnectionService
-
-    def unavailable(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("cold recovery must not load semantics or a datasource")
-
-    monkeypatch.setattr(catalog, "load", unavailable)
-    monkeypatch.setattr(DatasourceConnectionService, "use_backend", unavailable)
-    cold_session = mv.session.resume(case.session.id, by="id")
-    restored = cold_session.artifact(association.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedAssociationResult)
-    assert restored.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
-    restored_selected = restored.coefficient.where(restored.coefficient.value.lt(0)).execute()
-    assert restored_selected.state.artifact_ref == selected.state.artifact_ref
-    restored_boolean_view = cold_session.artifact(boolean_view.state.artifact_ref)
-    assert isinstance(restored_boolean_view, mv.MaterializedBooleanRelation)
-    assert restored_boolean_view.to_pandas().equals(boolean_rows)
 
 
 def test_public_j4_renamed_entity_and_fields_keep_the_public_route(

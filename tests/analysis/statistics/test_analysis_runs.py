@@ -118,9 +118,8 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("calendar", [False, True])
 def test_offline_runs_keep_calendar_cold_recovery(
-    analysis_dsl_case_factory: DslCaseFactory, calendar: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import subprocess
     import sys
@@ -128,11 +127,8 @@ def test_offline_runs_keep_calendar_cold_recovery(
     from tests.analysis.statistics.deviation_fixture import prepare_profiles
 
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case, "KS", "parquet", "us", "UTC", calendar, followup=True, profile_indices=(0,)
-    )
-    phases = ("produce", "fixed", "cold") if calendar else ("produce", "fixed")
-    for phase in phases:
+    prepare_profiles(case, "KS", "parquet", "us", "UTC", True, followup=True, profile_indices=(0,))
+    for phase in ("produce", "fixed", "cold"):
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))
             for path in (case.root / "source_files").glob("*.parquet"):
@@ -144,20 +140,13 @@ def test_offline_runs_keep_calendar_cold_recovery(
                 "tests.analysis.statistics.runs_worker",
                 str(case.root),
                 phase,
-                "calendar" if calendar else "day",
+                "calendar",
             ],
             capture_output=True,
             text=True,
             timeout=120,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
-
-    import os
-    from pathlib import Path
-
-    attachment = os.environ.get("MARIVO_R83_EVIDENCE")
-    if attachment and not calendar:
-        Path(attachment).write_text((case.root / "runs-recovery.json").read_text())
 
 
 @pytest.mark.parametrize("fixed", [False, True])

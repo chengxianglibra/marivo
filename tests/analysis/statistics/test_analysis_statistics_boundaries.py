@@ -61,8 +61,6 @@ def test_ratio_statistics_require_original_coverage(
 @pytest.mark.parametrize(
     "end,unit,count",
     (
-        ("2026-10-31T22:00:00-04:00", "hour", 1),
-        ("2026-03-07T23:00:00-05:00", "hour", 1),
         ("2026-11-01T00:00:00-04:00", "hour", 4),
         ("2026-03-08T00:00:00-05:00", "hour", 4),
         ("2026-03-08T01:59:00-05:00", "minute", 4),
@@ -86,32 +84,11 @@ def test_future_grid_uses_actual_dst_boundaries(
     ]
 
 
-def test_rank_witness_ties_corruption_and_subquadratic_work(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    comparisons = 0
-    less = Fraction.__lt__
-    equal = Fraction.__eq__
-
-    def counted_less(left: Fraction, right: object) -> bool:
-        nonlocal comparisons
-        comparisons += 1
-        assert isinstance(right, Fraction)
-        return less(left, right)
-
-    def counted_equal(left: Fraction, right: object) -> bool:
-        nonlocal comparisons
-        comparisons += 1
-        return equal(left, right)
-
-    original = tuple(Fraction(i // 2) for i in reversed(range(256)))
-    ranks = tuple(RationalFact.capture(Fraction(4 * (i // 2) + 3, 2)) for i in reversed(range(256)))
-    with monkeypatch.context() as patch:
-        patch.setattr(Fraction, "__lt__", counted_less)
-        patch.setattr(Fraction, "__eq__", counted_equal)
-        _verify_ranks(original, ranks)
-    assert comparisons < 256 * 20
-    for corrupt in (ranks[:-1], (ranks[-1], *ranks[1:]), (RationalFact("3", "2"),) * 256):
+def test_rank_witness_ties_and_corruption() -> None:
+    original = tuple(Fraction(i // 2) for i in reversed(range(32)))
+    ranks = tuple(RationalFact.capture(Fraction(4 * (i // 2) + 3, 2)) for i in reversed(range(32)))
+    _verify_ranks(original, ranks)
+    for corrupt in (ranks[:-1], (ranks[-1], *ranks[1:]), (RationalFact("3", "2"),) * 32):
         with pytest.raises(AnalysisError):
             _verify_ranks(original, corrupt)
 

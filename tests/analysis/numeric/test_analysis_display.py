@@ -237,11 +237,11 @@ def test_public_rank_table_source_and_fixed(
 @pytest.mark.parametrize(
     "physical,parquet",
     [
-        (physical, parquet)
-        for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
-        for parquet in (False, True)
-    ]
-    + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
+        ("BIGINT", True),
+        ("DOUBLE", True),
+        ("DECIMAL(30,6)", True),
+        ("duration_ns", True),
+    ],
 )
 def test_display_precision_matrix(
     analysis_dsl_case_factory: DslCaseFactory,

@@ -2,7 +2,6 @@
 
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from collections.abc import Callable
@@ -19,7 +18,7 @@ from marivo.analysis.public_dsl import MaterializedFunnelResult
 from marivo.datasource.adapters import SourceSession
 from marivo.refs import DimensionKind, Ref
 from marivo.semantic.reader import SemanticProject
-from tests.analysis.journey.test_sqlite_funnel_direct_axes import _build as build_sqlite_history
+from tests.analysis.journey.funnel_fixtures import build_funnel_public
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -353,19 +352,16 @@ assert rows['cell_reason'].tolist() == reasons
     )
 
 
-def test_sqlite_snapshot_rejects_incompatible_relationship_keys_before_read(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+def test_snapshot_rejects_incompatible_relationship_keys_before_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    import duckdb
+
     monkeypatch.chdir(tmp_path)
-    _, journeys, database = build_sqlite_history(tmp_path, semantic_project_factory, history=True)
-    with sqlite3.connect(database) as writer:
-        writer.execute("ALTER TABLE snapshots RENAME TO snapshots_before_type_change")
-        writer.execute("CREATE TABLE snapshots (id TEXT, code BIGINT, region VARCHAR, day DATE)")
+    _, journeys, _, database = build_funnel_public(tmp_path, history="snapshot")
+    with duckdb.connect(str(database)) as writer:
         writer.execute(
-            "INSERT INTO snapshots "
-            "SELECT CAST(id AS TEXT), code, region, day FROM snapshots_before_type_change"
+            "ALTER TABLE snapshots ALTER COLUMN id TYPE VARCHAR USING CAST(id AS VARCHAR)"
         )
 
     def no_business_rows(*args: object, **kwargs: object) -> None:
@@ -374,4 +370,4 @@ def test_sqlite_snapshot_rejects_incompatible_relationship_keys_before_read(
     monkeypatch.setattr(SourceSession, "batches", no_business_rows)
     axes = (ms.ref.dimension("sales.snapshots.region"),)
     with pytest.raises(AnalysisError, match="compatible declared relationship key types"):
-        journeys(datetime(2026, 8, 1, tzinfo=timezone.utc)).funnel(axes=axes).execute()
+        journeys().funnel(axes=axes).execute()

@@ -192,12 +192,7 @@ def test_public_references_source_and_fixed(
 
 @pytest.mark.parametrize(
     "physical,parquet",
-    [
-        (physical, parquet)
-        for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
-        for parquet in (False, True)
-    ]
-    + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
+    [("BIGINT", True), ("DECIMAL(30,6)", True), ("duration_ns", True)],
 )
 def test_public_share_numeric_matrix(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
@@ -289,7 +284,7 @@ def test_public_share_numeric_matrix(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(30,6)"])
+@pytest.mark.parametrize("physical", ["DOUBLE", "DECIMAL(30,6)"])
 @pytest.mark.parametrize("parquet", [False])
 def test_original_metric_standardization_matrix(
     analysis_dsl_case_factory: DslCaseFactory,

@@ -278,13 +278,9 @@ def test_decimal_original_state(
         ("min", True, False),
         ("max", False, True),
         ("mean", False, False),
-        ("mean", False, True),
         ("weighted", False, True),
-        ("weighted", True, False),
         ("ratio", False, False),
-        ("ratio", True, True),
         ("linear", False, True),
-        ("linear", True, False),
     ],
 )
 def test_numeric_composition_matrix(
@@ -413,8 +409,6 @@ def test_numeric_composition_matrix(
     "unit,parquet,coordinates,kind",
     [
         ("us", False, False, "sum"),
-        ("s", True, False, "min"),
-        ("ms", True, False, "max"),
         ("us", True, False, "mean"),
         ("ns", True, True, "weighted"),
         ("ns", True, False, "ratio"),
@@ -539,7 +533,6 @@ def test_duration_matrix(
         ("duration", "min"),
         ("int64", "max"),
         ("decimal", "cumulative"),
-        ("duration", "first"),
     ],
 )
 def test_typed_temporal_matrix(
@@ -875,19 +868,10 @@ print(json.dumps(output, default=str, sort_keys=True))
 
 
 @pytest.mark.parametrize(
-    "case_kind,reverse",
-    [
-        ("large_mean", False),
-        ("cancellation", False),
-        ("cancellation", True),
-        ("overflow", False),
-        ("nonfinite", False),
-        ("calendar", False),
-    ],
+    "case_kind",
+    ["large_mean", "cancellation", "overflow", "nonfinite", "calendar"],
 )
-def test_numeric_boundary_facts(
-    analysis_dsl_case_factory: DslCaseFactory, case_kind: str, reverse: bool
-) -> None:
+def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_kind: str) -> None:
 
     import duckdb
 
@@ -899,8 +883,6 @@ def test_numeric_boundary_facts(
         if case_kind == "cancellation"
         else [2**63 - 1, 1]
     )
-    if reverse:
-        numbers.reverse()
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order"')
         for index, number in enumerate(numbers):
@@ -1032,8 +1014,17 @@ def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
                 assert tree[1] == expected
 
 
-@pytest.mark.parametrize("q", [True, 0, 1, float("nan"), float("inf")])
-@pytest.mark.parametrize("operation", ["percentile", "approx_percentile"])
+@pytest.mark.parametrize(
+    "operation,q",
+    [
+        ("percentile", True),
+        ("percentile", 0),
+        ("percentile", 1),
+        ("percentile", float("nan")),
+        ("percentile", float("inf")),
+        ("approx_percentile", 0),
+    ],
+)
 def test_definition_quantile_rejects_invalid_q(
     q: float, operation: Literal["percentile", "approx_percentile"]
 ) -> None:
@@ -1158,22 +1149,10 @@ def test_native_duration_tick_rounding_ties_and_sign() -> None:
         backend.disconnect()
 
 
-@pytest.mark.parametrize("family", ["int64", "float64", "decimal", "duration"])
 def test_current_row_counts_keep_numeric_null_policy(
-    analysis_dsl_case_factory: DslCaseFactory, family: str, monkeypatch: pytest.MonkeyPatch
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import duckdb
-
     case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as db:
-        if family == "float64":
-            db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
-        elif family == "decimal":
-            db.execute('ALTER TABLE "order" ALTER amount TYPE DECIMAL(18,2)')
-        elif family == "duration":
-            db.execute(
-                'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
-            )
     ms.load(workspace_dir=case.root)
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),

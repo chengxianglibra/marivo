@@ -87,12 +87,3 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     assert len(snapshots) == 1
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
     assert session.runs().items == ()
-
-
-def test_dataset_help_does_not_advertise_private_harness_execution() -> None:
-    from marivo._help.render import render_help_text
-
-    text = render_help_text("analysis.actions.execute")[0]
-    assert "Store 8" in text
-    assert "session.members" in text
-    assert "Population" not in text

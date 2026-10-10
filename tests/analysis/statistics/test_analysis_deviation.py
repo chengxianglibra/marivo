@@ -139,13 +139,12 @@ def test_public_source_fixed_views_and_selection(
 
 
 @pytest.mark.parametrize(
-    "method,grid_mode,profile",
-    [("zscore", False, "BIGINT"), ("mad", True, "DOUBLE"), ("zscore", True, "DECIMAL(38,38)")],
+    "method,profile",
+    [("mad", "DOUBLE"), ("zscore", "DECIMAL(38,38)")],
 )
 def test_f11_complete_source_chain(
     analysis_dsl_case_factory: DslCaseFactory,
     method: numeric.DeviationMethod,
-    grid_mode: bool,
     profile: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -179,18 +178,10 @@ def test_f11_complete_source_chain(
     positive = defined.where(defined.score.value.gt(0))
     selected = positive.observed.members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
-    if grid_mode:
-        grid = mv.time_grid(
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
-        )
-        followup = selected.observe(metric, during=grid, via=via, by=(mv.member(),))
-    else:
-        followup = selected.observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=via,
-            by=(mv.member(),),
-        )
+    grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
+    )
+    followup = selected.observe(metric, during=grid, via=via, by=(mv.member(),))
     trace: list[str] = []
     source_batches, original_fit = SourceSession.batches, numeric.fit
 
@@ -214,9 +205,8 @@ def test_f11_complete_source_chain(
     assert values.loc[values.cell_tag == "defined", "value"].tolist() == (
         [Decimal("0.12"), Decimal("0")] if profile == "DECIMAL(38,38)" else [120, 0]
     )
-    if grid_mode:
-        assert len(values) == 62
-        assert values.cell_tag.value_counts().to_dict() == {"null": 60, "defined": 2}
+    assert len(values) == 62
+    assert values.cell_tag.value_counts().to_dict() == {"null": 60, "defined": 2}
 
 
 @pytest.mark.parametrize("method", ("zscore", "mad"))

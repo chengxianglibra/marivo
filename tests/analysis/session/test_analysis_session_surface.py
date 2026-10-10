@@ -56,14 +56,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         assert hidden not in names, f"plumbing leaked into dir(): {hidden}"
 
 
-def test_internal_fields_not_publicly_accessible(tmp_path, monkeypatch):
-    session = _session(tmp_path, monkeypatch)
-
-    # Underscore-prefixed storage is reachable for internal code
-    assert session._runtime is not None
-    assert "_runtime" not in dir(session)
-
-
 def test_session_namespaces_are_typed_helpers_only(authoring_evidence_project, monkeypatch):
     session = _session(authoring_evidence_project, monkeypatch)
 

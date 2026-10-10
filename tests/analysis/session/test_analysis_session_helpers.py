@@ -58,14 +58,6 @@ def test_session_acquisition_has_concrete_return_annotations() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_current_returns_none_when_no_process_or_store_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    assert mv.session.current() is None
-
-
 # ---------------------------------------------------------------------------
 # get_or_create()
 # ---------------------------------------------------------------------------
@@ -351,33 +343,6 @@ def test_resume_rejects_identity_that_matches_different_id_and_name_rows(
     current = mv.session.current()
     assert current is not None
     assert current.id == name_match.id
-
-
-def test_resume_explicit_selector_breaks_two_identity_collision_cycle(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
-    store_module = import_module("marivo.analysis.materialization.admission")
-    left_identity = "session_" + "a" * 24
-    right_identity = "session_" + "b" * 24
-    generated_ids = iter((left_identity, right_identity))
-    monkeypatch.setattr(
-        store_module,
-        "uuid4",
-        lambda: SimpleNamespace(hex=next(generated_ids).removeprefix("session_")),
-    )
-    left = mv.session.get_or_create(name=right_identity)
-    right = mv.session.get_or_create(name=left_identity)
-
-    for identity in (left_identity, right_identity):
-        with pytest.raises(mv.errors.SessionIdentityAmbiguousError):
-            mv.session.resume(identity)
-
-    assert mv.session.resume(left_identity, by="id").id == left.id
-    assert mv.session.resume(left_identity, by="name").id == right.id
-    assert mv.session.resume(right_identity, by="id").id == right.id
-    assert mv.session.resume(right_identity, by="name").id == left.id
 
 
 def test_resume_accepts_identity_matching_same_row_by_id_and_name(

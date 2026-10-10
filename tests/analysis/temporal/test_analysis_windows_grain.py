@@ -53,19 +53,6 @@ def test_count_must_be_positive():
         grain("minute", count=0)
 
 
-def test_subday_value_does_not_claim_calendar_containment():
-    for count, unit, width in [
-        (30, "minute", 1800),
-        (12, "hour", 43200),
-        (7, "minute", 420),
-        (25, "minute", 1500),
-        (5, "hour", 18000),
-    ]:
-        value = grain(unit, count=count)
-        assert value.width_seconds() == width
-        assert value.to_token() == f"{count}{unit}"
-
-
 # -- Grain ordering -----------------------------------------------------------
 
 

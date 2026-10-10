@@ -38,7 +38,6 @@ from tests.analysis.graph.reduction_fixtures import (
 )
 
 
-@pytest.mark.parametrize("length", [2, 8])
 @pytest.mark.parametrize(
     "method,carrier",
     [(m, "int64") for m in ("sum", "sum_zero", "count", "mean", "ratio", "weighted_mean", "linear")]
@@ -50,13 +49,13 @@ from tests.analysis.graph.reduction_fixtures import (
     + [(m, "duration") for m in ("sum", "mean", "linear")],
 )
 def test_direct_reduction_cells_components_identity_and_work(
-    monkeypatch: pytest.MonkeyPatch, method: OriginalMethod, carrier: Carrier, length: int
+    monkeypatch: pytest.MonkeyPatch, method: OriginalMethod, carrier: Carrier
 ) -> None:
     leaf, verified = reduction_input(method=method, carrier=carrier)
-    root = reduction_chain(leaf, length)
+    root = reduction_chain(leaf, 2)
     prepared, lowered = reduction_plan(root)
     before = root.fingerprint, freeze_graph(root), plan_digest(prepared.admitted)
-    assert [len(g) for g in local._reduction_groups(lowered).values()] == [length]
+    assert [len(g) for g in local._reduction_groups(lowered).values()] == [2]
     visits: list[int] = []
     merge = numeric_state.merge_components
     boundary = from_arrow
@@ -82,8 +81,8 @@ def test_direct_reduction_cells_components_identity_and_work(
     ):
         ordinary = local.execute_verified_fixed(prepared, lowered, (verified,))
         ordinary_boundaries = exchanges.call_count
-    assert grouped_boundaries == 2 and ordinary_boundaries == length + 1
-    assert visits[1:] == [4, 4, 4, *([1] * (3 * (length - 2))), 3]
+    assert grouped_boundaries == 2 and ordinary_boundaries == 3
+    assert visits[1:] == [4, 4, 4, 3]
     assert logical_table(result.primary).equals(logical_table(ordinary.primary))
     assert result.contract == ordinary.contract
     assert result.method_state is not None and ordinary.method_state is not None

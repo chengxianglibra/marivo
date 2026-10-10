@@ -37,18 +37,16 @@ import helpers from test modules.
 - Share ordinary behavior through representative local Parquet paths. Retain
   native cases where compilation, precision, physical keys or resource ownership
   introduces a distinct risk; avoid backend/storage Cartesian replay.
-- Run fast embedded DuckDB, SQLite, local-file and loopback HTTP unit checks in
+- Run fast embedded DuckDB, SQLite, local-file and loopback HTTP checks in
   `make test`. Keep extended local source/fixed/cold journeys in `make slow-test`;
-  a small DuckDB analysis slice retains source/fixed behavior and representative
+  a measured-fast analysis slice retains source/fixed behavior and representative
   cold recovery paths in the fast selection. A fresh Python process does not
   require a fresh datasource service.
-- The unfiltered fast analysis slice keeps one additive source/fixed path and
-  two cold paths: public retained-part continuation and Session restoration. It
-  also includes measured-fast graph rule, snapshot, lowering, admission,
-  consumer, terminal, observation-grain, datasource-capability,
-  numeric-boundary and temporal-parser modules. The extended coordinate-statistics
-  case, projection recovery and the broader execution/recovery matrix remain in `make slow-test`;
-  explicitly slow cases stay there even when focused module paths are selected.
+- Keep source, fixed and cold assertions at their owning boundaries: source covers
+  primary behavior and results, fixed covers follow-up operations, and cold
+  keeps a few representatives for distinct persisted result types and recovery
+  paths. Only measured-fast analysis modules join the unfiltered daily slice;
+  longer execution and recovery matrices remain in `make slow-test`.
 - Mark only actual external-service parameter cases as `runtime`; static native
   compilation, decoding and rejected-call checks remain daily. Shared matrices
   use `source_params()` to mark their service parameters individually.
@@ -96,11 +94,12 @@ ownership, atomicity and recovery at their owning boundary.
 The fast daily selection excludes `slow`, `runtime` and `release`. On an
 unfiltered run, remaining analysis nodes are classified as `slow`; a focused
 unmarked analysis path can still be selected with `make test TESTS=...`.
-`make slow-test` selects `slow` while excluding `runtime` and `release`. Runtime selects
-`runtime`; release targets run serially with `release`. Direct pytest needs an
-explicit marker expression to select these groups; a file name does not
-override default marker exclusion. Runtime Make targets default to two workers
-to bound shared-service load; a selected node containing `::` runs serially.
+`make slow-test` selects `slow` while excluding `runtime` and `release`. Runtime
+selects `runtime`; release targets run serially with `release`. Direct pytest
+needs an explicit marker expression to select these groups; a file name does
+not override default marker exclusion. Runtime Make targets default to two
+workers to bound shared-service load; a selected node containing `::` runs
+serially.
 
 Installed tests normally read candidates from `dist/pypi`.
 `MARIVO_TEST_WHEEL_DIR` selects an isolated build directory. Candidate validation

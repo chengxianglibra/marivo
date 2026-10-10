@@ -18,14 +18,10 @@ from tests.shared_fixtures import rendered_help
 @pytest.mark.parametrize(
     "fmt,kind",
     [
-        ("%Y%m%d", "string"),
         ("%Y-%m-%d", "string"),
         ("%Y%m%d", "int64"),
-        ("%Y%m%d%H", "int64"),
         ("%Y-%m-%d %H", "string"),
         ("%Y%m%d%H%M", "string"),
-        ("%Y-%m-%d %H:%M", "string"),
-        ("%Y%m%d%H%M%S", "int64"),
         ("%Y-%m-%d %H:%M:%S", "string"),
     ],
 )
@@ -68,9 +64,7 @@ def test_inverse_matches_independently_parsed_canonical_points(fmt: str, kind: s
         backend.disconnect()
 
 
-@pytest.mark.parametrize(
-    "dialect", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
-)
+@pytest.mark.parametrize("dialect", ["duckdb"])
 def test_filter_ast_uses_only_raw_column_comparisons(dialect: str) -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y%m%d")

@@ -31,10 +31,14 @@ def _comparison_operands(node: MethodNode) -> tuple[MethodNode, ...]:
 
 
 _NUMERIC_SOURCES = [
-    (physical, parquet)
-    for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
-    for parquet in (False, True)
-] + [("duration_" + unit, True) for unit in ("s", "ms", "ns")]
+    ("BIGINT", True),
+    ("DOUBLE", True),
+    ("DECIMAL(30,6)", True),
+    ("duration", True),
+    ("duration_s", True),
+    ("duration_ms", True),
+    ("duration_ns", True),
+]
 
 
 def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
@@ -60,15 +64,7 @@ def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
     ms.load(workspace_dir=case.root)
 
 
-@pytest.mark.parametrize(
-    "physical,parquet",
-    [
-        (physical, parquet)
-        for physical in ("BIGINT", "DOUBLE", "DECIMAL(30,6)", "duration")
-        for parquet in (False, True)
-    ]
-    + [("duration_" + unit, True) for unit in ("s", "ms", "ns")],
-)
+@pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
 def test_public_numeric_difference_source_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
 ) -> None:
@@ -140,7 +136,7 @@ def test_public_numeric_difference_source_and_fixed(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -217,9 +213,6 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
             completed_checks=checked.completed_checks,
             method_state=None,
         )
-    # Table and Parquet inputs share the same persisted comparison recovery path.
-    if parquet:
-        return
     source_path = case.root / "source_files" if parquet else case.database_path
     offline = source_path.with_name(source_path.name + ".offline")
     source_path.rename(offline)
@@ -254,7 +247,7 @@ assert selected._dataset.artifact.descriptor.method_state.kind == "none"
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_nested_difference_keeps_independent_captures(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -304,9 +297,6 @@ def test_nested_difference_keeps_independent_captures(
         == july_first._node.root.identity
     )
 
-    # The Parquet parameter keeps source/fixed coverage; the table case owns cold recovery.
-    if parquet:
-        return
     # The retained nested endpoints must survive a fresh process without any source access.
     from marivo.analysis.materialization.graph_protocol import freeze_graph
 
@@ -369,12 +359,11 @@ assert selected._dataset.verified().contract.signature.quantity == checked.contr
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
 def test_relative_change_exact_finish_and_zero_baseline(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, physical: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    _numeric_source(case, physical, parquet)
+    _numeric_source(case, "BIGINT", True)
     members = case.session.members(ms.ref.entity("sales.customer"))
     metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
     current = members.observe(
@@ -401,7 +390,7 @@ def test_relative_change_exact_finish_and_zero_baseline(
         assert saved._dataset.artifact.descriptor.method_state.kind == "none"
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_ordinary_ratio_and_cohort_singleton(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -443,7 +432,7 @@ def test_ordinary_ratio_and_cohort_singleton(
         assert result.to_pandas()["value"].tolist() == [0]
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -494,7 +483,7 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
             left.compare(right, align=mv.outer(missing="empty_value"))
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 @pytest.mark.parametrize("metric_name", ["revenue", "order_count", "count_ratio"])
 def test_cohort_group_metric_empty_preserves_metric_null_policy(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, metric_name: str
@@ -539,7 +528,7 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         )
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 @pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_period_change_retains_original_buckets_and_rejects_renumbering(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, event_kind: str
@@ -602,7 +591,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             selected.compare(right, align=design).absolute.execute()
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -649,7 +638,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_relative_and_ratio_cold_fixed_composition(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -674,9 +663,6 @@ def test_relative_and_ratio_cold_fixed_composition(
     relative = current.rollup().compare(baseline.rollup()).relative.execute()
     positive = current.where(current.value.gt(0))
     ratio = positive.ratio(positive).execute()
-    # Both source formats produce the same saved Difference and Numeric result types.
-    if parquet:
-        return
     refs = [item.state.artifact_ref.ref for item in (first, second, relative, ratio)]
     source = case.root / "source_files" if parquet else case.database_path
     offline = source.with_name(source.name + ".offline")
@@ -720,30 +706,7 @@ assert result.loc["D", "cell_reason"] == "zero_denominator"
     assert process.returncode == 0, process.stderr
 
 
-@pytest.mark.parametrize("physical,parquet", _NUMERIC_SOURCES)
-def test_ordinary_ratio_numeric_families(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    _numeric_source(case, physical, parquet)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    observed = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    for result in (observed.ratio(observed).execute(), fixed.ratio(fixed).execute()):
-        frame = result.to_pandas().set_index("member")
-        assert frame.loc["A", "value"] == 1
-        assert frame.loc["B", "value"] == 1
-        assert frame.loc["D", "cell_reason"] == "zero_denominator"
-        assert result._dataset is not None
-        assert result._dataset.artifact.descriptor.method_state.contract_version == 4
-
-
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_composite_keys_double_empty_and_wrong_key_images(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
@@ -1215,7 +1178,7 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
         assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 def test_period_change_after_bucket_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,

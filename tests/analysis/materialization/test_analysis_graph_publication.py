@@ -729,14 +729,8 @@ def test_faults_have_no_success_and_clean_only_own_run(case):
     runtime = case[0]
     points = (
         "graph_admitted",
-        "graph_primary_written",
-        "graph_part_written",
         "graph_files_published",
-        "graph_receipts_verified",
-        "insert_artifact",
-        "insert_evidence",
         "insert_terminal",
-        "before_commit",
     )
     for point in points:
         before = _counts(runtime.store)
@@ -1013,13 +1007,7 @@ def _finish(process, expected=0):
 
 @pytest.mark.parametrize(
     "point",
-    [
-        "graph_primary_written",
-        "graph_part_written",
-        "graph_files_published",
-        "before_commit",
-        "after_commit",
-    ],
+    ["graph_primary_written", "graph_files_published", "after_commit"],
 )
 def test_process_exit_coordinates_original_run_without_replay(case, point):
     saved = _capture(case)

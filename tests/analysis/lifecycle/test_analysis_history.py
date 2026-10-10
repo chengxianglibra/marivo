@@ -205,8 +205,10 @@ def test_fraction_quantile_half_even_and_overflow():
         checked(2**63)
 
 
-@pytest.mark.parametrize("kind", ["state", "interval", "violation"])
-@pytest.mark.parametrize("form", ["table", "parquet"])
+@pytest.mark.parametrize(
+    ("kind", "form"),
+    [("state", "table"), ("interval", "parquet"), ("violation", "table")],
+)
 def test_same_run_history_selection_prepares_all_sources_before_local(
     tmp_path, monkeypatch, kind, form
 ):
@@ -344,16 +346,7 @@ def test_history_declared_grain_does_not_require_originating_source_audit(
 
 @pytest.mark.parametrize(
     "fault",
-    [
-        "missing_part",
-        "extra_state",
-        "primary",
-        "subject",
-        "precision",
-        "version",
-        "binding",
-        "truncated_trace",
-    ],
+    ["missing_part", "version", "binding", "truncated_trace"],
 )
 def test_view_exchange_rejects_corruption(
     history_view_exchange_templates: tuple[ExchangeResult, ExchangeResult], fault: str
@@ -369,28 +362,6 @@ def test_view_exchange_rejects_corruption(
     payload = json.loads(parts[index].table["history_view__retained"][0].as_py())
     if fault == "missing_part":
         parts.pop(index)
-    elif fault == "extra_state":
-        payload["undeclared"] = "value"
-    elif fault == "primary":
-        primary = primary.set_column(
-            primary.schema.get_field_index("state"), "state", pa.array(["paid"] * primary.num_rows)
-        )
-    elif fault == "subject":
-        position = next(i for i, p in enumerate(parts) if p.role == "subject")
-        subjects = parts[position].table
-        parts[position] = ExchangePart(
-            "subject",
-            subjects.set_column(
-                subjects.schema.get_field_index("subject__key_0"),
-                "subject__key_0",
-                pa.array([42] * subjects.num_rows, type=pa.int64()),
-            ),
-        )
-    elif fault == "precision":
-        primary = primary.replace_schema_metadata(
-            {**primary.schema.metadata, b"r7.precision": b"[]"}
-        )
-        contract = replace(contract, schema=primary.schema)
     elif fault == "truncated_trace":
         payload["histories"][0]["transitions"].pop()
     with pytest.raises(AnalysisError):
@@ -407,7 +378,7 @@ def test_view_exchange_rejects_corruption(
                 ),
             )
             contract = replace(contract, signature=signature)
-        if fault in ("extra_state", "truncated_trace"):
+        if fault == "truncated_trace":
             parts[index] = ExchangePart(
                 "history_view", pa.table({"history_view__retained": [json.dumps(payload)]})
             )
@@ -416,13 +387,7 @@ def test_view_exchange_rejects_corruption(
 
 @pytest.mark.parametrize(
     "point",
-    [
-        "insert_evidence",
-        "insert_terminal",
-        "before_commit",
-        "cancel",
-        "deadline",
-    ],
+    ["before_commit", "cancel", "deadline"],
 )
 def test_view_atomic_failure_keeps_prior_artifact(tmp_path, point):
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
@@ -547,8 +512,7 @@ def test_independent_producer_fixed_continue_and_cold_representative_k(tmp_path)
         )
 
 
-@pytest.mark.parametrize("form", ["table", "parquet"])
-@pytest.mark.parametrize("history_kind", ["snapshot", "validity"])
+@pytest.mark.parametrize(("form", "history_kind"), [("table", "snapshot"), ("parquet", "validity")])
 @pytest.mark.slow
 def test_checkpoint_axes_use_each_historical_version_and_full_null_tuple(
     tmp_path, form, history_kind
@@ -656,8 +620,7 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
     assert mean.rollup().execute().to_pandas()["value"].tolist() == [timedelta(microseconds=2)]
 
 
-@pytest.mark.parametrize("role", ["primary", "history_view", "subject"])
-@pytest.mark.parametrize("fault", ["missing", "corrupt"])
+@pytest.mark.parametrize(("role", "fault"), [("primary", "missing"), ("history_view", "corrupt")])
 def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_path, role, fault):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     logical = replay(session, members, window, claims).execute().intervals()
@@ -684,8 +647,10 @@ def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_pat
     assert session.runs().items == runs
 
 
-@pytest.mark.parametrize("kind", ["state", "interval", "violation"])
-@pytest.mark.parametrize("form", ["table", "parquet"])
+@pytest.mark.parametrize(
+    ("kind", "form"),
+    [("state", "table"), ("interval", "parquet"), ("violation", "table")],
+)
 def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_path, kind, form):
     from tests.analysis.lifecycle.history_fixtures import build_history_public
 

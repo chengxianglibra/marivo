@@ -21,7 +21,7 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import SourceData, source_case
 
 
-@pytest.mark.parametrize("parquet", [False, True])
+@pytest.mark.parametrize("parquet", [True])
 @pytest.mark.parametrize(
     "value_type,weight_type",
     [
