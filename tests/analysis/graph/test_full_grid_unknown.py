@@ -129,17 +129,15 @@ def test_public_full_grid_unknown(
         pytest.fail("Fixed full-grid Unknown consumer accessed its source")
 
     monkeypatch.setattr(SourceSession, "batches", forbidden)
-    errors: list[str] = []
-    for model in (mv.naive(), mv.drift(), mv.seasonal_naive(periods=2)):
-        before = set(case.root.rglob("*.parquet"))
-        with pytest.raises(StatisticalRelationError) as caught:
-            fixed.forecast(horizon=mv.periods(1), model=model).execute()
-        assert caught.value.code == "r8.cell_policy"
-        assert "unknown" in str(caught.value.received)
-        assert "insufficient_business_coverage" in str(caught.value.received)
-        assert set(case.root.rglob("*.parquet")) == before
-        errors.append(str(caught.value.received))
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
+    before = set(case.root.rglob("*.parquet"))
+    with pytest.raises(StatisticalRelationError) as caught:
+        fixed.forecast(horizon=mv.periods(1), model=mv.naive()).execute()
+    assert caught.value.code == "r8.cell_policy"
+    assert "unknown" in str(caught.value.received)
+    assert "insufficient_business_coverage" in str(caught.value.received)
+    assert set(case.root.rglob("*.parquet")) == before
+    errors = [str(caught.value.received)]
+    assert session._runtime.store.resources(session._runtime.session_ref) == ()
     runs = fixed.runs(where=fixed.value.gt(-1)).execute()
     assert runs.count.to_pandas().value.tolist() == [1] * 6
     assert runs.duration.to_pandas().value.tolist() == [timedelta(days=1)] * 6

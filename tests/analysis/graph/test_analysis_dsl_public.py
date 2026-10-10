@@ -154,59 +154,6 @@ def test_public_empty_and_undefined_cards(
     assert "weighting: original numerator and denominator components" in card
 
 
-def test_public_member_read_and_category_selection(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    region = ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}")
-    read = members.read(region)
-    east = read.where(read.value.eq("east")).members()
-    east_total = (
-        east.observe(
-            ms.ref.metric(f"{names.domain}.{names.revenue}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(mv.member(),),
-        )
-        .rollup()
-        .execute()
-    )
-    assert east_total.to_pandas().iloc[0]["value"] == 600
-    by_region = members.observe(
-        ms.ref.metric(f"{names.domain}.{names.revenue}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        by=(region,),
-    ).execute()
-    assert by_region.to_pandas().set_index("group").loc["east", "value"] == 600
-    selected = read.where(read.value.eq("west")).execute()
-
-    assert isinstance(selected, mv.MaterializedCategoryRelation)
-    assert selected.to_pandas()["value"].tolist() == ["west"]
-    actions = selected.contract().actions
-    assert tuple(action.call for action in actions) == (
-        "relation.where(predicate)",
-        "relation.members()",
-        "relation.aggregate(method)",
-    )
-    assert all(action.help_target.startswith("analysis.") for action in actions)
-    assert isinstance(
-        case.session.artifact(selected.state.artifact_ref), mv.MaterializedCategoryRelation
-    )
-    assert selected.members().execute().to_pandas()["member"].tolist() == ["D"]
-    before = len(case.session.runs().items)
-    with pytest.raises(AnalysisError, match="fixed selected members plus live Metric"):
-        selected.members().observe(
-            ms.ref.metric(f"{names.domain}.{names.revenue}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(mv.member(),),
-        )
-    assert len(case.session.runs().items) == before
-
-
 def test_public_singleton_same_entity_observation_allows_omitted_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

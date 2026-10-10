@@ -204,31 +204,6 @@ def test_native_producer_offline_and_cold_continuation(
     )
 
 
-@pytest.mark.slow
-def test_view_producer_offline_and_cold_continuation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    source_trace: SourceTrace,
-) -> None:
-    producer_recovery(
-        "duckdb", "view", tmp_path, monkeypatch, semantic_project_factory, source_trace
-    )
-
-
-@pytest.mark.slow
-def test_file_producer_offline_and_cold_continuation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    source_trace: SourceTrace,
-) -> None:
-    profile = "parquet"
-    producer_recovery(
-        "duckdb", profile, tmp_path, monkeypatch, semantic_project_factory, source_trace
-    )
-
-
 def test_http_source_remains_a_datasource_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

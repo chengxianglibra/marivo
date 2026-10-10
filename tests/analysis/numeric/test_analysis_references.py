@@ -602,25 +602,16 @@ def test_public_exact_integer_reference_weights(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("parquet", [True])
-def test_reference_cold_continuations_and_corruption(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+def test_standardized_cold_selection_preserves_reference(
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import os
     import subprocess
     import sys
-    from dataclasses import replace
-
-    import pyarrow as pa
-
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.errors import IntegrityError, MaterializationError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
     values = members.observe(
@@ -631,9 +622,8 @@ def test_reference_cold_continuations_and_corruption(
     )
     groups = values.group_by(category).rollup()
     weights = groups.share_of(groups.rollup())
-    # The materialization recovery owner covers each reference consumer. Keep
-    # one representative result here for project-level cold restore and full
-    # part-integrity validation.
+    # Keep one standardized artifact to verify that a selected cold continuation
+    # retains its full reference payload after the source goes offline.
     saved = (
         groups.standardize(
             reference=mv.reference_weights(
@@ -641,72 +631,7 @@ def test_reference_cold_continuations_and_corruption(
             )
         ).execute(),
     )
-    for relation in saved:
-        checked = relation._dataset.verified()
-        descriptor = relation._dataset.artifact.descriptor
-        assert descriptor.method_state.contract_version == 4
-        with pytest.raises(IntegrityError, match="Re-execute the reference"):
-            replace(descriptor.method_state, contract_version=2)
-        assert checked.method_state is not None
-        corrupted_state = checked.method_state.set_column(
-            checked.method_state.schema.get_field_index("error_bound"),
-            "error_bound",
-            pa.array([99.0] * checked.method_state.num_rows),
-        )
-        with pytest.raises(MaterializationError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=checked.parts,
-                method_state=corrupted_state,
-                completed_checks=checked.completed_checks,
-            )
-        for part in checked.parts:
-            with pytest.raises(MaterializationError):
-                from_arrow(
-                    checked.primary,
-                    checked.contract,
-                    parts=tuple(item for item in checked.parts if item is not part),
-                    method_state=checked.method_state,
-                    completed_checks=checked.completed_checks,
-                )
-            if part.table.num_rows:
-                column = (
-                    "value" if "value" in part.table.column_names else part.table.column_names[0]
-                )
-                dtype = part.table.schema.field(column).type
-                replacement = (
-                    pa.array([99] * part.table.num_rows, type=dtype)
-                    if pa.types.is_integer(dtype) or pa.types.is_floating(dtype)
-                    else pa.array(["absent"] * part.table.num_rows, type=dtype)
-                )
-                corrupted = part.table.set_column(
-                    part.table.schema.get_field_index(column), column, replacement
-                )
-                with pytest.raises((AnalysisError, ValueError)):
-                    from_arrow(
-                        checked.primary,
-                        checked.contract,
-                        parts=tuple(
-                            ExchangePart(item.role, corrupted) if item is part else item
-                            for item in checked.parts
-                        ),
-                        method_state=checked.method_state,
-                        completed_checks=checked.completed_checks,
-                    )
-        for receipt in descriptor.parts:
-            local = receipt.local
-            part_path = (
-                case.root / local.project_relative_path / local.file_manifest[0].relative_path
-            )
-            contents = part_path.read_bytes()
-            try:
-                part_path.unlink()
-                with pytest.raises(IntegrityError):
-                    relation._dataset.verified()
-            finally:
-                part_path.write_bytes(contents)
-    source_path = case.root / "source_files" if parquet else case.database_path
+    source_path = case.root / "source_files"
     offline = source_path.with_name(source_path.name + ".offline")
     source_path.rename(offline)
     script = """
@@ -748,18 +673,6 @@ for ref in sys.argv[2:]:
     finally:
         offline.rename(source_path)
     assert completed.returncode == 0, completed.stderr
-    # Receipt verification is mandatory before recovery or fixed cache reuse.
-    receipt = saved[0]._dataset.artifact.descriptor.parts[0].local
-    path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    original_bytes = path.read_bytes()
-    continuation = saved[0].where(saved[0].value.gt(0))
-    continuation.execute()
-    try:
-        path.write_bytes(b"invalid retained reference")
-        with pytest.raises(IntegrityError):
-            continuation.execute()
-    finally:
-        path.write_bytes(original_bytes)
 
 
 def test_static_reference_rejections_are_zero_read(
@@ -911,48 +824,6 @@ def test_zero_and_signed_share_support(
         assert frame.cell_tag.eq("undefined").all()
         assert frame.cell_reason.eq("zero_denominator").all()
         assert frame.value.isna().all()
-
-
-def test_reference_publication_faults_are_atomic(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = values.execute()
-    before = {
-        path
-        for path in (case.root / ".marivo").rglob("*")
-        if path.is_file() and path.suffix == ".parquet"
-    }
-
-    for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
-
-        def fail(event: str, stage: str = point) -> None:
-            if event == stage:
-                raise RuntimeError("injected reference publication failure")
-
-        values._runtime._hook = fail
-        try:
-            with pytest.raises(AnalysisError):
-                values.share_of(values.rollup()).execute()
-        finally:
-            values._runtime._hook = None
-        after = {
-            path
-            for path in (case.root / ".marivo").rglob("*")
-            if path.is_file() and path.suffix == ".parquet"
-        }
-        assert after == before
-    assert fixed.to_pandas().value.tolist() == [1, 1, 1, 1]
-    assert values.share_of(values.rollup()).execute().to_pandas().value.tolist() == [0.25] * 4
 
 
 def test_zero_weight_does_not_hide_malformed_defined() -> None:

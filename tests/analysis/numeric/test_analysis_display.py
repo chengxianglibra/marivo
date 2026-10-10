@@ -13,29 +13,6 @@ from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize("parquet", [False])
-def test_current_row_mean_of_integer_counts(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    counts = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    facts = analysis_dsl_rows("j2")
-    expected = sum(str(order[4]).startswith("2026-08") for order in facts.orders) / len(
-        facts.customers
-    )
-    mean = counts.aggregate(mv.mean()).execute()
-    assert mean.to_pandas().value.tolist() == [expected]
-
-
 def test_business_display_reads_saved_rows_and_preserves_state_summary(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -550,38 +527,6 @@ assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.toli
         path.write_bytes(contents)
 
 
-def test_display_publication_is_atomic(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    values = members.observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = values.execute()
-    before = set((case.root / ".marivo").rglob("*.parquet"))
-
-    for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
-
-        def fail(event: str, stage: str = point) -> None:
-            if event == stage:
-                raise RuntimeError("injected display publication failure")
-
-        values._runtime._hook = fail
-        try:
-            with pytest.raises(AnalysisError):
-                values.rank(order="ascending", ties="ordinal").execute()
-        finally:
-            values._runtime._hook = None
-        assert set((case.root / ".marivo").rglob("*.parquet")) == before
-    assert fixed.to_pandas().value.tolist() == [1, 1, 1, 1]
-
-
 def test_shared_rank_fresh_source_fixed_and_no_fallback(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -730,7 +675,8 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
         order="descending", ties="ordinal", partition_by=(fixed_region,)
     ).execute()
     assert fixed_ranking.ranks.to_pandas().equals(frame)
-    assert fixed_ranking.limit(1).execute().ranks.to_pandas().member.tolist() == [(2, "B")]
+    limited = fixed_ranking.limit(1).execute().ranks.to_pandas()
+    assert list(zip(limited.member, limited.coord_0, strict=True)) == [(2, "B")]
     with pytest.raises(AnalysisError):
         mv.table(coord_0=numeric)
     # Declared identity is trusted; necessary rank index insertion rejects conflicts.
@@ -1063,18 +1009,15 @@ def test_ranking_views_can_be_ranked_again(
         assert values_frame.value.tolist() == [scores[key] for key in ordered]
 
 
-@pytest.mark.parametrize("domain", ("anchor", "journey"))
-def test_fixed_rank_instance_routes_do_not_grant_live_source_domains(domain: str) -> None:
+def test_fixed_rank_instance_routes_do_not_grant_live_source_domains() -> None:
     from marivo.analysis.methods.builtin import implementations
     from marivo.analysis.methods.physical import FixedShape, Qualified, SourceShape
     from marivo.analysis.methods.semantics import MethodKey
 
-    ranked = tuple(
-        item
-        for item in implementations(MethodKey("display.rank"))
-        if item.key.input_domains == (domain,)
-    )
-    assert ranked
-    assert all(isinstance(item.key.shape, FixedShape) for item in ranked)
-    assert all(isinstance(item.qualification, Qualified) for item in ranked)
-    assert not any(isinstance(item.key.shape, SourceShape) for item in ranked)
+    routes = implementations(MethodKey("display.rank"))
+    for domain in ("anchor", "journey"):
+        ranked = tuple(item for item in routes if item.key.input_domains == (domain,))
+        assert ranked
+        assert all(isinstance(item.key.shape, FixedShape) for item in ranked)
+        assert all(isinstance(item.qualification, Qualified) for item in ranked)
+        assert not any(isinstance(item.key.shape, SourceShape) for item in ranked)

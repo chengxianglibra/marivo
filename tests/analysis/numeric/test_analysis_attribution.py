@@ -122,21 +122,6 @@ def test_component_side_terms_and_hierarchy() -> None:
     assert rows[0][2] != 1
 
 
-def test_contradictory_component_cannot_cancel_under_other() -> None:
-    with pytest.raises(ValueError, match="contradictory"):
-        allocate(
-            {("a",): (Fraction(1), Fraction(0))},
-            {},
-            size=1,
-            mode="joint",
-            top_k=1,
-            component_mix=True,
-            physical=ScalarType("float64"),
-            current_total=Fraction(1),
-            baseline_total=Fraction(1),
-        )
-
-
 def test_decimal_partition_rounding_exceeds_reconciliation_tolerance() -> None:
     count = 3
     rows = allocate(

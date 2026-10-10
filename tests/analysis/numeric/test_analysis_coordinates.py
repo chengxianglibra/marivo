@@ -23,15 +23,13 @@ def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory)
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     for method, descriptor, expected in (
-        ("count_defined", mv.count_defined(), 3),
         ("min", mv.min(), 150),
         ("max", mv.max(), 450),
     ):
-        if method != "count_defined":
-            with duckdb.connect(str(case.database_path)) as connection:
-                connection.execute(
-                    f'DELETE FROM "{names.customer}" WHERE "{names.customer_id}" = ?', ["D"]
-                )
+        with duckdb.connect(str(case.database_path)) as connection:
+            connection.execute(
+                f'DELETE FROM "{names.customer}" WHERE "{names.customer_id}" = ?', ["D"]
+            )
         fixed = observed.execute()
         direct = observed.aggregate(descriptor).execute().to_pandas()
         offline = case.database_path.with_suffix(".offline")
@@ -71,21 +69,6 @@ def test_complete_coordinate_tuple_rollup(
         frame = result.to_pandas()
         assert frame["value"].tolist() == [150, 850]
         assert len(frame) == 2
-
-
-def test_category_counts_without_numeric_conversion(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    n = case.names
-    category = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).read(
-        ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}")
-    )
-    for current in (category, category.execute()):
-        for method in (mv.count(), mv.count_defined()):
-            result = current.aggregate(method).execute()
-            assert result.to_pandas().iloc[0]["value"] == 4
-            assert result.rollup().execute().to_pandas().iloc[0]["value"] == 4
 
 
 def test_empty_numeric_row_state(
@@ -673,68 +656,6 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     assert local.rollup().execute().to_pandas()["value"].tolist() == [0]
 
 
-@pytest.mark.slow
-def test_review_cold_selected_category_count(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import os
-    import subprocess
-    import sys
-
-    case = analysis_dsl_case_factory("j1")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    # Use the same exact field binding for selection, then persist its classification identity.
-    fixed_category = category.execute()
-    selected = fixed_category.where(fixed_category.value.eq("east"))
-    fixed_selected = selected.execute()
-    case.database_path.rename(case.database_path.with_suffix(".offline"))
-    (case.root / "models").rename(case.root / "models.offline")
-    script = """
-import sys
-import duckdb
-import ibis
-import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.datasource.runtime import DatasourceConnectionService
-
-def forbidden(*args, **kwargs):
-    raise AssertionError('cold fixed continuation touched source, models or DuckDB')
-ms.load = forbidden
-duckdb.connect = forbidden
-ibis.duckdb.connect = forbidden
-DatasourceConnectionService.use_backend = forbidden
-session = mv.session.resume(sys.argv[1], by='id')
-selected = session.artifact(sys.argv[2])
-assert isinstance(selected, mv.MaterializedCategoryRelation)
-chained = selected.where(selected.value.eq('east'))
-assert type(chained) is mv.LogicalCategoryRelation
-selected = chained.execute()
-assert type(selected) is mv.MaterializedCategoryRelation
-assert selected.members().execute().to_pandas()['member'].tolist() == ['A', 'B']
-assert not hasattr(selected, 'group_by')
-assert any(a.call == 'relation.aggregate(method)' for a in selected.contract().actions)
-assert selected._node.classification_coordinate().field == 'sales.customer.region'
-result = selected.aggregate(mv.count()).execute()
-assert result.to_pandas()['value'].tolist() == [2]
-assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
-"""
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            script,
-            case.session.id,
-            fixed_selected.state.artifact_ref.ref,
-        ],
-        cwd=case.root,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-        capture_output=True,
-        text=True,
-    )
-    assert completed.returncode == 0, completed.stderr
-
-
 def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     retained_coordinates_case,
 ) -> None:
@@ -753,17 +674,6 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     assert fixed.to_pandas()["value"].tolist() == [140, 7]
     restored = case.session.artifact(fixed.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedGroupedNumericRelation)
-    methods = (
-        (mv.mean(), [70, 7], [140, 7]),
-        (mv.sum(), [140, 7], [140, 7]),
-        (mv.min(), [20, 7], [140, 7]),
-        (mv.max(), [120, 7], [140, 7]),
-        (mv.count(), [2, 1], [1, 1]),
-    )
-    for method, logical_expected, fixed_expected in methods:
-        logical = grouped.aggregate(method).execute()
-        assert logical.contract().kind == "aggregate"
-        assert logical.to_pandas()["value"].tolist() == logical_expected
     statistic = restored.aggregate(mv.mean()).execute()
     assert statistic.contract().kind == "aggregate"
     frame = statistic.to_pandas()

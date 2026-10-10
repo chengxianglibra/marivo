@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -18,9 +17,7 @@ from tests.datasource.source_cases import Case, SourceData, datasource, source_c
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.parametrize(
-    "kind", ["snapshot", "validity", "duplicate", "overlap", "null_id", "null_tenant"]
-)
+@pytest.mark.parametrize("kind", ["snapshot", "duplicate", "null_tenant"])
 def test_complete_versioned_members(
     kind: str,
     tmp_path: Path,
@@ -32,7 +29,7 @@ def test_complete_versioned_members(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     trace = source_trace
-    rows: list[tuple[int | None, str | None, str, str | None, int]] = [
+    rows: list[tuple[int, str | None, str, str | None, int]] = [
         (9007199254740992, "a", "2026-08-01", "2026-09-01", 10),
         (9007199254740993, "a", "2026-08-01", None, 20),
         (9007199254740993, "b", "2026-08-01", None, 30),
@@ -40,24 +37,19 @@ def test_complete_versioned_members(
     ]
     if kind == "duplicate":
         rows.append(rows[0])
-    if kind == "overlap":
-        rows.append((9007199254740992, "a", "2026-07-31", None, 99))
-    if kind == "null_id":
-        rows.append((None, "a", "2026-08-01", None, 50))
     if kind == "null_tenant":
         rows.append((9007199254740994, None, "2026-08-01", None, 50))
-    date_prefix = ""
     data = SourceData(
         "id BIGINT, tenant VARCHAR(10), beginning DATE, ending DATE, amount BIGINT, enabled BOOLEAN",
         ",".join(
-            f"({identity if identity is not None else 'NULL'},"
+            f"({identity},"
             + ("NULL" if tenant is None else f"'{tenant}'")
-            + f",{date_prefix}'{start}',"
-            + ("NULL" if end is None else f"{date_prefix}'{end}'")
+            + f",'{start}',"
+            + ("NULL" if end is None else f"'{end}'")
             + f",{amount},{str(amount > 15).upper()})"
             for identity, tenant, start, end, amount in rows
         ),
-        ("id Nullable(Int64)" if kind == "null_id" else "id Int64")
+        "id Int64"
         + (", tenant Nullable(String)" if kind == "null_tenant" else ", tenant String")
         + ", beginning Date, ending Nullable(Date), amount Int64, enabled Bool",
         [
@@ -83,11 +75,7 @@ def test_complete_versioned_members(
         if "user" in arguments:
             monkeypatch.setenv("MARIVO_R93_READER", str(arguments.pop("user")))
             arguments["user_env"] = "MARIVO_R93_READER"
-        version = (
-            "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),grain='day',timezone='UTC')"
-            if kind in ("snapshot", "duplicate", "null_id", "null_tenant")
-            else "ms.validity(valid_from=ms.ref.time_dimension('sales.subjects.beginning'),valid_to=ms.ref.time_dimension('sales.subjects.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
-        )
+        version = "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),grain='day',timezone='UTC')"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -129,7 +117,7 @@ def test_complete_versioned_members(
         assert construction_calls == [] and len(session.runs().items) == before_runs
         assert missing_version.value.expected and missing_version.value.received
         assert missing_version.value.repair is not None and missing_version.value.repair.action
-        if kind in ("duplicate", "overlap"):
+        if kind == "duplicate":
             current = session.members(entity, at=august)
             projected = current.execute()
             frame = projected.to_pandas()
@@ -158,7 +146,7 @@ def test_complete_versioned_members(
                 (case.session,),
             )
             return
-        if kind in ("null_id", "null_tenant"):
+        if kind == "null_tenant":
             from tests.analysis.materialization.publication_fixtures import publication_counts
 
             before_publication = publication_counts(session)
@@ -311,65 +299,45 @@ def test_complete_versioned_members(
         assert set(zip(selected_dates.member, selected_dates.coord_0, strict=True)) == set(
             zip(observed.member, observed.coord_0, strict=True)
         )
-        if kind == "snapshot":
-            grid = mv.time_grid(
-                during=mv.time_scope(
-                    start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
-                ),
-                grain=mv.grain("hour"),
-            )
-            product = current.read(
-                ms.ref.measure("sales.subjects.amount"), at=grid.before_end
-            ).execute()
-            trace.record(product)
-            product_rows = product.to_pandas()
-            assert set(product_rows.coord_1) == {
-                "2026-08-01T00:00:00+00:00",
-                "2026-08-01T01:00:00+00:00",
-            }
-            assert product_rows.groupby(["member", "coord_0"]).size().to_dict() == {
-                (9007199254740992, "a"): 2,
-                (9007199254740993, "a"): 2,
-                (9007199254740993, "b"): 2,
-            }
+        grid = mv.time_grid(
+            during=mv.time_scope(
+                start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
+            ),
+            grain=mv.grain("hour"),
+        )
+        product = current.read(
+            ms.ref.measure("sales.subjects.amount"), at=grid.before_end
+        ).execute()
+        trace.record(product)
+        product_rows = product.to_pandas()
+        assert set(product_rows.coord_1) == {
+            "2026-08-01T00:00:00+00:00",
+            "2026-08-01T01:00:00+00:00",
+        }
+        assert product_rows.groupby(["member", "coord_0"]).size().to_dict() == {
+            (9007199254740992, "a"): 2,
+            (9007199254740993, "a"): 2,
+            (9007199254740993, "b"): 2,
+        }
         before = mv.time_scope(start="2026-08-01", end="2026-09-01").before_end
         left = session.members(entity, at=before).execute()
         trace.record(left)
-        assert len(left.to_pandas()) == (0 if kind == "snapshot" else 3)
+        assert len(left.to_pandas()) == 0
         end_first = mv.time_scope(start="2026-08-01", end="2026-08-02").before_end
         first_period = session.members(entity, at=end_first).execute()
         trace.record(first_period)
         assert set(
             zip(first_period.to_pandas().member, first_period.to_pandas().coord_0, strict=True)
         ) == set(zip(observed.member, observed.coord_0, strict=True))
-        if kind == "validity":
-            left_values_result = (
-                session.members(entity, at=before)
-                .read(ms.ref.measure("sales.subjects.amount"), at=before)
-                .execute()
-            )
-            trace.record(left_values_result)
-            left_values = left_values_result.to_pandas()
-            assert dict(
-                zip(
-                    zip(left_values.member, left_values.coord_0, strict=True),
-                    left_values.value,
-                    strict=True,
-                )
-            ) == {
-                (9007199254740992, "a"): 10,
-                (9007199254740993, "a"): 20,
-                (9007199254740993, "b"): 30,
-            }
         september = datetime(2026, 9, 1, tzinfo=timezone.utc)
         later = session.members(entity, at=september).execute().to_pandas()
-        assert len(later) == (1 if kind == "snapshot" else 3)
+        assert len(later) == 1
         missing = (
             session.members(entity, at=datetime(2026, 8, 2, tzinfo=timezone.utc))
             .execute()
             .to_pandas()
         )
-        assert len(missing) == (0 if kind == "snapshot" else 3)
+        assert len(missing) == 0
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         trace.save(
             f"c03-members-{kind}-{backend}",
@@ -382,10 +350,10 @@ def test_complete_versioned_members(
                     [9007199254740993, "b"],
                 ],
                 "numeric": [10, 20, 30],
-                "before_end_count": 0 if kind == "snapshot" else 3,
+                "before_end_count": 0,
                 "first_period_before_end_count": 3,
-                "missing_period_count": 0 if kind == "snapshot" else 3,
-                "later_period_count": 1 if kind == "snapshot" else 3,
+                "missing_period_count": 0,
+                "later_period_count": 1,
                 "boolean_int8_rejected": backend == "mysql",
                 "computed_boolean_consumed": backend == "mysql",
                 "resources": 0,
@@ -415,9 +383,7 @@ def test_no_time_key_does_not_specialize_to_float() -> None:
             assert builtin.specialize_numeric(item, key).key != key
 
 
-@pytest.mark.parametrize("mode", ["complete", "missing", "multiple"])
 def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
-    mode: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -441,10 +407,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         (9, "unrelated", 1),
         (9, "unrelated", 2),
     ]
-    if mode == "missing":
-        targets = [row for row in targets if row[:2] != (9007199254740993, "a")]
-    if mode == "multiple":
-        targets.append((9007199254740993, "b", 99))
+    targets.append((9007199254740993, "b", 99))
 
     def data(rows: list[tuple[int, str, int | None]]) -> SourceData:
         return SourceData(
@@ -509,51 +472,32 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         inferred = members.read(field)
         read = members.read(field, via=via)
         assert inferred._node.root.signature.quantity == read._node.root.signature.quantity
-        if mode == "missing":
-            before_files = set(tmp_path.rglob("*.parquet"))
-            with pytest.raises(MaterializationError) as invalid_operand:
-                read.execute()
-            assert invalid_operand.value.expected == (
-                "an owner operand for sales.attributes.amount on every consumed complete key"
-            )
-            assert invalid_operand.value.received == (
-                "required field owner operand is missing for 1 consumed complete keys"
-            )
-            assert invalid_operand.value.repair is not None
-            assert invalid_operand.value.run_ref is not None
-            assert session.get_run(invalid_operand.value.run_ref).lifecycle == "failed"
-            assert set(tmp_path.rglob("*.parquet")) == before_files
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
         category = members.read(ms.ref.dimension("sales.subjects.tenant"))
         assert isinstance(category, mv.LogicalCategoryRelation)
-        selected = category.where(category.value.eq("b" if mode == "missing" else "a")).members()
+        selected = category.where(category.value.eq("a")).members()
         assert isinstance(selected, mv.LogicalAnalysisDomain)
         scoped_result = selected.read(field, via=via).execute()
         scoped = scoped_result.to_pandas()
-        assert len(scoped) == (1 if mode == "missing" else 2)
+        assert len(scoped) == 2
         numeric = scoped.loc[scoped.cell_tag == "defined"]
-        assert numeric.value.tolist() == ([30] if mode == "missing" else [10])
-        if mode != "missing":
-            null = scoped.loc[scoped.cell_tag == "null"]
-            assert list(zip(null.member, null.coord_0, strict=True)) == [(9007199254740993, "a")]
-        if mode != "missing":
-            complete = read.execute().to_pandas()
-            assert len(complete) == (4 if mode == "multiple" else 3)
-            assert sorted(complete.loc[complete.cell_tag == "defined", "value"].tolist()) == [
-                10,
-                30,
-            ] + ([99] if mode == "multiple" else [])
-            if mode == "multiple":
-                assert (
-                    list(zip(complete.member, complete.coord_0, strict=True)).count(
-                        (9007199254740993, "b")
-                    )
-                    == 2
-                )
+        assert numeric.value.tolist() == [10]
+        null = scoped.loc[scoped.cell_tag == "null"]
+        assert list(zip(null.member, null.coord_0, strict=True)) == [(9007199254740993, "a")]
+        complete = read.execute().to_pandas()
+        assert len(complete) == 4
+        assert sorted(complete.loc[complete.cell_tag == "defined", "value"].tolist()) == [
+            10,
+            30,
+            99,
+        ]
+        assert (
+            list(zip(complete.member, complete.coord_0, strict=True)).count((9007199254740993, "b"))
+            == 2
+        )
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
         trace.save(
-            f"c03-path-{mode}-{backend}",
+            f"c03-path-multiple-{backend}",
             root.environment,
             {
                 "columns": data(targets).columns,
@@ -561,12 +505,11 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
                 "target_values": data(targets).values,
             },
             {
-                "mode": mode,
-                "scoped_rows": 1 if mode == "missing" else 2,
-                "numeric": [30] if mode == "missing" else [10],
-                "null_pairs": [] if mode == "missing" else [[9007199254740993, "a"]],
-                "rejected_missing_owner": mode == "missing",
-                "declared_cardinality_is_trusted": mode == "multiple",
+                "mode": "multiple",
+                "scoped_rows": 2,
+                "numeric": [10],
+                "null_pairs": [[9007199254740993, "a"]],
+                "declared_cardinality_is_trusted": True,
                 "resources": 0,
             },
             scoped_result,

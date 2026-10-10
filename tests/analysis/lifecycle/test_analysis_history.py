@@ -57,9 +57,6 @@ def test_history_views_and_consumers_source_fixed(tmp_path):
     for name, operation in operations(logical).items():
         result = operation().execute()
         assert_view(result, name, expected_view)
-    for name, operation in operations(history).items():
-        result = operation().execute()
-        assert_view(result, name, expected_view)
 
     source_consumers = transport(logical)
     for name in ("state_members", "violation_members"):
@@ -166,6 +163,15 @@ def test_instance_selection_subject_image_and_duration_mean(tmp_path):
         )
         == 1
     )
+    for relation, expected_count in (
+        (violations.kind, 3),
+        (violations.occurred_at, 3),
+        (intervals.left_clipped, 4),
+        (intervals.observed_duration, 4),
+    ):
+        assert relation.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [
+            expected_count
+        ]
 
 
 def test_checkpoint_axes_prepared_on_complete_subject_domain(tmp_path):
@@ -339,12 +345,8 @@ def test_history_declared_grain_does_not_require_originating_source_audit(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.parametrize(
-    "fault",
-    ["missing_part", "version", "binding", "truncated_trace"],
-)
 def test_view_exchange_rejects_corruption(
-    history_view_exchange_templates: tuple[ExchangeResult, ExchangeResult], fault: str
+    history_view_exchange_templates: tuple[ExchangeResult, ExchangeResult],
 ) -> None:
     import pyarrow as pa
 
@@ -352,32 +354,33 @@ def test_view_exchange_rejects_corruption(
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
     _, fixed = history_view_exchange_templates
-    primary, contract, parts = fixed.primary, fixed.contract, list(fixed.parts)
-    index = next(i for i, p in enumerate(parts) if p.role == "history_view")
-    payload = json.loads(parts[index].table["history_view__retained"][0].as_py())
-    if fault == "missing_part":
-        parts.pop(index)
-    elif fault == "truncated_trace":
-        payload["histories"][0]["transitions"].pop()
-    with pytest.raises(AnalysisError):
-        if fault in ("version", "binding"):
-            signature = replace(
-                contract.signature,
-                parts=tuple(
-                    replace(p, version="v2")
-                    if fault == "version"
-                    else replace(p, binding=replace(p.binding, scope_id="foreign"))
-                    if isinstance(p, HistoryViewPart)
-                    else p
-                    for p in contract.signature.parts
-                ),
-            )
-            contract = replace(contract, signature=signature)
-        if fault == "truncated_trace":
-            parts[index] = ExchangePart(
-                "history_view", pa.table({"history_view__retained": [json.dumps(payload)]})
-            )
-        from_arrow(primary, contract, parts=tuple(parts), method_state=fixed.method_state)
+    for fault in ("missing_part", "version", "binding", "truncated_trace"):
+        primary, contract, parts = fixed.primary, fixed.contract, list(fixed.parts)
+        index = next(i for i, p in enumerate(parts) if p.role == "history_view")
+        payload = json.loads(parts[index].table["history_view__retained"][0].as_py())
+        if fault == "missing_part":
+            parts.pop(index)
+        elif fault == "truncated_trace":
+            payload["histories"][0]["transitions"].pop()
+        with pytest.raises(AnalysisError):
+            if fault in ("version", "binding"):
+                signature = replace(
+                    contract.signature,
+                    parts=tuple(
+                        replace(p, version="v2")
+                        if fault == "version"
+                        else replace(p, binding=replace(p.binding, scope_id="foreign"))
+                        if isinstance(p, HistoryViewPart)
+                        else p
+                        for p in contract.signature.parts
+                    ),
+                )
+                contract = replace(contract, signature=signature)
+            if fault == "truncated_trace":
+                parts[index] = ExchangePart(
+                    "history_view", pa.table({"history_view__retained": [json.dumps(payload)]})
+                )
+            from_arrow(primary, contract, parts=tuple(parts), method_state=fixed.method_state)
 
 
 def test_view_atomic_failure_keeps_prior_artifact(tmp_path):
@@ -517,46 +520,42 @@ def test_checkpoint_axes_use_each_historical_version_and_full_null_tuple(
     }
 
 
-def test_zero_duration_transitions_cannot_be_rebuilt_from_interval_rows(tmp_path):
-    values = [(0, "started", -1, 1), (0, "paid", 5, 2), (0, "finished", 5, 3)]
+def test_intervals_preserve_zero_duration_and_transition_multiplicity(tmp_path):
+    values = [
+        (0, "started", -1, 1),
+        (0, "paid", 5, 2),
+        (0, "finished", 5, 3),
+        (1, "started", -1, 1),
+        (1, "pulse", 5, 2),
+        (1, "finished", 10, 3),
+        (2, "started", -1, 1),
+        (2, "pulse", 5, 2),
+        (2, "pulse", 5, 3),
+        (2, "finished", 10, 4),
+    ]
     session, members, window, claims, rows = build_lifecycle_public(tmp_path, rows=values)
     history = replay(session, members, window, claims).execute()
     expected = views(rows)
-    for name in ("transitions", "intervals", "dwell"):
-        assert_view(getattr(history, name)().execute(), name, expected)
+    summary = history.transitions().execute()
+    instance = history.intervals().execute()
+    assert_view(summary, "transitions", expected)
+    assert_view(instance, "intervals", expected)
+    assert_view(history.dwell().execute(), "dwell", expected)
 
+    frame = instance.to_pandas()
+    projection = ["state", "start", "end", "observed_duration", "left_clipped", "status"]
+    first = frame.loc[frame["subject__key_0"] == 9007199254740994, projection].to_dict("records")
+    second = frame.loc[frame["subject__key_0"] == 9007199254740995, projection].to_dict("records")
+    assert first == second
 
-def test_same_positive_intervals_keep_distinct_transition_multiplicity(tmp_path):
-    intervals = []
-    counts = []
-    for pulses in (1, 2):
-        values = [
-            (0, "started", -1, 1),
-            *((0, "pulse", 5, sequence + 2) for sequence in range(pulses)),
-            (0, "finished", 10, pulses + 2),
-        ]
-        root = tmp_path / str(pulses)
-        root.mkdir()
-        session, members, window, claims, rows = build_lifecycle_public(root, rows=values)
-        history = replay(session, members, window, claims).execute()
-        expected = views(rows)
-        summary = history.transitions().execute()
-        instance = history.intervals().execute()
-        assert_view(summary, "transitions", expected)
-        assert_view(instance, "intervals", expected)
-        intervals.append(
-            instance.to_pandas()[
-                ["state", "start", "end", "observed_duration", "left_clipped", "status"]
-            ].to_dict("records")
-        )
-        frame = summary.to_pandas()
-        counts.append(
-            frame.loc[
-                (frame["from_state"] == "open") & (frame["to_state"] == "open"), "count"
-            ].item()
-        )
-    assert intervals[0] == intervals[1]
-    assert counts == [1, 2]
+    transition_rows = summary.to_pandas()
+    assert (
+        transition_rows.loc[
+            (transition_rows["from_state"] == "open") & (transition_rows["to_state"] == "open"),
+            "count",
+        ].item()
+        == 3
+    )
 
 
 def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_path):
@@ -591,31 +590,38 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
     assert mean.rollup().execute().to_pandas()["value"].tolist() == [timedelta(microseconds=2)]
 
 
-@pytest.mark.parametrize(("role", "fault"), [("primary", "missing"), ("history_view", "corrupt")])
-def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_path, role, fault):
+def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_path):
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     logical = replay(session, members, window, claims).execute().intervals()
     fixed = logical.execute()
     reference = artifact(fixed)
     descriptor = fixed._dataset.artifact.descriptor
-    receipt = (
-        descriptor.primary_receipt.local
-        if role == "primary"
-        else next(part.local for part in descriptor.parts if part.role == role)
+    receipts = (
+        ("primary", descriptor.primary_receipt.local, "missing"),
+        (
+            "history_view",
+            next(part.local for part in descriptor.parts if part.role == "history_view"),
+            "corrupt",
+        ),
     )
-    path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    if fault == "missing":
-        path.unlink()
-    else:
-        path.write_bytes(b"corrupt History view receipt")
-    runs = session.runs().items
-    with pytest.raises(AnalysisError):
-        session.artifact(reference)
-    with pytest.raises(AnalysisError):
-        _ = fixed.status
-    with pytest.raises(AnalysisError):
-        logical.execute()
-    assert session.runs().items == runs
+    for _, receipt, fault in receipts:
+        path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        original = path.read_bytes()
+        if fault == "missing":
+            path.unlink()
+        else:
+            path.write_bytes(b"corrupt History view receipt")
+        runs = session.runs().items
+        try:
+            with pytest.raises(AnalysisError):
+                session.artifact(reference)
+            with pytest.raises(AnalysisError):
+                _ = fixed.status
+            with pytest.raises(AnalysisError):
+                logical.execute()
+            assert session.runs().items == runs
+        finally:
+            path.write_bytes(original)
 
 
 @pytest.mark.parametrize(
@@ -659,15 +665,3 @@ def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_p
         assert next(p.table for p in verified.parts if p.role == "original_state").num_rows == 0
         assert next(p.table for p in verified.parts if p.role == "coverage").num_rows == 0
         assert result.rollup().execute().to_pandas()["value"].tolist() == [0]
-
-
-def test_source_history_owned_fields_use_registered_row_count(tmp_path):
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path)
-    history = replay(session, members, window, claims)
-    for relation, expected in (
-        (history.violations().kind, 3),
-        (history.violations().occurred_at, 3),
-        (history.intervals().left_clipped, 4),
-        (history.intervals().observed_duration, 4),
-    ):
-        assert relation.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [expected]

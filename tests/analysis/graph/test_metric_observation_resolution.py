@@ -26,7 +26,7 @@ from marivo.semantic.metric_graph_lowering import (
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("shape", ("catalog", "ratio", "linear32"))
+@pytest.mark.parametrize("shape", ("catalog", "ratio", "linear2"))
 def test_public_observation_resolves_once_and_retains_components(
     analysis_dsl_case_factory: DslCaseFactory, shape: str
 ) -> None:

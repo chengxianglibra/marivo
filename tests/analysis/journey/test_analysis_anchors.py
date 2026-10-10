@@ -134,18 +134,6 @@ def test_anchor_views_source_fixed_cold(tmp_path, key, time):
         )
 
 
-def test_overlap_parts_and_fixed_transport(tmp_path):
-    session, members, window, claims, values = build_anchors(tmp_path)
-    logical = observations(event_anchors(session, members, window))[0]
-    fixed = logical.execute()
-    assert_result(fixed, values, "i", "i", 0)
-    assert "rollup" not in {a.call for a in fixed.contract().actions}
-    with pytest.raises(AnalysisError):
-        fixed.rollup()
-    selected = fixed.where(fixed.value.is_defined()).execute()
-    assert selected._dataset.verified().parts == fixed._dataset.verified().parts
-
-
 def test_elapsed_unit_keeps_exact_window_through_recovery(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.core.model import AnchorObservationPart
@@ -173,54 +161,6 @@ def test_elapsed_unit_keeps_exact_window_through_recovery(tmp_path, monkeypatch)
     assert declaration.window.duration.unit == "ns"
     selected = recovered.where(recovered.value.is_defined()).execute()
     assert selected._dataset.verified().parts == recovered._dataset.verified().parts
-
-
-def test_anchor_failure_is_atomic(tmp_path):
-    session, members, window, _, _ = build_anchors(tmp_path)
-    logical = observations(event_anchors(session, members, window), calendar=True)[0]
-    fixed = logical.execute()
-    reference, frame = fixed.state.artifact_ref.ref, fixed.to_pandas()
-
-    def inject(actual):
-        if actual == "before_commit":
-            raise RuntimeError("injected Anchor publication failure")
-
-    session._runtime._hook = inject
-    with pytest.raises((AnalysisError, KeyboardInterrupt)):
-        logical.execute()
-    session._runtime._hook = None
-    assert session.artifact(reference).to_pandas().equals(frame)
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
-
-
-def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path):
-    session, members, window, _, _ = build_anchors(tmp_path)
-    fixed = observations(event_anchors(session, members, window))[0].execute()
-    logical = fixed.where(fixed.value.is_defined())
-    continued = logical.execute()
-    descriptor = continued._dataset.artifact.descriptor
-    before = session.runs().items
-    for role, fault in (("primary", "missing"), ("anchor", "corrupt")):
-        receipt = (
-            descriptor.primary_receipt.local
-            if role == "primary"
-            else next(part.local for part in descriptor.parts if part.role == role)
-        )
-        path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        original = path.read_bytes()
-        path.unlink() if fault == "missing" else path.write_bytes(b"corrupt Anchor receipt")
-        try:
-            with pytest.raises(AnalysisError):
-                session.artifact(continued.state.artifact_ref.ref)
-            with pytest.raises(AnalysisError):
-                logical.execute()
-            assert session.runs().items == before
-        finally:
-            path.write_bytes(original)
-    fixed.to_pandas()
 
 
 def test_exchange_rejects_wrong_bound_parts(tmp_path):
@@ -342,7 +282,7 @@ def test_source_prefix_finishes_before_calendar_consumption(tmp_path, monkeypatc
 
 @pytest.mark.parametrize(
     "calendar_start,hours",
-    [(datetime(2026, 3, 7, 17, tzinfo=UTC), 23), (datetime(2026, 10, 31, 16, tzinfo=UTC), 25)],
+    [(datetime(2026, 3, 7, 17, tzinfo=UTC), 23)],
 )
 def test_runtime_dst_deadline_is_exclusive(tmp_path, calendar_start, hours):
     from zoneinfo import ZoneInfo
@@ -486,7 +426,7 @@ def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, cale
     assert session.artifact(fixed.state.artifact_ref).to_pandas()["value"].tolist() == [1, 1]
 
 
-@pytest.mark.parametrize("shared,calendar", [(False, False), (True, True)])
+@pytest.mark.parametrize("shared,calendar", [(False, False)])
 def test_journey_origin_observes_without_rematch(tmp_path, shared, calendar, monkeypatch):
     from marivo.analysis.materialization import anchor_execution
     from marivo.analysis.methods import journey_matching

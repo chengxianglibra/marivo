@@ -116,8 +116,11 @@ def test_history_replay_source_fixed_profiles_and_representative_cold(tmp_path, 
     assert json.loads(completed.stdout.splitlines()[-1])["accepted"]
 
 
-def test_missing_origin_does_not_seed_observed_inception(tmp_path):
-    session, members, window, _, _ = build_lifecycle_public(tmp_path)
+def test_missing_origin_and_complete_input_without_inception(tmp_path):
+    from marivo.analysis.errors import AnalysisError
+
+    values = [(0, "paid", 1, 1)]
+    session, members, window, claims, _ = build_lifecycle_public(tmp_path, rows=values)
     output = records(replay(session, members, window, ()).execute())
     assert all(
         row["inception"] is None
@@ -127,6 +130,8 @@ def test_missing_origin_does_not_seed_observed_inception(tmp_path):
     assert {entry["disposition"] for row in output for entry in row["evaluations"]} == {
         "unknown_origin"
     }
+    with pytest.raises(AnalysisError, match="inception"):
+        replay(session, members, window, claims).execute()
 
 
 def test_followup_gap_keeps_known_prefix_without_inventing_transition(tmp_path):
@@ -142,12 +147,18 @@ def test_followup_gap_keeps_known_prefix_without_inventing_transition(tmp_path):
     assert len(output[0]["transitions"]) == 1
 
 
-def test_proved_terminal_group_survives_incomplete_followup(tmp_path):
+def test_proved_terminal_groups_survive_incomplete_followup(tmp_path):
+    from marivo.analysis.errors import AnalysisError
+
     values = [
         (0, "started", -10, 1),
         (0, "finished", 5, 2),
         (0, "paid", 15, 3),
         (0, "pulse", 15, 4),
+        (1, "started", -10, 1),
+        (1, "finished", -5, 2),
+        (1, "paid", 5, 3),
+        (1, "pulse", 5, 4),
     ]
     session, members, window, claims, _ = build_lifecycle_public(
         tmp_path, rows=values, ordered=False
@@ -158,47 +169,31 @@ def test_proved_terminal_group_survives_incomplete_followup(tmp_path):
         window,
         (replace(claims[0], complete_through=START + timedelta(seconds=10)),),
     ).execute()
-    row = records(fixed)[0]
-    assert row["classification"] == "coverage_censored"
-    assert len(row["violations"]) == 2
+    rows_by_subject = {tuple(row["subject"]): row for row in records(fixed)}
+    first = rows_by_subject[(9007199254740993,)]
+    tied = rows_by_subject[(9007199254740994,)]
+    assert first["classification"] == "coverage_censored"
+    assert len(first["violations"]) == 2
     assert all(
         entry["terminal_set"] and entry["before"] == entry["after"] == "done"
-        for entry in row["violations"]
+        for entry in first["violations"]
     )
+    assert len(tied["violations"]) == 2
+    assert all(entry["terminal_set"] for entry in tied["violations"])
     assert records(session.artifact(fixed.state.artifact_ref)) == records(fixed)
+    with pytest.raises(AnalysisError, match="business_order"):
+        replay(session, members, window, ()).execute()
 
 
-def test_complete_trigger_without_inception_fails(tmp_path):
+def test_unproved_tie_requires_business_order(tmp_path):
     from marivo.analysis.errors import AnalysisError
 
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path, rows=[(0, "paid", 1, 1)])
-    with pytest.raises(AnalysisError, match="inception"):
-        replay(session, members, window, claims).execute()
-
-
-@pytest.mark.parametrize("terminal", [False, True])
-def test_ties_only_after_proved_terminal(tmp_path, terminal):
-    from marivo.analysis.errors import AnalysisError
-
-    values = (
-        [(0, "started", -10, 1), (0, "finished", -5, 2)] if terminal else [(0, "started", -10, 1)]
-    )
-    values += [(0, "paid", 10, 3), (0, "pulse", 10, 4)]
+    values = [(0, "started", -10, 1), (0, "paid", 10, 3), (0, "pulse", 10, 4)]
     session, members, window, claims, _ = build_lifecycle_public(
         tmp_path, rows=values, ordered=False
     )
-    if not terminal:
-        with pytest.raises(AnalysisError, match="business_order"):
-            replay(session, members, window, claims).execute()
-    else:
-        item = records(replay(session, members, window, claims).execute())[0]
-        assert {entry["occurrence"]["event"] for entry in item["violations"]} == {
-            "commerce.paid",
-            "commerce.pulse",
-        }
-        assert all(entry["terminal_set"] for entry in item["violations"])
-        with pytest.raises(AnalysisError, match="business_order"):
-            replay(session, members, window, ()).execute()
+    with pytest.raises(AnalysisError, match="business_order"):
+        replay(session, members, window, claims).execute()
 
 
 def test_frozen_public_signature_and_disclosure():
@@ -267,11 +262,10 @@ def test_construction_rejects_authority_before_rows_or_run(tmp_path, monkeypatch
     assert session.runs().items == foreign.runs().items == ()
 
 
-@pytest.mark.parametrize("seed", [7])
-def test_scalar_oracle_varied_occurrence_order(tmp_path, seed):
+def test_scalar_oracle_varied_occurrence_order(tmp_path):
     import random
 
-    randomizer = random.Random(seed)
+    randomizer = random.Random(7)
     values = [(0, "started", -30, 1), (1, "started", -30, 1)]
     for subject in (0, 1):
         for sequence in range(2, 20):
@@ -323,12 +317,8 @@ def test_cycle_same_time_trace_requires_business_order(tmp_path, ordered):
         assert records(session.artifact(fixed.state.artifact_ref)) == records(fixed)
 
 
-@pytest.mark.parametrize(
-    "fault",
-    ["trace", "missing_part", "version", "input_binding"],
-)
 def test_closed_history_exchange_rejects_semantic_corruption(
-    history_exchange_template: ExchangeResult, fault: str
+    history_exchange_template: ExchangeResult,
 ) -> None:
     import pyarrow as pa
 
@@ -336,49 +326,60 @@ def test_closed_history_exchange_rejects_semantic_corruption(
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
     fixed = history_exchange_template
-    primary, contract, parts = fixed.primary, fixed.contract, fixed.parts
-    rows = parts[0].table.to_pylist()
-    item = json.loads(rows[0]["history__record"])
-    if fault == "trace":
-        item["evaluations"][2]["after"] = "done"
-        rows[0]["history__record"] = json.dumps(item)
-        parts = (ExchangePart("history", pa.Table.from_pylist(rows, schema=parts[0].table.schema)),)
-    elif fault == "missing_part":
-        parts = ()
-    elif fault == "input_binding":
-        metadata = dict(primary.schema.metadata)
-        metadata[b"r7.capture_authority"] = b"[]"
-        primary = primary.replace_schema_metadata(metadata)
-        contract = replace(contract, schema=primary.schema)
-    with pytest.raises(AnalysisError):
-        if fault == "version":
-            contract = replace(
-                contract,
-                signature=replace(
-                    contract.signature, parts=(replace(contract.signature.parts[0], version="v2"),)
-                ),
+    for fault in ("trace", "missing_part", "version", "input_binding"):
+        primary, contract, parts = fixed.primary, fixed.contract, fixed.parts
+        rows = parts[0].table.to_pylist()
+        item = json.loads(rows[0]["history__record"])
+        if fault == "trace":
+            item["evaluations"][2]["after"] = "done"
+            rows[0]["history__record"] = json.dumps(item)
+            parts = (
+                ExchangePart("history", pa.Table.from_pylist(rows, schema=parts[0].table.schema)),
             )
-        from_arrow(primary, contract, parts=parts, method_state=fixed.method_state)
+        elif fault == "missing_part":
+            parts = ()
+        elif fault == "input_binding":
+            metadata = dict(primary.schema.metadata)
+            metadata[b"r7.capture_authority"] = b"[]"
+            primary = primary.replace_schema_metadata(metadata)
+            contract = replace(contract, schema=primary.schema)
+        with pytest.raises(AnalysisError):
+            if fault == "version":
+                contract = replace(
+                    contract,
+                    signature=replace(
+                        contract.signature,
+                        parts=(replace(contract.signature.parts[0], version="v2"),),
+                    ),
+                )
+            from_arrow(primary, contract, parts=parts, method_state=fixed.method_state)
 
 
-@pytest.mark.parametrize("role,fault", [("primary", "missing"), ("history", "corrupt")])
-def test_receipt_recovery_rejects_before_new_run(tmp_path, role, fault):
+def test_receipt_recovery_rejects_before_new_run(tmp_path):
     from marivo.analysis.errors import AnalysisError
 
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
     fixed = replay(session, members, window, claims).execute()
     reference = fixed.state.artifact_ref
     descriptor = fixed._dataset.artifact.descriptor
-    receipt = descriptor.primary_receipt.local if role == "primary" else descriptor.parts[0].local
-    path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    if fault == "missing":
-        path.unlink()
-    else:
-        path.write_bytes(b"corrupt canonical History")
-    before = session.runs().items
-    with pytest.raises(AnalysisError):
-        session.artifact(reference)
-    assert session.runs().items == before
+    receipts = (
+        (descriptor.primary_receipt.local, "missing"),
+        (descriptor.parts[0].local, "corrupt"),
+    )
+    for receipt, fault in receipts:
+        path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        original = path.read_bytes()
+        if fault == "missing":
+            path.unlink()
+        else:
+            path.write_bytes(b"corrupt canonical History")
+        before = session.runs().items
+        try:
+            with pytest.raises(AnalysisError):
+                session.artifact(reference)
+            assert session.runs().items == before
+        finally:
+            path.write_bytes(original)
 
 
 def test_publication_failure_preserves_prior_history(tmp_path):

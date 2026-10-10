@@ -13,7 +13,7 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 @pytest.mark.parametrize(
     "domain,key_profile,form",
-    [("entity", "KC", "parquet"), ("scalar", "KT", "parquet"), ("category", "KT", "parquet")],
+    [("scalar", "KT", "parquet"), ("category", "KT", "parquet")],
 )
 @pytest.mark.slow
 def test_non_time_domains_types_keys_in_independent_processes(

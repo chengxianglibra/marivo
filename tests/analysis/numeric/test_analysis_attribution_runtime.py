@@ -68,7 +68,6 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         ("float64", False),
         ("decimal", False),
         ("duration", True),
-        *(("duration_" + unit, True) for unit in ("s", "ms", "us")),
     ],
 )
 def test_numeric_source_fixed_and_axis_expansion(
@@ -132,14 +131,12 @@ def test_numeric_source_fixed_and_axis_expansion(
             )
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
-    all_methods = (
-        ("sum", "linear")
-        if family.startswith("duration")
-        else ("sum", "count", "linear", "mean", "weighted", "ratio")
-    )
     is_primary = family == "int64" and not parquet
     recovery_method = "sum" if family == "int64" or family.startswith("duration") else "mean"
-    methods = all_methods if is_primary else (recovery_method,)
+    # The broad int64 source pass keeps only its distinct count/linear cases and
+    # the sum carrier used for fixed/cold recovery. Mean, weighted, and ratio
+    # source behavior has dedicated consumer/native coverage.
+    methods = ("sum", "count", "linear") if is_primary else (recovery_method,)
     originals: dict[str, Json] = {}
     original_parts: dict[str, Json] = {}
     members = case.session.members(ms.ref.entity("sales.customer"))

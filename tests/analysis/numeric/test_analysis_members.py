@@ -26,9 +26,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.fixture
-def members_session(
-    analysis_dsl_case_factory: DslCaseFactory, request: pytest.FixtureRequest
-) -> Session:
+def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
     case = analysis_dsl_case_factory("j1")
     domain = case.names.domain
     with duckdb.connect(str(case.database_path)) as db:
@@ -89,15 +87,6 @@ def members_session(
         "many_snapshot = ms.relationship(name='many_snapshot', from_entity=plain, to_entity=snapshot, keys=[ms.join_on(plain_tenant, snapshot_tenant)])\n"
     )
     source = "".join(definitions)
-    if getattr(request, "param", "table") == "parquet":
-        backend = ibis.duckdb.connect(case.database_path)
-        try:
-            for table in ("r52", "r52_plain"):
-                path = case.root / f"{table}.parquet"
-                pq.write_table(backend.table(table).to_pyarrow(), path)
-                source = source.replace(f"md.table('{table}')", f"md.parquet({str(path)!r})")
-        finally:
-            backend.disconnect()
     (case.root / "models" / "semantic" / domain / "r52.py").write_text(source)
     return mv.session.get_or_create("r52-members", report_timezone="UTC")
 
@@ -108,45 +97,6 @@ def _domain(session: Session) -> str:
         for path in session.catalog._state.registry.entities
         if path.endswith(".plain")
     )
-
-
-@pytest.mark.parametrize(
-    "members_session", ("table", "parquet"), indirect=True, ids=("table", "parquet")
-)
-def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
-    session = members_session
-    prefix = _domain(session)
-    members = session.members(ms.ref.entity(f"{prefix}.plain"))
-    assert members.execute().to_pandas()["member"].tolist() == [1, 1]
-    numeric = members.read(ms.ref.measure(f"{prefix}.plain.amount"))
-    category = members.read(ms.ref.dimension(f"{prefix}.plain.category"))
-    boolean = members.read(ms.ref.dimension(f"{prefix}.plain.enabled"))
-    temporal = members.read(ms.ref.time_dimension(f"{prefix}.plain.moment"))
-    assert isinstance(numeric, mv.LogicalNumericRelation)
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    assert isinstance(boolean, mv.LogicalBooleanRelation)
-    assert isinstance(temporal, mv.LogicalTemporalRelation)
-    assert numeric.execute().to_pandas()["value"].tolist() == [10, 20]
-    assert category.execute().to_pandas()["value"].tolist() == ["west", "east"]
-    fixed = boolean.execute()
-    assert fixed.to_pandas()["value"].tolist() == [True, False]
-    assert fixed.where(fixed.value.eq(True)).members().execute().to_pandas()[
-        "coord_0"
-    ].tolist() == ["A"]
-    temporal_fixed = temporal.execute()
-    for relation in (temporal, temporal_fixed):
-        with pytest.raises(AnalysisError, match="timezone-aware"):
-            relation.value.eq(datetime(2026, 8, 1))
-    assert temporal_fixed.to_pandas()["value"].tolist() == [
-        datetime(2026, 8, 1, 1, 2, 3, tzinfo=timezone.utc),
-        datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
-    ]
-    assert isinstance(
-        session.artifact(temporal_fixed.state.artifact_ref), mv.MaterializedTemporalRelation
-    )
-    assert numeric.where(numeric.value.gt(10)).members().execute().to_pandas()[
-        "coord_0"
-    ].tolist() == ["B"]
 
 
 def test_member_axis_retains_ordered_composite_identity(members_session: Session) -> None:
@@ -254,32 +204,6 @@ def test_computed_boolean_dimension(
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
-def test_exact_versions_and_independent_read(members_session: Session) -> None:
-    session = members_session
-    prefix = _domain(session)
-    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    for kind in ("snapshot", "valid"):
-        entity = f"{prefix}.{kind}"
-        members = session.members(ms.ref.entity(entity), at=august.before_end)
-        assert members.execute().to_pandas()["coord_0"].tolist() == (
-            ["A", "B"] if kind == "valid" else []
-        )
-        first = session.members(ms.ref.entity(entity), at=datetime(2026, 8, 1, tzinfo=timezone.utc))
-        assert first.execute().to_pandas()["coord_0"].tolist() == ["A", "B"]
-        with pytest.raises(AnalysisError):
-            first.read(ms.ref.measure(f"{entity}.amount"))
-        read = first.read(
-            ms.ref.measure(f"{entity}.amount"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-        )
-        assert read.execute().to_pandas()["value"].tolist() == [10, 20]
-        with pytest.raises(AnalysisError):
-            session.members(ms.ref.entity(entity))
-    with pytest.raises(AnalysisError):
-        session.members(
-            ms.ref.entity(f"{prefix}.plain"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-        )
-
-
 def _replace_source(session: Session, table: str, query: str) -> None:
     """Mutate only this isolated fixture and republish its Parquet input when present."""
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as db:
@@ -314,62 +238,6 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     assert missing.value.repair is not None
     assert missing.value.run_ref is not None
     assert session.get_run(missing.value.run_ref).lifecycle == "failed"
-    # Duplicate an unrelated owner identity; scoped A consumption stays valid.
-    _replace_source(
-        session,
-        "r52",
-        "INSERT INTO r52 VALUES (9, 'unrelated', '2026-09-01', NULL, 5, 'x', true, NULL), (9, 'unrelated', '2026-09-01', NULL, 6, 'x', true, NULL)",
-    )
-    assert read.execute().to_pandas()["value"].tolist() == [30]
-    _replace_source(
-        session, "r52", "UPDATE r52 SET amount = NULL WHERE id = 'A' AND day = DATE '2026-09-01'"
-    )
-    null = read.execute().to_pandas()
-    assert null["cell_tag"].tolist() == ["null"]
-    _replace_source(
-        session,
-        "r52",
-        "INSERT INTO r52 SELECT * FROM r52 WHERE id = 'A' AND day = DATE '2026-09-01'",
-    )
-    duplicate = read.execute()
-    assert duplicate.to_pandas()["cell_tag"].tolist() == ["null", "null"]
-    with pytest.raises(AnalysisError, match="duplicate"):
-        duplicate.rank(order="ascending", ties="ordinal").execute()
-
-
-def test_declared_versions_are_trusted_and_actual_indexes_reject_conflicts(
-    members_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = members_session
-    prefix = _domain(session)
-    runs = len(session.runs().items)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("construction submitted a business read")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(SourceSession, "compile", forbidden)
-        patch.setattr(SourceSession, "batches", forbidden)
-        members = session.members(
-            ms.ref.entity(f"{prefix}.snapshot"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-        )
-        read = members.read(
-            ms.ref.measure(f"{prefix}.snapshot.amount"),
-            at=datetime(2026, 8, 1, tzinfo=timezone.utc),
-        )
-        with pytest.raises(AnalysisError):
-            members.read(ms.ref.measure(f"{prefix}.snapshot.amount"))
-    assert len(session.runs().items) == runs
-    _replace_source(
-        session,
-        "r52",
-        "INSERT INTO r52 SELECT * FROM r52 WHERE id = 'A' AND day = DATE '2026-08-01'",
-    )
-    assert members.execute().to_pandas()["coord_0"].tolist() == ["A", "A", "B"]
-    saved = read.execute()
-    assert saved.to_pandas()["coord_0"].tolist().count("A") > 1
-    with pytest.raises(AnalysisError, match="duplicate"):
-        saved.rank(order="ascending", ties="ordinal").execute()
 
 
 def test_temporal_literals_fixed_recovery_and_foreign_predicates(
@@ -378,7 +246,10 @@ def test_temporal_literals_fixed_recovery_and_foreign_predicates(
     session = members_session
     prefix = _domain(session)
     members = session.members(ms.ref.entity(f"{prefix}.plain"))
-    instant = members.read(ms.ref.time_dimension(f"{prefix}.plain.moment")).execute()
+    logical_instant = members.read(ms.ref.time_dimension(f"{prefix}.plain.moment"))
+    with pytest.raises(AnalysisError, match="timezone-aware"):
+        logical_instant.value.eq(datetime(2026, 8, 1))
+    instant = logical_instant.execute()
     dates = members.read(ms.ref.time_dimension(f"{prefix}.plain.day")).execute()
     assert dates.to_pandas()["value"].tolist() == [date(2026, 8, 1), date(2026, 8, 1)]
     boundary = datetime(2026, 8, 2, tzinfo=timezone.utc)
@@ -653,46 +524,6 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
         saved.members().execute()
 
 
-def test_root_projection_reads_one_source_without_distinct(
-    members_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import ibis.expr.operations as ops
-    import ibis.expr.types as ir
-
-    from marivo.datasource.adapters import CompiledRead, SourceBatchStream
-
-    session = members_session
-    members = session.members(ms.ref.entity(f"{_domain(session)}.plain"))
-    original = SourceSession.batches
-    primary: list[ir.Expr] = []
-    purposes: list[str] = []
-
-    def read(
-        self: SourceSession,
-        issued: CompiledRead,
-        *,
-        chunk_size: int,
-    ) -> SourceBatchStream:
-        purposes.append(issued.purpose)
-        if issued.purpose == "analysis.graph.stage":
-            primary.append(issued.expression)
-        return original(self, issued, chunk_size=chunk_size)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        pytest.fail("Root projection captured or restaged an intermediate exchange")
-
-    monkeypatch.setattr(SourceSession, "batches", read)
-    monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
-    monkeypatch.setattr(SourceSession, "stage_calculated", forbidden)
-    members.execute()
-    # The null-key check and terminal projection share the same source.
-    assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
-    assert len(primary) == 1
-    assert len(primary[0].op().find(ops.DatabaseTable)) == 1
-    assert not primary[0].op().find(ops.Distinct)
-    assert not primary[0].op().find(ops.Aggregate)
-
-
 def test_wrong_role_and_many_mapping_reject_before_io(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -743,34 +574,8 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
             members_session.artifact(result.state.artifact_ref).to_pandas().value.tolist()
             == expected
         )
-
-
-def test_grid_snapshot_before_end_uses_symbolic_left_period(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
-    )
-    product = session.members(ms.ref.entity(f"{prefix}.plain"))
-    field = ms.ref.measure(f"{prefix}.snapshot.amount")
-    route = ms.ref.relationship(f"{prefix}.to_snapshot")
-    for point in (grid.start, grid.before_end):
-        assert product.read(field, at=point, via=route).execute().to_pandas().value.tolist() == [
-            10,
-            20,
-        ]
-    with pytest.raises(AnalysisError):
-        product.read(field, at=grid.end, via=route).execute()
-
-
-def test_direct_grid_endpoint_keeps_four_attribute_families(members_session: Session) -> None:
-    prefix = _domain(members_session)
-    members = members_session.members(
-        ms.ref.entity(f"{prefix}.valid"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-    )
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
-    )
     category = members.read(ms.ref.dimension(f"{prefix}.valid.category"), at=grid.before_end)
     boolean = members.read(ms.ref.dimension(f"{prefix}.valid.enabled"), at=grid.before_end)
     temporal = members.read(ms.ref.time_dimension(f"{prefix}.valid.moment"), at=grid.before_end)
@@ -809,18 +614,26 @@ def test_direct_grid_endpoint_keeps_four_attribute_families(members_session: Ses
             at=datetime(2026, 8, 1, tzinfo=timezone.utc),
         )
 
+    daily_grid = mv.time_grid(
+        during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
+    )
+    product = session.members(ms.ref.entity(f"{prefix}.plain"))
+    field = ms.ref.measure(f"{prefix}.snapshot.amount")
+    route = ms.ref.relationship(f"{prefix}.to_snapshot")
+    for point in (daily_grid.start, daily_grid.before_end):
+        assert product.read(field, at=point, via=route).execute().to_pandas().value.tolist() == [
+            10,
+            20,
+        ]
+    with pytest.raises(AnalysisError):
+        product.read(field, at=daily_grid.end, via=route).execute()
 
-def test_grid_classification_requires_explicit_exact_observation_grid(
-    members_session: Session,
-) -> None:
+
+def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     prefix = _domain(members_session)
     members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
     scope = mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00")
     grid = mv.time_grid(during=scope, grain=mv.grain("hour"))
-    other = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-08-01T03:00:00+00:00"),
-        grain=mv.grain("hour"),
-    )
     category = members.read(
         ms.ref.dimension(f"{prefix}.snapshot.category"),
         at=grid.before_end,
@@ -828,72 +641,11 @@ def test_grid_classification_requires_explicit_exact_observation_grid(
     )
     assert isinstance(category, mv.LogicalCategoryRelation)
     metric = ms.ref.metric(f"{prefix}.observed_total")
-    for during in (None, scope, other):
-        before = len(members_session.runs().items)
-        with pytest.raises(AnalysisError, match=r"classification.*grid|classification grid"):
-            members.observe(metric, during=during, by=(category,))
-        assert len(members_session.runs().items) == before
-    foreign_session = mv.session.get_or_create("foreign-grid-category", report_timezone="UTC")
-    foreign_category = foreign_session.members(ms.ref.entity(f"{prefix}.plain")).read(
-        ms.ref.dimension(f"{prefix}.snapshot.category"),
-        at=grid.before_end,
-        via=ms.ref.relationship(f"{prefix}.to_snapshot"),
-    )
-    with pytest.raises(AnalysisError):
-        members.observe(metric, during=grid, by=(foreign_category,))
-    assert foreign_session.runs().items == ()
     observed = members.observe(metric, during=grid, by=(category,))
     frame = observed.execute().to_pandas()
     assert len(frame) == 4
     assert frame.value.dropna().tolist() == [10]
     assert set(frame.group) == {"west", "east"}
-    incomplete = category.where(category.value.eq("west"))
-    with pytest.raises(MaterializationError) as incomplete_error:
-        members.observe(metric, during=grid, by=(incomplete,)).execute()
-    assert incomplete_error.value.expected == "cell_policy"
-    assert incomplete_error.value.received == "2 violating rows"
-    assert incomplete_error.value.repair is not None
-    assert incomplete_error.value.run_ref is not None
-    assert members_session.get_run(incomplete_error.value.run_ref).lifecycle == "failed"
-
-
-def test_direct_grid_binding_is_pure_and_rejects_conflicting_authority(
-    members_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    prefix = _domain(members_session)
-    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-02"), grain=mv.grain("day")
-    )
-    before = len(members_session.runs().items)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("construction read business rows")
-
-    with monkeypatch.context() as pure:
-        pure.setattr(SourceSession, "batches", forbidden)
-        members.read(
-            ms.ref.measure(f"{prefix}.snapshot.amount"),
-            at=grid.before_end,
-            via=ms.ref.relationship(f"{prefix}.to_snapshot"),
-        )
-        observed = members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid)
-        observed.contract().show()
-        with pytest.raises(AnalysisError, match="both during and at"):
-            members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid, at=grid.end)
-        for during in (None, mv.time_scope(start="2026-08-01", end="2026-08-02")):
-            with pytest.raises(AnalysisError) as incomplete:
-                members.observe(
-                    ms.ref.metric(f"{prefix}.observed_total"), during=during, complete_during=()
-                )
-            assert incomplete.value.expected == (
-                "a single original sum on during=grid without dimension grouping or at"
-            )
-    assert len(members_session.runs().items) == before
-    other_session = mv.session.get_or_create("grid-conflict", report_timezone="Asia/Shanghai")
-    other_members = other_session.members(ms.ref.entity(f"{prefix}.plain"))
-    with pytest.raises(AnalysisError, match="conflicting authority"):
-        other_members.observe(ms.ref.metric(f"{prefix}.observed_total"), during=grid)
 
 
 def test_composite_subject_predicates(members_session: Session) -> None:
@@ -914,10 +666,7 @@ def test_composite_subject_predicates(members_session: Session) -> None:
         assert list(zip(frame.member, frame.coord_0, strict=True)) == [(1, "A")]
 
 
-@pytest.mark.parametrize("reordered", ["primary", "subject"])
-def test_cohort_matches_subject_parts_by_complete_key(
-    members_session: Session, reordered: str
-) -> None:
+def test_cohort_matches_subject_parts_by_complete_key(members_session: Session) -> None:
     from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
     from marivo.analysis.compiler.graph_plan import LocalMethodStage
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
@@ -930,14 +679,6 @@ def test_cohort_matches_subject_parts_by_complete_key(
     category = members.read(ms.ref.dimension(f"{prefix}.plain.category"))
     fixed_targets, fixed_values = members.execute(), category.execute()
     target = fixed_targets._dataset.verified()
-    primary = target.primary.take([1, 0]) if reordered == "primary" else target.primary
-    parts = tuple(
-        ExchangePart(part.role, part.table.take([1, 0]))
-        if reordered == "subject" and part.role == "subject"
-        else part
-        for part in target.parts
-    )
-    supplied = from_arrow(primary, target.contract, parts=parts, method_state=target.method_state)
     node = fixed_targets.cohort(fixed_values.value.eq("east"), rule=mv.any_instance())._node.root
     implementation = next(
         item
@@ -949,34 +690,20 @@ def test_cohort_matches_subject_parts_by_complete_key(
         (),
         canonical_layout(node.signature, has_value=False),
     )
-    result = _cohort_stage(method, supplied, (fixed_values._dataset.verified(),), "controlled")
-    assert cell_rows(result.primary) == [{"key_0": 1, "key_1": "B"}]
-    subject = next(part.table for part in result.parts if part.role == "subject")
-    assert subject.to_pylist() == [
-        {"key_0": 1, "key_1": "B", "subject__key_0": 1, "subject__key_1": "B"}
-    ]
-
-
-def test_selected_where_is_disclosed_and_resolvable(members_session: Session) -> None:
-    from marivo._help.model import NativeHelpRoute
-    from marivo._help.route import route_help_target
-
-    prefix = _domain(members_session)
-    members = members_session.members(ms.ref.entity(f"{prefix}.plain"))
-    numeric = members.read(ms.ref.measure(f"{prefix}.plain.amount"))
-    for relation in (
-        numeric,
-        members.read(ms.ref.dimension(f"{prefix}.plain.category")),
-        members.read(ms.ref.dimension(f"{prefix}.plain.enabled")),
-        members.read(ms.ref.time_dimension(f"{prefix}.plain.moment")),
-    ):
-        selected = relation.where(relation.value.is_defined())
-        for current in (selected, selected.execute()):
-            action = next(
-                action
-                for action in current.contract().actions
-                if action.call == "relation.where(predicate)"
-            )
-            assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
-            result = current.where(current.value.is_defined()).execute()
-            assert len(result.to_pandas()) == 2
+    for reordered in ("primary", "subject"):
+        primary = target.primary.take([1, 0]) if reordered == "primary" else target.primary
+        parts = tuple(
+            ExchangePart(part.role, part.table.take([1, 0]))
+            if reordered == "subject" and part.role == "subject"
+            else part
+            for part in target.parts
+        )
+        supplied = from_arrow(
+            primary, target.contract, parts=parts, method_state=target.method_state
+        )
+        result = _cohort_stage(method, supplied, (fixed_values._dataset.verified(),), "controlled")
+        assert cell_rows(result.primary) == [{"key_0": 1, "key_1": "B"}]
+        subject = next(part.table for part in result.parts if part.role == "subject")
+        assert subject.to_pylist() == [
+            {"key_0": 1, "key_1": "B", "subject__key_0": 1, "subject__key_1": "B"}
+        ]

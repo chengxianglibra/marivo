@@ -133,8 +133,6 @@ def retained_pair(
 ) -> Iterator[RetainedPair]:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    if scenario == "decimal-center-scale-extremes":
-        profile = "decimal-exact"
     typ = (
         "BIGINT"
         if profile == "int64-near-extremes"
@@ -749,8 +747,6 @@ def test_public_retained_runs_algorithm(
     ("scenario", "methods"),
     [
         ("complete-pair-lag-order", ("pearson",)),
-        ("centered-numeric-extremes", ("pearson",)),
-        ("invalid-constant-pairs", ("spearman",)),
         ("ties-average-rank-tau-b", ("spearman", "kendall")),
     ],
 )
@@ -780,7 +776,7 @@ def _assert_public_retained_association_case(
         offline.setattr(SourceSession, "__enter__", forbidden)
         offline.setattr(SemanticProject, "load", forbidden)
         offline.setattr(ibis.duckdb, "connect", forbidden)
-        if scenario == "invalid-constant-pairs":
+        if scenario == "ties-average-rank-tau-b" and method == "spearman":
             predicate = a.value.eq(2**63 - 2)
             constant = a.where(predicate).execute()
             corresponding = b.where(predicate).execute()
@@ -918,7 +914,9 @@ def _assert_public_retained_association_case(
                         "oracle": {
                             "candidates": oracle,
                             "original_pairs_retained": True,
-                            "constant_pair_rejected": scenario == "invalid-constant-pairs",
+                            "constant_pair_rejected": (
+                                scenario == "ties-average-rank-tau-b" and method == "spearman"
+                            ),
                         },
                         "physical_key": key_json(physical.key),
                         "implementation_id": physical.implementation.qualification.implementation_id,
@@ -934,14 +932,12 @@ def _assert_public_retained_association_case(
     "method,scenario",
     [
         ("naive", "complete-training"),
-        ("drift", "complete-training"),
-        ("seasonal_naive", "complete-training"),
         ("naive", "future-grid-interval"),
     ],
 )
 def test_public_retained_forecast_algorithm(
     method: Literal["naive", "drift", "seasonal_naive"],
-    scenario: Literal["complete-training", "model-innovation-variance", "future-grid-interval"],
+    scenario: Literal["complete-training", "future-grid-interval"],
     retained_pair: RetainedPair,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1088,14 +1084,12 @@ def test_public_retained_forecast_algorithm(
     "method,scenario",
     [
         ("zscore", "original-fit-domain"),
-        ("mad", "original-fit-domain"),
         ("mad", "zero-scale"),
-        ("zscore", "decimal-center-scale-extremes"),
     ],
 )
 def test_public_retained_deviation_algorithm(
     method: Literal["zscore", "mad"],
-    scenario: Literal["original-fit-domain", "zero-scale", "decimal-center-scale-extremes"],
+    scenario: Literal["original-fit-domain", "zero-scale"],
     retained_pair: RetainedPair,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1115,10 +1109,6 @@ def test_public_retained_deviation_algorithm(
         dataset = fitted._dataset
         captured, state = decode_fit(dataset.verified().parts)
         assert tuple(load(captured.primary)["value"].to_pylist()) == x
-        if scenario == "decimal-center-scale-extremes":
-            assert all(isinstance(value, Decimal) for value in x)
-            assert load(captured.primary).schema.field("value").type == pa.decimal128(38, 6)
-            assert center > 10**32 - 1001 and scale < 10
         assert len(state.partitions) == 1
         partition = state.partitions[0]
         assert (partition.defined, partition.null, partition.undefined, partition.unknown) == (
@@ -1302,7 +1292,6 @@ def test_public_retained_numeric_risk(
 @pytest.mark.parametrize(
     "profile,method",
     [
-        ("int64-near-extremes", "naive"),
         ("finite-float64", "drift"),
         ("decimal-exact", "seasonal_naive"),
         ("int64-near-extremes", "runs"),

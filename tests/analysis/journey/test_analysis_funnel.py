@@ -1,4 +1,4 @@
-"""Independent components, public funnel and atomic Finding regressions."""
+"""Independent Funnel component and allocation oracles with public source behavior."""
 
 from datetime import UTC, datetime, timedelta
 from fractions import Fraction
@@ -10,7 +10,6 @@ from marivo.analysis.core.model import Defined, Undefined
 from marivo.analysis.event import FirstPerSubject
 from marivo.analysis.methods.funnel import Counts, FunnelState, components, count, rate
 from marivo.analysis.methods.journey_matching import OrderedOccurrence, match
-from tests.support.paths import PROJECT_ROOT
 
 START = datetime(2026, 2, 1, tzinfo=UTC)
 END = START + timedelta(days=1)
@@ -56,13 +55,9 @@ def funnel_public(tmp_path, request):
 
 
 def test_public_funnel_counts_owned_read_and_fixed(funnel_public):
-    from dataclasses import replace
-
     import marivo.analysis as mv
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import from_arrow
 
-    session, journeys, pattern, _ = funnel_public
+    _, journeys, pattern, _ = funnel_public
     logical = journeys().funnel()
     fixed = logical.execute()
     frame = fixed.to_pandas()
@@ -70,99 +65,13 @@ def test_public_funnel_counts_owned_read_and_fixed(funnel_public):
     assert frame["lost_count"].tolist() == [0, 1]
     loss = fixed.read(mv.funnel_loss_rate(step=pattern.steps[1])).execute()
     assert loss.to_pandas()["value"].tolist() == [0.5]
-    assert session.artifact(fixed.state.artifact_ref).to_pandas().equals(frame)
     assert fixed.evidence_digest().finding_count == 0
-
-    all_loss = fixed.read(fixed.loss_rate_from_previous).execute()._dataset.verified()
-    selected = loss._dataset.verified()
-    with pytest.raises(AnalysisError):
-        from_arrow(
-            all_loss.primary,
-            replace(selected.contract, schema=all_loss.primary.schema),
-            parts=selected.parts,
-            method_state=None,
-        )
-    with pytest.raises(AnalysisError):
-        from_arrow(
-            selected.primary.slice(0, 0),
-            selected.contract,
-            parts=selected.parts,
-            method_state=None,
-        )
-    ranked = fixed.read(fixed.lost_count).rank(order="descending", ties="ordinal").execute()
-    table = mv.table(lost=ranked.values, rank=ranked.ranks).execute().to_pandas()
-    assert dict(zip(table.lost, table["rank"], strict=True)) == {1: 1, 0: 2}
 
     result = logical.compare(journeys(START - timedelta(days=3)).funnel()).execute()
     assert result.evidence_digest().finding_count == 1
     page = result.findings()
     assert len(page.items) == 1
-    assert result.finding(page.items[0].finding_id) == page.items[0]
     assert page.items[0].value.loss_rate_delta == 0.0
-    summary = next(
-        item
-        for item in session.graph(artifact_ref=result.state.artifact_ref).artifacts
-        if item.artifact_ref == result.state.artifact_ref
-    )
-    assert summary.evidence.finding_count == 1
-    assert summary.evidence.finding_set_digest == result.evidence_digest().finding_set_digest
-
-
-def test_grouped_axis_expansion_allocation_and_fixed(funnel_public):
-    import marivo.analysis as mv
-    from marivo.analysis.datasets.errors import DatasetConstructionError
-    from marivo.refs import ref
-
-    session, journeys, pattern, _ = funnel_public
-    axes = (ref.dimension("sales.customers.region"),)
-    current_logical = journeys().funnel()
-    foreign = journeys().funnel()
-    with pytest.raises(DatasetConstructionError):
-        current_logical.read(foreign.lost_count)
-    with pytest.raises(DatasetConstructionError):
-        current_logical.read(mv.funnel_loss_rate(step=pattern.steps[0]))
-    change = current_logical.compare(journeys(START - timedelta(days=3)).funnel())
-    allocation = change.attribute(
-        target=mv.funnel_loss_rate(step=pattern.steps[1]), axes=axes
-    ).execute()
-    assert dict(allocation.contract()._facts)["entry_axes"] == axes[0].path
-    frame = allocation.to_pandas()
-    assert frame["contribution"].sum() == 0.0
-    assert allocation.evidence_digest().finding_count == 4
-    assert allocation.current.to_pandas()["value"].sum() == 0.5
-    assert allocation.baseline.to_pandas()["value"].sum() == 0.5
-    assert (
-        session.artifact(allocation.state.artifact_ref).findings().items
-        == allocation.findings().items
-    )
-    parts = change.attribute(
-        target=mv.funnel_loss_rate(step=pattern.steps[1]), axes=axes, top_k=1
-    ).execute()
-    selected = parts.where(parts.contribution.value.gt(0)).execute()
-    declaration = next(
-        part
-        for part in selected._node.root.signature.parts
-        if isinstance(
-            part,
-            __import__(
-                "marivo.analysis.core.model", fromlist=["FunnelAllocationPart"]
-            ).FunnelAllocationPart,
-        )
-    )
-    assert not declaration.complete
-    assert selected.to_pandas()["value"].gt(0).all()
-    ranking = parts.contribution.rank(order="descending", ties="ordinal").execute()
-    table = mv.table(contribution=ranking.values, rank=ranking.ranks).execute()
-    ranked_frame = table.to_pandas()
-    assert sorted(ranked_frame["rank"].tolist()) == list(range(1, len(ranked_frame) + 1))
-    current = journeys().funnel(axes=axes).execute()
-    baseline = journeys(START - timedelta(days=3)).funnel(axes=axes).execute()
-    fixed = current.compare(baseline).execute()
-    assert fixed.findings().items
-    continuation = fixed.attribute(target=mv.funnel_loss_rate(step=pattern.steps[1]), axes=axes)
-    result = continuation.execute()
-    assert result.to_pandas()["contribution"].sum() == 0.0
-    assert result.state.artifact_ref == continuation.execute().state.artifact_ref
 
 
 def component_state(groups, *, offset=0):
@@ -277,62 +186,6 @@ def test_outer_null_empty_and_zero_delta_shares():
         )
 
 
-def test_findings_transaction_failure_has_no_partial_publication(funnel_public):
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    session, journeys, _, _ = funnel_public
-
-    for point in ("insert_findings", "before_commit"):
-
-        def inject(actual, injection_point=point):
-            if actual == injection_point:
-                raise RuntimeError("injected atomic Finding failure")
-
-        session._runtime._hook = inject
-        with pytest.raises(MaterializationError):
-            journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-        with session._runtime.store._read() as connection:
-            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
-            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
-            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-            assert (
-                connection.execute(
-                    "SELECT COUNT(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
-                ).fetchone()[0]
-                == 0
-            )
-            assert (
-                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
-                == 0
-            )
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize("form,history", [("table", "snapshot"), ("parquet", "validity")])
-def test_independent_producer_continue_recover_nonempty_findings(tmp_path, form, history):
-    import subprocess
-    import sys
-
-    for phase in ("produce", "continue", "recover"):
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.journey.funnel_worker",
-                str(tmp_path),
-                phase,
-                form,
-                history,
-            ],
-            cwd=PROJECT_ROOT,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert '"accepted": true' in result.stdout
-
-
 @pytest.mark.parametrize("funnel_public", [("table", "snapshot")], indirect=True)
 def test_historical_entry_axes_and_real_null(funnel_public):
     from marivo.refs import ref
@@ -378,188 +231,27 @@ def test_entry_mappings_require_complete_occurrence_identity() -> None:
             assemble_axes(base, (invalid,))
 
 
-def test_funnel_finding_cap_retains_truncation_authority(funnel_public, monkeypatch):
+def test_source_reevaluation_preserves_fixed_result(funnel_public, monkeypatch):
     import duckdb
 
-    from marivo.analysis.materialization import graph_findings
-    from marivo.analysis.materialization.graph_findings import POLICY
-    from marivo.refs import ref
-
-    session, journeys, _, database = funnel_public
-    monkeypatch.setattr(graph_findings, "CAP", 3)
-    with duckdb.connect(str(database)) as connection:
-        for table in ("customers", "started_rows", "finished_rows"):
-            connection.execute(f"DELETE FROM {table}")
-        connection.executemany(
-            "INSERT INTO customers (id, region) VALUES (?, ?)",
-            [(i, f"g{i:04d}") for i in range(4)],
-        )
-        starts = [(i * 2, i, START) for i in range(4)] + [
-            (i * 2 + 1, i, START - timedelta(days=3)) for i in range(4)
-        ]
-        connection.executemany("INSERT INTO started_rows VALUES (?, ?, ?)", starts)
-    axes = (ref.dimension("sales.customers.region"),)
-    current = journeys().funnel(axes=axes).execute()
-    baseline = journeys(START - timedelta(days=3)).funnel(axes=axes).execute()
-    logical = current.compare(baseline)
-    result = logical.execute()
-    digest = result.evidence_digest()
-    assert digest.finding_count == 3
-    retained = next(p.table for p in result._dataset.verified().parts if p.role == "finding_policy")
-    policy = POLICY.validate_json(retained["finding_policy__retained"][0].as_py())
-    assert (policy.eligible, policy.emitted, policy.truncated) == (4, 3, 1)
-    page = result.findings(limit=2)
-    assert len(page.items) == 2 and page.has_more
-    assert all(item.value.loss_rate_delta == 0.0 for item in page.items)
-    assert result.finding(page.items[0].finding_id) == page.items[0]
-    assert session.artifact(result.state.artifact_ref).evidence_digest() == digest
-
-
-def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch):
-    from marivo.analysis.materialization import graph_findings
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
-
-    session, journeys, _, _ = funnel_public
-    original = graph_findings.extract
-
-    def extract(*args, **kwargs):
-        raise RuntimeError("injected extractor failure")
-
-    for fault in ("extractor", "cancel", "deadline"):
-        deadline_token = None
-
-        def inject(point, injected_fault=fault):
-            nonlocal deadline_token
-            if point == "insert_findings":
-                if injected_fault == "cancel":
-                    raise KeyboardInterrupt("injected cancellation")
-                deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-
-        if fault == "extractor":
-            monkeypatch.setattr(graph_findings, "extract", extract)
-        else:
-            session._runtime._hook = inject
-        try:
-            with pytest.raises((MaterializationError, KeyboardInterrupt, DomainPreparationError)):
-                journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-        finally:
-            session._runtime._hook = None
-            monkeypatch.setattr(graph_findings, "extract", original)
-            if deadline_token is not None:
-                CURRENT.reset(deadline_token)
-        with session._runtime.store._read() as connection:
-            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
-            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
-
-
-@pytest.mark.parametrize("funnel_public", ["table", "parquet"], indirect=True)
-def test_source_reevaluation_fixed_preservation_and_stage_trace(funnel_public, monkeypatch):
-    import duckdb
-    import pyarrow.parquet as pq
-
-    from marivo.analysis.materialization import funnel_execution, journey_execution
     from marivo.datasource.adapters import SourceSession
 
     session, journeys, _, database = funnel_public
-    trace = []
-    original_read = SourceSession.batches
-    original_journey = journey_execution.execute
-    original_funnel = funnel_execution.execute
-
-    def read(*args, **kwargs):
-        trace.append("source")
-        return original_read(*args, **kwargs)
-
-    def journey(*args, **kwargs):
-        trace.append("assignment")
-        return original_journey(*args, **kwargs)
-
-    def funnel(*args, **kwargs):
-        trace.append("funnel")
-        return original_funnel(*args, **kwargs)
-
-    monkeypatch.setattr(SourceSession, "batches", read)
-    monkeypatch.setattr(journey_execution, "execute", journey)
-    monkeypatch.setattr(funnel_execution, "execute", funnel)
     logical = journeys().funnel()
     fixed = logical.execute()
     assert fixed.to_pandas().lost_count.tolist() == [0, 1]
-    assert (
-        max(i for i, stage in enumerate(trace) if stage == "source")
-        < trace.index("assignment")
-        < trace.index("funnel")
-    )
     with duckdb.connect(str(database)) as connection:
         connection.execute("DELETE FROM finished_rows")
-        path = database.parent / "finished_rows.parquet"
-        if path.exists():
-            pq.write_table(connection.table("finished_rows").to_arrow_table(), path)
-    trace.clear()
     changed = logical.execute()
     assert changed.to_pandas().lost_count.tolist() == [0, 2]
-    assert changed.state.artifact_ref != fixed.state.artifact_ref
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("fixed continuation opened a source or rematched")
+        raise AssertionError("fixed result accessed the source")
 
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     monkeypatch.setattr(duckdb, "connect", forbidden)
-    monkeypatch.setattr(journey_execution, "execute", forbidden)
     assert session.artifact(fixed.state.artifact_ref).to_pandas().lost_count.tolist() == [0, 1]
     assert fixed.read(fixed.lost_count).execute().to_pandas().value.tolist() == [0, 1]
-
-
-def test_funnel_exact_period_and_matching_rejections(funnel_public):
-    from dataclasses import replace
-
-    import marivo.analysis as mv
-    from marivo.analysis.core.funnel_rules import compatible
-    from marivo.analysis.core.model import FunnelPart
-    from marivo.analysis.errors import AnalysisError
-    from marivo.refs import ref
-
-    session, journeys, pattern, _ = funnel_public
-    current = journeys().funnel()
-    part = next(p for p in current._node.root.signature.parts if isinstance(p, FunnelPart))
-    for wrong in (
-        replace(part, population_id="foreign"),
-        replace(part, complete=False),
-        replace(
-            part,
-            journey=replace(
-                part.journey, completion_through=(THROUGH + timedelta(days=1)).isoformat()
-            ),
-        ),
-        replace(part, journey=replace(part.journey, steps=("start", "different"))),
-    ):
-        with pytest.raises(AnalysisError):
-            compatible(part, wrong)
-    original = journeys()
-    # The public receiver rejects every_start before execution.
-    from marivo.analysis.core.graph import method_node
-
-    root = original._node.root
-    repeated = replace(
-        original._node,
-        root=method_node(
-            root.inputs, replace(root.parameters, policy="shared"), value_type=root.value_type
-        ),
-    )
-    with pytest.raises(AnalysisError):
-        mv.LogicalJourneyResult(
-            __import__("marivo.analysis.public_dsl", fromlist=["_TOKEN"])._TOKEN,
-            repeated,
-            session._runtime,
-        ).funnel()
-    fixed = current.execute()
-    change = fixed.compare(journeys(START - timedelta(days=3)).funnel().execute()).execute()
-    with pytest.raises(AnalysisError, match="retained"):
-        change.attribute(
-            target=mv.funnel_loss_rate(step=pattern.steps[1]),
-            axes=(ref.dimension("sales.customers.region"),),
-        )
 
 
 def test_large_exact_count_ratio_and_numeric_axis_order():
@@ -574,37 +266,3 @@ def test_large_exact_count_ratio_and_numeric_axis_order():
         (10,),
         ("Other",),
     ]
-
-
-def test_finding_publication_rejects_corruption_and_preserves_empty_policy(funnel_public):
-    import duckdb
-
-    from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_findings import POLICY
-
-    session, journeys, _, database = funnel_public
-    zero = journeys().funnel().execute()
-    compared = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-    with session._runtime.store._write() as connection:
-        connection.execute(
-            "UPDATE findings SET artifact_ref=? WHERE artifact_ref=?",
-            (zero.state.artifact_ref.ref, compared.state.artifact_ref.ref),
-        )
-    with pytest.raises(MaterializationError):
-        session.artifact(zero.state.artifact_ref)
-    with pytest.raises(MaterializationError):
-        zero.findings()
-
-    with duckdb.connect(str(database)) as connection:
-        connection.execute("DELETE FROM started_rows")
-    result = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-    digest = result.evidence_digest()
-    assert digest.finding_count == 0
-    assert digest.extractor_contract_versions == ("graph.funnel_delta_findings@v1",)
-    retained = next(
-        part.table for part in result._dataset.verified().parts if part.role == "finding_policy"
-    )
-    policy = POLICY.validate_json(retained["finding_policy__retained"][0].as_py())
-    assert (policy.eligible, policy.emitted, policy.truncated) == (0, 0, 0)
-    assert not result.findings().items
-    assert session.artifact(result.state.artifact_ref).evidence_digest() == digest

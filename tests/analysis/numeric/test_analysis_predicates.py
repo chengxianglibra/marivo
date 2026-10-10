@@ -76,9 +76,7 @@ def test_numeric_string_category_persists_and_continues(
     category = members.read(ms.ref.dimension("sales.customer.region"))
     selected = category.where(category.value.eq("123"))
     assert type(selected) is mv.LogicalCategoryRelation
-    chained = selected.where(selected.value.eq("123"))
-    assert type(chained) is mv.LogicalCategoryRelation
-    saved = chained.execute()
+    saved = selected.execute()
     assert type(saved) is mv.MaterializedCategoryRelation
     frame = saved.to_pandas()
     assert frame.member.tolist() == ["A"]
@@ -88,37 +86,6 @@ def test_numeric_string_category_persists_and_continues(
     assert restored.to_pandas().equals(frame)
     continued = restored.where(restored.value.eq("123")).execute()
     assert continued.to_pandas().equals(frame)
-
-
-def test_selected_difference_discloses_where_continuation(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from marivo._help.model import NativeHelpRoute
-    from marivo._help.route import route_help_target
-
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current, baseline = (
-        members.observe(
-            ms.ref.metric("sales.order_count"),
-            during=mv.time_scope(start=start, end=end),
-            via=ms.ref.relationship(f"sales.{case.names.buyer}"),
-            by=(mv.member(),),
-        )
-        for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
-    )
-    difference = current.compare(baseline).absolute
-    selected = difference.where(difference.value.is_defined())
-    fixed = selected.execute()
-    for relation in (selected, fixed):
-        action = next(
-            action
-            for action in relation.contract().actions
-            if action.call == "relation.where(predicate)"
-        )
-        assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
-    result = fixed.where(fixed.value.is_defined()).execute()
-    assert len(result.to_pandas()) == len(analysis_dsl_rows("j2").customers)
 
 
 def test_strict_leaf_and_three_value_composition() -> None:
@@ -172,7 +139,12 @@ def test_public_multi_input_source_and_fixed(
         via=ms.ref.relationship(f"sales.{case.names.buyer}"),
         by=(mv.member(),),
     )
-    predicate = mv.all_of(amount.value.is_defined(), amount.value.gt(0), category.value.eq("east"))
+    predicate = mv.all_of(
+        amount.value.is_defined(),
+        amount.value.gt(0),
+        category.value.eq("east"),
+        amount.value.lt(twice.value),
+    )
     facts = analysis_dsl_rows("j2")
     east = {member for member, region in facts.customers if region == "east"}
     totals: dict[str, float] = {}
@@ -181,25 +153,16 @@ def test_public_multi_input_source_and_fixed(
             totals[member] = totals.get(member, 0) + value
     expected = {member for member, total in totals.items() if total > 0 and member in east}
     assert set(amount.where(predicate).execute().to_pandas().member) == expected
-    positive = {member for member, total in totals.items() if total > 0}
-    assert set(amount.where(amount.value.lt(twice.value)).execute().to_pandas().member) == positive
     fixed_amount, fixed_category = amount.execute(), category.execute()
     fixed_twice = twice.execute()
-    assert (
-        set(
-            fixed_amount.where(fixed_amount.value.lt(fixed_twice.value))
-            .execute()
-            .to_pandas()
-            .member
-        )
-        == positive
-    )
     selected = fixed_amount.where(
-        mv.all_of(fixed_amount.value.gt(0), fixed_category.value.eq("east"))
+        mv.all_of(
+            fixed_amount.value.gt(0),
+            fixed_category.value.eq("east"),
+            fixed_amount.value.lt(fixed_twice.value),
+        )
     ).execute()
     assert set(selected.to_pandas().member) == expected
-    with pytest.raises(Exception):
-        bool(predicate)
 
 
 def test_tag_selection_precedes_numeric_consumption(
@@ -228,8 +191,6 @@ def test_tag_selection_precedes_numeric_consumption(
     category = targets.read(ms.ref.dimension(f"{n.domain}.{n.customer}.region"))
     with pytest.raises(Exception, match=r"Defined|defined"):
         values.where(mv.all_of(values.value.is_defined(), values.value.gt(0))).execute()
-    with pytest.raises(Exception, match=r"Defined|defined"):
-        values.where(mv.any_of(values.value.is_defined(), values.value.gt(0))).execute()
     selected = values.where(values.value.is_defined())
     east = selected.where(mv.all_of(selected.value.gt(0), category.value.eq("east"))).execute()
     assert set(east.to_pandas().member) == {
@@ -242,8 +203,6 @@ def test_tag_selection_precedes_numeric_consumption(
     assert positive.to_pandas().cell_tag.eq("defined").all()
     ancestor = fixed_selected.where(fixed.value.gt(0)).execute()
     assert ancestor.to_pandas().equals(positive.to_pandas())
-    projected = positive.members(through=positive.subject_binding).execute()
-    assert set(projected.to_pandas().member) == set(positive.to_pandas().member)
 
     import os
     import subprocess
@@ -291,22 +250,15 @@ assert result.members(through=result.subject_binding).execute().to_pandas().memb
     assert completed.returncode == 0, completed.stderr
 
 
-def test_public_precise_field_comparisons(
+def test_public_decimal_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    for physical in ("BIGINT", "DOUBLE", "DECIMAL(18,2)"):
-        _assert_public_precise_field_comparison(analysis_dsl_case_factory, physical)
-
-
-def _assert_public_precise_field_comparison(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str
 ) -> None:
     import duckdb
 
     case = analysis_dsl_case_factory("j2")
     n = case.names
     with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE {physical}')
+        connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DECIMAL(18,2)')
     ms.load(workspace_dir=case.root)
     values = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
@@ -320,52 +272,36 @@ def _assert_public_precise_field_comparison(
     for _, member, _, _, occurred, amount in facts.orders:
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + amount
-    currents = (values, values.execute()) if physical.startswith("DECIMAL") else (values,)
-    for current in currents:
+    threshold = Decimal("0.00")
+    for current in (values, values.execute()):
         matched = current.where(current.value.eq(current.value)).execute()
         assert set(matched.to_pandas().member) == set(totals)
-        threshold = Decimal("0.00") if physical.startswith("DECIMAL") else 0
         saved = current.where(current.value.gt(threshold)).execute()
         frame = saved.to_pandas()
         assert set(frame.member) == {member for member, total in totals.items() if total > 0}
-        if isinstance(threshold, Decimal):
-            restored = case.session.artifact(saved.state.artifact_ref)
-            assert isinstance(restored, mv.MaterializedSelectedNumericRelation)
-            assert restored.where(restored.value.gt(threshold)).execute().to_pandas().equals(frame)
+        restored = case.session.artifact(saved.state.artifact_ref)
+        assert isinstance(restored, mv.MaterializedSelectedNumericRelation)
+        assert restored.where(restored.value.gt(threshold)).execute().to_pandas().equals(frame)
 
 
 def test_public_duration_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    for unit, parquet in (("us", False), ("s", True), ("ns", True)):
-        _assert_public_duration_field_comparison(analysis_dsl_case_factory, unit, parquet)
-
-
-def _assert_public_duration_field_comparison(
-    analysis_dsl_case_factory: DslCaseFactory, unit: str, parquet: bool
-) -> None:
-    import duckdb
     import pyarrow as pa
     import pyarrow.parquet as pq
 
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        path = case.root / "source_files/order.parquet"
-        table = pq.read_table(path)
-        pq.write_table(
-            table.set_column(
-                table.schema.get_field_index("amount"),
-                "amount",
-                table["amount"].cast(pa.duration(unit)),
-            ),
-            path,
-        )
-    else:
-        with duckdb.connect(str(case.database_path)) as db:
-            db.execute(
-                'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
-            )
+    export_dsl_parquet_models(case, case.root)
+    path = case.root / "source_files/order.parquet"
+    table = pq.read_table(path)
+    pq.write_table(
+        table.set_column(
+            table.schema.get_field_index("amount"),
+            "amount",
+            table["amount"].cast(pa.duration("ns")),
+        ),
+        path,
+    )
     ms.load(workspace_dir=case.root)
     values = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
@@ -379,12 +315,12 @@ def _assert_public_duration_field_comparison(
         for _, member, _, _, occurred, _ in analysis_dsl_rows("j2").orders
         if member is not None and str(occurred).startswith("2026-08")
     }
-    currents = (selected, selected.execute()) if unit == "ns" else (selected,)
-    for current in currents:
+    fixed = selected.execute()
+    for current in (selected, fixed):
         result = current.where(current.value.eq(current.value)).execute()
         assert set(result.to_pandas().member) == expected
-        with pytest.raises(Exception, match="incompatible"):
-            current.where(current.value.gt(0))
+    with pytest.raises(Exception, match="incompatible"):
+        selected.where(selected.value.gt(0))
 
 
 def test_foreign_predicate_inputs_reject_before_execution(

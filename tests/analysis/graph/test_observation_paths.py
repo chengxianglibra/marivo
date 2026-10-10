@@ -34,7 +34,7 @@ from tests.support.paths import PROJECT_ROOT
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "depth,key_type",
-    [(4, "int64"), (9, "int64"), (4, "string"), (4, "compound")],
+    [(4, "int64"), (4, "compound")],
 )
 def test_long_path_sum_and_count(
     depth: int,

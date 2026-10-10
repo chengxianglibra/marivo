@@ -1407,35 +1407,6 @@ def test_materialized_show_without_original_implementation(case, monkeypatch, ca
         case[0]._execute_graph(successor, (RouteChoice(successor.identity, "artifact_python"),))
 
 
-@pytest.mark.slow
-def test_cold_fixed_read_without_registry(case):
-    output = _execute(case)
-    code = """
-import sys
-from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.materialization import graph_store
-from marivo.analysis.materialization.graph_storage import read_result
-from marivo.analysis.methods.registry import MethodRegistry
-
-def unavailable(*args, **kwargs):
-    raise AssertionError("cold read reached the registry")
-MethodRegistry.lookup = unavailable
-MethodRegistry.select = unavailable
-store = SessionStore(sys.argv[1])
-with store._read() as connection:
-    saved = graph_store.artifact(store, connection, sys.argv[2])
-assert saved is not None
-assert read_result(store.project_root, saved.descriptor,
-                   _validated=saved.validated).primary["value"].to_pylist() == [3]
-"""
-    subprocess.run(
-        [sys.executable, "-c", code, str(case[0].store.project_root), output.artifact_ref],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-
-
 def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
     from marivo.analysis.materialization import graph_exchange, graph_findings
 

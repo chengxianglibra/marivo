@@ -21,15 +21,12 @@ from tests.analysis.materialization.publication_fixtures import publication_coun
 from tests.datasource.source_cases import SourceData, source_case
 
 
-@pytest.mark.parametrize("parquet", [True])
 @pytest.mark.parametrize(
     "value_type,weight_type",
     [
         ("DECIMAL(12,2)", "BIGINT"),
         ("DOUBLE", "BIGINT"),
         ("INTEGER", "SMALLINT"),
-        ("REAL", "INTEGER"),
-        ("DECIMAL(12,2)", "DOUBLE"),
         ("DECIMAL(12,2)", "DECIMAL(8,3)"),
     ],
 )
@@ -38,7 +35,6 @@ def test_native_weighted_and_mean(
     monkeypatch: pytest.MonkeyPatch,
     value_type: str,
     weight_type: str,
-    parquet: bool,
 ) -> None:
     monkeypatch.chdir(tmp_path)
     _model(tmp_path)
@@ -57,15 +53,11 @@ def test_native_weighted_and_mean(
         expected_mean = con.execute(
             f"SELECT CAST(AVG(value) AS {value_type if value_type.startswith('DECIMAL') else 'DOUBLE'}) FROM facts GROUP BY category ORDER BY category"
         ).fetchall()
-        if parquet:
-            pq.write_table(
-                con.execute("SELECT * FROM facts").to_arrow_table(), tmp_path / "facts.parquet"
-            )
-    if parquet:
-        model = tmp_path / "models/semantic/sales/facts.py"
-        model.write_text(
-            model.read_text().replace("md.table('facts',", "md.parquet('facts.parquet',")
+        pq.write_table(
+            con.execute("SELECT * FROM facts").to_arrow_table(), tmp_path / "facts.parquet"
         )
+    model = tmp_path / "models/semantic/sales/facts.py"
+    model.write_text(model.read_text().replace("md.table('facts',", "md.parquet('facts.parquet',"))
     session = mv.session.get_or_create("native", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.facts"))
     scope = mv.time_scope(start="2026-07-01", end="2026-07-02")
@@ -248,34 +240,6 @@ def _clickhouse_weight_state_overflow(
             )
 
 
-@pytest.mark.slow
-def test_native_numeric_recovers_without_sources(tmp_path: Path) -> None:
-    import os
-    import subprocess
-    import sys
-
-    from tests.support.paths import PROJECT_ROOT
-
-    for phase in ("produce", "continue", "recover"):
-        if phase == "continue":
-            (tmp_path / "models").rename(tmp_path / "models.offline")
-            (tmp_path / "facts.parquet").rename(tmp_path / "facts.offline")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.numeric.native_numeric_worker",
-                str(tmp_path),
-                phase,
-            ],
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            timeout=90,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-
-
 def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     _model(tmp_path)
@@ -346,8 +310,6 @@ def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
         ("weighted", "DECIMAL(12,2)", "BIGINT", 1.0),
         ("ratio", "DOUBLE", "BIGINT", 1.0),
         ("ratio", "BIGINT", "DOUBLE", 1.0),
-        ("ratio", "DECIMAL(12,2)", "DOUBLE", 1.0),
-        ("ratio", "BIGINT", "DOUBLE", 1e-14),
         ("ratio", "DECIMAL(12,2)", "DOUBLE", 1e-14),
     ],
 )

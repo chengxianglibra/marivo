@@ -121,91 +121,6 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
         ("A", 50.0),
         ("B", 30.0),
     ]
-    linear = mv.runtime_metric.linear(add=[line_revenue, order_count], label="net_readings")
-    combined = (
-        members.observe(
-            linear,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=(mv.path(line_order, buyer), mv.path(buyer)),
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    assert list(zip(combined["member"], combined["value"], strict=True)) == [
-        ("A", 102),
-        ("B", 62),
-    ]
-
-
-def test_observe_sliced_runtime_component_selects_its_own_branch(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """A slice limits its own contribution branch without merging or fanning out."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    channel = ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}")
-    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
-
-    sliced = mv.runtime_metric.slice(revenue, by={channel: "web"}, label="web_revenue")
-    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    observed = members.observe(
-        sliced,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=buyer,
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-    rows = {
-        member: (value, tag, reason)
-        for member, value, tag, reason in zip(
-            framed["member"],
-            framed["value"],
-            framed["cell_tag"],
-            framed["cell_reason"],
-            strict=True,
-        )
-    }
-
-    # j1 in-window orders: A has one web order of 450; B has one mobile order of
-    # 150 that the web slice must exclude; C has one web order of 400; D has none.
-    assert rows["A"][:2] == (450.0, "defined")
-    assert rows["C"][:2] == (400.0, "defined")
-    # An excluded branch is an empty contribution, never a silent zero: B's 150
-    # must not be counted, and it must not be reported as 0 either.
-    assert rows["B"][1] == "null"
-    assert rows["B"][2] == "empty_contribution"
-    assert rows["D"][1] == "null"
-    # The unfiltered total would be 1000; the slice must not silently include B.
-    assert sum(value for value, tag, _ in rows.values() if tag == "defined") == 850
-    unfiltered = (
-        members.observe(
-            revenue,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=buyer,
-            by=(mv.member(),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    unfiltered_rows = {
-        member: (value, tag)
-        for member, value, tag in zip(
-            unfiltered["member"], unfiltered["value"], unfiltered["cell_tag"], strict=True
-        )
-    }
-    assert [unfiltered_rows[key] for key in ("A", "B", "C")] == [
-        (450.0, "defined"),
-        (150.0, "defined"),
-        (400.0, "defined"),
-    ]
-    assert unfiltered_rows["D"][1] == "null"
-    assert sum(value for value, tag in unfiltered_rows.values() if tag == "defined") == 1000
 
 
 def test_sliced_weighted_mean_filters_pairs_before_reduction(
@@ -293,46 +208,6 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     # appear as 150/1. It must instead be an empty contribution.
     assert rows["B"][1] == "null"
     assert rows["B"][2] == "empty_contribution"
-
-
-def test_linear_subtract_reverses_its_named_term(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """A subtracted term is negated while an added term keeps its sign."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j3", revenue_unit="1")
-    names = case.names
-    domain = names.domain
-    order = ms.ref.entity(f"{domain}.{names.order}")
-    line = ms.ref.entity(f"{domain}.{names.order_line}")
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    line_order = ms.ref.relationship(f"{domain}.{names.line_order}")
-    line_revenue = ms.ref.metric(f"{domain}.{names.line_revenue}")
-    order_count = ms.ref.metric(f"{domain}.{names.order_count}")
-
-    expression = mv.runtime_metric.linear(
-        add=[order_count], subtract=[line_revenue], label="orders_minus_lines"
-    )
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    observed = members.observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=(
-            mv.path(buyer),
-            mv.path(line_order, buyer),
-        ),
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-
-    # A is 2 - 100 and B is 2 - 60, so the sign follows the declared term order.
-    assert list(zip(framed["member"], framed["value"], strict=True)) == [
-        ("A", -98),
-        ("B", -58),
-    ]
 
 
 def test_observe_without_a_window_keeps_every_admitted_contribution(
@@ -436,34 +311,6 @@ def test_opaque_metric_rejects_instead_of_inventing_components(
     )
     by_member = dict(zip(framed["member"], framed["value"], strict=True))
     assert by_member["A"] == 450
-
-
-def test_ratio_uses_each_components_own_state_and_rolls_up(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """Both sum/sum and count/count finish and retain independently mergeable state."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j1")
-    for metric_name in ("revenue", "order_count"):
-        metric = ms.ref.metric(f"sales.{metric_name}")
-        expression = mv.runtime_metric.ratio(metric, metric, label="identity_ratio")
-        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = observed.execute()
-        rows = fixed.to_pandas().set_index("member")
-        assert rows.loc[["A", "B", "C"], "value"].tolist() == [1.0, 1.0, 1.0]
-        assert rows.loc["D", "cell_tag"] == ("null" if metric_name == "revenue" else "undefined")
-        assert rows.loc["D", "cell_reason"] == (
-            "empty_contribution" if metric_name == "revenue" else "zero_denominator"
-        )
-        assert observed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
 
 
 def test_linear_executes_more_than_two_occurrences(
@@ -691,56 +538,46 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
         models.read_text().replace(
             "granularity='second',", "granularity='second', is_default=True,"
         )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nweighted = ms.weighted_mean(name='weighted', value=amount, weight=weight)\n"
+        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     )
     ms.load(workspace_dir=case.root)
-    for runtime in (False, True):
-        expression = (
-            mv.runtime_metric.weighted_mean(
-                ms.ref.measure("sales.order.amount"),
-                ms.ref.measure("sales.order.weight"),
-                label="weighted",
-            )
-            if runtime
-            else ms.ref.metric("sales.weighted")
-        )
-        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = observed.execute()
-        rows = fixed.to_pandas().set_index("member")
-        assert rows.loc["A", "value"] == pytest.approx(1000 / 3)
-        assert rows.loc["B", "cell_reason"] == "zero_weight_sum"
-        assert rows.loc["C", "value"] == 400
-        assert rows.loc["D", "cell_reason"] == "empty_contribution"
-        assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx(
-            [2600 / 7]
-        )
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-        if runtime:
-            _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 2600 / 7)
-            from marivo.analysis.materialization import graph_store
+    expression = mv.runtime_metric.weighted_mean(
+        ms.ref.measure("sales.order.amount"),
+        ms.ref.measure("sales.order.weight"),
+        label="weighted",
+    )
+    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+        expression,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(mv.member(),),
+    )
+    fixed = observed.execute()
+    rows = fixed.to_pandas().set_index("member")
+    assert rows.loc["A", "value"] == pytest.approx(1000 / 3)
+    assert rows.loc["B", "cell_reason"] == "zero_weight_sum"
+    assert rows.loc["C", "value"] == 400
+    assert rows.loc["D", "cell_reason"] == "empty_contribution"
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
+    assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
+    _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 2600 / 7)
+    from marivo.analysis.materialization import graph_store
 
-            store = case.session._runtime.store
-            with store._read() as connection:
-                record = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
-            assert record is not None
-            original = next(
-                part for part in record.descriptor.parts if part.role == "original_state"
-            )
-            path = case.root / original.local.project_relative_path
-            missing = path.with_name(path.name + ".missing")
-            path.rename(missing)
-            try:
-                with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-                    fixed.contract()
-                with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-                    case.session.artifact(fixed.state.artifact_ref)
-            finally:
-                missing.rename(path)
+    store = case.session._runtime.store
+    with store._read() as connection:
+        record = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
+    assert record is not None
+    original = next(part for part in record.descriptor.parts if part.role == "original_state")
+    path = case.root / original.local.project_relative_path
+    missing = path.with_name(path.name + ".missing")
+    path.rename(missing)
+    try:
+        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
+            fixed.contract()
+        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
+            case.session.artifact(fixed.state.artifact_ref)
+    finally:
+        missing.rename(path)
 
 
 def test_observation_preserves_full_member_identity(

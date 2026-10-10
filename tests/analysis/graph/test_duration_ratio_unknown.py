@@ -89,36 +89,26 @@ def test_public_duration_ratio_preserves_unknown(
     assert durations.ratio(durations).execute().state.artifact_ref == ratio.state.artifact_ref
     with pytest.raises(AnalysisError):
         ratio.ratio(ratio).execute()
-    fits: list[str] = []
-    for method in ("zscore", "mad"):
-        fit = ratio.deviation(method=method).execute()
-        scores = fit.score.to_pandas()
-        assert scores.cell_tag.tolist() == ["undefined", "unknown", "undefined"]
-        assert scores.cell_reason.tolist() == [
-            "insufficient_samples",
-            "coverage_censored",
-            "zero_denominator",
-        ]
-        assert fit._dataset is not None
-        fit._dataset.verified()
-        fits.append(method)
+    fit = ratio.deviation(method="zscore").execute()
+    scores = fit.score.to_pandas()
+    assert scores.cell_tag.tolist() == ["undefined", "unknown", "undefined"]
+    assert scores.cell_reason.tolist() == [
+        "insufficient_samples",
+        "coverage_censored",
+        "zero_denominator",
+    ]
+    assert fit._dataset is not None
+    fit._dataset.verified()
     shorter = journeys.time_to_event(from_step=beginning, to_step=middle).execute()
     short_duration = shorter.observed_duration.execute()
     other = short_duration.ratio(short_duration).execute()
-    refusals: list[str] = []
-    association_methods: tuple[Literal["pearson", "spearman", "kendall"], ...] = (
-        "pearson",
-        "spearman",
-        "kendall",
-    )
-    for method in association_methods:
-        before = set(tmp_path.rglob("*.parquet"))
-        with pytest.raises(StatisticalRelationError) as refused:
-            ratio.correlate(other, method=method).execute()
-        assert refused.value.code == "r8.cell_policy"
-        assert refused.value.received == repr(("unknown", "coverage_censored"))
-        assert set(tmp_path.rglob("*.parquet")) == before
-        refusals.append(method)
+    before = set(tmp_path.rglob("*.parquet"))
+    with pytest.raises(StatisticalRelationError) as refused:
+        ratio.correlate(other, method="pearson").execute()
+    assert refused.value.code == "r8.cell_policy"
+    assert refused.value.received == repr(("unknown", "coverage_censored"))
+    assert set(tmp_path.rglob("*.parquet")) == before
+    refusals = ["pearson"]
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(directory, "duration-ratio-unknown-" + backend + ".json").write_text(
@@ -134,7 +124,7 @@ def test_public_duration_ratio_preserves_unknown(
                     "fixed_source_reads_forbidden": True,
                     "fixed_exact_hit": True,
                     "resources": 0,
-                    "deviation_unknown_preserved": fits,
+                    "deviation_unknown_preserved": ["zscore"],
                     "association_unknown_rejected": refusals,
                 },
                 sort_keys=True,

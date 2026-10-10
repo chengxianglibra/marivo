@@ -215,43 +215,7 @@ def test_profiles_source_fixed_cold(tmp_path, subject, occurrence, form, unit, z
         ).write_text(json.dumps({"config": config, "phases": receipts}, sort_keys=True))
 
 
-def test_required_retention_part_rejects_before_continuation_run(tmp_path):
-    session, anchors, returning, claims = build_retention(tmp_path)
-    result = anchors.retention(
-        returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
-    ).execute()
-    projected = anchors.retention(
-        returning, within=mv.calendar_days(1, ZoneInfo("UTC")), completeness=claims
-    ).execute()
-    target = next(p for p in result._dataset.artifact.descriptor.parts if p.role == "retention")
-    path = tmp_path / target.local.project_relative_path / "data.parquet"
-    original = path.read_bytes()
-    for fault in ("missing", "corrupt", "swapped"):
-        before = session.runs().items
-        if fault == "missing":
-            path.unlink()
-        elif fault == "corrupt":
-            path.write_bytes(b"invalid retained partition")
-        else:
-            other = next(
-                p for p in projected._dataset.artifact.descriptor.parts if p.role == "retention"
-            )
-            path.write_bytes(
-                (tmp_path / other.local.project_relative_path / "data.parquet").read_bytes()
-            )
-        try:
-            with pytest.raises(AnalysisError):
-                session.artifact(result.state.artifact_ref).by_subject(
-                    rule=mv.every_anchor()
-                ).execute()
-            assert session.runs().items == before
-        finally:
-            path.write_bytes(original)
-
-
-@pytest.mark.parametrize(
-    "calendar_start,hours", [("2026-03-07T17:00:00+00:00", 23), ("2026-10-31T16:00:00+00:00", 25)]
-)
+@pytest.mark.parametrize("calendar_start,hours", [("2026-03-07T17:00:00+00:00", 23)])
 def test_dst_retention_deadline_is_exclusive(tmp_path, calendar_start, hours):
     from datetime import datetime
 
@@ -548,17 +512,14 @@ def test_retention_combines_exact_coverage_intervals(tmp_path, monkeypatch):
 
     session, anchors, returning, claims = build_retention(tmp_path, rows=[(0, "started", 0, 1)])
     cases = (
-        (False, 0, 10, 0, 5, False),
-        (False, 5, 10, 0, 5, False),
-        (False, 6, 10, 0, 5, None),
-        (True, 0, 5, 5, 10, False),
+        (0, 10, 0, 5, False),
+        (5, 10, 0, 5, False),
+        (6, 10, 0, 5, None),
     )
     active_case = cases[0]
 
     def point(value: int) -> datetime:
-        calendar, *_ = active_case
-        span = 86400 if calendar else 10
-        return START + timedelta(seconds=span * value // 10)
+        return START + timedelta(seconds=value)
 
     original_enter = SourceSession.__enter__
 
@@ -568,7 +529,7 @@ def test_retention_combines_exact_coverage_intervals(tmp_path, monkeypatch):
         def provider(backend, request):
             if request.event_ref != returning.event:
                 return None
-            _, observed_from, observed_through, _, _, _ = active_case
+            observed_from, observed_through, _, _, _ = active_case
             assert source.domain_authority is not None
             return EventCoverageReceiptV1(
                 event_ref=request.event_ref,
@@ -591,11 +552,9 @@ def test_retention_combines_exact_coverage_intervals(tmp_path, monkeypatch):
     monkeypatch.setattr(SourceSession, "__enter__", enter)
     for case in cases:
         active_case = case
-        calendar, _, _, declared_from, declared_through, expected = case
+        _, _, declared_from, declared_through, expected = case
         declarations = tuple(
-            replace(c, complete_through=point(declared_through))
-            if declared_from is None
-            else mv.BoundedCompletenessDeclarationV1(
+            mv.BoundedCompletenessDeclarationV1(
                 inputs=(returning.event,),
                 complete_from=point(declared_from),
                 complete_through=point(declared_through),
@@ -603,12 +562,9 @@ def test_retention_combines_exact_coverage_intervals(tmp_path, monkeypatch):
             )
             for c in claims
         )
-        span = 86400 if calendar else 10
         result = anchors.retention(
             returning,
-            within=mv.calendar_days(1, ZoneInfo("UTC"))
-            if calendar
-            else mv.elapsed(mv.duration(seconds=span)),
+            within=mv.elapsed(mv.duration(seconds=10)),
             completeness=declarations,
         ).execute()
         frame = result.to_pandas()

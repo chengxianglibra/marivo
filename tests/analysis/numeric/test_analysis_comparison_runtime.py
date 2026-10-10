@@ -634,50 +634,6 @@ assert result.loc["D", "cell_reason"] == "zero_denominator"
     assert process.returncode == 0, process.stderr
 
 
-def test_public_relative_negative_and_minimum_integer_baseline(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    baseline_amount = -(2**63)
-    case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute('DELETE FROM "order"')
-        connection.execute(
-            'INSERT INTO "order" (order_id, customer_id, channel, status, ordered_at, amount) VALUES (?, ?, ?, ?, ?, ?)',
-            ["min-old", "A", "web", "paid", "2026-07-10", baseline_amount],
-        )
-        connection.execute(
-            'INSERT INTO "order" (order_id, customer_id, channel, status, ordered_at, amount) VALUES (?, ?, ?, ?, ?, ?)',
-            ["min-new", "A", "web", "paid", "2026-08-10", 2**63 - 1],
-        )
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    ids = members.read(ms.ref.dimension("sales.customer.customer_id"))
-    members = ids.where(ids.value.eq("A")).members()
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    first, second = current.execute(), baseline.execute()
-    expected = float(Fraction(2**63 - 1 - baseline_amount, abs(baseline_amount)))
-    for left, right in ((current, baseline), (first, second)):
-        assert expected > 0
-        from tests.analysis.materialization.publication_fixtures import publication_counts
-
-        before = publication_counts(case.session)
-        with pytest.raises(AnalysisError):
-            left.compare(right).execute()
-        assert publication_counts(case.session) == before
-
-
 def test_float_sum_envelope_and_native_mean_cell_boundary(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

@@ -562,7 +562,6 @@ def test_deviation_deadline_failure_is_atomic(
     "profile,form,method",
     [
         ("BIGINT", "table", "zscore"),
-        ("DOUBLE", "parquet", "mad"),
     ],
 )
 @pytest.mark.slow

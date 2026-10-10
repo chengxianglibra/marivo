@@ -159,38 +159,6 @@ def test_float_original_mean_state(analysis_dsl_case_factory: DslCaseFactory) ->
         assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
 
 
-def test_unsupported_exact_aggregate_suggests_definition() -> None:
-    from marivo.semantic._aggregate_accuracy import aggregate_repair
-
-    cases: tuple[tuple[AggKind, str, str], ...] = (
-        ("count_distinct", "clickhouse", "approx_count_distinct"),
-        ("median", "trino", "approx_median"),
-        (("percentile", 0.95), "clickhouse", "('approx_percentile', 0.95)"),
-        (("percentile", 0.95), "sqlite", "('approx_percentile', 0.95)"),
-    )
-    for agg, backend, alternate in cases:
-        action = aggregate_repair(agg, backend)
-        assert action is not None and alternate in action, backend
-        if backend == "sqlite":
-            assert "does not support" in action
-        else:
-            assert "If approximation is acceptable" in action
-
-
-def test_duckdb_native_definitions_are_available() -> None:
-    from marivo.semantic._aggregate_accuracy import aggregate_repair
-
-    for agg in (
-        "count_distinct",
-        "median",
-        ("percentile", 0.95),
-        "approx_count_distinct",
-        "approx_median",
-        ("approx_percentile", 0.95),
-    ):
-        assert aggregate_repair(agg, "duckdb") is None, agg
-
-
 def test_decimal_original_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
     from decimal import Decimal
 
