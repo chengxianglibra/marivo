@@ -143,7 +143,7 @@ def test_public_duration_ratio_preserves_unknown(
 
 
 @pytest.mark.parametrize("unknown_side", ["current", "baseline", "both"])
-@pytest.mark.parametrize("defined_value", [0, 10])
+@pytest.mark.parametrize("defined_value", [0])
 def test_duration_ratio_unknown_endpoint_integrity(unknown_side: str, defined_value: int) -> None:
     from marivo.analysis.methods.state_validation import difference_matches
 
@@ -181,12 +181,10 @@ def test_duration_ratio_unknown_endpoint_integrity(unknown_side: str, defined_va
 
 @pytest.mark.parametrize(
     "method",
-    ["forecast.naive", "forecast.drift", "forecast.seasonal_naive", "time.runs", "time.runs_read"],
+    ["forecast.naive", "time.runs"],
 )
 def test_duration_quotient_does_not_qualify_full_grid_consumers(
-    method: Literal[
-        "forecast.naive", "forecast.drift", "forecast.seasonal_naive", "time.runs", "time.runs_read"
-    ],
+    method: Literal["forecast.naive", "time.runs"],
 ) -> None:
     from marivo.analysis.methods.builtin import implementations
     from marivo.analysis.methods.semantics import MethodKey

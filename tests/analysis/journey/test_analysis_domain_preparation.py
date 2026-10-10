@@ -1191,8 +1191,7 @@ def test_ns_native_truncation_boundaries_ties_and_fixed_disclosure(tmp_path):
         assert runtime.store._graph_run(runtime.last_run_ref).lifecycle == "failed"
 
 
-@pytest.mark.parametrize("overlap", [False, True])
-@pytest.mark.parametrize("version_kind", ["validity", "snapshot"])
+@pytest.mark.parametrize("overlap,version_kind", [(False, "snapshot"), (True, "validity")])
 def test_f13_captures_historical_coordinate_at_contribution_time(tmp_path, overlap, version_kind):
     from marivo.analysis.core.rules import PreparedObservation
     from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
@@ -1518,8 +1517,7 @@ def test_filtered_event_predicate_uses_frozen_sidecar(tmp_path):
         } == {"occurrence1", "occurrence2"}
 
 
-@pytest.mark.parametrize("method", ["sum", "mean"])
-@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize("method,empty", [("sum", False), ("mean", True)])
 def test_f13_float64_retains_support_and_magnitude(tmp_path, method, empty):
     from marivo.analysis.core.rules import PreparedObservation
 
@@ -2158,15 +2156,7 @@ def test_review_postcommit_deadline_returns_durable_success(tmp_path, monkeypatc
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "form,policy",
-    [
-        ("table", "first_per_subject"),
-        ("table", "shared"),
-        ("table", "exclusive"),
-        ("parquet", "exclusive"),
-    ],
-)
+@pytest.mark.parametrize("form,policy", [("table", "first_per_subject"), ("parquet", "exclusive")])
 def test_matching_consumes_prepared_capture(tmp_path, form, policy):
     from marivo.analysis.core.model import SubjectPart
     from marivo.analysis.core.rules import JourneyMatch

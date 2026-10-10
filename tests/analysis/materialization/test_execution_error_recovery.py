@@ -138,40 +138,44 @@ def test_typed_execution_failure_keeps_original_fields_and_repair(
     assert case.session.get_run(original.run_ref).lifecycle == "failed"
 
 
-@pytest.mark.parametrize("typed", (False, True))
 def test_pre_admission_failure_never_inherits_the_previous_run(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    typed: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     logical = _members(case)
     previous = logical.execute()
     before = case.session.runs().items
-    original = (
-        IntegrityError(
-            expected="a valid graph", received="invalid graph", repair="Rebuild the graph."
+    for typed in (False, True):
+        original: BaseException = (
+            IntegrityError(
+                expected="a valid graph", received="invalid graph", repair="Rebuild the graph."
+            )
+            if typed
+            else ValueError("synthetic admission failure")
         )
-        if typed
-        else ValueError("synthetic admission failure")
-    )
 
-    def fail(*args: object, **kwargs: object) -> NoReturn:
-        raise original
+        def fail(
+            *args: object,
+            _original: BaseException = original,
+            **kwargs: object,
+        ) -> NoReturn:
+            raise _original
 
-    monkeypatch.setattr(graph_publication, "graph_document", fail)
-    with pytest.raises(AnalysisError) as caught:
-        logical.execute()
-    error = caught.value
-    assert error.run_ref is None
-    assert "session.get_run(" not in str(error)
-    assert "session.get_run(" not in render_help_text(error)[0]
-    assert case.session.runs().items == before
-    assert case.session._runtime.last_run_ref == previous.state.producing_run_ref
-    if typed:
-        assert error is original
-    else:
-        assert error.__cause__ is original
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_publication, "graph_document", fail)
+            with pytest.raises(AnalysisError) as caught:
+                logical.execute()
+        error = caught.value
+        assert error.run_ref is None
+        assert "session.get_run(" not in str(error)
+        assert "session.get_run(" not in render_help_text(error)[0]
+        assert case.session.runs().items == before
+        assert case.session._runtime.last_run_ref == previous.state.producing_run_ref
+        if typed:
+            assert error is original
+        else:
+            assert error.__cause__ is original
 
 
 def test_pre_admission_recovery_failure_preserves_its_original_run(
@@ -199,21 +203,19 @@ def test_pre_admission_recovery_failure_preserves_its_original_run(
     assert len(case.session.runs().items) == 1
 
 
-@pytest.mark.parametrize("kind", (KeyboardInterrupt, SystemExit))
 def test_control_exception_keeps_its_type_and_cleans_the_admitted_run(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    kind: type[BaseException],
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     logical = _members(case)
-    original = kind("synthetic interruption")
+    original = KeyboardInterrupt("synthetic interruption")
 
     def fail(*args: object, **kwargs: object) -> NoReturn:
         raise original
 
     monkeypatch.setattr(SourceSession, "batches", fail)
-    with pytest.raises(kind) as caught:
+    with pytest.raises(KeyboardInterrupt) as caught:
         logical.execute()
     assert caught.value is original
     runs = case.session.runs().items

@@ -49,12 +49,16 @@ def _evidence(name: str, value: dict[str, object]) -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("kind", ["local"])
-@pytest.mark.parametrize("key", ["same", "different"])
-@pytest.mark.parametrize("mode", ["thread", "process", "reentrant"])
+@pytest.mark.parametrize(
+    ("key", "mode"),
+    [
+        pytest.param("same", "thread", id="same-thread"),
+        pytest.param("same", "process", id="same-process"),
+        pytest.param("different", "reentrant", id="different-reentrant"),
+    ],
+)
 def test_busy_contender_preserves_real_producer(
     retained_coordinates_case: DslCase,
-    kind: str,
     key: str,
     mode: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -75,7 +79,7 @@ def test_busy_contender_preserves_real_producer(
     contender = observation(case.session, metric)
     initial_reads = len(reads)
     paused, resume = threading.Event(), threading.Event()
-    evidence: dict[str, object] = {"pid": os.getpid(), "kind": kind, "key": key, "mode": mode}
+    evidence: dict[str, object] = {"pid": os.getpid(), "key": key, "mode": mode}
 
     def check_contender() -> None:
         before, stats, run = snapshot(runtime), asdict(runtime.statistics), runtime.last_run_ref
@@ -188,7 +192,7 @@ def test_busy_contender_preserves_real_producer(
         assert retried_contender.to_pandas()["value"].sum() == 4
         evidence["contender_retry_artifact"] = retried_contender._run().state.artifact_ref.ref
         evidence["contender_retry_run"] = runtime.last_run_ref
-    _evidence(f"contention-{kind}-{key}-{mode}", evidence)
+    _evidence(f"contention-{key}-{mode}", evidence)
 
 
 def test_canonical_creation_releases_candidate_before_winner_guard(
@@ -369,9 +373,8 @@ def test_activation_is_guarded_and_existing_handle_owner_is_stable(
     assert first.store.current() == current
 
 
-@pytest.mark.parametrize("kind", ["local"])
 def test_different_sessions_overlap_inside_real_duckdb_queries(
-    retained_coordinates_case: DslCase, kind: str, monkeypatch: pytest.MonkeyPatch
+    retained_coordinates_case: DslCase, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entered = threading.Barrier(3)
     release = threading.Event()
@@ -442,10 +445,9 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
     assert all(result.to_pandas()["value"].sum() == 147.0 for result in results)
     assert all(snapshot(runtime)["analysis_action_run_terminals"] == 2 for runtime in runtimes)
     _evidence(
-        f"backend-overlap-{kind}",
+        "backend-overlap",
         {
             "pid": os.getpid(),
-            "kind": kind,
             "query_threads": sorted(query_threads),
             "sessions": [runtime.session_ref for runtime in runtimes],
             "runs": [runtime.last_run_ref for runtime in runtimes],

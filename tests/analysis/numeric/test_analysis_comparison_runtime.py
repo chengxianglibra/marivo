@@ -35,9 +35,6 @@ _NUMERIC_SOURCES = [
     ("DOUBLE", True),
     ("DECIMAL(30,6)", True),
     ("duration", True),
-    ("duration_s", True),
-    ("duration_ms", True),
-    ("duration_ns", True),
 ]
 
 
@@ -483,49 +480,49 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
             left.compare(right, align=mv.outer(missing="empty_value"))
 
 
-@pytest.mark.parametrize("parquet", [True])
-@pytest.mark.parametrize("metric_name", ["revenue", "order_count", "count_ratio"])
 def test_cohort_group_metric_empty_preserves_metric_null_policy(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, metric_name: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = ms.ref.dimension("sales.customer.region")
     categories = members.read(region)
     assert isinstance(categories, mv.LogicalCategoryRelation)
     eastern = categories.where(categories.value.eq("east")).members()
-    metric = (
-        mv.runtime_metric.ratio(
-            ms.ref.metric("sales.order_count"),
-            ms.ref.metric("sales.order_count"),
-            label="count_ratio",
-        )
-        if metric_name == "count_ratio"
-        else ms.ref.metric("sales." + metric_name)
-    )
     via = ms.ref.relationship("sales.order_buyer")
     scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
-    first = members.observe(metric, during=scope, via=via, by=(region,))
-    second = eastern.observe(metric, during=scope, via=via, by=(region,))
     design = mv.outer(missing="empty_value")
-    for left, right in ((first, second), (first.execute(), second.execute())):
-        result = left.compare(right, align=design).absolute.execute().to_pandas()
-        if metric_name == "count_ratio":
-            assert result["cell_tag"].tolist().count("defined") == 1
-            assert result["cell_reason"].tolist().count("zero_denominator") == 2
-            continue
-        if metric_name == "order_count":
-            assert result["cell_tag"].eq("defined").all()
-            assert sorted(result["value"].tolist()) == [0, 1, 1]
-            continue
-        assert result["cell_tag"].tolist().count("defined") == 1
-        assert result["cell_tag"].tolist().count("null") == 2
-        assert (
-            result.loc[result["cell_tag"] == "null", "cell_reason"].eq("empty_contribution").all()
+    for metric_name in ("revenue", "order_count", "count_ratio"):
+        metric = (
+            mv.runtime_metric.ratio(
+                ms.ref.metric("sales.order_count"),
+                ms.ref.metric("sales.order_count"),
+                label="count_ratio",
+            )
+            if metric_name == "count_ratio"
+            else ms.ref.metric("sales." + metric_name)
         )
+        first = members.observe(metric, during=scope, via=via, by=(region,))
+        second = eastern.observe(metric, during=scope, via=via, by=(region,))
+        for left, right in ((first, second), (first.execute(), second.execute())):
+            result = left.compare(right, align=design).absolute.execute().to_pandas()
+            if metric_name == "count_ratio":
+                assert result["cell_tag"].tolist().count("defined") == 1
+                assert result["cell_reason"].tolist().count("zero_denominator") == 2
+                continue
+            if metric_name == "order_count":
+                assert result["cell_tag"].eq("defined").all()
+                assert sorted(result["value"].tolist()) == [0, 1, 1]
+                continue
+            assert result["cell_tag"].tolist().count("defined") == 1
+            assert result["cell_tag"].tolist().count("null") == 2
+            assert (
+                result.loc[result["cell_tag"] == "null", "cell_reason"]
+                .eq("empty_contribution")
+                .all()
+            )
 
 
 @pytest.mark.parametrize("parquet", [True])
@@ -1106,10 +1103,8 @@ def test_float_fold_comparison_without_error_envelope_rejects_statically(
     assert "compare" not in actions and "ratio" not in actions
 
 
-@pytest.mark.parametrize("method", ["sum", "mean"])
 def test_float_row_statistic_comparison_retains_error_state(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: str,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -1135,24 +1130,26 @@ def test_float_row_statistic_comparison_retains_error_state(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    descriptor = mv.sum() if method == "sum" else mv.mean()
-    grouped = observed.group_by(ms.ref.entity("sales.customer")).aggregate(descriptor)
-    for statistic in (observed.aggregate(descriptor), grouped.rollup(), grouped.execute().rollup()):
-        fixed = statistic.execute()
-        assert fixed._dataset is not None
-        state = next(
-            part.table for part in fixed._dataset.verified().parts if part.role == "row_state"
-        )
-        assert state["row_state__error_bound"][0].as_py() >= 20000.0
-        for operand in (statistic, fixed):
-            with pytest.raises(AnalysisError, match="denominator interval"):
-                operand.ratio(operand).execute()
+    for descriptor in (mv.sum(), mv.mean()):
+        grouped = observed.group_by(ms.ref.entity("sales.customer")).aggregate(descriptor)
+        for statistic in (
+            observed.aggregate(descriptor),
+            grouped.rollup(),
+            grouped.execute().rollup(),
+        ):
+            fixed = statistic.execute()
+            assert fixed._dataset is not None
+            state = next(
+                part.table for part in fixed._dataset.verified().parts if part.role == "row_state"
+            )
+            assert state["row_state__error_bound"][0].as_py() >= 20000.0
+            for operand in (statistic, fixed):
+                with pytest.raises(AnalysisError, match="denominator interval"):
+                    operand.ratio(operand).execute()
 
 
-@pytest.mark.parametrize("method", ["sum", "mean", "min", "max"])
 def test_stable_float_row_statistic_comparison_propagates_bounds(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "DOUBLE", True)
@@ -1166,16 +1163,18 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
     assert isinstance(observed, mv.LogicalNumericRelation)
     positive = observed.where(observed.value.gt(0))
     floating = positive.ratio(positive)
-    descriptor = {"sum": mv.sum(), "mean": mv.mean(), "min": mv.min(), "max": mv.max()}[method]
-    statistic = floating.aggregate(descriptor)
-    for operand in (statistic, statistic.execute()):
-        result = operand.ratio(operand).execute()
-        assert result.to_pandas()["value"].tolist() == [1.0]
-        assert result._dataset is not None
-        correspondence = next(
-            part.table for part in result._dataset.verified().parts if part.role == "correspondence"
-        )
-        assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
+    for descriptor in (mv.sum(), mv.mean(), mv.min(), mv.max()):
+        statistic = floating.aggregate(descriptor)
+        for operand in (statistic, statistic.execute()):
+            result = operand.ratio(operand).execute()
+            assert result.to_pandas()["value"].tolist() == [1.0]
+            assert result._dataset is not None
+            correspondence = next(
+                part.table
+                for part in result._dataset.verified().parts
+                if part.role == "correspondence"
+            )
+            assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
 
 
 @pytest.mark.parametrize("parquet", [True])

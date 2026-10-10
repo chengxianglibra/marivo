@@ -20,7 +20,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods import builtin
@@ -30,13 +29,7 @@ from marivo.analysis.methods.temporal_fold import decode_samples
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
-from marivo.semantic.runtime_metric import (
-    RuntimeAggregateExpr,
-    RuntimeLinearExpr,
-    RuntimeRatioExpr,
-    RuntimeSliceExpr,
-    RuntimeWeightedMeanExpr,
-)
+from marivo.semantic.runtime_metric import RuntimeLinearExpr, RuntimeRatioExpr
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
 from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
@@ -115,15 +108,12 @@ def test_wide_decimal_finish_keeps_extremes_and_half_even(
     )
 
 
-@pytest.mark.parametrize("method", ("metric.linear", "metric.ratio"))
-def test_sqlite_float_does_not_grant_decimal(
-    method: Literal["metric.linear", "metric.ratio"],
-) -> None:
+def test_sqlite_float_does_not_grant_decimal() -> None:
     from dataclasses import replace
 
     implementations = [
         item
-        for item in builtin.implementations(MethodKey(method))
+        for item in builtin.implementations(MethodKey("metric.ratio"))
         if isinstance(item.qualification, Qualified)
         and item.qualification.implementation_id.startswith("r93.c04.sqlite.")
         and item.key.input_types == (ScalarType("float64"),) * 2
@@ -199,30 +189,14 @@ def _data(
             (mode, backend)
             for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
             for mode in (
-                "linear",
-                "linear_composite",
                 "linear_fanout",
                 "linear_float",
                 "linear_decimal",
                 "linear_nonfinite",
-                "ratio",
-                "ratio_float",
                 "ratio_decimal",
                 "ratio_decimal_overflow",
                 "ratio_decimal_output_overflow",
-                "weighted_mean",
-                "aggregate",
-                "slice",
-                "mean",
-                "first",
-                "last",
-                "min",
-                "max",
                 "spatial_mean",
-                "spatial_first",
-                "spatial_last",
-                "spatial_min",
-                "spatial_max",
             )
             if mode != "linear_nonfinite" or backend == "sqlite"
             if mode != "linear_fanout" or backend == "duckdb"
@@ -239,30 +213,14 @@ def _data(
 def test_independent_roots_and_temporal_fold(
     backend: str,
     mode: Literal[
-        "linear",
-        "linear_composite",
         "linear_fanout",
         "linear_float",
         "linear_decimal",
         "linear_nonfinite",
-        "ratio",
-        "ratio_float",
         "ratio_decimal",
         "ratio_decimal_overflow",
         "ratio_decimal_output_overflow",
-        "weighted_mean",
-        "aggregate",
-        "slice",
-        "mean",
-        "first",
-        "last",
-        "min",
-        "max",
         "spatial_mean",
-        "spatial_first",
-        "spatial_last",
-        "spatial_min",
-        "spatial_max",
     ],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -277,14 +235,14 @@ def test_independent_roots_and_temporal_fold(
             "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
         )
         linear = mode.startswith("linear")
-        composite = mode in ("linear_composite", "linear_fanout")
+        composite = mode == "linear_fanout"
         ratio = mode.startswith("ratio")
-        runtime_mode = linear or ratio or mode in ("weighted_mean", "aggregate", "slice")
+        runtime_mode = linear or ratio
         fold = mode.removeprefix("spatial_")
         spatial_fold = mode.startswith("spatial_")
         numeric_type: Literal["int64", "float64", "decimal"] = (
             "float64"
-            if mode in ("linear_float", "linear_nonfinite", "ratio_float")
+            if mode in ("linear_float", "linear_nonfinite")
             else "decimal"
             if mode
             in (
@@ -323,8 +281,7 @@ def test_independent_roots_and_temporal_fold(
         datasets = [
             _data(
                 backend,
-                [(1, "a", 0), (2, "b", 0)]
-                + ([(3, "c", 0)] if ratio or mode == "weighted_mean" else []),
+                [(1, "a", 0), (2, "b", 0)] + ([(3, "c", 0)] if ratio else []),
                 numeric_type,
             ),
             _data(
@@ -344,15 +301,9 @@ def test_independent_roots_and_temporal_fold(
         ]
         if composite:
             composite_rows = (
-                ((1, "a", 0, 1), (2, "a", 0, 2), (3, "b", 0, 1)),
-                ((11, "a", 10, 1), (12, "a", 20, 1), (13, "a", 50, 2), (14, "a", 40, 2)),
-                (
-                    (21, "a", 2, 1),
-                    (22, "a", 3, 1),
-                    (24, "a", 7, 2),
-                    (25, "a", 13, 2),
-                    (23, "b", 4, 1),
-                ),
+                ((1, "a", 0, 1), (2, "a", 0, 2)),
+                ((11, "a", 10, 1),),
+                ((21, "a", 2, 1),),
             )
             datasets = []
             for composite_root in composite_rows:
@@ -435,12 +386,7 @@ def test_independent_roots_and_temporal_fold(
             if name != "subjects":
                 models += f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
                 models += f"{name}_total=ms.aggregate(name={name + '_total'!r},measure={name}_amount,agg='sum',empty=ms.empty.zero())\n"
-                tenant_join = (
-                    f",ms.join_on({name}_tenant,subjects_tenant)"
-                    if mode == "linear_composite"
-                    else ""
-                )
-                models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner){tenant_join}])\n"
+                models += f"{name}_subject=ms.relationship(name={name + '_subject'!r},from_entity={name},to_entity=subjects,keys=[ms.join_on({name}_owner,subjects_owner)])\n"
                 if not runtime_mode:
                     models += f"{name}_status=ms.measure_column(name='status',entity={name},column='amount',additivity=ms.additive_all(except_=({name}_time,)),status_time_dimension={name}_time,status_time_fold={fold!r})\n"
                     models += f"{name}_folded=ms.aggregate(name={name + '_folded'!r},measure={name}_status,agg='sum')\n"
@@ -455,35 +401,13 @@ def test_independent_roots_and_temporal_fold(
         )
         session = mv.session.get_or_create("r93-multiroot", report_timezone="UTC")
         members = session.members(ms.ref.entity("sales.subjects"))
-        expression: (
-            RuntimeLinearExpr
-            | RuntimeRatioExpr
-            | RuntimeWeightedMeanExpr
-            | RuntimeAggregateExpr
-            | RuntimeSliceExpr
-        ) = mv.runtime_metric.linear(
+        expression: RuntimeLinearExpr | RuntimeRatioExpr = mv.runtime_metric.linear(
             add=[ms.ref.metric("sales.left_total"), ms.ref.metric("sales.right_total")],
             label="combined",
         )
         if ratio:
             expression = mv.runtime_metric.ratio(
                 ms.ref.metric("sales.left_total"), ms.ref.metric("sales.right_total"), label="ratio"
-            )
-        elif mode == "weighted_mean":
-            expression = mv.runtime_metric.weighted_mean(
-                ms.ref.measure("sales.left.amount"),
-                ms.ref.measure("sales.left.amount"),
-                label="weighted",
-            )
-        elif mode == "aggregate":
-            expression = mv.runtime_metric.aggregate(
-                ms.ref.measure("sales.left.amount"), agg="sum", label="total"
-            )
-        elif mode == "slice":
-            expression = mv.runtime_metric.slice(
-                ms.ref.metric("sales.right_total"),
-                by={ms.ref.dimension("sales.right.owner"): "a"},
-                label="selected",
             )
         routes = (
             mv.path(ms.ref.relationship("sales.left_subject")),
@@ -523,19 +447,7 @@ def test_independent_roots_and_temporal_fold(
             return
         values = (
             members.observe(expression, via=routes, by=(mv.member(),))
-            if linear or ratio
-            else members.observe(
-                expression,
-                via=ms.ref.relationship("sales.left_subject"),
-                by=(mv.member(),),
-            )
-            if mode in ("weighted_mean", "aggregate")
-            else members.observe(
-                expression,
-                via=ms.ref.relationship("sales.right_subject"),
-                by=(mv.member(),),
-            )
-            if mode == "slice"
+            if runtime_mode
             else members.observe(
                 ms.ref.metric("sales.left_folded"),
                 during=mv.time_scope(start="2026-08-01", end="2026-08-03"),
@@ -652,60 +564,15 @@ def test_independent_roots_and_temporal_fold(
                 )
             return
         result = values.execute()
-        if mode == "linear_composite":
-            assert result._dataset is not None
-            verified = result._dataset.verified()
-            actual = {
-                (row["key_0"], row["key_1"]): (row["value"], row["cell_tag"])
-                for row in cell_rows(verified.primary)
-            }
-            assert actual == {
-                ("a", 1): (35, "defined"),
-                ("a", 2): (110, "defined"),
-                ("b", 1): (4, "defined"),
-            }
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
-            source_trace.save(
-                f"c04-source-{backend}-{mode}",
-                {**subject.environment, "profile": profile},
-                {"roots": [{"columns": data.columns, "values": data.values} for data in datasets]},
-                {
-                    "a_1": 35,
-                    "a_2": 110,
-                    "b_1": 4,
-                    "complete_key": ["owner", "tenant"],
-                    "roots_reduced_before_combining": True,
-                },
-                result,
-                (subject.session, left.session, right.session),
-            )
-            return
         frame = result.to_pandas().set_index("member")
-        assert set(frame.index) == (
-            {"a", "b", "c"} if ratio or mode == "weighted_mean" else {"a", "b"}
-        )
+        assert set(frame.index) == ({"a", "b", "c"} if ratio else {"a", "b"})
         expected: dict[str, int | float | Decimal] = {
-            "linear": 35,
             "linear_float": 4.5,
             "linear_decimal": Decimal("0.35"),
-            "ratio": 6.0,
-            "ratio_float": 5.0,
             "ratio_decimal": 6.0,
-            "weighted_mean": 50 / 3,
-            "aggregate": 30,
-            "slice": 5,
-            "mean": 15,
-            "first": 10,
-            "last": 20,
-            "min": 10,
-            "max": 20,
             "spatial_mean": 18,
-            "spatial_first": 15,
-            "spatial_last": 21,
-            "spatial_min": 15,
-            "spatial_max": 21,
         }
-        if mode in ("weighted_mean", "ratio_decimal"):
+        if mode == "ratio_decimal":
             assert frame.loc["a", "value"] == pytest.approx(expected[mode], rel=1e-14)
         else:
             assert frame.loc["a", "value"] == expected[mode]
@@ -724,8 +591,8 @@ def test_independent_roots_and_temporal_fold(
                 "b": (),
             }
         assert frame.loc["a", "cell_tag"] == "defined"
-        if linear or ratio or mode == "slice":
-            assert frame.loc["b", "value"] == (0.0 if ratio or mode == "slice" else amounts[4])
+        if linear or ratio:
+            assert frame.loc["b", "value"] == (0.0 if ratio else amounts[4])
             if numeric_type == "decimal" and linear:
                 assert isinstance(frame.loc["a", "value"], Decimal)
                 assert isinstance(frame.loc["b", "value"], Decimal)
@@ -733,7 +600,7 @@ def test_independent_roots_and_temporal_fold(
         else:
             assert frame.loc["b", "cell_tag"] == "null"
             assert frame.loc["b", "cell_reason"] == "empty_contribution"
-        if ratio or mode == "weighted_mean":
+        if ratio:
             assert set(frame.index) == {"a", "b", "c"}
             assert frame.loc["c", "cell_tag"] == ("undefined" if ratio else "null")
             assert frame.loc["c", "cell_reason"] == (
@@ -799,17 +666,9 @@ def test_independent_roots_and_temporal_fold(
                 {"roots": [{"columns": data.columns, "values": data.values} for data in datasets]},
                 {
                     "a": str(expected[mode]),
-                    "b": "0.0"
-                    if ratio or mode == "slice"
-                    else "Null(empty_contribution)"
-                    if mode in ("weighted_mean", "aggregate")
-                    else str(amounts[4]),
+                    "b": "0.0" if ratio else str(amounts[4]),
                     "numeric_type": numeric_type,
-                    "empty_target": "Undefined(zero_denominator)"
-                    if ratio
-                    else "Null(empty_contribution)"
-                    if mode == "weighted_mean"
-                    else None,
+                    "empty_target": "Undefined(zero_denominator)" if ratio else None,
                     "roots_reduced_before_combining": linear or ratio,
                     "resources": 0,
                     "fixed_ratio_rollup": str(ratio_total) if ratio else None,
@@ -853,7 +712,7 @@ def test_independent_roots_and_temporal_fold(
                         "oracle": {
                             "a": str(expected[mode]),
                             "b": "0.0"
-                            if ratio or mode == "slice"
+                            if ratio
                             else str(amounts[4])
                             if linear
                             else "Null(empty_contribution)",

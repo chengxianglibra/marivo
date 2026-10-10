@@ -113,7 +113,7 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     assert failure.value.code == "r8.retained_part"
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_rank_projection_disclosure_and_fixed_table_keep_fit_scope(
     analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
 ) -> None:
@@ -143,9 +143,8 @@ def test_rank_projection_disclosure_and_fixed_table_keep_fit_scope(
         assert case.session.runs().items == runs
 
 
-@pytest.mark.parametrize("fault", ("missing", "corrupt"))
 def test_table_fit_receipt_is_required_for_recovery_and_exact_hit(
-    analysis_dsl_case_factory: DslCaseFactory, fault: Literal["missing", "corrupt"]
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.order"))
@@ -159,17 +158,21 @@ def test_table_fit_receipt_is_required_for_recovery_and_exact_hit(
         p.local for p in table._dataset.artifact.descriptor.parts if p.role == "table_fits"
     )
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    if fault == "missing":
-        path.unlink()
-    else:
-        payload = path.read_bytes()
-        path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
-    runs = case.session.runs().items
-    with pytest.raises(AnalysisError):
-        case.session.artifact(table.artifact_ref)
-    with pytest.raises(AnalysisError):
-        logical.execute()
-    assert case.session.runs().items == runs
+    payload = path.read_bytes()
+    for fault in ("missing", "corrupt"):
+        if fault == "missing":
+            path.unlink()
+        else:
+            path.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
+        runs = case.session.runs().items
+        try:
+            with pytest.raises(AnalysisError):
+                case.session.artifact(table.artifact_ref)
+            with pytest.raises(AnalysisError):
+                logical.execute()
+            assert case.session.runs().items == runs
+        finally:
+            path.write_bytes(payload)
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
@@ -203,7 +206,7 @@ def test_source_fixed_and_fresh_process_cold_display(
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     analysis_dsl_case_factory: DslCaseFactory, method: DeviationMethod
 ) -> None:

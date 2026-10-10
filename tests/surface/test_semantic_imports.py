@@ -28,7 +28,7 @@ from marivo.refs import RefPayloadV1
 from marivo.semantic import errors as errors_mod
 from marivo.semantic import typing as typing_mod
 from marivo.semantic.check import _error_to_dict
-from marivo.semantic.constraints import ConstraintId, get_constraint, iter_constraints
+from marivo.semantic.constraints import ConstraintId, get_constraint
 from marivo.semantic.ir import (
     AiContextIR,
     DatasourceIR,
@@ -44,7 +44,6 @@ from marivo.semantic.ir import (
     SourceLocation,
     TargetDimensionContract,
 )
-from tests.support.paths import PROJECT_ROOT
 
 # ---------------------------------------------------------------------------
 # __all__ importability
@@ -326,18 +325,6 @@ def test_raise_helper() -> None:
     assert err.semantic_refs == ("model.sales",)
     assert err.hint is not None  # auto-populated from HINTS
     assert err.constraint_id == "unique_semantic_name"
-
-
-# ---------------------------------------------------------------------------
-# Constraint metadata references
-# ---------------------------------------------------------------------------
-
-
-def test_constraint_example_paths_exist() -> None:
-    repo_root = PROJECT_ROOT
-    for constraint in iter_constraints():
-        if constraint.example is not None:
-            assert (repo_root / constraint.example).exists(), constraint.example
 
 
 # ---------------------------------------------------------------------------

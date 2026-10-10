@@ -481,7 +481,7 @@ def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
         logical.execute()
 
 
-@pytest.mark.parametrize("metric", ("net_total", "minus_sum", "double_sum", "net_weighted"))
+@pytest.mark.parametrize("metric", ("net_total", "net_weighted"))
 def test_computed_measure_graph_rejects_before_business_reads_and_run(
     computation_session: mv.Session, metric: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

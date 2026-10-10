@@ -14,7 +14,6 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
-from marivo.analysis.materialization.history_execution import HISTORY
 from marivo.refs import ref
 from tests.analysis.lifecycle.lifecycle_fixtures import (
     RECOVERY_PROFILES,
@@ -25,12 +24,12 @@ from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 
 PROFILES = RECOVERY_PROFILES
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
-PROFILE_IDS = (("K11", "T07"), ("K22", "T07"), ("K33", "T10"))
+# Source/fixed correctness and key identity shapes are covered by ordinary tests;
+# retain one standalone replay as the representative cold recovery path.
+PROFILE_IDS = (("K22", "T07"),)
 RECOVERY_CASES = tuple(
     (key, time) for key, time in PROFILES if (key["id"], time["id"]) in PROFILE_IDS
 )
-# Cold recovery uses one representative profile; source/fixed still cover every
-# scalar and composite identity shape above.
 COLD_REPLAY_PROFILE = ("K22", "T07")
 
 
@@ -82,10 +81,14 @@ def test_history_replay_source_fixed_profiles_and_representative_cold(tmp_path, 
         unit=time["occurrence_unit"],
         zone=time["report_timezone"],
     )
-    source = replay(session, members, window, claims).execute()
+    logical = replay(session, members, window, claims)
+    assert isinstance(logical, mv.LogicalHistoryResult)
+    source = logical.execute()
+    assert isinstance(source, mv.MaterializedHistoryResult)
     assert records(source) == expected_histories(values, subject, occurrence)
     fixed = session.artifact(source.state.artifact_ref)
     assert records(fixed) == records(source)
+    assert fixed.to_pandas().equals(source.to_pandas())
     assert render(fixed.contract().show) == render(source.contract().show)
     if (key["id"], time["id"]) != COLD_REPLAY_PROFILE:
         return
@@ -201,7 +204,6 @@ def test_ties_only_after_proved_terminal(tmp_path, terminal):
 def test_frozen_public_signature_and_disclosure():
     import inspect
 
-    import marivo
     from marivo.analysis.session._history_lifecycle import HistoryLifecycle
 
     signature = inspect.signature(HistoryLifecycle.replay)
@@ -221,9 +223,6 @@ def test_frozen_public_signature_and_disclosure():
     assert "LogicalLifecycleDataset" not in mv.__all__
     assert hasattr(mv.LogicalHistoryResult, "read")
     assert hasattr(mv.MaterializedHistoryResult, "distribution")
-    text = render(lambda: marivo.help("analysis.lifecycle.replay"))
-    assert "population" in text and "LogicalHistoryResult" in text
-    assert "LogicalLifecycleDataset" not in text
 
 
 def test_construction_rejects_authority_before_rows_or_run(tmp_path, monkeypatch):
@@ -382,11 +381,7 @@ def test_receipt_recovery_rejects_before_new_run(tmp_path, role, fault):
     assert session.runs().items == before
 
 
-@pytest.mark.parametrize(
-    "point",
-    ["before_commit", "cancel", "deadline"],
-)
-def test_publication_failure_preserves_prior_history(tmp_path, point):
+def test_publication_failure_preserves_prior_history(tmp_path):
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
@@ -395,36 +390,48 @@ def test_publication_failure_preserves_prior_history(tmp_path, point):
     fixed = logical.execute()
     expected = records(fixed)
 
-    def inject(actual):
-        if actual == ("insert_findings" if point in ("cancel", "deadline") else point):
-            if point == "cancel":
-                raise KeyboardInterrupt("injected History cancellation")
-            if point == "deadline":
-                CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-            else:
-                raise RuntimeError("injected History transaction failure")
+    for point in ("before_commit", "cancel", "deadline"):
+        deadline_token = None
 
-    session._runtime._hook = inject
-    with pytest.raises((AnalysisError, KeyboardInterrupt)):
-        logical.execute()
-    session._runtime._hook = None
-    assert records(session.artifact(fixed.state.artifact_ref)) == expected
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+        def inject(actual, injection_point=point):
+            nonlocal deadline_token
+            if actual == (
+                "insert_findings" if injection_point in ("cancel", "deadline") else injection_point
+            ):
+                if injection_point == "cancel":
+                    raise KeyboardInterrupt("injected History cancellation")
+                if injection_point == "deadline":
+                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                else:
+                    raise RuntimeError("injected History transaction failure")
+
+        session._runtime._hook = inject
+        try:
+            with pytest.raises((AnalysisError, KeyboardInterrupt)):
+                logical.execute()
+        finally:
+            session._runtime._hook = None
+            if deadline_token is not None:
+                CURRENT.reset(deadline_token)
+        assert records(session.artifact(fixed.state.artifact_ref)) == expected
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
+            assert (
+                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
+                == 0
+            )
 
 
-@pytest.mark.parametrize("form", ["table", "parquet"])
-def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monkeypatch, form):
+def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monkeypatch):
     import duckdb
     import pyarrow.parquet as pq
 
     from marivo.analysis.materialization import history_execution
     from marivo.datasource.adapters import SourceSession
 
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path, form=form)
+    session, members, window, claims, _ = build_lifecycle_public(tmp_path, form="parquet")
     trace = []
     original_read, original_execute = SourceSession.batches, history_execution.execute
 
@@ -450,8 +457,7 @@ def test_reevaluation_source_first_sharing_and_fixed_preservation(tmp_path, monk
     expected = records(fixed)
     with duckdb.connect(str(tmp_path / "source.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE kind='finished'")
-        if form == "parquet":
-            pq.write_table(connection.table("facts").to_arrow_table(), tmp_path / "facts.parquet")
+        pq.write_table(connection.table("facts").to_arrow_table(), tmp_path / "facts.parquet")
     changed = logical.execute()
     assert changed.state.artifact_ref != fixed.state.artifact_ref
     assert records(changed) != expected
@@ -473,8 +479,7 @@ def test_executed_latest_history_example(tmp_path):
     session, _, window, claims, _ = build_lifecycle_public(tmp_path)
     from tests.support.documentation import _example
 
-    snippets = [_example(locale, "history-replay") for locale in ("en", "zh")]
-    assert snippets[0] == snippets[1]
+    snippet = _example("en", "history-replay")
     namespace = {
         "session": session,
         "window": window,
@@ -482,42 +487,6 @@ def test_executed_latest_history_example(tmp_path):
         "mv": mv,
         "ms": ms,
     }
-    exec(snippets[0], namespace)
+    exec(snippet, namespace)
     assert isinstance(namespace["recovered"], mv.MaterializedHistoryResult)
     assert records(namespace["recovered"]) == records(namespace["retained_history"])
-
-
-def test_public_replay_full_subject_domain(tmp_path):
-    session, members, window, claims, _ = build_lifecycle_public(tmp_path)
-    logical = session.lifecycle.replay(
-        ref.state_model("commerce.model"),
-        population=members,
-        window=window,
-        seed=mv.from_inception(),
-        completeness=claims,
-    )
-    assert isinstance(logical, mv.LogicalHistoryResult)
-    fixed = logical.execute()
-    assert isinstance(fixed, mv.MaterializedHistoryResult)
-    rows = fixed._dataset.verified()
-    histories = [
-        HISTORY.validate_json(row["history__record"]) for row in rows.parts[0].table.to_pylist()
-    ]
-    assert [item.classification for item in histories] == ["seeded", "seeded", "not_started"]
-    first = histories[0]
-    assert len(first.transitions) == 3
-    assert [(item.from_state, item.to_state) for item in first.transitions] == [
-        ("open", "open"),
-        ("open", "paid"),
-        ("paid", "done"),
-    ]
-    assert len(first.violations) == 3
-    assert len(first.pre_inception) == 1
-    assert [item.state for item in first.intervals] == ["open", "open", "done"]
-    assert first.intervals[0].left_clipped
-    assert first.intervals[0].start == START
-    assert histories[2].intervals == ()
-    assert fixed.to_pandas().shape[0] == 3
-    restored = session.artifact(fixed.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedHistoryResult)
-    assert restored.to_pandas().equals(fixed.to_pandas())

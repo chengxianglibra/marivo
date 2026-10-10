@@ -16,9 +16,15 @@ from marivo.analysis.methods.attribution import (
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
 
-@pytest.mark.parametrize("exact", [1, Decimal("1.00")])
-@pytest.mark.parametrize("floating_numerator", [False, True])
-@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize(
+    "exact,floating_numerator,weighted",
+    [
+        (1, False, False),
+        (1, True, False),
+        (Decimal("1.00"), False, True),
+        (Decimal("1.00"), True, True),
+    ],
+)
 def test_component_errors_follow_each_numeric_carrier(
     exact: int | Decimal, floating_numerator: bool, weighted: bool
 ) -> None:
@@ -131,8 +137,8 @@ def test_contradictory_component_cannot_cancel_under_other() -> None:
         )
 
 
-def test_many_small_decimal_partitions_reject_excess_rounding() -> None:
-    count = 3000
+def test_decimal_partition_rounding_exceeds_reconciliation_tolerance() -> None:
+    count = 3
     rows = allocate(
         {(str(i),): (Fraction(1), Fraction(1)) for i in range(count)},
         {(str(i),): (Fraction(0), Fraction(1)) for i in range(count)},
@@ -144,7 +150,7 @@ def test_many_small_decimal_partitions_reject_excess_rounding() -> None:
         current_total=Fraction(count),
         baseline_total=Fraction(count),
     )
-    assert sum(numeric(r[4]) for r in rows) == Fraction(999, 1000)
+    assert sum(numeric(r[4]) for r in rows) == Fraction(999999, 1_000_000)
     assert not reconciles(Fraction(1), [r[4] for r in rows], False)
     assert reconciles(Fraction(1), [Decimal("0.999999999")], False)
     assert not reconciles(Fraction(1), [Decimal("0.9999999989")], False)

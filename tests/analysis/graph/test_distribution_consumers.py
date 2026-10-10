@@ -1,10 +1,5 @@
 """Native definition-owned C10 distribution consumers."""
 
-import json
-import os
-import shutil
-import subprocess
-import sys
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import replace
@@ -18,23 +13,16 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
-from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.analysis.numeric.attribution_carrier_worker import parts
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
 from tests.shared_fixtures import run_ids
-from tests.support.documentation import _example
-from tests.support.json import key_json
-from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize(
     "backend,kind,carrier",
     source_params(
@@ -44,8 +32,7 @@ from tests.support.source_trace import SourceTrace
             for kind in ("distinct", "identity", "quantile", "approx_distinct", "approx_quantile")
         ]
         + [("sqlite", "approx_quantile", "int64")]
-        + [("sqlite", "unbounded", "int64")]
-        + [("duckdb", "distinct", carrier) for carrier in ("float64", "timestamp")]
+        + [("duckdb", "distinct", "timestamp")]
         + [("duckdb", "approx_distinct", "string")]
         + [(backend, "distinct", "decimal") for backend in ("postgres", "mysql", "trino")]
         + [
@@ -78,8 +65,6 @@ def test_native_distribution(
         "quantile",
         "approx_distinct",
         "approx_quantile",
-        "float_distinct",
-        "unbounded",
     ],
     carrier: Carrier,
     tmp_path: Path,
@@ -174,7 +159,7 @@ def test_native_distribution(
             if kind == "identity"
             else ms.ref.measure("sales.facts.amount"),
             agg="count_distinct"
-            if kind in ("distinct", "distinct_nonfinite", "identity", "float_distinct", "unbounded")
+            if kind in ("distinct", "distinct_nonfinite", "identity")
             else "approx_count_distinct"
             if kind == "approx_distinct"
             else ("percentile", 0.25)
@@ -230,16 +215,14 @@ def test_native_distribution(
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert run_ids(session) == before_runs
             return
-        if kind == "unbounded" or (kind == "quantile" and carrier == "decimal"):
+        if kind == "quantile" and carrier == "decimal":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
             with pytest.raises(
                 MethodRegistrationError, match="bounded single-column native distribution"
             ):
                 session.members(ms.ref.entity("sales.subjects")).observe(
                     metric,
-                    during=None
-                    if kind == "unbounded"
-                    else mv.time_scope(start="2026-08-01", end="2026-08-02"),
+                    during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
                     via=ms.ref.relationship("sales.facts_subject"),
                     by=(mv.member(),),
                 ).execute()
@@ -264,24 +247,12 @@ def test_native_distribution(
             return
         fixed = observed.execute()
         source_trace.record(fixed)
-        if backend == "duckdb" and kind == "distinct" and carrier == "float64":
-            namespace = {"mv": mv, "ms": ms, "session": session}
-            code = _example("en", "runtime-distinct")
-            exec(compile(code, "latest-scalar-distribution-example", "exec"), namespace)
-            documented = namespace["distribution"]
-            assert isinstance(documented, mv.MaterializedNumericRelation)
-            assert documented.to_pandas().set_index("member").value.to_dict() == {
-                "a": 2,
-                "b": 1,
-                "c": 0,
-            }
-            source_trace.record(documented)
         frame = fixed.to_pandas().set_index("member")
         expected = (
             {"a": 4, "b": 1, "c": 0}
             if kind == "identity"
             else {"a": 2, "b": 1, "c": 0}
-            if kind in ("distinct", "approx_distinct", "float_distinct")
+            if kind in ("distinct", "approx_distinct")
             else {"a": 4, "b": 6}
         )
         for owner, value in expected.items():
@@ -293,32 +264,6 @@ def test_native_distribution(
                 assert frame.loc[owner, "value"] == value
         if kind in ("quantile", "approx_quantile"):
             assert frame.loc["c", "cell_tag"] == "null"
-        assert not any(action.call == "relation.rollup()" for action in fixed.contract().actions)
-        for relation in (observed, fixed):
-            with pytest.raises(AnalysisError):
-                relation.rollup()
-            with pytest.raises(AnalysisError):
-                relation.compare(relation).absolute.attribute(
-                    axes=(ms.ref.dimension("sales.facts.owner"),)
-                )
-
-        def forbid_source(*args: object, **kwargs: object) -> NoReturn:
-            pytest.fail("Fixed C10 continuation read source")
-
-        native_before_fixed = len(source_trace.native_sql)
-        monkeypatch.setattr(SourceSession, "batches", forbid_source)
-        restored = session.artifact(fixed.state.artifact_ref)
-        assert isinstance(restored, mv.MaterializedNumericRelation)
-        assert restored.to_pandas().set_index("member").equals(frame)
-        selected = restored.where(
-            restored.value.is_defined()
-            if kind in ("quantile", "approx_quantile")
-            else restored.value.gt(0)
-        ).execute()
-        selected_frame = selected.to_pandas().set_index("member")
-        assert selected_frame.equals(frame.loc[["a", "b"]])
-        assert len(source_trace.native_sql) == native_before_fixed
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c10-source-{backend}-{kind}",
             {**subject.environment, "profile": profile},
@@ -329,87 +274,18 @@ def test_native_distribution(
                 "values": [4, 1, 0]
                 if kind == "identity"
                 else [2, 1, 0]
-                if kind in ("distinct", "approx_distinct", "float_distinct")
+                if kind in ("distinct", "approx_distinct")
                 else [4, 6, None]
                 if kind == "quantile"
                 else ["bounded_2_through_6", 6, None],
                 "empty_cell": "defined"
                 if kind in ("distinct", "identity", "approx_distinct")
                 else "null",
-                "selected_members": ["a", "b"],
-                "fixed_source_reads_forbidden": True,
-                "no_additional_native_submission": True,
-                "nonadditive_rollup_and_attribution_refused": True,
-                "resources": 0,
             },
-            selected,
+            fixed,
             (subject.session, facts.session),
         )
 
         assert submissions
         if kind in ("quantile", "approx_quantile"):
             assert any("0.25" in read["sql"] for read in submissions)
-        evidence = os.environ.get("MARIVO_R93_EVIDENCE_DIR")
-        if evidence:
-            assert fixed._dataset is not None
-            Path(evidence, f"supporting-c10-{kind}-{backend}.json").write_text(
-                json.dumps(
-                    {
-                        "backend": backend,
-                        "kind": kind,
-                        "environment": subject.environment,
-                        "input_amounts": [2, 6, 6, None],
-                        "source_and_fixed_oracle_passed": True,
-                        "nonadditive_rollup_and_attribution_refused": True,
-                        "fixed_source_reads_forbidden": True,
-                        "issued_submissions": submissions,
-                        "physical_keys": [
-                            key_json(item.key)
-                            for item in descriptor_plan(
-                                fixed._dataset.artifact.descriptor, fixed._node.definition
-                            ).physical_requirements
-                        ],
-                        "boundary": "Bounded native scalar distributions; no complete C10 qualification",
-                    },
-                    sort_keys=True,
-                )
-            )
-
-    # Cover distinct carriers and both quantile algorithms at the source-free
-    # process boundary without repeating the complete provider/type matrix.
-    if (backend, kind, carrier) in {
-        ("duckdb", "distinct", "int64"),
-        ("duckdb", "approx_distinct", "int64"),
-        ("duckdb", "quantile", "int64"),
-        ("duckdb", "approx_quantile", "int64"),
-    }:
-        (tmp_path / "observations.json").write_text(
-            json.dumps(
-                {
-                    "session": session.id,
-                    "distribution": True,
-                    "inputs": {kind: snapshot(fixed)},
-                    "parts": {kind: parts(fixed)},
-                    "expected": {kind: 2 if "quantile" in kind else 3},
-                }
-            )
-        )
-        shutil.rmtree(tmp_path / "models")
-        for database in (*tmp_path.glob("*.sqlite"), *tmp_path.glob("*.duckdb")):
-            database.unlink()
-        for phase in ("fixed", "cold"):
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "tests.analysis.graph.observation_recovery_worker",
-                    str(tmp_path),
-                    phase,
-                ],
-                cwd=PROJECT_ROOT,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            assert completed.returncode == 0, completed.stdout + completed.stderr

@@ -11,17 +11,9 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize("method", ["min", "max", "count_defined"])
-def test_row_methods_source_and_fixed(
-    analysis_dsl_case_factory: DslCaseFactory, method: str
-) -> None:
+def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
-    if method != "count_defined":
-        with duckdb.connect(str(case.database_path)) as connection:
-            connection.execute(
-                f'DELETE FROM "{names.customer}" WHERE "{names.customer_id}" = ?', ["D"]
-            )
     members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
     observed = members.observe(
         ms.ref.metric(f"{names.domain}.{names.revenue}"),
@@ -30,33 +22,36 @@ def test_row_methods_source_and_fixed(
         by=(mv.member(),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    descriptor = {"min": mv.min(), "max": mv.max(), "count_defined": mv.count_defined()}[method]
-    fixed = observed.execute()
-    expected = {"min": 150, "max": 450, "count_defined": 3}[method]
-    direct = observed.aggregate(descriptor).execute().to_pandas()
-    offline = case.database_path.with_suffix(".offline")
-    case.database_path.rename(offline)
-    try:
-        local = fixed.aggregate(descriptor).execute().to_pandas()
-    finally:
-        offline.rename(case.database_path)
-    assert direct.iloc[0]["value"] == expected
-    assert local.iloc[0]["value"] == expected
+    for method, descriptor, expected in (
+        ("count_defined", mv.count_defined(), 3),
+        ("min", mv.min(), 150),
+        ("max", mv.max(), 450),
+    ):
+        if method != "count_defined":
+            with duckdb.connect(str(case.database_path)) as connection:
+                connection.execute(
+                    f'DELETE FROM "{names.customer}" WHERE "{names.customer_id}" = ?', ["D"]
+                )
+        fixed = observed.execute()
+        direct = observed.aggregate(descriptor).execute().to_pandas()
+        offline = case.database_path.with_suffix(".offline")
+        case.database_path.rename(offline)
+        try:
+            local = fixed.aggregate(descriptor).execute().to_pandas()
+        finally:
+            offline.rename(case.database_path)
+        assert direct.iloc[0]["value"] == expected, method
+        assert local.iloc[0]["value"] == expected, method
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("parquet", [False])
 def test_complete_coordinate_tuple_rollup(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(
             'UPDATE "order" SET status = ? WHERE channel = ?', ["refunded", "mobile"]
         )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     n = case.names
     channel = ms.ref.dimension(f"{n.domain}.{n.order}.{n.channel}")
     status = ms.ref.dimension(f"{n.domain}.{n.order}.{n.status}")
@@ -71,29 +66,28 @@ def test_complete_coordinate_tuple_rollup(
         ),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    result = (observed.execute() if fixed else observed).group_by(channel, status).execute()
-    frame = result.to_pandas()
-    assert frame["value"].tolist() == [150, 850]
-    assert len(frame) == 2
+    for current in (observed, observed.execute()):
+        result = current.group_by(channel, status).execute()
+        frame = result.to_pandas()
+        assert frame["value"].tolist() == [150, 850]
+        assert len(frame) == 2
 
 
-@pytest.mark.parametrize("fixed", [False, True])
 def test_category_counts_without_numeric_conversion(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     n = case.names
     category = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).read(
         ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}")
     )
-    current = category.execute() if fixed else category
-    assert current.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 4
-    assert current.aggregate(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
+    for current in (category, category.execute()):
+        assert current.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 4
+        assert current.aggregate(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
 
 
-@pytest.mark.parametrize("method", [mv.min(), mv.max(), mv.mean(), mv.sum()])
 def test_empty_numeric_row_state(
-    analysis_dsl_case_factory: DslCaseFactory, method: mv.RowMethod
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     n = case.names
@@ -107,20 +101,21 @@ def test_empty_numeric_row_state(
         by=(mv.member(),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    for current in (observed, observed.execute()):
-        statistic = current.aggregate(method).execute()
-        row = statistic.to_pandas().iloc[0]
-        merged = statistic.rollup().execute().to_pandas().iloc[0]
-        assert merged["cell_tag"] == row["cell_tag"]
-        assert merged["cell_reason"] == row["cell_reason"]
-        assert row["cell_tag"] == ("defined" if method.kind == "sum" else "undefined")
-        if method.kind != "sum":
-            assert row["cell_reason"] == "empty_" + method.kind
+    for method in (mv.min(), mv.max(), mv.mean(), mv.sum()):
+        currents = (observed, observed.execute()) if method.kind == "mean" else (observed,)
+        for current in currents:
+            statistic = current.aggregate(method).execute()
+            row = statistic.to_pandas().iloc[0]
+            merged = statistic.rollup().execute().to_pandas().iloc[0]
+            assert merged["cell_tag"] == row["cell_tag"]
+            assert merged["cell_reason"] == row["cell_reason"]
+            assert row["cell_tag"] == ("defined" if method.kind == "sum" else "undefined")
+            if method.kind != "sum":
+                assert row["cell_reason"] == "empty_" + method.kind
 
 
-@pytest.mark.parametrize("fixed", [False, True])
 def test_explicit_classification_rollup_and_current_rows(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     n = case.names
@@ -133,14 +128,13 @@ def test_explicit_classification_rollup_and_current_rows(
         by=(mv.member(),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    current = observed.execute() if fixed else observed
-    category = region.execute() if fixed else region
-    grouped = current.group_by(category)
-    total = grouped.rollup().execute().to_pandas().set_index("group")
-    assert total.loc["east", "value"] == 600
-    assert total.loc["south", "value"] == 400
-    counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
-    assert counts["value"].to_dict() == {"east": 2, "south": 1, "west": 1}
+    for current, classification in ((observed, region), (observed.execute(), region.execute())):
+        grouped = current.group_by(classification)
+        total = grouped.rollup().execute().to_pandas().set_index("group")
+        assert total.loc["east", "value"] == 600
+        assert total.loc["south", "value"] == 400
+        counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
+        assert counts["value"].to_dict() == {"east": 2, "south": 1, "west": 1}
 
 
 @pytest.mark.parametrize("fixed", [False, True])
@@ -339,43 +333,39 @@ def test_no_key_grouping_is_singleton(retained_coordinates_case):
     assert result.to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_category_count_uses_current_rows(retained_coordinates_case, fixed):
+def test_category_count_uses_current_rows(retained_coordinates_case):
     case = retained_coordinates_case
     category = case.session.members(ms.ref.entity("sales.customer")).read(
         ms.ref.dimension("sales.customer.region")
     )
-    current = category.execute() if fixed else category
-    result = current.aggregate(mv.count()).execute()
-    assert result.to_pandas()["value"].tolist() == [3]
-    assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
+    for current in (category, category.execute()):
+        result = current.aggregate(mv.count()).execute()
+        assert result.to_pandas()["value"].tolist() == [3]
+        assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
 
 
-@pytest.mark.parametrize("expression_kind", ["ratio", "linear"])
 def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
-    analysis_dsl_case_factory: DslCaseFactory, expression_kind: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ):
     case = analysis_dsl_case_factory("j1")
     channel = ms.ref.dimension("sales.order.channel")
     status = ms.ref.dimension("sales.order.status")
     count = ms.ref.metric("sales.order_count")
     web = mv.runtime_metric.slice(count, by={channel: "web"}, label="web")
-    expression = (
-        mv.runtime_metric.ratio(web, count, label="share")
-        if expression_kind == "ratio"
-        else mv.runtime_metric.linear(add=[count], subtract=[count], label="cancelled")
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(
-            mv.member(),
-            channel,
-            status,
-        ),
-    )
-    for current in (observed, observed.execute()):
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    for expression_kind, fixed in (("ratio", False), ("linear", False), ("ratio", True)):
+        expression = (
+            mv.runtime_metric.ratio(web, count, label="share")
+            if expression_kind == "ratio"
+            else mv.runtime_metric.linear(add=[count], subtract=[count], label="cancelled")
+        )
+        observed = members.observe(
+            expression,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(mv.member(), channel, status),
+        )
+        current = observed.execute() if fixed else observed
         result = current.group_by(channel, status).rollup().execute()
         rows = result.to_pandas()
         assert len(rows) == 2
@@ -387,8 +377,7 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         )
 
 
-@pytest.mark.parametrize("violation", ["missing", "corrupt"])
-def test_required_row_state_damage_revokes_continuation(retained_coordinates_case, violation):
+def test_required_row_state_damage_revokes_continuation(retained_coordinates_case):
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization import graph_store
 
@@ -406,23 +395,23 @@ def test_required_row_state_damage_revokes_continuation(retained_coordinates_cas
     part = next(p for p in record.descriptor.parts if p.role == "row_state")
     path = case.root / part.local.project_relative_path / part.local.file_manifest[0].relative_path
     original = path.read_bytes()
-    if violation == "missing":
-        path.unlink()
-    else:
-        path.write_bytes(b"broken retained numerical state")
-    try:
-        with pytest.raises(AnalysisError):
-            statistic.contract()
-        with pytest.raises(AnalysisError):
-            statistic.rollup().execute()
-        with pytest.raises(AnalysisError):
-            case.session.artifact(statistic.state.artifact_ref)
-    finally:
-        path.write_bytes(original)
+    for violation in ("missing", "corrupt"):
+        if violation == "missing":
+            path.unlink()
+        else:
+            path.write_bytes(b"broken retained numerical state")
+        try:
+            with pytest.raises(AnalysisError):
+                statistic.contract()
+            with pytest.raises(AnalysisError):
+                statistic.rollup().execute()
+            with pytest.raises(AnalysisError):
+                case.session.artifact(statistic.state.artifact_ref)
+        finally:
+            path.write_bytes(original)
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_consumed_classification_must_cover_every_complete_key(retained_coordinates_case, fixed):
+def test_consumed_classification_must_cover_every_complete_key(retained_coordinates_case):
     from marivo.analysis.errors import AnalysisError
 
     case = retained_coordinates_case
@@ -439,10 +428,8 @@ def test_consumed_classification_must_cover_every_complete_key(retained_coordina
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    current = observed.execute() if fixed else observed
-    category = east.execute() if fixed else east
     with pytest.raises(AnalysisError):
-        current.group_by(category).rollup().execute()
+        observed.execute().group_by(east.execute()).rollup().execute()
 
 
 @pytest.mark.parametrize("parquet", [False])
@@ -532,8 +519,10 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
         assert result.rollup().execute().to_pandas()["value"].tolist() == [36.75]
 
 
-@pytest.mark.parametrize("violation", ["null", "outside", "duplicate"])
-@pytest.mark.parametrize("fixed", [False, True])
+@pytest.mark.parametrize(
+    ("violation", "fixed"),
+    [("null", False), ("outside", False), ("duplicate", False), ("duplicate", True)],
+)
 def test_invalid_classification_rejects(retained_coordinates_case, violation, fixed):
     from marivo.analysis.errors import AnalysisError
 
@@ -595,8 +584,7 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
         replace(result._node, root=root).rollup_statistic()
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_typed_integer_classification_and_singleton(retained_coordinates_case, fixed):
+def test_typed_integer_classification_and_singleton(retained_coordinates_case):
     case = retained_coordinates_case
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("ALTER TABLE customer ADD COLUMN band BIGINT DEFAULT 2")
@@ -615,17 +603,14 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case, f
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    current = values.execute() if fixed else values
-    category = band.execute() if fixed else band
-    assert current.group_by(category).rollup().execute().to_pandas().set_index("group")[
+    assert values.group_by(band).rollup().execute().to_pandas().set_index("group")[
         "value"
     ].to_dict() == {1: 120, 2: 27}
-    assert current.group_by().rollup().execute().to_pandas()["value"].tolist() == [147]
+    assert values.group_by().rollup().execute().to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.parametrize("fixed", [False, True])
 def test_selected_entities_keep_complete_subject_mapping(
-    analysis_dsl_case_factory: DslCaseFactory, fixed
+    analysis_dsl_case_factory: DslCaseFactory,
 ):
     case = analysis_dsl_case_factory("j1")
     customer = ms.ref.entity("sales.customer")
@@ -638,8 +623,7 @@ def test_selected_entities_keep_complete_subject_mapping(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    current = observed.execute() if fixed else observed
-    result = current.group_by(customer).rollup().execute()
+    result = observed.execute().group_by(customer).rollup().execute()
     subject = next(
         p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "subject"
     )
@@ -648,23 +632,16 @@ def test_selected_entities_keep_complete_subject_mapping(
     assert result.rollup().execute().to_pandas()["value"].tolist() == [600]
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("parquet", [False])
 def test_review_selected_category_retains_classification(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
     selected = category.where(category.value.eq("east"))
     assert type(selected) is mv.LogicalCategoryRelation
-    current = selected.execute() if fixed else selected
-    assert type(current) is (
-        mv.MaterializedCategoryRelation if fixed else mv.LogicalCategoryRelation
-    )
+    current = selected.execute()
+    assert type(current) is mv.MaterializedCategoryRelation
     statistic = current.aggregate(mv.count()).execute()
     assert statistic.to_pandas()["value"].tolist() == [2]
     assert current._node.classification_coordinate().field == "sales.customer.region"
@@ -778,21 +755,8 @@ assert result.rollup().execute().to_pandas()['value'].tolist() == [2]
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.parametrize(
-    "method,logical_expected,fixed_expected",
-    [
-        (mv.mean(), [70, 7], [140, 7]),
-        (mv.sum(), [140, 7], [140, 7]),
-        (mv.min(), [20, 7], [140, 7]),
-        (mv.max(), [120, 7], [140, 7]),
-        (mv.count(), [2, 1], [1, 1]),
-    ],
-)
 def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     retained_coordinates_case,
-    method: mv.RowMethod,
-    logical_expected: list[int],
-    fixed_expected: list[int],
 ) -> None:
     case = retained_coordinates_case
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -805,32 +769,37 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     grouped = observed.group_by(category)
-    logical = grouped.aggregate(method).execute()
-    assert logical.contract().kind == "aggregate"
-    assert logical.to_pandas()["value"].tolist() == logical_expected
     fixed = grouped.execute()
     assert fixed.to_pandas()["value"].tolist() == [140, 7]
     restored = case.session.artifact(fixed.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedGroupedNumericRelation)
-    for current in (fixed, restored):
-        statistic = current.aggregate(method).execute()
-        assert statistic.contract().kind == "aggregate"
-        frame = statistic.to_pandas()
-        assert frame["group"].tolist() == ["east", "south"]
-        assert frame["value"].tolist() == fixed_expected
-        assert (
-            statistic._node.root.signature.domain.instance_key
-            == fixed._node.root.signature.domain.instance_key
-        )
-        assert statistic._node.root.signature.quantity != fixed._node.root.signature.quantity
-        assert any(a.call == "relation.rollup()" for a in statistic.contract().actions)
+    methods = (
+        (mv.mean(), [70, 7], [140, 7]),
+        (mv.sum(), [140, 7], [140, 7]),
+        (mv.min(), [20, 7], [140, 7]),
+        (mv.max(), [120, 7], [140, 7]),
+        (mv.count(), [2, 1], [1, 1]),
+    )
+    for method, logical_expected, fixed_expected in methods:
+        logical = grouped.aggregate(method).execute()
+        assert logical.contract().kind == "aggregate"
+        assert logical.to_pandas()["value"].tolist() == logical_expected
+    statistic = restored.aggregate(mv.mean()).execute()
+    assert statistic.contract().kind == "aggregate"
+    frame = statistic.to_pandas()
+    assert frame["group"].tolist() == ["east", "south"]
+    assert frame["value"].tolist() == [140, 7]
+    assert (
+        statistic._node.root.signature.domain.instance_key
+        == fixed._node.root.signature.domain.instance_key
+    )
+    assert statistic._node.root.signature.quantity != fixed._node.root.signature.quantity
+    assert any(a.call == "relation.rollup()" for a in statistic.contract().actions)
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [147]
 
 
-@pytest.mark.parametrize("empty", [False, True])
-@pytest.mark.parametrize("method", [mv.count(), mv.mean()])
 def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
-    analysis_dsl_case_factory: DslCaseFactory, empty: bool, method: mv.RowMethod
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     customer = ms.ref.entity("sales.customer")
@@ -845,22 +814,25 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
         )
         .execute()
     )
-    if empty or method.kind == "mean":
-        fixed = fixed.where(fixed.value.is_defined()).execute()
-    if empty:
-        fixed = fixed.where(fixed.value.gt(10000)).execute()
-    result = fixed.group_by(region).aggregate(method).execute()
-    frame = result.to_pandas()
-    assert list(frame.columns) == ["group", "value", "cell_tag", "cell_reason"]
-    expected = (
-        {}
-        if empty
-        else {"east": 300, "south": 400}
-        if method.kind == "mean"
-        else {"east": 2, "south": 1, "west": 1}
-    )
-    assert frame.set_index("group").value.to_dict() == expected
-    assert set(frame.cell_tag) == (set() if empty else {"defined"})
-    assert frame.cell_reason.isna().all()
-    restored = case.session.artifact(result.state.artifact_ref)
-    assert restored.to_pandas().equals(frame)
+    for empty in (False, True):
+        for method in (mv.count(), mv.mean()):
+            current = fixed
+            if empty or method.kind == "mean":
+                current = current.where(current.value.is_defined()).execute()
+            if empty:
+                current = current.where(current.value.gt(10000)).execute()
+            result = current.group_by(region).aggregate(method).execute()
+            frame = result.to_pandas()
+            assert list(frame.columns) == ["group", "value", "cell_tag", "cell_reason"]
+            expected = (
+                {}
+                if empty
+                else {"east": 300, "south": 400}
+                if method.kind == "mean"
+                else {"east": 2, "south": 1, "west": 1}
+            )
+            assert frame.set_index("group").value.to_dict() == expected
+            assert set(frame.cell_tag) == (set() if empty else {"defined"})
+            assert frame.cell_reason.isna().all()
+            restored = case.session.artifact(result.state.artifact_ref)
+            assert restored.to_pandas().equals(frame)

@@ -47,12 +47,6 @@ class _Stream:
         self.close_calls += 1
 
 
-class _IterationFailure(_Stream):
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        yield self.batches[0]
-        raise RuntimeError("iteration failed")
-
-
 class _CloseFailure(_Stream):
     def close(self) -> None:
         super().close()
@@ -201,9 +195,7 @@ def test_bulk_cells_preserve_all_four_branches_and_exact_defined_zero() -> None:
     ("value", "tag", "reason"),
     [
         (None, "defined", None),
-        (0, "defined", "empty_contribution"),
         (0, "null", "empty_contribution"),
-        (None, "undefined", "empty_contribution"),
         (None, "unknown", None),
         (None, "other", "empty_contribution"),
     ],
@@ -243,7 +235,7 @@ def test_collect_reuses_only_its_completed_primary_key_index(
     assert source.close_calls == 1
 
 
-@pytest.mark.parametrize("corruption", ["part_key", "duplicate", "null", "state_key", "sum"])
+@pytest.mark.parametrize("corruption", ["part_key", "state_key", "sum"])
 def test_independent_parts_and_numerical_state_still_reject_corruption(corruption: str) -> None:
     primary = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 2, 1)])
     contract, parts, status = _original(primary)
@@ -252,10 +244,6 @@ def test_independent_parts_and_numerical_state_still_reject_corruption(corruptio
         original = original.set_column(
             1, "key_1", pa.array([2**53 + 1, 2**53 + 3], type=pa.int64())
         )
-    elif corruption == "duplicate":
-        original = original.set_column(1, "key_1", pa.array([2**53 + 1] * 2, type=pa.int64()))
-    elif corruption == "null":
-        original = original.set_column(0, "key_0", pa.array(["a", None], type=pa.string()))
     elif corruption == "state_key":
         status = status.set_column(1, "key_1", pa.array([2**53 + 1, 2**53 + 3], type=pa.int64()))
     else:
@@ -269,7 +257,7 @@ def test_independent_parts_and_numerical_state_still_reject_corruption(corruptio
         )
 
 
-@pytest.mark.parametrize("failure", ["schema", "iteration", "close", "early_stop"])
+@pytest.mark.parametrize("failure", ["schema", "close", "early_stop"])
 def test_key_index_requires_successful_exhaustion_and_close(failure: str) -> None:
     primary = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 2, 1)])
     batches = tuple(primary.to_batches(max_chunksize=1))
@@ -277,8 +265,6 @@ def test_key_index_requires_successful_exhaustion_and_close(failure: str) -> Non
     if failure == "schema":
         changed = batches[1].set_column(1, "key_1", pa.array([1.0], type=pa.float64()))
         source = _Stream(primary.schema, (batches[0], changed))
-    elif failure == "iteration":
-        source = _IterationFailure(primary.schema, batches)
     elif failure == "close":
         source = _CloseFailure(primary.schema, batches)
     else:

@@ -76,15 +76,13 @@ def test_business_coverage_refuses_unbound_claims(fault: str) -> None:
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("form", ["table", "parquet"])
 def test_public_full_grid_unknown(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    form: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    prepare_profiles(case, "KS", form, "us", "UTC", False, followup=True)
+    prepare_profiles(case, "KS", "parquet", "us", "UTC", False, followup=True)
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("business-coverage", report_timezone="UTC")
     members = session.members(ms.ref.entity("sales.order"))
@@ -184,11 +182,10 @@ def test_public_full_grid_unknown(
                 ),
             )
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
-    if form == "parquet":
-        artifact_ref = fixed.evidence_digest().artifact_ref.ref
-        for path in (case.root / "source_files").glob("*.parquet"):
-            path.rename(path.with_suffix(".offline"))
-        script = """
+    artifact_ref = fixed.evidence_digest().artifact_ref.ref
+    for path in (case.root / "source_files").glob("*.parquet"):
+        path.rename(path.with_suffix(".offline"))
+    script = """
 import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -201,20 +198,20 @@ runs = fixed.runs(where=fixed.value.gt(-1)).execute()
 assert runs.count.to_pandas().value.tolist() == [1] * 6
 assert session._runtime.store.resources(session._runtime.session_ref) == ()
 """
-        cold = subprocess.run(
-            [sys.executable, "-c", script, artifact_ref],
-            cwd=case.root,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        assert cold.returncode == 0, cold.stdout + cold.stderr
+    cold = subprocess.run(
+        [sys.executable, "-c", script, artifact_ref],
+        cwd=case.root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(directory, "full-grid-unknown-" + form + ".json").write_text(
+        Path(directory, "full-grid-unknown-parquet.json").write_text(
             json.dumps(
                 {
                     "producer": "members.observe(sum_metric, during=grid, complete_during=windows)",
-                    "form": form,
+                    "form": "parquet",
                     "unknown_count": 3,
                     "defined_count": 6,
                     "actual_read_coverage": True,
@@ -227,7 +224,7 @@ assert session._runtime.store.resources(session._runtime.session_ref) == ()
                     "fixed_source_reads": 0,
                     "corruption_rejected": True,
                     "resources": 0,
-                    "cold_source_offline": form == "parquet",
+                    "cold_source_offline": True,
                 },
                 sort_keys=True,
             )

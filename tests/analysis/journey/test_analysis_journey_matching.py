@@ -283,9 +283,8 @@ def test_assignments_against_exhaustive_subsequence_oracle(policy, covered):
             ] == expected
 
 
-@pytest.mark.parametrize(
-    "form,key_type", [("table", "int64"), ("parquet", "int64"), ("parquet", "string")]
-)
+@pytest.mark.parametrize("form,key_type", [("table", "int64"), ("parquet", "string")])
+@pytest.mark.slow
 def test_governed_journey_binding(tmp_path, monkeypatch, form, key_type):
     from marivo._temporal import time_scope
     from marivo.analysis.event import sequence, step

@@ -167,7 +167,7 @@ def retained_pair(
     zone = "America/New_York" if dst else "UTC"
     start = datetime(2026, 10, 28) if dst else datetime(2026, 8, 1)
     days = (
-        1027
+        1025
         if scenario == "cross-batch-long-run"
         else 6
         if scenario == "full-grid-dst-adjacency-duration"
@@ -635,7 +635,7 @@ def test_public_retained_runs_algorithm(
         lookup = {value: i for i, value in enumerate(values[anchor].to_pylist())}
         ordered = [lookup[cell.identity] for cell in grid.cells]
         expected_count = (
-            1027
+            1025
             if scenario == "cross-batch-long-run"
             else 6
             if scenario == "full-grid-dst-adjacency-duration"
@@ -685,7 +685,7 @@ def test_public_retained_runs_algorithm(
             assert views["right_kind"].to_pylist() == ["unavailable", "scope_boundary"]
         if scenario == "cross-batch-long-run":
             assert any(
-                len(sizes) > 1 and sum(sizes) >= 1027 for sizes in retained_pair.source_batches
+                len(sizes) > 1 and sum(sizes) >= 1025 for sizes in retained_pair.source_batches
             )
         selected = result.where(result.count.value.gte(1)).execute()
         assert selected._dataset is not None

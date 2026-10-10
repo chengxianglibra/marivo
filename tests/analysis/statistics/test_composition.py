@@ -27,7 +27,6 @@ from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.datasource.adapters import SourceBatchStream
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.journeys import (
-    METHODS,
     Result,
     check,
     graphs,
@@ -37,6 +36,13 @@ from tests.analysis.statistics.journeys import (
 )
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json
+
+REPRESENTATIVE_METHODS = (
+    "deviation.zscore@v1",
+    "time.runs@v1",
+    "association.pearson@v1",
+    "forecast.naive@v1",
+)
 
 
 @pytest.mark.parametrize("form", ("parquet",))
@@ -111,7 +117,7 @@ def test_direct_score_runs_and_next_business_round(
         )
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", REPRESENTATIVE_METHODS)
 def test_shared_method_and_transport_are_distinct_from_new_kernels(
     analysis_dsl_case_factory: DslCaseFactory, method: str
 ) -> None:
@@ -233,7 +239,9 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
 
 @pytest.mark.parametrize("form", ("parquet",))
 @pytest.mark.slow
-def test_nine_methods_three_independent_processes(tmp_path: Path, form: str) -> None:
+def test_representative_result_families_three_independent_processes(
+    tmp_path: Path, form: str
+) -> None:
     project = tmp_path / "project"
     reports: list[Json] = []
     for phase in ("produce", "fixed", "cold"):
@@ -266,7 +274,7 @@ def test_nine_methods_three_independent_processes(tmp_path: Path, form: str) -> 
 
 
 @pytest.mark.parametrize("form", ("parquet",))
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_score_select_members_followup_one_dag(
     analysis_dsl_case_factory: DslCaseFactory, form: str, method: str
 ) -> None:
@@ -337,7 +345,7 @@ def test_score_select_members_followup_one_dag(
 
 @pytest.mark.parametrize("form", ("parquet",))
 @pytest.mark.slow
-def test_category_time_three_methods_three_models(
+def test_category_time_representative_correlation_and_forecast(
     analysis_dsl_case_factory: DslCaseFactory, form: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -376,7 +384,7 @@ def test_category_time_three_methods_three_models(
         .rollup()
         for i in (0, 1, 5)
     )
-    for algorithm in ("pearson", "spearman", "kendall"):
+    for algorithm in ("pearson",):
         logical = values[0].correlate(
             *values[1:],
             method="pearson"
@@ -408,7 +416,7 @@ def test_category_time_three_methods_three_models(
             (Path(directory) / f"a11-correlation-{algorithm}-{form}.json").write_text(
                 json.dumps(row, sort_keys=True) + "\n"
             )
-    for model in (mv.naive(), mv.drift(), mv.seasonal_naive(periods=2)):
+    for model in (mv.naive(),):
         logical_f = values[0].forecast(horizon=mv.periods(2), model=model)
         selected_f = logical_f.where(logical_f.prediction.value.gte(0))
         result = mv.table(

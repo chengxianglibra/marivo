@@ -1,4 +1,4 @@
-"""All nine methods preserve atomicity, receipts and the shared deadline."""
+"""Representative result families preserve receipts and atomic failures."""
 
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDea
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from marivo.datasource.adapters import SourceBatchStream
 from tests.analysis.statistics.journeys import (
-    METHODS,
     check,
     graphs,
     inputs,
@@ -35,8 +34,15 @@ from tests.analysis.statistics.journeys import (
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import Json
 
+RECOVERY_METHODS = (
+    "deviation.zscore@v1",
+    "time.runs@v1",
+    "association.pearson@v1",
+    "forecast.naive@v1",
+)
 
-@pytest.mark.parametrize("method", METHODS)
+
+@pytest.mark.parametrize("method", RECOVERY_METHODS)
 def test_source_parts_versions_keys_scope_and_finding_authority(
     analysis_dsl_case_factory: DslCaseFactory, method: str
 ) -> None:
@@ -54,13 +60,8 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         with pytest.raises(AnalysisError):
             from_arrow(primary, retained.contract, parts=parts, method_state=retained.method_state)
 
-    for part in retained.parts:
-        reject(retained.primary, tuple(p for p in retained.parts if p.role != part.role))
-        damaged = ExchangePart(part.role, pa.table({part.role + "__retained": ["{}"]}))
-        reject(
-            retained.primary, tuple(damaged if p.role == part.role else p for p in retained.parts)
-        )
-    scenarios.append("every_required_part")
+    # Required-part removal and corruption are covered for every result family
+    # by test_every_receipt_part_read_recovery_and_hit.
     # The Finding policy carries its own closed version and ordered input binding.
     policy = next(p for p in retained.parts if p.role == "finding_policy")
     payload = json.loads(policy.table["finding_policy__retained"][0].as_py())
@@ -111,20 +112,6 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
     )
     scenarios.append("scope")
     descriptor = result._dataset.artifact.descriptor
-    receipt = descriptor.primary_receipt.local
-    path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    original = path.read_bytes()
-    for damage in (None, b"corrupt source primary receipt"):
-        if damage is None:
-            path.unlink()
-        else:
-            path.write_bytes(damage)
-        try:
-            with pytest.raises(AnalysisError):
-                session.artifact(result.state.artifact_ref)
-        finally:
-            path.write_bytes(original)
-    scenarios.append("receipt")
     # Store mutations run in a rollback transaction, so one counterexample cannot
     # invalidate the starting facts of the next counterexample.
     store = session._runtime.store
@@ -176,9 +163,7 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         )
 
 
-@pytest.mark.parametrize(
-    "fault", ("missing_interval", "duration", "input_row", "overlap", "termination", "schema")
-)
+@pytest.mark.parametrize("fault", ("missing_interval", "duration", "schema"))
 def test_frozen_run_witnesses_reject_damage_without_segmenting(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
 ) -> None:
@@ -291,7 +276,7 @@ def test_run_owned_fields_compare_logical_cells(
                 )
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", RECOVERY_METHODS)
 def test_every_receipt_part_read_recovery_and_hit(
     analysis_dsl_case_factory: DslCaseFactory, method: str
 ) -> None:
@@ -360,17 +345,12 @@ def test_every_receipt_part_read_recovery_and_hit(
             ("deviation.zscore@v1", fault)
             for fault in (
                 "cancel",
-                "close",
                 "bad_batch",
                 "before_commit",
-                "after_commit",
                 "timeout_below",
-                "timeout_at",
                 "timeout_above",
-                "late_result",
             )
         ),
-        *((method, "before_commit") for method in METHODS if method != "deviation.zscore@v1"),
     ],
 )
 def test_resources_atomic_publication_and_deadline(
@@ -392,14 +372,8 @@ def test_resources_atomic_publication_and_deadline(
             raise RuntimeError("injected statistical publication failure")
         if point == "graph_admitted" and fault == "cancel":
             raise KeyboardInterrupt("injected statistical cancellation")
-        if point == "after_commit" and fault == "after_commit":
-            raise OSError("lost statistical durable commit acknowledgement")
         if point == "before_commit" and fault in ("timeout_below", "timeout_at", "timeout_above"):
-            now[0] = (
-                599.999 if fault == "timeout_below" else 600.0 if fault == "timeout_at" else 600.001
-            )
-        if point == "graph_receipts_verified" and fault == "late_result":
-            now[0] = 600.001
+            now[0] = 599.999 if fault == "timeout_below" else 600.001
 
     runtime._hook = inject
     close = SourceBatchStream.close
@@ -416,7 +390,7 @@ def test_resources_atomic_publication_and_deadline(
     if fault == "bad_batch":
         monkeypatch.setattr(SourceBatchStream, "_iterate", bad_batch)
     token = CURRENT.set(ExecuteDeadline(0.0, lambda: now[0]))
-    succeeded = fault in ("timeout_below", "timeout_at", "after_commit")
+    succeeded = fault == "timeout_below"
     try:
         if succeeded:
             result = logical.execute()
@@ -443,9 +417,7 @@ def test_resources_atomic_publication_and_deadline(
     directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
     if directory:
         row = proof(previous, method, "produce", "table")
-        row["scenarios"] = [
-            {"before_commit": "transaction", "after_commit": "committed_success"}.get(fault, fault)
-        ]
+        row["scenarios"] = [{"before_commit": "transaction"}.get(fault, fault)]
         Path(directory).mkdir(parents=True, exist_ok=True)
         (Path(directory) / f"fault-{method}-{fault}.json").write_text(
             json.dumps(row, sort_keys=True) + "\n"

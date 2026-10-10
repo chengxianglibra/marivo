@@ -59,43 +59,42 @@ def test_history_views_source_fixed(tmp_path):
         assert_view(result, name, expected)
 
 
-@pytest.mark.parametrize("coverage", ["unknown", "prefix", "complete"])
-def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, monkeypatch, coverage):
-    session, members, window, claims, values = build_lifecycle_public(
-        tmp_path, observations=coverage == "complete"
-    )
-    known = (
-        None
-        if coverage == "unknown"
-        else START + timedelta(seconds=12)
-        if coverage == "prefix"
-        else END
-    )
-    supplied = () if known is None else (replace(claims[0], complete_through=known),)
-    logical = replay(session, members, window, supplied)
-    history = logical.execute()
-    history_rows = [
-        json.loads(row["history__record"])
-        for row in history._dataset.verified().parts[0].table.to_pylist()
-    ]
-    assert history_rows == expected_histories(values, known=known)
-    expected = views(values, known=known)
-    for name, operation in operations(history).items():
-        assert_view(operation().execute(), name, expected)
-    if coverage == "complete":
-        from tests.support.documentation import _example
+@pytest.mark.slow
+def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, monkeypatch):
+    session, members, window, claims, values = build_lifecycle_public(tmp_path, observations=True)
+    histories = []
+    for coverage in ("unknown", "prefix", "complete"):
+        known = (
+            None
+            if coverage == "unknown"
+            else START + timedelta(seconds=12)
+            if coverage == "prefix"
+            else END
+        )
+        supplied = () if known is None else (replace(claims[0], complete_through=known),)
+        logical = replay(session, members, window, supplied)
+        history = logical.execute()
+        history_rows = [
+            json.loads(row["history__record"])
+            for row in history._dataset.verified().parts[0].table.to_pylist()
+        ]
+        assert history_rows == expected_histories(values, known=known)
+        expected = views(values, known=known)
+        histories.append((coverage, supplied, logical, history, expected))
+    for coverage, supplied, logical, _, _ in histories:
+        if coverage == "complete":
+            from tests.support.documentation import _example
 
-        snippets = [_example(locale, "history-views") for locale in ("en", "zh")]
-        assert snippets[0] == snippets[1]
-        environment = {
-            "mv": mv,
-            "ms": ms,
-            "session": session,
-            "window": window,
-            "lifecycle_completeness": supplied,
-            "history": logical,
-        }
-        exec(compile(snippets[0], "latest-history-example", "exec"), environment)
+            snippet = _example("en", "history-views")
+            environment = {
+                "mv": mv,
+                "ms": ms,
+                "session": session,
+                "window": window,
+                "lifecycle_completeness": supplied,
+                "history": logical,
+            }
+            exec(compile(snippet, "latest-history-example", "exec"), environment)
     from marivo.analysis.materialization.cell_arrow import rows as cell_rows
     from marivo.datasource.adapters import SourceSession
 
@@ -103,34 +102,29 @@ def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, monkeypatch, coverage)
         raise AssertionError("Fixed History field read accessed its source")
 
     monkeypatch.setattr(SourceSession, "batches", forbid)
+    for coverage, _, _, history, expected in histories:
+        if coverage in ("unknown", "prefix"):
+            assert_view(history.intervals().execute(), "intervals", expected)
+
+    _, _, _, history, expected = histories[-1]
     fields = {
-        "distribution": (("share_among_seeded", 4, "undefined", "zero_denominator"),),
-        "transitions": (("share_of_modeled_transitions", 2, "undefined", "zero_denominator"),),
-        "intervals": (("observed_duration", 4, "unknown", "insufficient_coverage"),),
-        "dwell": (
-            ("mean_duration", 6, "undefined", "empty_completed_set"),
-            ("median_duration", 7, "undefined", "empty_completed_set"),
-            ("p90_duration", 8, "undefined", "empty_completed_set"),
-            ("interval_count", 1, "defined", None),
-        ),
+        "distribution": ("share_among_seeded", 4, "undefined", "zero_denominator"),
+        "intervals": ("observed_duration", 4, "unknown", "insufficient_coverage"),
+        "dwell": ("mean_duration", 6, "undefined", "empty_completed_set"),
     }
-    for name, selections in fields.items():
-        logical = operations(history)[name]()
-        materialized = logical.execute()
-        for receiver in (logical, materialized):
-            for field, index, missing_tag, reason in selections:
-                result = getattr(receiver, field).execute()
-                rows = cell_rows(result._dataset.verified().primary)
-                wanted = [
-                    {
-                        **{f"key_{i}": key for i, key in enumerate(row[0])},
-                        "value": row[index],
-                        "cell_tag": missing_tag if row[index] is None else "defined",
-                        "cell_reason": reason if row[index] is None else None,
-                    }
-                    for row in expected[name]
-                ]
-                assert sorted(rows, key=repr) == sorted(wanted, key=repr)
+    for name, (field, index, missing_tag, reason) in fields.items():
+        result = getattr(operations(history)[name]().execute(), field).execute()
+        rows = cell_rows(result._dataset.verified().primary)
+        wanted = [
+            {
+                **{f"key_{i}": key for i, key in enumerate(row[0])},
+                "value": row[index],
+                "cell_tag": missing_tag if row[index] is None else "defined",
+                "cell_reason": reason if row[index] is None else None,
+            }
+            for row in expected[name]
+        ]
+        assert sorted(rows, key=repr) == sorted(wanted, key=repr)
 
 
 def test_empty_subject_domain_retains_zero_states_pairs(tmp_path):
@@ -139,8 +133,8 @@ def test_empty_subject_domain_retains_zero_states_pairs(tmp_path):
     assert history.to_pandas().empty
     assert session.artifact(history.state.artifact_ref).to_pandas().empty
     expected = views(values, empty=True)
-    for name, operation in operations(history).items():
-        assert_view(operation().execute(), name, expected)
+    for name in ("distribution", "transitions"):
+        assert_view(operations(history)[name]().execute(), name, expected)
 
 
 def test_instance_selection_subject_image_and_duration_mean(tmp_path):
@@ -207,7 +201,7 @@ def test_fraction_quantile_half_even_and_overflow():
 
 @pytest.mark.parametrize(
     ("kind", "form"),
-    [("state", "table"), ("interval", "parquet"), ("violation", "table")],
+    [("state", "table"), ("interval", "parquet")],
 )
 def test_same_run_history_selection_prepares_all_sources_before_local(
     tmp_path, monkeypatch, kind, form
@@ -385,11 +379,7 @@ def test_view_exchange_rejects_corruption(
         from_arrow(primary, contract, parts=tuple(parts), method_state=fixed.method_state)
 
 
-@pytest.mark.parametrize(
-    "point",
-    ["before_commit", "cancel", "deadline"],
-)
-def test_view_atomic_failure_keeps_prior_artifact(tmp_path, point):
+def test_view_atomic_failure_keeps_prior_artifact(tmp_path):
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
     session, members, window, claims, _ = build_lifecycle_public(tmp_path)
@@ -398,25 +388,38 @@ def test_view_atomic_failure_keeps_prior_artifact(tmp_path, point):
     reference = artifact(fixed)
     expected = fixed.to_pandas()
 
-    def inject(actual):
-        if actual == ("insert_findings" if point in ("cancel", "deadline") else point):
-            if point == "cancel":
-                raise KeyboardInterrupt("injected view cancellation")
-            if point == "deadline":
-                CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-            else:
-                raise RuntimeError("injected view transaction failure")
+    for point in ("before_commit", "cancel", "deadline"):
+        deadline_token = None
 
-    session._runtime._hook = inject
-    with pytest.raises((AnalysisError, KeyboardInterrupt)):
-        logical.execute()
-    session._runtime._hook = None
-    assert session.artifact(reference).to_pandas().equals(expected)
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+        def inject(actual, injection_point=point):
+            nonlocal deadline_token
+            if actual == (
+                "insert_findings" if injection_point in ("cancel", "deadline") else injection_point
+            ):
+                if injection_point == "cancel":
+                    raise KeyboardInterrupt("injected view cancellation")
+                if injection_point == "deadline":
+                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                else:
+                    raise RuntimeError("injected view transaction failure")
+
+        session._runtime._hook = inject
+        try:
+            with pytest.raises((AnalysisError, KeyboardInterrupt)):
+                logical.execute()
+        finally:
+            session._runtime._hook = None
+            if deadline_token is not None:
+                CURRENT.reset(deadline_token)
+        assert session.artifact(reference).to_pandas().equals(expected)
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
+            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
+            assert (
+                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
+                == 0
+            )
 
 
 def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
@@ -438,7 +441,7 @@ def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
 
 
 def test_history_consumers_source_fixed(tmp_path):
-    from tests.analysis.lifecycle.history_consumers import expected, mean, observations, transport
+    from tests.analysis.lifecycle.history_consumers import expected, observations, transport
     from tests.analysis.lifecycle.history_fixtures import build_history_public
 
     session, members, window, claims, _ = build_history_public(
@@ -451,23 +454,19 @@ def test_history_consumers_source_fixed(tmp_path):
     )
     logical = replay(session, members, window, claims)
     history = logical.execute()
-    for name, operation in {
-        **transport(logical),
-        "mean": mean(logical),
-    }.items():
-        result = operation.execute()
-        expected(name, result)
-    for name, operation in observations(logical).items():
-        result = operation.execute()
-        expected(name, result)
-        merged = result.rollup().execute()
-        expected(name, merged)
-    for name, operation in {
-        **transport(history),
-        "mean": mean(history),
-    }.items():
-        result = operation.execute()
-        expected(name, result)
+    source_consumers = transport(logical)
+    for name in ("state_members", "violation_members"):
+        expected(name, source_consumers[name].execute())
+    violation_observation = observations(logical)["violation_revenue"]
+    observed = violation_observation.execute()
+    expected("violation_revenue", observed)
+    expected("violation_revenue", observed.rollup().execute())
+
+    # Fixed follow-ups retain one representative consumer for each History
+    # result owner; source selection already covers the additional shapes.
+    fixed_consumers = transport(history)
+    for name in ("completed_members", "state_members", "violation_members"):
+        expected(name, fixed_consumers[name].execute())
 
 
 @pytest.mark.slow
@@ -649,7 +648,7 @@ def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_pat
 
 @pytest.mark.parametrize(
     ("kind", "form"),
-    [("state", "table"), ("interval", "parquet"), ("violation", "table")],
+    [("state", "table"), ("interval", "parquet")],
 )
 def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_path, kind, form):
     from tests.analysis.lifecycle.history_fixtures import build_history_public

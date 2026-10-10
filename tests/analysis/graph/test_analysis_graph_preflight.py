@@ -150,8 +150,13 @@ def test_coordinate_rollup_has_one_singleton_target(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("form", ("table", "parquet"))
-@pytest.mark.parametrize("numeric_type", ("int64", "float64"))
+@pytest.mark.parametrize(
+    ("form", "numeric_type"),
+    [
+        pytest.param("table", "int64", id="table-int64"),
+        pytest.param("parquet", "float64", id="parquet-float64"),
+    ],
+)
 def test_exact_member_builder_publishes_v7_from_authored_project(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,

@@ -26,6 +26,7 @@ def _run_make(
     tests: str = "",
     runtime_workers: int | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    directory.mkdir(parents=True, exist_ok=True)
     (directory / "Makefile").write_bytes((_ROOT / "Makefile").read_bytes())
     scripts = directory / "scripts"
     scripts.mkdir()
@@ -73,30 +74,32 @@ def _run_make(
     return result, commands
 
 
-@pytest.mark.parametrize("target", ("check", "check-agent"))
-def test_daily_checks_exclude_runtime_and_release(tmp_path: Path, target: str) -> None:
-    result, commands = _run_make(tmp_path, target)
-    assert result.returncode == 0, result.stderr
-    pytest_commands = [command for command in commands if command[0] == "pytest"]
-    assert len(pytest_commands) == 1
-    assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5"]
-    assert "-m" not in pytest_commands[0]
-    mypy_command = next(command for command in commands if command[0] == "mypy")
-    assert mypy_command[1:4] == [
-        "--no-pretty",
-        "--no-color-output",
-        "--no-warn-unused-configs",
-    ]
-    assert {"ruff", "lint-imports", "mypy", "sphinx-build"} <= {command[0] for command in commands}
-    assert commands[0] == ["ruff", "format", "--check", "."]
-    assert not {"pip", "twine"} & {command[0] for command in commands}
+def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
+    for target in ("check", "check-agent"):
+        result, commands = _run_make(tmp_path / target, target)
+        assert result.returncode == 0, result.stderr
+        pytest_commands = [command for command in commands if command[0] == "pytest"]
+        assert len(pytest_commands) == 1
+        assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5"]
+        assert "-m" not in pytest_commands[0]
+        mypy_command = next(command for command in commands if command[0] == "mypy")
+        assert mypy_command[1:4] == [
+            "--no-pretty",
+            "--no-color-output",
+            "--no-warn-unused-configs",
+        ]
+        assert {"ruff", "lint-imports", "mypy", "sphinx-build"} <= {
+            command[0] for command in commands
+        }
+        assert commands[0] == ["ruff", "format", "--check", "."]
+        assert not {"pip", "twine"} & {command[0] for command in commands}
 
 
-@pytest.mark.parametrize("target", ("check", "check-agent"))
-def test_format_failure_stops_before_expensive_checks(tmp_path: Path, target: str) -> None:
-    result, commands = _run_make(tmp_path, target, format_failure=True)
-    assert result.returncode != 0
-    assert commands == [["ruff", "format", "--check", "."]]
+def test_format_failure_stops_before_expensive_checks(tmp_path: Path) -> None:
+    for target in ("check", "check-agent"):
+        result, commands = _run_make(tmp_path / target, target, format_failure=True)
+        assert result.returncode != 0
+        assert commands == [["ruff", "format", "--check", "."]]
 
 
 def test_slow_test_selects_extended_cases_and_runs_a_node_serially(tmp_path: Path) -> None:
@@ -152,27 +155,34 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     assert any(command[:2] == ["twine", "check"] for command in commands)
 
 
-@pytest.mark.parametrize("target", ("runtime-test", "runtime-test-agent"))
-def test_runtime_debugging_keeps_the_requested_test(tmp_path: Path, target: str) -> None:
+def test_runtime_debugging_keeps_the_requested_test(tmp_path: Path) -> None:
     selected = "tests/focused.py::test_one"
-    result, commands = _run_make(tmp_path, target, tests=selected)
-    assert result.returncode == 0, result.stderr
-    assert len(commands) == 1
-    command = commands[0]
-    assert command[0] == "pytest"
-    marker_index = command.index("-m")
-    assert command[marker_index + 1] == "runtime"
-    assert command[-3:] == ["-n", "0", selected]
+    for target in ("runtime-test", "runtime-test-agent"):
+        result, commands = _run_make(tmp_path / target, target, tests=selected)
+        assert result.returncode == 0, result.stderr
+        assert len(commands) == 1
+        command = commands[0]
+        assert command[0] == "pytest"
+        marker_index = command.index("-m")
+        assert command[marker_index + 1] == "runtime"
+        assert command[-3:] == ["-n", "0", selected]
 
 
-@pytest.mark.parametrize("target", ("runtime-test", "runtime-test-agent"))
-@pytest.mark.parametrize("workers", (None, 4))
 def test_runtime_workers_are_bounded_and_overridable(
-    tmp_path: Path, target: str, workers: int | None
+    tmp_path: Path,
 ) -> None:
-    result, commands = _run_make(
-        tmp_path, target, tests="tests/focused.py", runtime_workers=workers
-    )
-    assert result.returncode == 0, result.stderr
-    assert len(commands) == 1
-    assert commands[0][-3:] == ["-n", str(2 if workers is None else workers), "tests/focused.py"]
+    for target in ("runtime-test", "runtime-test-agent"):
+        for workers in (None, 4):
+            result, commands = _run_make(
+                tmp_path / target / str(workers),
+                target,
+                tests="tests/focused.py",
+                runtime_workers=workers,
+            )
+            assert result.returncode == 0, result.stderr
+            assert len(commands) == 1
+            assert commands[0][-3:] == [
+                "-n",
+                str(2 if workers is None else workers),
+                "tests/focused.py",
+            ]

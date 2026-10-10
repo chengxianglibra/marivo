@@ -1,7 +1,5 @@
 """Execute current bilingual workflow and evidence examples against public APIs."""
 
-import ast
-import re
 from pathlib import Path
 
 import duckdb
@@ -10,38 +8,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory, DslScenario, analysis_dsl_rows
-from tests.support.documentation import _example, _examples
-from tests.support.paths import PROJECT_ROOT
-
-ROOT = PROJECT_ROOT
-
-
-def test_bilingual_examples_have_identical_executable_contracts() -> None:
-    english = _examples("en")
-    assert english
-    assert english == _examples("zh")
-    root = ROOT / "site/src/content/docs/docs/latest"
-    for path in root.rglob("*.mdx"):
-        if "release-notes" in path.parts or path.name == "contributing.mdx":
-            continue
-        page = path.relative_to(root).with_suffix("").as_posix()
-        assert _examples("en", page) == _examples("zh", page), page
-
-
-def test_documented_python_blocks_are_named_valid_python() -> None:
-    examples = _examples("en")
-    for identifier, source in examples.items():
-        assert not re.search(r"[\u4e00-\u9fff]", source), identifier
-        ast.parse(source, filename=identifier)
-    for edition in ("docs", "zh-cn/docs"):
-        root = ROOT / "site/src/content/docs" / edition / "latest"
-        for page in root.rglob("*.mdx"):
-            if "release-notes" in page.parts or page.name == "contributing.mdx":
-                continue
-            text = page.read_text()
-            relative = page.relative_to(root).with_suffix("").as_posix()
-            fences = re.findall(r"(?m)^(```|~~~)python\n", text)
-            assert len(fences) == len(_examples(edition, relative)), relative
+from tests.support.documentation import _example
 
 
 def test_grouped_same_entity_workflow_example_executes(

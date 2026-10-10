@@ -19,9 +19,8 @@ from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
+def test_predicate_literal_wire_preserves_exact_type() -> None:
+    values: tuple[int | float | Decimal | str | bool | TemporalLiteral, ...] = (
         "123",
         "1.20",
         "1e3",
@@ -33,42 +32,37 @@ from tests.support.paths import PROJECT_ROOT
         Decimal("-0.00"),
         TemporalLiteral("date", "2026-08-01"),
         TemporalLiteral("timestamp", "2026-08-01T00:00:00+00:00"),
-    ],
-)
-def test_predicate_literal_wire_preserves_exact_type(
-    value: int | float | Decimal | str | bool | TemporalLiteral,
-) -> None:
+    )
     adapter = TypeAdapter(ValuePredicate)
-    predicate = ValuePredicate(Binding("s", "o", "input", "scope"), "eq", value)
-    restored = decode(encode(predicate, adapter), adapter)
-    assert type(restored.value) is type(value)
-    assert restored.value == value
-    if isinstance(value, Decimal):
-        assert isinstance(restored.value, Decimal)
-        assert restored.value.as_tuple() == value.as_tuple()
+    for value in values:
+        predicate = ValuePredicate(Binding("s", "o", "input", "scope"), "eq", value)
+        restored = decode(encode(predicate, adapter), adapter)
+        assert type(restored.value) is type(value)
+        assert restored.value == value
+        if isinstance(value, Decimal):
+            assert isinstance(restored.value, Decimal)
+            assert restored.value.as_tuple() == value.as_tuple()
 
 
-@pytest.mark.parametrize(
-    "value",
-    [
+def test_malformed_decimal_literal_wire_rejects() -> None:
+    values: tuple[dict[str, object], ...] = (
         {"kind": "decimal", "value": "invalid"},
         {"kind": "decimal", "value": 123},
         {"kind": "decimal", "value": "1.20", "extra": True},
         {"kind": "unknown", "value": "1.20"},
-    ],
-)
-def test_malformed_decimal_literal_wire_rejects(value: dict[str, object]) -> None:
+    )
     adapter = TypeAdapter(ValuePredicate)
     predicate = ValuePredicate(Binding("s", "o", "input", "scope"), "eq", Decimal("1.20"))
-    payload: dict[str, object] = json.loads(encode(predicate, adapter))
-    payload["value"] = value
-    with pytest.raises(IntegrityError, match="invalid closed metadata"):
-        decode(canonical_json(payload), adapter)
+    encoded = encode(predicate, adapter)
+    for value in values:
+        payload: dict[str, object] = json.loads(encoded)
+        payload["value"] = value
+        with pytest.raises(IntegrityError, match="invalid closed metadata"):
+            decode(canonical_json(payload), adapter)
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_numeric_string_category_persists_and_continues(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
 
@@ -78,39 +72,31 @@ def test_numeric_string_category_persists_and_continues(
             f'UPDATE "{case.names.customer}" SET region = ? WHERE "{case.names.customer_id}" = ?',
             ["123", "A"],
         )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
-    for current in (category, category.execute()):
-        selected = current.where(current.value.eq("123"))
-        assert type(selected) is mv.LogicalCategoryRelation
-        chained = selected.where(selected.value.eq("123"))
-        assert type(chained) is mv.LogicalCategoryRelation
-        saved = chained.execute()
-        assert type(saved) is mv.MaterializedCategoryRelation
-        frame = saved.to_pandas()
-        assert frame.member.tolist() == ["A"]
-        assert frame.value.tolist() == ["123"]
-        restored = case.session.artifact(saved.state.artifact_ref)
-        assert isinstance(restored, mv.MaterializedCategoryRelation)
-        assert restored.to_pandas().equals(frame)
-        continued = restored.where(restored.value.eq("123")).execute()
-        assert continued.to_pandas().equals(frame)
+    selected = category.where(category.value.eq("123"))
+    assert type(selected) is mv.LogicalCategoryRelation
+    chained = selected.where(selected.value.eq("123"))
+    assert type(chained) is mv.LogicalCategoryRelation
+    saved = chained.execute()
+    assert type(saved) is mv.MaterializedCategoryRelation
+    frame = saved.to_pandas()
+    assert frame.member.tolist() == ["A"]
+    assert frame.value.tolist() == ["123"]
+    restored = case.session.artifact(saved.state.artifact_ref)
+    assert isinstance(restored, mv.MaterializedCategoryRelation)
+    assert restored.to_pandas().equals(frame)
+    continued = restored.where(restored.value.eq("123")).execute()
+    assert continued.to_pandas().equals(frame)
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_selected_difference_discloses_where_continuation(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo._help.model import NativeHelpRoute
     from marivo._help.route import route_help_target
 
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     current, baseline = (
         members.observe(
@@ -123,15 +109,16 @@ def test_selected_difference_discloses_where_continuation(
     )
     difference = current.compare(baseline).absolute
     selected = difference.where(difference.value.is_defined())
-    for relation in (selected, selected.execute()):
+    fixed = selected.execute()
+    for relation in (selected, fixed):
         action = next(
             action
             for action in relation.contract().actions
             if action.call == "relation.where(predicate)"
         )
         assert isinstance(route_help_target(action.help_target), NativeHelpRoute)
-        result = relation.where(relation.value.is_defined()).execute()
-        assert len(result.to_pandas()) == len(analysis_dsl_rows("j2").customers)
+    result = fixed.where(fixed.value.is_defined()).execute()
+    assert len(result.to_pandas()) == len(analysis_dsl_rows("j2").customers)
 
 
 def test_strict_leaf_and_three_value_composition() -> None:
@@ -165,14 +152,10 @@ def test_precise_predicate_literals_and_duration_fields() -> None:
     )
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_public_multi_input_source_and_fixed(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
     amount = members.observe(
@@ -219,9 +202,8 @@ def test_public_multi_input_source_and_fixed(
         bool(predicate)
 
 
-@pytest.mark.parametrize("fixed", [False, True])
 def test_tag_selection_precedes_numeric_consumption(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     n = case.names
@@ -243,26 +225,34 @@ def test_tag_selection_precedes_numeric_consumption(
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(mv.member(),),
     )
-    current = values.execute() if fixed else values
-    with pytest.raises(Exception, match=r"Defined|defined"):
-        current.where(mv.all_of(current.value.is_defined(), current.value.gt(0))).execute()
-    with pytest.raises(Exception, match=r"Defined|defined"):
-        current.where(mv.any_of(current.value.is_defined(), current.value.gt(0))).execute()
-    selected = current.where(current.value.is_defined())
     category = targets.read(ms.ref.dimension(f"{n.domain}.{n.customer}.region"))
-    region = category.execute() if fixed else category
-    east = selected.where(mv.all_of(selected.value.gt(0), region.value.eq("east"))).execute()
+    with pytest.raises(Exception, match=r"Defined|defined"):
+        values.where(mv.all_of(values.value.is_defined(), values.value.gt(0))).execute()
+    with pytest.raises(Exception, match=r"Defined|defined"):
+        values.where(mv.any_of(values.value.is_defined(), values.value.gt(0))).execute()
+    selected = values.where(values.value.is_defined())
+    east = selected.where(mv.all_of(selected.value.gt(0), category.value.eq("east"))).execute()
     assert set(east.to_pandas().member) == {
         member for member, name in analysis_dsl_rows("j2").customers if name == "east"
     }
-    if fixed:
-        import os
-        import subprocess
-        import sys
 
-        offline = case.database_path.with_suffix(".offline")
-        case.database_path.rename(offline)
-        script = """
+    fixed = values.execute()
+    fixed_selected = fixed.where(fixed.value.is_defined())
+    positive = fixed_selected.where(fixed_selected.value.gt(0)).execute()
+    assert positive.to_pandas().cell_tag.eq("defined").all()
+    ancestor = fixed_selected.where(fixed.value.gt(0)).execute()
+    assert ancestor.to_pandas().equals(positive.to_pandas())
+    projected = positive.members(through=positive.subject_binding).execute()
+    assert set(projected.to_pandas().member) == set(positive.to_pandas().member)
+
+    import os
+    import subprocess
+    import sys
+
+    fixed_region = category.execute()
+    offline = case.database_path.with_suffix(".offline")
+    case.database_path.rename(offline)
+    script = """
 import sys
 import duckdb
 import marivo.analysis as mv
@@ -278,39 +268,32 @@ result = selected.where(mv.all_of(selected.value.gt(0), region.value.eq("east"))
 assert result.to_pandas().equals(saved.to_pandas())
 assert result.members(through=result.subject_binding).execute().to_pandas().member.tolist() == saved.to_pandas().member.tolist()
 """
-        try:
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-c",
-                    script,
-                    case.session.id,
-                    current.state.artifact_ref.ref,
-                    region.state.artifact_ref.ref,
-                    east.state.artifact_ref.ref,
-                ],
-                cwd=case.root,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-                capture_output=True,
-                text=True,
-                timeout=60,
-                check=False,
-            )
-        finally:
-            offline.rename(case.database_path)
-        assert completed.returncode == 0, completed.stderr
-    positive = selected.where(selected.value.gt(0)).execute()
-    assert positive.to_pandas().cell_tag.eq("defined").all()
-    ancestor = selected.where(current.value.gt(0)).execute()
-    assert ancestor.to_pandas().equals(positive.to_pandas())
-    projected = positive.members(through=positive.subject_binding).execute()
-    assert set(projected.to_pandas().member) == set(positive.to_pandas().member)
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                case.session.id,
+                fixed.state.artifact_ref.ref,
+                fixed_region.state.artifact_ref.ref,
+                east.state.artifact_ref.ref,
+            ],
+            cwd=case.root,
+            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+    finally:
+        offline.rename(case.database_path)
+    assert completed.returncode == 0, completed.stderr
 
 
 @pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(18,2)"])
-@pytest.mark.parametrize("parquet", [False])
 def test_public_precise_field_comparisons(
-    analysis_dsl_case_factory: DslCaseFactory, physical: str, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory, physical: str
 ) -> None:
     import duckdb
 
@@ -318,8 +301,6 @@ def test_public_precise_field_comparisons(
     n = case.names
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE {physical}')
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     values = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}")).observe(
         ms.ref.metric(f"{n.domain}.{n.revenue}"),
@@ -333,7 +314,8 @@ def test_public_precise_field_comparisons(
     for _, member, _, _, occurred, amount in facts.orders:
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + amount
-    for current in (values, values.execute()):
+    currents = (values, values.execute()) if physical.startswith("DECIMAL") else (values,)
+    for current in currents:
         matched = current.where(current.value.eq(current.value)).execute()
         assert set(matched.to_pandas().member) == set(totals)
         threshold = Decimal("0.00") if physical.startswith("DECIMAL") else 0
@@ -346,9 +328,7 @@ def test_public_precise_field_comparisons(
             assert restored.where(restored.value.gt(threshold)).execute().to_pandas().equals(frame)
 
 
-@pytest.mark.parametrize(
-    "unit,parquet", [("us", False), ("s", True), ("ms", True), ("us", True), ("ns", True)]
-)
+@pytest.mark.parametrize("unit,parquet", [("us", False), ("s", True), ("ns", True)])
 def test_public_duration_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory, unit: str, parquet: bool
 ) -> None:
@@ -387,7 +367,8 @@ def test_public_duration_field_comparison(
         for _, member, _, _, occurred, _ in analysis_dsl_rows("j2").orders
         if member is not None and str(occurred).startswith("2026-08")
     }
-    for current in (selected, selected.execute()):
+    currents = (selected, selected.execute()) if unit == "ns" else (selected,)
+    for current in currents:
         result = current.where(current.value.eq(current.value)).execute()
         assert set(result.to_pandas().member) == expected
         with pytest.raises(Exception, match="incompatible"):

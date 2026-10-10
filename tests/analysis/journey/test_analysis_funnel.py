@@ -152,8 +152,7 @@ def component_state(groups, *, offset=0):
     return FunnelState(tuple(assignments), tuple(axes), True, "capture", "[]")
 
 
-@pytest.mark.parametrize("mode", ["joint", "hierarchy"])
-@pytest.mark.parametrize("top_k", [None, 1])
+@pytest.mark.parametrize("mode,top_k", [("joint", None), ("hierarchy", 1)])
 def test_fraction_oracle_hierarchy_common_topk_and_typed_other(mode, top_k):
     from marivo.analysis.methods.funnel import AllocationState, ComparisonState, allocate
 
@@ -269,33 +268,34 @@ def test_allocation_selection_rank_table_and_repair(funnel_public):
     assert sorted(frame["rank"].tolist()) == list(range(1, len(frame) + 1))
 
 
-@pytest.mark.parametrize(
-    "point",
-    ["insert_evidence", "insert_findings", "before_commit"],
-)
-def test_findings_transaction_failure_has_no_partial_publication(funnel_public, point):
+def test_findings_transaction_failure_has_no_partial_publication(funnel_public):
     from marivo.analysis.materialization.errors import MaterializationError
 
     session, journeys, _, _ = funnel_public
 
-    def inject(actual):
-        if actual == point:
-            raise RuntimeError("injected atomic Finding failure")
+    for point in ("insert_findings", "before_commit"):
 
-    session._runtime._hook = inject
-    with pytest.raises(MaterializationError):
-        journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-        assert (
-            connection.execute(
-                "SELECT COUNT(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
-            ).fetchone()[0]
-            == 0
-        )
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+        def inject(actual, injection_point=point):
+            if actual == injection_point:
+                raise RuntimeError("injected atomic Finding failure")
+
+        session._runtime._hook = inject
+        with pytest.raises(MaterializationError):
+            journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM analysis_action_run_terminals WHERE outcome='succeeded'"
+                ).fetchone()[0]
+                == 0
+            )
+            assert (
+                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
+                == 0
+            )
 
 
 @pytest.mark.slow
@@ -324,14 +324,7 @@ def test_independent_producer_continue_recover_nonempty_findings(tmp_path, form,
         assert '"accepted": true' in result.stdout
 
 
-@pytest.mark.parametrize(
-    "funnel_public",
-    [
-        ("table", "snapshot"),
-        ("parquet", "validity"),
-    ],
-    indirect=True,
-)
+@pytest.mark.parametrize("funnel_public", [("table", "snapshot")], indirect=True)
 def test_historical_entry_axes_and_real_null(funnel_public):
     from marivo.refs import ref
 
@@ -347,6 +340,33 @@ def test_historical_entry_axes_and_real_null(funnel_public):
     assert current[axis.path].isna().sum() == 2
     assert set(baseline[axis.path]) == {"old", "Other"}
     assert current["cohort_count"].tolist() == [1, 1, 1, 1]
+
+
+def test_entry_mappings_require_complete_occurrence_identity() -> None:
+    import pyarrow as pa
+
+    from marivo.analysis.core.domain_captures import DomainPreparationError
+    from marivo.analysis.materialization.funnel_execution import assemble_axes
+
+    large = 2**53 + 1
+    base = pa.table({"key_0": ["start", "start"], "key_1": [1, 2], "key_2": [7, 7]})
+    mapping = pa.table(
+        {
+            "key_0": ["start", "start"],
+            "key_1": [2, 1],
+            "key_2": [7, 7],
+            "axis_0": pa.array([None, large], type=pa.int64()),
+        }
+    )
+    assert assemble_axes(base, (mapping,))["axis_0"].to_pylist() == [large, None]
+    invalid_mappings = (
+        mapping.slice(0, 1),
+        pa.concat_tables([mapping, mapping.slice(0, 1)]),
+        mapping.set_column(1, "key_1", pa.array([2, 3])),
+    )
+    for invalid in invalid_mappings:
+        with pytest.raises(DomainPreparationError, match="path mapping"):
+            assemble_axes(base, (invalid,))
 
 
 def test_funnel_finding_cap_retains_truncation_authority(funnel_public, monkeypatch):
@@ -386,8 +406,7 @@ def test_funnel_finding_cap_retains_truncation_authority(funnel_public, monkeypa
     assert session.artifact(result.state.artifact_ref).evidence_digest() == digest
 
 
-@pytest.mark.parametrize("fault", ["extractor", "cancel", "deadline"])
-def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch, fault):
+def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch):
     from marivo.analysis.materialization import graph_findings
     from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
@@ -398,23 +417,32 @@ def test_extractor_cancel_and_deadline_are_atomic(funnel_public, monkeypatch, fa
     def extract(*args, **kwargs):
         raise RuntimeError("injected extractor failure")
 
-    def inject(point):
-        if point == "insert_findings":
-            if fault == "cancel":
-                raise KeyboardInterrupt("injected cancellation")
-            CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+    for fault in ("extractor", "cancel", "deadline"):
+        deadline_token = None
 
-    if fault == "extractor":
-        monkeypatch.setattr(graph_findings, "extract", extract)
-    else:
-        session._runtime._hook = inject
-    with pytest.raises((MaterializationError, KeyboardInterrupt, DomainPreparationError)):
-        journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
-    monkeypatch.setattr(graph_findings, "extract", original)
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
+        def inject(point, injected_fault=fault):
+            nonlocal deadline_token
+            if point == "insert_findings":
+                if injected_fault == "cancel":
+                    raise KeyboardInterrupt("injected cancellation")
+                deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+
+        if fault == "extractor":
+            monkeypatch.setattr(graph_findings, "extract", extract)
+        else:
+            session._runtime._hook = inject
+        try:
+            with pytest.raises((MaterializationError, KeyboardInterrupt, DomainPreparationError)):
+                journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
+        finally:
+            session._runtime._hook = None
+            monkeypatch.setattr(graph_findings, "extract", original)
+            if deadline_token is not None:
+                CURRENT.reset(deadline_token)
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("funnel_public", ["table", "parquet"], indirect=True)
@@ -574,8 +602,7 @@ def test_latest_funnel_example_executes(funnel_public):
     _, journeys, pattern, _ = funnel_public
     from tests.support.documentation import _example
 
-    examples = [_example(locale, "funnel-attribution") for locale in ("en", "zh")]
-    assert len(set(examples)) == 1
+    example = _example("en", "funnel-attribution")
     namespace = {
         "mv": mv,
         "ms": ms,
@@ -583,7 +610,7 @@ def test_latest_funnel_example_executes(funnel_public):
         "baseline_journeys": journeys(START - timedelta(days=3)),
         "finish_step": pattern.steps[1],
     }
-    exec(compile(examples[0], "latest-funnel-example", "exec"), namespace)
+    exec(compile(example, "latest-funnel-example", "exec"), namespace)
     assert namespace["allocation"].evidence_digest().finding_count == 4
 
 

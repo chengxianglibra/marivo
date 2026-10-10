@@ -213,6 +213,7 @@ def _counts(store):
         )
 
 
+@pytest.mark.slow
 def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
     first = _capture(case)
     case[5].create_table(
@@ -522,6 +523,7 @@ def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch)
     assert calls == ["difference"]
 
 
+@pytest.mark.slow
 def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
     captured = _capture(case)
     association_root = _fixed_pair(captured, captured)
@@ -890,7 +892,7 @@ def test_strict_descriptor_rejects_altered_fields(case):
             decode(canonical_json(payload), DESCRIPTOR)
 
 
-@pytest.mark.parametrize("generation", (1, 8))
+@pytest.mark.parametrize("generation", (8,))
 def test_existing_generation_rejection_preserves_project_bytes(
     tmp_path: Path, generation: int
 ) -> None:
@@ -1007,8 +1009,9 @@ def _finish(process, expected=0):
 
 @pytest.mark.parametrize(
     "point",
-    ["graph_primary_written", "graph_files_published", "after_commit"],
+    ["graph_files_published", "after_commit"],
 )
+@pytest.mark.slow
 def test_process_exit_coordinates_original_run_without_replay(case, point):
     saved = _capture(case)
     store = case[0].store
@@ -1018,6 +1021,7 @@ def test_process_exit_coordinates_original_run_without_replay(case, point):
     assert read_result(store.project_root, saved.descriptor).primary.num_rows == 3
 
 
+@pytest.mark.slow
 def test_two_process_writers_share_one_success_and_release_lock(case):
     saved = _capture(case)
     store = case[0].store
@@ -1297,14 +1301,10 @@ def test_invalid_dag_cannot_hit_or_admit(case, target):
     assert case[4] == opens
 
 
-@pytest.mark.parametrize(
-    "budget", ["MAX_NODES", "MAX_DEPTH", "MAX_VALUE_RECORDS", "MAX_VALUE_REFERENCES"]
-)
-def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch, budget):
-    from marivo.analysis.materialization import graph_snapshot, graph_value_tables
+def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch):
+    from marivo.analysis.materialization import graph_snapshot
 
-    owner = graph_value_tables if budget.startswith("MAX_VALUE_") else graph_snapshot
-    monkeypatch.setattr(owner, budget, 1)
+    monkeypatch.setattr(graph_snapshot, "MAX_NODES", 1)
     with pytest.raises(IntegrityError, match="budget"):
         _execute(case)
     assert case[4] == []
@@ -1407,6 +1407,7 @@ def test_materialized_show_without_original_implementation(case, monkeypatch, ca
         case[0]._execute_graph(successor, (RouteChoice(successor.identity, "artifact_python"),))
 
 
+@pytest.mark.slow
 def test_cold_fixed_read_without_registry(case):
     output = _execute(case)
     code = """

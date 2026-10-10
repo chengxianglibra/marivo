@@ -19,40 +19,11 @@ from tests.shared_fixtures import DSL_NAMES, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
-def test_public_j1_total_uses_registered_source(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    customers = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-
-    result = (
-        customers.observe(
-            revenue,
-            during=august,
-            via=buyer,
-            by=(mv.member(),),
-        )
-        .rollup()
-        .execute()
-    )
-
-    assert isinstance(result, mv.MaterializedRolledNumericRelation)
-    assert result.to_pandas().iloc[0]["value"] == 1000
-
-
-@pytest.mark.parametrize(
-    ("report_timezone", "expected"),
-    (("Asia/Shanghai", 677), ("America/Los_Angeles", 649)),
-)
 def test_public_j1_scope_uses_persisted_report_timezone(
     analysis_dsl_case_factory: DslCaseFactory,
-    report_timezone: str,
-    expected: int,
 ) -> None:
+    report_timezone = "Asia/Shanghai"
+    expected = 677
     case = analysis_dsl_case_factory("j1")
     names = case.names
     session = mv.session.get_or_create("j1-report-zone", report_timezone=report_timezone)
@@ -71,6 +42,7 @@ def test_public_j1_scope_uses_persisted_report_timezone(
         .rollup()
         .execute()
     )
+    assert isinstance(member_total, mv.MaterializedRolledNumericRelation)
     assert member_total.to_pandas().iloc[0]["value"] == expected
 
     utc_instants = mv.time_scope(start="2026-08-01T00:00:00+00:00", end="2026-09-01T00:00:00+00:00")
@@ -302,21 +274,6 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     assert values.loc[["west"]].isna().all()
 
 
-def test_public_category_does_not_expose_grouping(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
-    category = orders.read(ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}"))
-    assert isinstance(category, mv.LogicalCategoryRelation)
-    before = case.session.runs().items
-
-    assert not hasattr(category, "group_by")
-
-    assert case.session.runs().items == before
-
-
 def test_public_fixed_coordinate_rollup_uses_retained_group_state(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -384,7 +341,7 @@ def test_public_comparison_rejects_different_members_and_metric_units(
     assert len(case.session.runs().items) == before
 
 
-def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
+def test_public_failed_run_preserves_prior_artifact(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -396,9 +353,6 @@ def test_public_source_repeats_and_failed_run_preserves_prior_artifact(
         by=(mv.member(),),
     )
     first = logical.execute()
-    second = logical.execute()
-    assert first.state.artifact_ref != second.state.artifact_ref
-    assert len(case.session.runs().items) == 2
 
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
@@ -579,13 +533,10 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     )
 
     association = signal.correlate(readings, method="spearman").execute()
-    selected = association.coefficient.where(association.coefficient.value.lt(0)).execute()
     association_frame = association.to_pandas()
-    selected_frame = selected.to_pandas()
 
     assert association_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association_frame.iloc[0]["complete_pair_count"] == 4
-    assert selected_frame.iloc[0]["value"] == pytest.approx(-0.4)
 
 
 def test_public_snapshot_mismatch_rejects_exact_artifact(

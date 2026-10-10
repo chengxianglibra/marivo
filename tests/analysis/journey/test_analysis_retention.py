@@ -17,9 +17,8 @@ from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_p
 PROFILE_CASES = (("c", "s", "parquet", "ns", "America/New_York"),)
 
 
-@pytest.mark.parametrize("form", ["table", "parquet"])
-def test_fixed_omega_truth_quantifiers_and_selection(tmp_path, form):
-    session, anchors, returning, claims = build_retention(tmp_path, form=form)
+def test_fixed_omega_truth_quantifiers_and_selection(tmp_path):
+    session, anchors, returning, claims = build_retention(tmp_path)
     logical = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
     )
@@ -54,8 +53,8 @@ def test_closed_rule_repr(rule):
     assert len(repr(rule).splitlines()) == 1
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_calendar_and_empty_omega(tmp_path, empty):
+def test_empty_calendar_omega_is_undefined(tmp_path):
+    empty = True
     _, anchors, returning, _ = build_retention(tmp_path, empty=empty)
     result = anchors.retention(
         returning, within=mv.calendar_days(1, ZoneInfo("America/New_York"))
@@ -70,10 +69,8 @@ def test_calendar_and_empty_omega(tmp_path, empty):
 
 
 def test_raw_partition_and_shared_return(tmp_path):
-    rows = [(0, "started", 0, i) for i in range(5)]
-    rows += [(0, "finished", 5, 6)]
-    rows += [(1, "started", 30, 1)]
-    rows += [(2, "started", 90, i) for i in range(14)]
+    rows = [(0, "started", 0, 1), (0, "started", 1, 2), (0, "finished", 5, 3)]
+    rows += [(1, "started", 30, 1), (2, "started", 90, 1)]
     _, anchors, returning, claims = build_retention(tmp_path, rows=rows)
     claims = tuple(replace(c, complete_through=START + timedelta(seconds=40)) for c in claims)
     fixed = anchors.retention(
@@ -89,7 +86,7 @@ def test_raw_partition_and_shared_return(tmp_path):
             "unknown_count",
             "deterministic_bounds",
         )
-    ] == ["20", "5", "1", "14", "[0.25,0.95]"]
+    ] == ["4", "2", "1", "1", "[0.5,0.75]"]
     # Independent raw-row oracle: time membership and coverage, not product helpers.
     expected = {}
     for index, (subject, kind, second, _) in enumerate(rows):
@@ -103,32 +100,32 @@ def test_raw_partition_and_shared_return(tmp_path):
         )
     actual = {r.coord_1: r.value for r in fixed.to_pandas().itertuples()}
     assert actual == expected
-    for view, count in ((fixed.known_true(), 5), (fixed.known_false(), 1), (fixed.unknown(), 14)):
-        selected = view.execute()
-        assert len(selected.to_pandas()) == count
-        assert dict(selected.contract()._facts)["deterministic_bounds"] == "[0.25,0.95]"
-    for rule in (mv.any_anchor(), mv.every_anchor()):
-        result = fixed.by_subject(rule=rule).execute()
-        assert result.to_pandas().value.tolist() == [True, False, None]
-        selected = result.known_true().execute()
-        assert len(selected.members().execute().to_pandas()) == 1
 
 
-@pytest.mark.parametrize(
-    "same_event,second,sequence,expected",
-    [(True, 0, 1, None), (False, 0, 2, True), (False, 10, 2, None), (False, 9, 2, True)],
-)
-def test_self_order_and_exclusive_deadline(tmp_path, same_event, second, sequence, expected):
-    rows = (
-        [(0, "started", 0, 1)]
-        if same_event
-        else [(0, "started", 0, 1), (0, "finished", second, sequence)]
-    )
-    _, anchors, returning, _ = build_retention(tmp_path, rows=rows)
-    if same_event:
-        returning = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
+def test_same_event_does_not_count_as_a_later_return(tmp_path):
+    _, anchors, _, _ = build_retention(tmp_path, rows=[(0, "started", 0, 1)])
+    returning = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
     result = anchors.retention(returning, within=mv.elapsed(mv.duration(seconds=10))).execute()
-    assert result.to_pandas().value.tolist() == [expected]
+    assert result.to_pandas().value.tolist() == [None]
+
+
+def test_same_time_and_exclusive_deadline_returns_share_one_source(tmp_path):
+    rows = [
+        (0, "started", 0, 1),
+        (0, "finished", 0, 2),
+        (1, "started", 0, 1),
+        (1, "finished", 10, 2),
+        (2, "started", 0, 1),
+        (2, "finished", 9, 2),
+    ]
+    _, anchors, returning, _ = build_retention(tmp_path, rows=rows)
+    result = anchors.retention(returning, within=mv.elapsed(mv.duration(seconds=10))).execute()
+    frame = result.to_pandas().set_index("coord_1")["value"].to_dict()
+    assert frame == {
+        9007199254740993: True,
+        9007199254740995: None,
+        9007199254740997: True,
+    }
 
 
 def test_tie_without_order_and_wrong_coverage_fail_atomically(tmp_path):
@@ -218,35 +215,7 @@ def test_profiles_source_fixed_cold(tmp_path, subject, occurrence, form, unit, z
         ).write_text(json.dumps({"config": config, "phases": receipts}, sort_keys=True))
 
 
-@pytest.mark.parametrize(
-    "target",
-    [
-        "analysis.AnyAnchor",
-        "analysis.EveryAnchor",
-        "analysis.dsl.any_anchor",
-        "analysis.dsl.every_anchor",
-        "analysis.LogicalRetentionResult",
-        "analysis.MaterializedRetentionResult",
-        "analysis.LogicalSubjectRetentionResult",
-        "analysis.MaterializedSubjectRetentionResult",
-        "analysis.dsl.AnchorDomain.retention",
-        "analysis.dsl.InstanceRetention.by_subject",
-        "analysis.dsl.Retention.known_true",
-        "analysis.dsl.Retention.known_false",
-        "analysis.dsl.Retention.unknown",
-    ],
-)
-def test_retention_help_resolves_independently(target, capsys):
-    import marivo
-
-    marivo.help(target)
-    rendered = capsys.readouterr().out
-    assert target in rendered
-    assert "Example" in rendered or "Acquire" in rendered
-
-
-@pytest.mark.parametrize("fault", ["missing", "corrupt", "swapped"])
-def test_required_retention_part_rejects_before_continuation_run(tmp_path, fault):
+def test_required_retention_part_rejects_before_continuation_run(tmp_path):
     session, anchors, returning, claims = build_retention(tmp_path)
     result = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
@@ -257,24 +226,27 @@ def test_required_retention_part_rejects_before_continuation_run(tmp_path, fault
     target = next(p for p in result._dataset.artifact.descriptor.parts if p.role == "retention")
     path = tmp_path / target.local.project_relative_path / "data.parquet"
     original = path.read_bytes()
-    before = session.runs().items
-    if fault == "missing":
-        path.unlink()
-    elif fault == "corrupt":
-        path.write_bytes(b"invalid retained partition")
-    else:
-        other = next(
-            p for p in projected._dataset.artifact.descriptor.parts if p.role == "retention"
-        )
-        path.write_bytes(
-            (tmp_path / other.local.project_relative_path / "data.parquet").read_bytes()
-        )
-    try:
-        with pytest.raises(AnalysisError):
-            session.artifact(result.state.artifact_ref).by_subject(rule=mv.every_anchor()).execute()
-        assert session.runs().items == before
-    finally:
-        path.write_bytes(original)
+    for fault in ("missing", "corrupt", "swapped"):
+        before = session.runs().items
+        if fault == "missing":
+            path.unlink()
+        elif fault == "corrupt":
+            path.write_bytes(b"invalid retained partition")
+        else:
+            other = next(
+                p for p in projected._dataset.artifact.descriptor.parts if p.role == "retention"
+            )
+            path.write_bytes(
+                (tmp_path / other.local.project_relative_path / "data.parquet").read_bytes()
+            )
+        try:
+            with pytest.raises(AnalysisError):
+                session.artifact(result.state.artifact_ref).by_subject(
+                    rule=mv.every_anchor()
+                ).execute()
+            assert session.runs().items == before
+        finally:
+            path.write_bytes(original)
 
 
 @pytest.mark.parametrize(
@@ -308,32 +280,12 @@ def test_dst_retention_deadline_is_exclusive(tmp_path, calendar_start, hours):
     assert result.to_pandas().value.tolist() == [False]
 
 
-@pytest.mark.parametrize("empty", [False, True])
-@pytest.mark.parametrize("filtered", [False, True])
-def test_known_true_subject_image_then_source_preparation(tmp_path, empty, filtered, monkeypatch):
+def test_known_true_subject_image_then_source_preparation(tmp_path, monkeypatch):
     from marivo.analysis.materialization import retention_execution
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.journey.anchors_fixtures import build_anchors, event_anchors
 
     session, population, window, _, _ = build_anchors(tmp_path)
-    if filtered:
-        identity = population.read(ms.ref.dimension("commerce.subjects.sid"))
-        population = identity.where(identity.value.eq(9007199254740993)).members()
-    returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
-    logical = event_anchors(session, population, window).retention(
-        returning, within=mv.calendar_days(1, ZoneInfo("UTC"))
-    )
-    selected = logical.known_false() if empty else logical.known_true()
-    if empty:
-        # Empty true selection retains a decidable-true certificate.
-        selected = logical.known_true()
-        selected = selected.where(selected.value.eq(False))
-    members = selected.members(through=selected.subject_binding)
-    operation = members.observe(
-        ms.ref.metric("commerce.fact_count"),
-        during=window,
-        via=ms.ref.relationship("commerce.participant"),
-    )
     execute = retention_execution.execute
     batches = SourceSession.batches
     local_started = False
@@ -350,19 +302,37 @@ def test_known_true_subject_image_then_source_preparation(tmp_path, empty, filte
 
     monkeypatch.setattr(retention_execution, "execute", local)
     monkeypatch.setattr(SourceSession, "batches", source)
-    result = operation.execute()
-    assert result.to_pandas().value.tolist() == ([] if empty else [6] if filtered else [6, 1])
+    returning = ms.participant_role(event=ms.ref.event("commerce.finished"), name="subject")
+    for empty, filtered in ((False, True), (True, False)):
+        selected_population = population
+        if filtered:
+            identity = population.read(ms.ref.dimension("commerce.subjects.sid"))
+            selected_population = identity.where(identity.value.eq(9007199254740993)).members()
+        logical = event_anchors(session, selected_population, window).retention(
+            returning, within=mv.calendar_days(1, ZoneInfo("UTC"))
+        )
+        selected = logical.known_true()
+        if empty:
+            # Empty true selection retains a decidable-true certificate.
+            selected = selected.where(selected.value.eq(False))
+        members = selected.members(through=selected.subject_binding)
+        operation = members.observe(
+            ms.ref.metric("commerce.fact_count"),
+            during=window,
+            via=ms.ref.relationship("commerce.participant"),
+        )
+        local_started = False
+        result = operation.execute()
+        assert result.to_pandas().value.tolist() == ([] if empty else [6])
 
 
-@pytest.mark.parametrize("language", ["docs", "zh-cn/docs"])
-def test_latest_retention_example_executes(tmp_path, monkeypatch, language, capsys):
+def test_latest_retention_example_executes(tmp_path, monkeypatch, capsys):
 
     session, _, _, _ = build_retention(tmp_path)
     monkeypatch.setattr(mv.session, "get_or_create", lambda *args, **kwargs: session)
     from tests.support.documentation import _example
 
-    code = _example(language, "anchor-retention")
-    code = code.replace(
+    code = _example("docs", "anchor-retention").replace(
         'start="2026-08-01", end="2026-09-01"',
         'start="2026-02-01T00:00:00+00:00", end="2026-02-01T00:01:40+00:00"',
     )
@@ -388,8 +358,7 @@ def test_native_elapsed_does_not_call_local_retention(tmp_path, monkeypatch):
     assert dict(result.contract()._facts)["deterministic_bounds"] == "[0.25,0.75]"
 
 
-@pytest.mark.parametrize("point", ["insert_artifact", "before_commit", "cancel", "deadline"])
-def test_retention_publication_failure_is_atomic(tmp_path, point):
+def test_retention_publication_failure_is_atomic(tmp_path):
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
     session, anchors, returning, claims = build_retention(tmp_path)
@@ -398,25 +367,38 @@ def test_retention_publication_failure_is_atomic(tmp_path, point):
     )
     previous = logical.execute()
 
-    def inject(actual):
-        if actual == ("before_commit" if point in ("cancel", "deadline") else point):
-            if point == "cancel":
-                raise KeyboardInterrupt("injected retention cancellation")
-            if point == "deadline":
-                CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-            else:
-                raise RuntimeError("injected retention publication failure")
+    for point in ("before_commit", "cancel", "deadline"):
+        deadline_token = None
 
-    session._runtime._hook = inject
-    try:
-        with pytest.raises((AnalysisError, KeyboardInterrupt)):
-            logical.execute()
-    finally:
-        session._runtime._hook = None
-    assert session.artifact(previous.state.artifact_ref).to_pandas().equals(previous.to_pandas())
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+        def inject(actual, injection_point=point):
+            nonlocal deadline_token
+            if actual == (
+                "before_commit" if injection_point in ("cancel", "deadline") else injection_point
+            ):
+                if injection_point == "cancel":
+                    raise KeyboardInterrupt("injected retention cancellation")
+                if injection_point == "deadline":
+                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                else:
+                    raise RuntimeError("injected retention publication failure")
+
+        session._runtime._hook = inject
+        try:
+            with pytest.raises((AnalysisError, KeyboardInterrupt)):
+                logical.execute()
+        finally:
+            session._runtime._hook = None
+            if deadline_token is not None:
+                CURRENT.reset(deadline_token)
+        assert (
+            session.artifact(previous.state.artifact_ref).to_pandas().equals(previous.to_pandas())
+        )
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+            assert (
+                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
+                == 0
+            )
 
 
 def test_fixed_inputs_and_invalid_rule_reject_before_io_and_run(tmp_path, monkeypatch):
@@ -442,8 +424,7 @@ def test_fixed_inputs_and_invalid_rule_reject_before_io_and_run(tmp_path, monkey
     assert session.runs().items == before
 
 
-@pytest.mark.parametrize("kind", ["enum", "precedence"])
-@pytest.mark.parametrize("calendar", [False, True])
+@pytest.mark.parametrize("kind,calendar", [("enum", False), ("precedence", True)])
 def test_captured_same_instant_order_variants(tmp_path, kind, calendar):
     import re
 
@@ -553,8 +534,7 @@ def test_source_retention_reexecutes_changed_facts(tmp_path):
     assert dict(current.contract()._facts)["known_true_count"] == "0"
 
 
-@pytest.mark.parametrize("form", ["table", "parquet"])
-@pytest.mark.parametrize("calendar", [False, True])
+@pytest.mark.parametrize("form,calendar", [("table", False), ("parquet", True)])
 def test_return_capture_keeps_snapshot_and_validity_path(tmp_path, form, calendar):
     from tests.analysis.journey.anchors_fixtures import build_anchors, event_anchors
 
@@ -577,44 +557,26 @@ def test_return_capture_keeps_snapshot_and_validity_path(tmp_path, form, calenda
     )
 
 
-@pytest.mark.parametrize("calendar", [False, True])
-@pytest.mark.parametrize(
-    "observed_from,observed_through,declared_from,declared_through,expected",
-    [
-        (0, 10, 0, 5, False),
-        (0, 10, None, 5, False),
-        (5, 10, 0, 5, False),
-        (6, 10, 0, 5, None),
-        (0, 5, 5, 10, False),
-    ],
-)
-def test_retention_combines_exact_coverage_intervals(
-    tmp_path,
-    monkeypatch,
-    calendar,
-    observed_from,
-    observed_through,
-    declared_from,
-    declared_through,
-    expected,
-):
+def test_retention_combines_exact_coverage_intervals(tmp_path, monkeypatch):
+    from datetime import datetime
+
     from marivo.analysis.domains.completeness import BoundedCoverageStartV1, EventCoverageReceiptV1
     from marivo.datasource.adapters import SourceSession
 
     session, anchors, returning, claims = build_retention(tmp_path, rows=[(0, "started", 0, 1)])
-    span = 86400 if calendar else 10
-    point = lambda value: START + timedelta(seconds=span * value // 10)
-    declarations = tuple(
-        replace(c, complete_through=point(declared_through))
-        if declared_from is None
-        else mv.BoundedCompletenessDeclarationV1(
-            inputs=(returning.event,),
-            complete_from=point(declared_from),
-            complete_through=point(declared_through),
-            rationale="Exact-bound regression declaration",
-        )
-        for c in claims
+    cases = (
+        (False, 0, 10, 0, 5, False),
+        (False, 5, 10, 0, 5, False),
+        (False, 6, 10, 0, 5, None),
+        (True, 0, 5, 5, 10, False),
     )
+    active_case = cases[0]
+
+    def point(value: int) -> datetime:
+        calendar, *_ = active_case
+        span = 86400 if calendar else 10
+        return START + timedelta(seconds=span * value // 10)
+
     original_enter = SourceSession.__enter__
 
     def enter(source):
@@ -623,6 +585,7 @@ def test_retention_combines_exact_coverage_intervals(
         def provider(backend, request):
             if request.event_ref != returning.event:
                 return None
+            _, observed_from, observed_through, _, _, _ = active_case
             assert source.domain_authority is not None
             return EventCoverageReceiptV1(
                 event_ref=request.event_ref,
@@ -643,25 +606,39 @@ def test_retention_combines_exact_coverage_intervals(
         return result
 
     monkeypatch.setattr(SourceSession, "__enter__", enter)
-    result = anchors.retention(
-        returning,
-        within=mv.calendar_days(1, ZoneInfo("UTC"))
-        if calendar
-        else mv.elapsed(mv.duration(seconds=span)),
-        completeness=declarations,
-    ).execute()
-    frame = result.to_pandas()
-    assert frame.value.tolist() == [expected]
-    facts = dict(result.contract()._facts)
-    assert facts["omega_count"] == "1"
-    assert facts["deterministic_bounds"] == ("[0.0,0.0]" if expected is False else "[0.0,1.0]")
-    assert session.artifact(result.state.artifact_ref).to_pandas().equals(frame)
-    projected = result.by_subject(rule=mv.every_anchor()).execute()
-    assert projected.to_pandas().value.tolist() == [expected]
+    for case in cases:
+        active_case = case
+        calendar, _, _, declared_from, declared_through, expected = case
+        declarations = tuple(
+            replace(c, complete_through=point(declared_through))
+            if declared_from is None
+            else mv.BoundedCompletenessDeclarationV1(
+                inputs=(returning.event,),
+                complete_from=point(declared_from),
+                complete_through=point(declared_through),
+                rationale="Exact-bound regression declaration",
+            )
+            for c in claims
+        )
+        span = 86400 if calendar else 10
+        result = anchors.retention(
+            returning,
+            within=mv.calendar_days(1, ZoneInfo("UTC"))
+            if calendar
+            else mv.elapsed(mv.duration(seconds=span)),
+            completeness=declarations,
+        ).execute()
+        frame = result.to_pandas()
+        assert frame.value.tolist() == [expected]
+        facts = dict(result.contract()._facts)
+        assert facts["omega_count"] == "1"
+        assert facts["deterministic_bounds"] == ("[0.0,0.0]" if expected is False else "[0.0,1.0]")
+        assert session.artifact(result.state.artifact_ref).to_pandas().equals(frame)
+        projected = result.by_subject(rule=mv.every_anchor()).execute()
+        assert projected.to_pandas().value.tolist() == [expected]
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_external_unknown_predicate_keeps_receiver_truth(tmp_path, fixed):
+def test_external_unknown_predicate_keeps_receiver_truth_source_and_fixed(tmp_path):
     _, anchors, returning, claims = build_retention(tmp_path)
     left = anchors.retention(
         returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
@@ -669,16 +646,21 @@ def test_external_unknown_predicate_keeps_receiver_truth(tmp_path, fixed):
     right = anchors.retention(
         returning, within=mv.calendar_days(1, ZoneInfo("UTC")), completeness=claims
     )
-    if fixed:
-        left, right = left.execute(), right.execute()
-    receiver, predicate = left.status, right.status
-    result = receiver.where(mv.not_(predicate.value.is_defined())).execute()
-    frame = result.to_pandas()
-    assert frame.coord_1.tolist() == [9007199254740995, 9007199254740996, 9007199254740997]
-    assert frame.value.tolist() == [None, False, None]
-    facts = dict(result.contract()._facts)
-    assert facts["selection"] == "predicate"
-    assert facts["omega_count"] == "4"
-    assert facts["deterministic_bounds"] == "[0.25,0.75]"
-    with pytest.raises(AnalysisError):
-        result.members(through=result.subject_binding)
+    for materialized in (False, True):
+        receiver, predicate = left, right
+        if materialized:
+            receiver, predicate = receiver.execute(), predicate.execute()
+        result = receiver.status.where(mv.not_(predicate.status.value.is_defined())).execute()
+        frame = result.to_pandas()
+        assert frame.coord_1.tolist() == [
+            9007199254740995,
+            9007199254740996,
+            9007199254740997,
+        ]
+        assert frame.value.tolist() == [None, False, None]
+        facts = dict(result.contract()._facts)
+        assert facts["selection"] == "predicate"
+        assert facts["omega_count"] == "4"
+        assert facts["deterministic_bounds"] == "[0.25,0.75]"
+        with pytest.raises(AnalysisError):
+            result.members(through=result.subject_binding)

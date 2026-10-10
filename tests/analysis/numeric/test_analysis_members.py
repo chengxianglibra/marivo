@@ -25,7 +25,7 @@ from tests.shared_fixtures import DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.fixture(params=("table", "parquet"))
+@pytest.fixture
 def members_session(
     analysis_dsl_case_factory: DslCaseFactory, request: pytest.FixtureRequest
 ) -> Session:
@@ -89,7 +89,7 @@ def members_session(
         "many_snapshot = ms.relationship(name='many_snapshot', from_entity=plain, to_entity=snapshot, keys=[ms.join_on(plain_tenant, snapshot_tenant)])\n"
     )
     source = "".join(definitions)
-    if request.param == "parquet":
+    if getattr(request, "param", "table") == "parquet":
         backend = ibis.duckdb.connect(case.database_path)
         try:
             for table in ("r52", "r52_plain"):
@@ -110,6 +110,9 @@ def _domain(session: Session) -> str:
     )
 
 
+@pytest.mark.parametrize(
+    "members_session", ("table", "parquet"), indirect=True, ids=("table", "parquet")
+)
 def test_complete_key_and_four_read_kinds(members_session: Session) -> None:
     session = members_session
     prefix = _domain(session)
@@ -251,28 +254,29 @@ def test_computed_boolean_dimension(
     assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
 
-@pytest.mark.parametrize("kind", ["snapshot", "valid"])
-def test_exact_versions_and_independent_read(members_session: Session, kind: str) -> None:
+def test_exact_versions_and_independent_read(members_session: Session) -> None:
     session = members_session
-    entity = f"{_domain(session)}.{kind}"
+    prefix = _domain(session)
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(ms.ref.entity(entity), at=august.before_end)
-    assert members.execute().to_pandas()["coord_0"].tolist() == (
-        ["A", "B"] if kind == "valid" else []
-    )
-    first = session.members(ms.ref.entity(entity), at=datetime(2026, 8, 1, tzinfo=timezone.utc))
-    assert first.execute().to_pandas()["coord_0"].tolist() == ["A", "B"]
-    with pytest.raises(AnalysisError):
-        first.read(ms.ref.measure(f"{entity}.amount"))
-    read = first.read(
-        ms.ref.measure(f"{entity}.amount"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
-    )
-    assert read.execute().to_pandas()["value"].tolist() == [10, 20]
-    with pytest.raises(AnalysisError):
-        session.members(ms.ref.entity(entity))
+    for kind in ("snapshot", "valid"):
+        entity = f"{prefix}.{kind}"
+        members = session.members(ms.ref.entity(entity), at=august.before_end)
+        assert members.execute().to_pandas()["coord_0"].tolist() == (
+            ["A", "B"] if kind == "valid" else []
+        )
+        first = session.members(ms.ref.entity(entity), at=datetime(2026, 8, 1, tzinfo=timezone.utc))
+        assert first.execute().to_pandas()["coord_0"].tolist() == ["A", "B"]
+        with pytest.raises(AnalysisError):
+            first.read(ms.ref.measure(f"{entity}.amount"))
+        read = first.read(
+            ms.ref.measure(f"{entity}.amount"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
+        )
+        assert read.execute().to_pandas()["value"].tolist() == [10, 20]
+        with pytest.raises(AnalysisError):
+            session.members(ms.ref.entity(entity))
     with pytest.raises(AnalysisError):
         session.members(
-            ms.ref.entity(f"{_domain(session)}.plain"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
+            ms.ref.entity(f"{prefix}.plain"), at=datetime(2026, 8, 1, tzinfo=timezone.utc)
         )
 
 

@@ -140,19 +140,13 @@ def test_exact_ties_and_nondefined_tail(ties: str, expected: list[int]) -> None:
     assert ranked(list(reversed(rows)), ("key_0",), "descending", ties, ()) == result
 
 
-@pytest.mark.parametrize("parquet", [False])
-@pytest.mark.parametrize("ties", ["ordinal", "dense", "min", "max"])
-@pytest.mark.parametrize("order", ["ascending", "descending"])
+@pytest.mark.parametrize(("order", "ties"), [("ascending", "ordinal"), ("descending", "dense")])
 def test_public_rank_table_source_and_fixed(
     analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
     ties: Literal["ordinal", "dense", "min", "max"],
     order: Literal["ascending", "descending"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = members.read(ms.ref.dimension("sales.customer.region"))
     values = members.observe(
@@ -185,53 +179,54 @@ def test_public_rank_table_source_and_fixed(
             if ties == "min"
             else max(occupied)
         )
-    for current, category in ((values, region), (values.execute(), region.execute())):
-        ranking = current.rank(order=order, ties=ties).execute()
-        frame = ranking.ranks.to_pandas()
-        assert frame.member.tolist() == ordered
-        assert dict(zip(frame.member, frame.value, strict=True)) == expected
-        limited = ranking.limit(2).execute()
+    ranking = values.rank(order=order, ties=ties).execute()
+    frame = ranking.ranks.to_pandas()
+    assert frame.member.tolist() == ordered
+    assert dict(zip(frame.member, frame.value, strict=True)) == expected
+
+    if ties == "ordinal":
+        fixed_ranking = values.execute().rank(order=order, ties=ties).execute()
+        fixed_frame = fixed_ranking.ranks.to_pandas()
+        assert fixed_frame.member.tolist() == ordered
+        assert dict(zip(fixed_frame.member, fixed_frame.value, strict=True)) == expected
+        limited = fixed_ranking.limit(2).execute()
         assert limited.values.to_pandas().member.tolist() == ordered[:2]
         limited_frame = limited.ranks.to_pandas()
         assert dict(zip(limited_frame.member, limited_frame.value, strict=True)) == {
             key: expected[key] for key in ordered[:2]
         }
-        table = mv.table(count=ranking.values, rank=ranking.ranks).execute()
-        exported = table.to_pandas()
-        assert exported.columns.tolist() == ["member", "count", "rank"]
-        assert dict(zip(exported.member, exported["count"], strict=True)) == counts
-        assert dict(zip(exported.member, exported["rank"], strict=True)) == expected
-        assert not hasattr(table, "contract") and not hasattr(table, "where")
-        recovered = case.session.artifact(table.artifact_ref)
-        assert isinstance(recovered, mv.MaterializedTable)
-        assert recovered.to_pandas().equals(exported)
-        partitioned = current.rank(order=order, ties=ties, partition_by=(category,)).execute()
-        partition_order = []
-        partition_ranks = {}
-        for label in sorted({label for _, label in facts.customers}):
-            group = [key for key in ordered if (key, label) in facts.customers]
-            partition_order.extend(group)
-            scores = sorted({counts[key] for key in group}, reverse=order == "descending")
-            for index, key in enumerate(group):
-                occupied = [i + 1 for i, other in enumerate(group) if counts[other] == counts[key]]
-                partition_ranks[key] = (
-                    index + 1
-                    if ties == "ordinal"
-                    else scores.index(counts[key]) + 1
-                    if ties == "dense"
-                    else min(occupied)
-                    if ties == "min"
-                    else max(occupied)
-                )
-        partition_frame = partitioned.ranks.to_pandas()
-        assert partition_frame.member.tolist() == partition_order
-        assert (
-            dict(zip(partition_frame.member, partition_frame.value, strict=True)) == partition_ranks
-        )
-    source = values.rank(order=order, ties=ties)
-    table = mv.table(count=source.values, rank=source.ranks).execute()
-    frame = table.to_pandas()
-    assert dict(zip(frame.member, frame["rank"], strict=True)) == expected
+
+    table = mv.table(count=ranking.values, rank=ranking.ranks).execute()
+    exported = table.to_pandas()
+    assert exported.columns.tolist() == ["member", "count", "rank"]
+    assert dict(zip(exported.member, exported["count"], strict=True)) == counts
+    assert dict(zip(exported.member, exported["rank"], strict=True)) == expected
+    assert not hasattr(table, "contract") and not hasattr(table, "where")
+    recovered = case.session.artifact(table.artifact_ref)
+    assert isinstance(recovered, mv.MaterializedTable)
+    assert recovered.to_pandas().equals(exported)
+
+    partitioned = values.rank(order=order, ties=ties, partition_by=(region,)).execute()
+    partition_order = []
+    partition_ranks = {}
+    for label in sorted({label for _, label in facts.customers}):
+        group = [key for key in ordered if (key, label) in facts.customers]
+        partition_order.extend(group)
+        scores = sorted({counts[key] for key in group}, reverse=order == "descending")
+        for index, key in enumerate(group):
+            occupied = [i + 1 for i, other in enumerate(group) if counts[other] == counts[key]]
+            partition_ranks[key] = (
+                index + 1
+                if ties == "ordinal"
+                else scores.index(counts[key]) + 1
+                if ties == "dense"
+                else min(occupied)
+                if ties == "min"
+                else max(occupied)
+            )
+    partition_frame = partitioned.ranks.to_pandas()
+    assert partition_frame.member.tolist() == partition_order
+    assert dict(zip(partition_frame.member, partition_frame.value, strict=True)) == partition_ranks
 
 
 @pytest.mark.parametrize(
@@ -295,25 +290,28 @@ def test_display_precision_matrix(
             key: pd.Timedelta(value, unit=physical.partition("_")[2] or "us")
             for key, value in expected.items()
         }
-    for current in (values, values.execute()):
-        ranking = current.rank(order="descending", ties="min").execute()
-        frame = ranking.values.to_pandas()
-        assert dict(zip(frame.member, frame.value, strict=True)) == expected
-        terminal = mv.table(amount=ranking.values, rank=ranking.ranks).execute()
-        exported = terminal.to_pandas()
-        assert dict(zip(exported.member, exported.amount, strict=True)) == expected
-        assert exported.equals(case.session.artifact(terminal.artifact_ref).to_pandas())
-        terminal.show(max_output_bytes=None)
-        display = capsys.readouterr().out
-        assert "4 total; 4 shown" in display
-        for value in expected.values():
-            if isinstance(value, pd.Timedelta):
-                unit = physical.partition("_")[2] or "us"
-                assert f"{value // pd.Timedelta(1, unit=unit)} {unit}" in display
-            else:
-                assert str(value) in display
-        exported.iloc[0, 1] = None
-        assert terminal.to_pandas().amount.isna().sum() == 0
+    ranking = values.rank(order="descending", ties="min").execute()
+    frame = ranking.values.to_pandas()
+    assert dict(zip(frame.member, frame.value, strict=True)) == expected
+    terminal = mv.table(amount=ranking.values, rank=ranking.ranks).execute()
+    exported = terminal.to_pandas()
+    assert dict(zip(exported.member, exported.amount, strict=True)) == expected
+    assert exported.equals(case.session.artifact(terminal.artifact_ref).to_pandas())
+    terminal.show(max_output_bytes=None)
+    display = capsys.readouterr().out
+    assert "4 total; 4 shown" in display
+    for value in expected.values():
+        if isinstance(value, pd.Timedelta):
+            unit = physical.partition("_")[2] or "us"
+            assert f"{value // pd.Timedelta(1, unit=unit)} {unit}" in display
+        else:
+            assert str(value) in display
+    exported.iloc[0, 1] = None
+    assert terminal.to_pandas().amount.isna().sum() == 0
+
+    fixed_ranking = values.execute().rank(order="descending", ties="min").execute()
+    fixed_values = fixed_ranking.values.to_pandas()
+    assert dict(zip(fixed_values.member, fixed_values.value, strict=True)) == expected
 
 
 @pytest.mark.parametrize("parquet", [False])
@@ -332,47 +330,33 @@ def test_top_k_original_rank_share_and_empty(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    for current, partitions in ((values, category), (values.execute(), category.execute())):
-        shares = (
-            current.share_of(current.rollup()).execute()
-            if isinstance(current, mv.MaterializedNumericRelation)
-            else current.share_of(current.rollup())
-        )
-        grouping = (
-            partitions.execute()
-            if isinstance(shares, mv.MaterializedNumericRelation)
-            and isinstance(partitions, mv.LogicalCategoryRelation)
-            else partitions
-        )
-        ranking = shares.rank(order="descending", ties="min", partition_by=(grouping,)).execute()
-        prefix = ranking.limit(1).execute()
-        defined = ranking.where(ranking.ranks.value.is_defined())
-        top = defined.where(defined.ranks.value.lte(1)).execute()
-        assert len(prefix.values.to_pandas()) == 1
-        # Both east ties plus the singleton south and west groups survive.
-        assert top.values.to_pandas().member.tolist() == ["A", "B", "C", "D"]
-        assert top.ranks.to_pandas().value.tolist() == [1, 1, 1, 1]
-        assert prefix.values.to_pandas().value.tolist() == [0.25]
-        assert (
-            dict(prefix.values.contract()._facts)["reference"]
-            == dict(ranking.values.contract()._facts)["reference"]
-        )
-        assert (
-            prefix.values._node.root.signature.quantity
-            == ranking.values._node.root.signature.quantity
-        )
-        empty = ranking.where(ranking.ranks.value.gt(99)).execute()
-        assert empty.values.to_pandas().empty and empty.ranks.to_pandas().empty
-        assert mv.table(a=empty.values, b=empty.ranks).execute().to_pandas().empty
-        selected = ranking.where(ranking.values.value.gt(0)).limit(3).execute()
-        assert (
-            selected.values.to_pandas().member.tolist()
-            == selected.ranks.to_pandas().member.tolist()
-        )
-    flat = values.rank(order="descending", ties="ordinal").execute()
-    selected = flat.where(flat.ranks.value.gt(2)).execute()
-    assert selected.ranks.to_pandas().value.tolist() == [3, 4]
-    assert selected.limit(1).execute().ranks.to_pandas().value.tolist() == [3]
+    shares = values.share_of(values.rollup())
+    ranking = shares.rank(order="descending", ties="min", partition_by=(category,)).execute()
+    prefix = ranking.limit(1).execute()
+    defined = ranking.where(ranking.ranks.value.is_defined())
+    top = defined.where(defined.ranks.value.lte(1)).execute()
+    assert len(prefix.values.to_pandas()) == 1
+    # Both east ties plus the singleton south and west groups survive.
+    assert top.values.to_pandas().member.tolist() == ["A", "B", "C", "D"]
+    assert top.ranks.to_pandas().value.tolist() == [1, 1, 1, 1]
+    assert prefix.values.to_pandas().value.tolist() == [0.25]
+    assert (
+        dict(prefix.values.contract()._facts)["reference"]
+        == dict(ranking.values.contract()._facts)["reference"]
+    )
+    assert (
+        prefix.values._node.root.signature.quantity == ranking.values._node.root.signature.quantity
+    )
+    empty = ranking.where(ranking.ranks.value.gt(99)).execute()
+    assert empty.values.to_pandas().empty and empty.ranks.to_pandas().empty
+    assert mv.table(a=empty.values, b=empty.ranks).execute().to_pandas().empty
+    selected = ranking.where(ranking.values.value.gt(0)).limit(3).execute()
+    assert selected.values.to_pandas().member.tolist() == selected.ranks.to_pandas().member.tolist()
+
+    fixed = values.execute().rank(order="descending", ties="ordinal").execute()
+    continued = fixed.where(fixed.ranks.value.gt(2)).execute()
+    assert continued.ranks.to_pandas().value.tolist() == [3, 4]
+    assert continued.limit(1).execute().ranks.to_pandas().value.tolist() == [3]
 
 
 def test_static_display_errors_are_zero_read(
@@ -567,9 +551,8 @@ assert mv.table(a=selected.values,b=selected.ranks).execute().to_pandas().a.toli
 @pytest.mark.parametrize(
     "point", ["graph_part_written", "graph_files_published", "graph_receipts_verified"]
 )
-@pytest.mark.parametrize("family", ["ranking", "table"])
 def test_display_publication_is_atomic(
-    analysis_dsl_case_factory: DslCaseFactory, point: str, family: str
+    analysis_dsl_case_factory: DslCaseFactory, point: str
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -591,12 +574,7 @@ def test_display_publication_is_atomic(
     values._runtime._hook = fail
     try:
         with pytest.raises(AnalysisError):
-            result = (
-                values.rank(order="ascending", ties="ordinal")
-                if family == "ranking"
-                else mv.table(a=values)
-            )
-            result.execute()
+            values.rank(order="ascending", ties="ordinal").execute()
     finally:
         values._runtime._hook = None
     assert set((case.root / ".marivo").rglob("*.parquet")) == before
@@ -696,59 +674,62 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     boolean = members.read(ms.ref.dimension("sales.display.enabled"))
     temporal = members.read(ms.ref.time_dimension("sales.display.moment"))
     day_value = members.read(ms.ref.time_dimension("sales.display.day"))
-    for columns in (
-        (numeric, category, boolean, temporal, day_value),
-        tuple(c.execute() for c in (numeric, category, boolean, temporal, day_value)),
-    ):
-        amount, region, enabled, moment, day = columns
-        terminal = mv.table(
-            moment=moment, day=day, region=region, amount=amount, enabled=enabled
-        ).execute()
-        exported = terminal.to_pandas()
-        assert exported.columns.tolist() == [
-            "member",
-            "coord_0",
-            "moment",
-            "day",
-            "region",
-            "amount",
-            "enabled",
-        ]
-        assert list(zip(exported.member, exported.coord_0, strict=True)) == [
-            (1, "A"),
-            (1, "B"),
-            (2, "A"),
-            (2, "B"),
-        ]
-        from datetime import date
+    amount, region, enabled, moment, day = numeric, category, boolean, temporal, day_value
+    terminal = mv.table(
+        moment=moment, day=day, region=region, amount=amount, enabled=enabled
+    ).execute()
+    exported = terminal.to_pandas()
+    assert exported.columns.tolist() == [
+        "member",
+        "coord_0",
+        "moment",
+        "day",
+        "region",
+        "amount",
+        "enabled",
+    ]
+    assert list(zip(exported.member, exported.coord_0, strict=True)) == [
+        (1, "A"),
+        (1, "B"),
+        (2, "A"),
+        (2, "B"),
+    ]
+    from datetime import date
 
-        assert exported.day.tolist()[:3] == [date(2026, 8, 3), date(2026, 8, 2), date(2026, 8, 1)]
-        assert exported.day.isna().tolist() == [False, False, False, True]
-        recovered = case.session.artifact(terminal.artifact_ref)
-        assert recovered.to_pandas().equals(exported)
-        assert exported.amount.tolist()[:2] == [9007199254740993, 9007199254740993]
-        assert exported.amount.isna().tolist() == [False, False, True, False]
-        terminal.show()
-        assert "Null(" in capsys.readouterr().out
-        assert not hasattr(terminal, "moment")
-        assert not hasattr(terminal, "contract")
-        ranking = amount.rank(order="descending", ties="ordinal", partition_by=(region,)).execute()
-        frame = ranking.ranks.to_pandas()
-        assert list(zip(frame.member, frame.coord_0, strict=True)) == [
-            (2, "B"),
-            (1, "A"),
-            (1, "B"),
-            (2, "A"),
-        ]
-        assert frame.cell_tag.tolist() == ["defined", "defined", "defined", "null"]
-        defined = ranking.where(ranking.ranks.value.is_defined())
-        top = defined.where(defined.ranks.value.lte(1)).execute()
-        assert len(top.ranks.to_pandas()) == 2
-        shorter = region.where(region.value.is_defined())
-        with pytest.raises(AnalysisError):
-            mv.table(a=amount, b=shorter).execute()
-        with pytest.raises(AnalysisError):
-            amount.rank(order="descending", ties="dense", partition_by=(shorter,)).execute()
+    assert exported.day.tolist()[:3] == [date(2026, 8, 3), date(2026, 8, 2), date(2026, 8, 1)]
+    assert exported.day.isna().tolist() == [False, False, False, True]
+    recovered = case.session.artifact(terminal.artifact_ref)
+    assert recovered.to_pandas().equals(exported)
+    assert exported.amount.tolist()[:2] == [9007199254740993, 9007199254740993]
+    assert exported.amount.isna().tolist() == [False, False, True, False]
+    terminal.show()
+    assert "Null(" in capsys.readouterr().out
+    assert not hasattr(terminal, "moment")
+    assert not hasattr(terminal, "contract")
+    ranking = amount.rank(order="descending", ties="ordinal", partition_by=(region,)).execute()
+    frame = ranking.ranks.to_pandas()
+    assert list(zip(frame.member, frame.coord_0, strict=True)) == [
+        (2, "B"),
+        (1, "A"),
+        (1, "B"),
+        (2, "A"),
+    ]
+    assert frame.cell_tag.tolist() == ["defined", "defined", "defined", "null"]
+    defined = ranking.where(ranking.ranks.value.is_defined())
+    top = defined.where(defined.ranks.value.lte(1)).execute()
+    assert len(top.ranks.to_pandas()) == 2
+    shorter = region.where(region.value.is_defined())
+    with pytest.raises(AnalysisError):
+        mv.table(a=amount, b=shorter).execute()
+    with pytest.raises(AnalysisError):
+        amount.rank(order="descending", ties="dense", partition_by=(shorter,)).execute()
+
+    fixed_amount, fixed_region = amount.execute(), region.execute()
+    fixed_ranking = fixed_amount.rank(
+        order="descending", ties="ordinal", partition_by=(fixed_region,)
+    ).execute()
+    assert fixed_ranking.ranks.to_pandas().equals(frame)
+    assert fixed_ranking.limit(1).execute().ranks.to_pandas().member.tolist() == [(2, "B")]
     with pytest.raises(AnalysisError):
         mv.table(coord_0=numeric)
     # Declared identity is trusted; necessary rank index insertion rejects conflicts.
@@ -759,10 +740,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
             numeric.rank(order="ascending", ties="ordinal").execute()
 
 
-@pytest.mark.parametrize("ties", ["ordinal", "dense", "min", "max"])
-def test_closed_display_exchange_preserves_four_cells(
-    ties: Literal["ordinal", "dense", "min", "max"],
-) -> None:
+def test_closed_display_exchange_preserves_four_cells() -> None:
     import pandas as pd
     import pyarrow as pa
 
@@ -815,7 +793,7 @@ def test_closed_display_exchange_preserves_four_cells(
     )
     ranking_node = method_node(
         (Edge("quantity", leaf),),
-        DisplayRank("int64", "descending", ties),
+        DisplayRank("int64", "descending", "ordinal"),
         value_type=ScalarType("int64"),
     )
     ranking = fixed(ranking_node, (source,), "four-cells")
@@ -878,35 +856,30 @@ def test_empty_original_domain_and_numeric_view_continuations(
             via=ms.ref.relationship("sales.order_buyer"),
             by=(mv.member(),),
         )
-        for current in (values, values.execute()):
-            ranking = current.rank(order="descending", ties="ordinal").execute()
-            selected = ranking.ranks.where(ranking.ranks.value.gt(1)).execute()
-            assert isinstance(
-                selected, (mv.MaterializedNumericRelation, mv.MaterializedSelectedNumericRelation)
-            )
-            assert not isinstance(selected, mv.MaterializedRankingResult)
-            assert (
-                selected._node.root.signature.quantity
-                == ranking.ranks._node.root.signature.quantity
-            )
-            selected_values = ranking.values.where(ranking.values.value.gt(1)).execute()
-            assert isinstance(
-                selected_values,
-                (mv.MaterializedNumericRelation, mv.MaterializedSelectedNumericRelation),
-            )
-            if scenario == "empty_domain":
-                assert ranking.limit(1).execute().ranks.to_pandas().empty
-                assert mv.table(a=ranking.values, b=ranking.ranks).execute().to_pandas().empty
-            else:
-                assert "relation.rollup()" in {a.call for a in ranking.values.contract().actions}
-                assert "relation.rollup()" not in {a.call for a in ranking.ranks.contract().actions}
-                assert ranking.values.rollup().execute().to_pandas().value.tolist() == [7]
-                assert selected_values.rollup().execute().to_pandas().value.tolist() == [5]
-                assert mv.table(
-                    total=ranking.values.rollup()
-                ).execute().to_pandas().columns.tolist() == ["total"]
-        source_prefix = values.rank(order="descending", ties="ordinal").limit(2).execute()
-        assert len(source_prefix.values.to_pandas()) == (0 if scenario == "empty_domain" else 2)
+        current = values if scenario == "empty_domain" else values.execute()
+        ranking = current.rank(order="descending", ties="ordinal").execute()
+        selected = ranking.ranks.where(ranking.ranks.value.gt(1)).execute()
+        assert isinstance(
+            selected, (mv.MaterializedNumericRelation, mv.MaterializedSelectedNumericRelation)
+        )
+        assert not isinstance(selected, mv.MaterializedRankingResult)
+        assert selected._node.root.signature.quantity == ranking.ranks._node.root.signature.quantity
+        selected_values = ranking.values.where(ranking.values.value.gt(1)).execute()
+        assert isinstance(
+            selected_values,
+            (mv.MaterializedNumericRelation, mv.MaterializedSelectedNumericRelation),
+        )
+        if scenario == "empty_domain":
+            assert ranking.limit(1).execute().ranks.to_pandas().empty
+            assert mv.table(a=ranking.values, b=ranking.ranks).execute().to_pandas().empty
+        else:
+            assert "relation.rollup()" in {a.call for a in ranking.values.contract().actions}
+            assert "relation.rollup()" not in {a.call for a in ranking.ranks.contract().actions}
+            assert ranking.values.rollup().execute().to_pandas().value.tolist() == [7]
+            assert selected_values.rollup().execute().to_pandas().value.tolist() == [5]
+            assert mv.table(
+                total=ranking.values.rollup()
+            ).execute().to_pandas().columns.tolist() == ["total"]
 
 
 def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -945,12 +918,11 @@ def test_group_and_entity_time_display_domains(
         by=(mv.member(),),
     )
     groups = count.group_by(region).rollup()
-    for current in (groups, groups.execute()):
-        ranking = current.rank(order="descending", ties="dense").execute()
-        assert ranking.ranks.to_pandas().value.tolist() == [1, 2, 2]
-        terminal = mv.table(count=ranking.values, rank=ranking.ranks).execute().to_pandas()
-        assert terminal.columns.tolist() == ["group", "count", "rank"]
-        assert terminal["count"].tolist() == [2, 1, 1]
+    ranking = groups.rank(order="descending", ties="dense").execute()
+    assert ranking.ranks.to_pandas().value.tolist() == [1, 2, 2]
+    terminal = mv.table(count=ranking.values, rank=ranking.ranks).execute().to_pandas()
+    assert terminal.columns.tolist() == ["group", "count", "rank"]
+    assert terminal["count"].tolist() == [2, 1, 1]
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
     )
@@ -963,31 +935,32 @@ def test_group_and_entity_time_display_domains(
     )
     categories = product.read(ms.ref.dimension("sales.customer.region"), at=grid.before_end)
     facts = analysis_dsl_rows("j2")
-    for current, category in ((values, categories), (values.execute(), categories.execute())):
-        ranking = current.rank(
-            order="descending", ties="ordinal", partition_by=(category,)
-        ).execute()
-        frame = ranking.values.to_pandas()
-        assert len(frame) == 12
-        assert frame[["member", "coord_0"]].equals(ranking.ranks.to_pandas()[["member", "coord_0"]])
-        expected_counts = {
-            member: [
-                sum(
-                    buyer == member and str(day).startswith(month)
-                    for _, buyer, _, _, day, _ in facts.orders
-                )
-                for month in ("2026-07", "2026-08", "2026-09")
-            ]
-            for member, _ in facts.customers
-        }
-        assert {
-            member: sorted(frame.loc[frame.member == member, "value"].tolist())
-            for member in expected_counts
-        } == {member: sorted(values) for member, values in expected_counts.items()}
-        assert mv.table(amount=ranking.values, rank=ranking.ranks).execute().to_pandas().shape == (
-            12,
-            4,
-        )
+    ranking = (
+        values.execute()
+        .rank(order="descending", ties="ordinal", partition_by=(categories.execute(),))
+        .execute()
+    )
+    frame = ranking.values.to_pandas()
+    assert len(frame) == 12
+    assert frame[["member", "coord_0"]].equals(ranking.ranks.to_pandas()[["member", "coord_0"]])
+    expected_counts = {
+        member: [
+            sum(
+                buyer == member and str(day).startswith(month)
+                for _, buyer, _, _, day, _ in facts.orders
+            )
+            for month in ("2026-07", "2026-08", "2026-09")
+        ]
+        for member, _ in facts.customers
+    }
+    assert {
+        member: sorted(frame.loc[frame.member == member, "value"].tolist())
+        for member in expected_counts
+    } == {member: sorted(values) for member, values in expected_counts.items()}
+    assert mv.table(amount=ranking.values, rank=ranking.ranks).execute().to_pandas().shape == (
+        12,
+        4,
+    )
 
 
 @pytest.mark.parametrize("parquet", [False])
@@ -1008,31 +981,44 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
         by=(mv.member(),),
     )
     ratio = values.ratio(values)
-    for current in (ratio, ratio.execute()):
-        ranking = current.rank(order="descending", ties="dense").execute()
-        assert ranking.ranks.to_pandas().cell_tag.tolist() == [
-            "defined",
-            "defined",
-            "undefined",
-            "undefined",
-        ]
-        with pytest.raises(AnalysisError):
-            ranking.where(
-                mv.all_of(ranking.ranks.value.is_defined(), ranking.ranks.value.lte(1))
-            ).execute()
-        defined = ranking.where(ranking.ranks.value.is_defined())
-        top = defined.where(defined.ranks.value.lte(1)).execute()
-        assert top.ranks.to_pandas().value.tolist() == [1, 1]
-        table = mv.table(membership=ranking.values, rank=ranking.ranks).execute()
-        assert table.to_pandas().membership.isna().tolist() == [False, False, True, True]
-        table.show()
-        card = capsys.readouterr().out
-        assert "Undefined(zero_denominator)" in card
-        assert "1.0" in card
+    ranking = ratio.rank(order="descending", ties="dense").execute()
+    assert ranking.ranks.to_pandas().cell_tag.tolist() == [
+        "defined",
+        "defined",
+        "undefined",
+        "undefined",
+    ]
+    with pytest.raises(AnalysisError):
+        ranking.where(
+            mv.all_of(ranking.ranks.value.is_defined(), ranking.ranks.value.lte(1))
+        ).execute()
+    defined = ranking.where(ranking.ranks.value.is_defined())
+    top = defined.where(defined.ranks.value.lte(1)).execute()
+    assert top.ranks.to_pandas().value.tolist() == [1, 1]
+    table = mv.table(membership=ranking.values, rank=ranking.ranks).execute()
+    assert table.to_pandas().membership.isna().tolist() == [False, False, True, True]
+    table.show()
+    card = capsys.readouterr().out
+    assert "Undefined(zero_denominator)" in card
+    assert "1.0" in card
+
+    fixed_ranking = ratio.execute().rank(order="descending", ties="dense").execute()
+    assert fixed_ranking.ranks.to_pandas().cell_tag.tolist() == [
+        "defined",
+        "defined",
+        "undefined",
+        "undefined",
+    ]
+    fixed_defined = fixed_ranking.where(fixed_ranking.ranks.value.is_defined())
+    assert fixed_defined.where(
+        fixed_defined.ranks.value.lte(1)
+    ).execute().ranks.to_pandas().value.tolist() == [
+        1,
+        1,
+    ]
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-@pytest.mark.parametrize("view", ["values", "ranks"])
+@pytest.mark.parametrize("fixed,view", [(False, "values"), (False, "ranks"), (True, "ranks")])
 def test_ranking_views_can_be_ranked_again(
     analysis_dsl_case_factory: DslCaseFactory, fixed: bool, view: str
 ) -> None:

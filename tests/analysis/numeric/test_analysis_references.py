@@ -105,19 +105,17 @@ def test_standardization_proof_uses_keys_and_preserves_damage(
             finish(params, ScalarType("float64"), parts)
 
 
-@pytest.mark.parametrize("weights", [(0.5, 0.5), (0.1, 0.2, 0.7), (1.0 + 5e-13, 0.0)])
-def test_order_independent_represented_weight_sum(weights: tuple[float, ...]) -> None:
-    expected = sum((Fraction(value) for value in weights), Fraction())
-    assert weight_sum(weights, ScalarType("float64")) == expected
-    assert weight_sum(tuple(reversed(weights)), ScalarType("float64")) == expected
+def test_order_independent_represented_weight_sum() -> None:
+    for weights in ((0.5, 0.5), (0.1, 0.2, 0.7), (1.0 + 5e-13, 0.0)):
+        expected = sum((Fraction(value) for value in weights), Fraction())
+        assert weight_sum(weights, ScalarType("float64")) == expected
+        assert weight_sum(tuple(reversed(weights)), ScalarType("float64")) == expected
 
 
-@pytest.mark.parametrize(
-    "weights", [(), (0.0,), (-0.1, 1.1), (float("inf"),), (float("nan"),), (1.0 + 2e-12,)]
-)
-def test_invalid_weights_reject(weights: tuple[float, ...]) -> None:
-    with pytest.raises((ValueError, OverflowError)):
-        weight_sum(weights, ScalarType("float64"))
+def test_invalid_weights_reject() -> None:
+    for weights in ((), (0.0,), (-0.1, 1.1), (float("inf"),), (float("nan"),), (1.0 + 2e-12,)):
+        with pytest.raises((ValueError, OverflowError)):
+            weight_sum(weights, ScalarType("float64"))
 
 
 @pytest.mark.parametrize("parquet", [False])
@@ -145,29 +143,24 @@ def test_public_references_source_and_fixed(
         for member, *_ in facts.customers
     }
     total_count = sum(counts.values())
-    for current in (values, values.execute()):
-        total = current.rollup()
-        if isinstance(current, mv.MaterializedNumericRelation):
-            total = total.execute()
-        shares = current.share_of(total).execute()
-        frame = shares.to_pandas()
-        assert dict(zip(frame.member, frame.value, strict=True)) == {
-            key: float(Fraction(value, total_count)) for key, value in counts.items()
-        }
-        selected = shares.where(shares.value.gt(1)).execute()
-        assert selected._dataset.verified().parts[0].table.num_rows == 1
-        assert "relation.rollup()" not in {action.call for action in selected.contract().actions}
-        assert (
-            dict(selected.contract()._facts)["reference"]
-            == dict(shares.contract()._facts)["reference"]
-        )
-        shares.show()
-        assert "current_partition: complete" in capsys.readouterr().out
-        selected.show()
-        selected_card = capsys.readouterr().out
-        assert "current_partition: partial" in selected_card
-        assert f"reference_denominator: {total_count}" in selected_card
-        assert "nonnegative_range: proved [0,1]" in selected_card
+    total = values.rollup()
+    shares = values.share_of(total).execute()
+    frame = shares.to_pandas()
+    expected_shares = {key: float(Fraction(value, total_count)) for key, value in counts.items()}
+    assert dict(zip(frame.member, frame.value, strict=True)) == expected_shares
+    selected = shares.where(shares.value.gt(1)).execute()
+    assert selected._dataset.verified().parts[0].table.num_rows == 1
+    assert "relation.rollup()" not in {action.call for action in selected.contract().actions}
+    assert (
+        dict(selected.contract()._facts)["reference"] == dict(shares.contract()._facts)["reference"]
+    )
+    shares.show()
+    assert "current_partition: complete" in capsys.readouterr().out
+    selected.show()
+    selected_card = capsys.readouterr().out
+    assert "current_partition: partial" in selected_card
+    assert f"reference_denominator: {total_count}" in selected_card
+    assert "nonnegative_range: proved [0,1]" in selected_card
     selected_members = values.where(values.value.gt(0)).members()
     result = selected_members.penetration_in(members).execute()
     assert result.to_pandas().value.tolist() == [
@@ -188,6 +181,11 @@ def test_public_references_source_and_fixed(
     assert "weighted stratum value; no actual population claim" in card
     selected = standardized.where(standardized.value.gt(0)).execute()
     assert dict(selected.contract()._facts)["statistical_entity"] == "sales.order"
+
+    fixed_values = values.execute()
+    fixed_total = fixed_values.rollup().execute()
+    fixed_shares = fixed_values.share_of(fixed_total).execute().to_pandas()
+    assert dict(zip(fixed_shares.member, fixed_shares.value, strict=True)) == expected_shares
 
 
 @pytest.mark.parametrize(
@@ -254,33 +252,37 @@ def test_public_share_numeric_matrix(
                     unit=ms.ref.entity("sales.order"),
                 )
             )
-    for current in (values, values.execute()):
-        reference = current.rollup()
-        if isinstance(current, mv.MaterializedNumericRelation):
-            reference = reference.execute()
-        shares = current.share_of(reference).execute().to_pandas().set_index("member")
-        raw = analysis_dsl_rows("j2")
-        totals = {
-            member: sum(
-                amount
-                for _, buyer, _, _, date, amount in raw.orders
-                if buyer == member and str(date).startswith("2026-08")
+    reference = values.rollup()
+    shares = values.share_of(reference).execute().to_pandas().set_index("member")
+    raw = analysis_dsl_rows("j2")
+    totals = {
+        member: sum(
+            amount
+            for _, buyer, _, _, date, amount in raw.orders
+            if buyer == member and str(date).startswith("2026-08")
+        )
+        for member, _ in raw.customers
+    }
+    expected = {member: Fraction(total, sum(totals.values())) for member, total in totals.items()}
+    if physical.startswith("DECIMAL"):
+        expected_decimal = {
+            key: (Decimal(value.numerator) / Decimal(value.denominator)).quantize(
+                Decimal("0.000001")
             )
-            for member, _ in raw.customers
+            for key, value in expected.items()
         }
-        expected = {
-            member: Fraction(total, sum(totals.values())) for member, total in totals.items()
+        assert shares.value.to_dict() == expected_decimal
+    else:
+        assert shares.value.to_dict() == {key: float(value) for key, value in expected.items()}
+
+    if physical == "BIGINT":
+        fixed = values.execute()
+        fixed_shares = (
+            fixed.share_of(fixed.rollup().execute()).execute().to_pandas().set_index("member")
+        )
+        assert fixed_shares.value.to_dict() == {
+            key: float(value) for key, value in expected.items()
         }
-        if physical.startswith("DECIMAL"):
-            expected_decimal = {
-                key: (Decimal(value.numerator) / Decimal(value.denominator)).quantize(
-                    Decimal("0.000001")
-                )
-                for key, value in expected.items()
-            }
-            assert shares.value.to_dict() == expected_decimal
-        else:
-            assert shares.value.to_dict() == {key: float(value) for key, value in expected.items()}
 
 
 @pytest.mark.slow
@@ -954,10 +956,12 @@ def test_reference_publication_faults_are_atomic(
     assert values.share_of(values.rollup()).execute().to_pandas().value.tolist() == [0.25] * 4
 
 
-@pytest.mark.parametrize("bad", [True, 2**63, float("inf"), float("nan"), "7"])
-def test_zero_weight_does_not_hide_malformed_defined(bad: object) -> None:
-    with pytest.raises((ValueError, OverflowError)):
-        standardize((Defined(7), Defined(bad)), (1, 0), ScalarType("int64"), ScalarType("int64"))
+def test_zero_weight_does_not_hide_malformed_defined() -> None:
+    for bad in (True, 2**63, float("inf"), float("nan"), "7"):
+        with pytest.raises((ValueError, OverflowError)):
+            standardize(
+                (Defined(7), Defined(bad)), (1, 0), ScalarType("int64"), ScalarType("int64")
+            )
 
 
 def test_tiny_positive_weights_and_single_order_independent_finish() -> None:

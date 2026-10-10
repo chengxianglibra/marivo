@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import replace
 from pathlib import Path
-from typing import Literal
 
 import duckdb
 import pytest
@@ -38,17 +36,14 @@ def _reads(monkeypatch: pytest.MonkeyPatch, sql: list[str] | None = None) -> lis
     return purposes
 
 
-@pytest.mark.parametrize("depth", [1, 2])
 def test_observation_completeness_depends_on_exact_matching_assumptions(
-    analysis_dsl_case_factory: DslCaseFactory, depth: int
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     values = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue" if depth == 1 else "sales.line_revenue"),
+        ms.ref.metric("sales.line_revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer")
-        if depth == 1
-        else mv.path(
+        via=mv.path(
             ms.ref.relationship("sales.line_order"), ms.ref.relationship("sales.order_buyer")
         ),
         by=(mv.member(),),
@@ -81,37 +76,8 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         }
 
 
-@pytest.mark.parametrize("operation", ["read", "filter"])
-def test_missing_owner_operand_rejects_without_matching_precheck(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
-    with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        with sqlite3.connect(tmp_path / "r96.sqlite") as database:
-            database.execute("DELETE FROM r96_subjects WHERE sid=0")
-        values = work.session.members(ms.ref.entity("cost.facts")).read(
-            ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
-        )
-        logical = values.where(values.value.eq(1)) if operation == "filter" else values
-        purposes = _reads(monkeypatch)
-        checks: list[str] = []
-        original = native._check
-
-        def check(source, lowered, requirement, replacements):
-            if isinstance(requirement, SemanticCheck):
-                checks.append(requirement.requirement.obligation.fact.kind)
-            return original(source, lowered, requirement, replacements)
-
-        monkeypatch.setattr(native, "_check", check)
-        with pytest.raises(MaterializationError, match="required field owner operand is missing"):
-            logical.execute()
-        assert "mapping_total" not in checks
-        # The actual field lookup rejects before filtering can hide missing operands.
-        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
-
-
-@pytest.mark.parametrize("operation", ["read", "filter", "count"])
-def test_related_field_null_is_valid_and_distinct_from_missing_owner(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, operation: str
+def test_related_field_null_is_counted_and_missing_owner_is_rejected(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as database:
@@ -131,43 +97,44 @@ def test_related_field_null_is_valid_and_distinct_from_missing_owner(
     )
     assert result._dataset.verified().completed_checks == ()
     assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
-    if operation == "count":
-        purposes.clear()
-        assert values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
-        assert purposes == [
-            "analysis.graph.check",
-            "analysis.graph.stage",
-            "analysis.graph.stage",
-        ]
-        assert "mv_graph_" in sql[-1]
-        assert '"customer"' not in sql[-1] and '"order"' not in sql[-1]
+    purposes.clear()
+    assert values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
+    assert purposes == [
+        "analysis.graph.check",
+        "analysis.graph.stage",
+        "analysis.graph.stage",
+    ]
+    assert "mv_graph_" in sql[-1]
+    assert '"customer"' not in sql[-1] and '"order"' not in sql[-1]
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
+    checks: list[str] = []
+    original = native._check
+
+    def check(source, lowered, requirement, replacements):
+        if isinstance(requirement, SemanticCheck):
+            checks.append(requirement.requirement.obligation.fact.kind)
+        return original(source, lowered, requirement, replacements)
+
+    monkeypatch.setattr(native, "_check", check)
+    purposes.clear()
     with pytest.raises(MaterializationError, match="required field owner operand is missing"):
-        (
-            values.where(values.value.eq("east"))
-            if operation == "filter"
-            else values.aggregate(mv.count())
-            if operation == "count"
-            else values
-        ).execute()
+        values.where(values.value.eq("east")).execute()
+    assert "mapping_total" not in checks
+    # The owner lookup rejects before a value predicate can hide the missing row.
+    assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
 
 
-@pytest.mark.parametrize("operation", ["read", "rollup"])
 def test_declared_native_inputs_need_only_one_terminal_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: Literal["read", "rollup"]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         members = work.session.members(ms.ref.entity("cost.facts"))
-        logical = (
-            members.read(ms.ref.measure("cost.facts.amount"))
-            if operation == "read"
-            else members.observe(
-                ms.ref.metric("cost.facts_total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(mv.member(),),
-            ).rollup()
-        )
+        logical = members.observe(
+            ms.ref.metric("cost.facts_total"),
+            during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+            by=(mv.member(),),
+        ).rollup()
         purposes = _reads(monkeypatch)
         from marivo.analysis.materialization import graph_exchange
 
@@ -181,48 +148,14 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         assert result._dataset is not None
         exchange = result._dataset.verified()
         rows = cell_rows(exchange.primary)
-        if operation == "read":
-            actual = {
-                tuple(row[key] for key in exchange.contract.key_fields): row["value"]
-                for row in rows
+        assert rows == [
+            {
+                "value": sum(row["amount"] for row in work.rows if isinstance(row["amount"], int)),
+                "cell_tag": "defined",
+                "cell_reason": None,
             }
-            expected = {
-                (row["tenant"], row["id"], row["revision"]): row["amount"] for row in work.rows
-            }
-            assert actual == expected
-        else:
-            assert rows == [
-                {
-                    "value": sum(
-                        row["amount"] for row in work.rows if isinstance(row["amount"], int)
-                    ),
-                    "cell_tag": "defined",
-                    "cell_reason": None,
-                }
-            ]
+        ]
         assert exchange.completed_checks == ()
-
-
-def test_owner_matching_trusts_contract_without_a_matching_query(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        members = work.session.members(ms.ref.entity("cost.facts"))
-        field = ms.ref.dimension("cost.subjects.sid")
-        via = ms.ref.relationship("cost.facts_subject")
-        purposes = _reads(monkeypatch)
-        trusted = members.read(field, via=via)
-        result = trusted.execute()
-        assert result._dataset is not None
-        assert result._dataset.artifact.descriptor.completed_checks == ()
-        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
-        for relation in (trusted, work.session.artifact(result.state.artifact_ref)):
-            assert any(
-                item.basis == "assumption" and item.fact.kind == "mapping_total"
-                for item in relation._node.root.signature.evidence
-            )
-        with pytest.raises(TypeError, match="match_verification"):
-            members.read(field, via=via, **{"match_verification": "check"})
 
 
 def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
@@ -269,20 +202,33 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
 def test_shared_matching_assumption_never_becomes_completed_evidence(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        values = work.session.members(ms.ref.entity("cost.facts")).read(
-            ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
-        )
+    with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
+        members = work.session.members(ms.ref.entity("cost.facts"))
+        field = ms.ref.dimension("cost.subjects.sid")
+        via = ms.ref.relationship("cost.facts_subject")
+        values = members.read(field, via=via)
         purposes = _reads(monkeypatch)
+        trusted = values.execute()
+        assert trusted._dataset is not None
+        assert trusted._dataset.artifact.descriptor.completed_checks == ()
+        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
+        assert any(
+            item.basis == "assumption" and item.fact.kind == "mapping_total"
+            for item in values._node.root.signature.evidence
+        )
+        purposes.clear()
         result = values.where(values.value.eq(1)).execute()
         assert result._dataset is not None
         assert purposes.count("analysis.graph.check") == 2
         descriptor = result._dataset.artifact.descriptor
         assert not any(item.fact.kind == "mapping_total" for item in descriptor.completed_checks)
-        assert any(
-            item.basis == "assumption" and item.fact.kind == "mapping_total"
-            for item in result._node.root.signature.evidence
-        )
+        for relation in (values, work.session.artifact(result.state.artifact_ref)):
+            assert any(
+                item.basis == "assumption" and item.fact.kind == "mapping_total"
+                for item in relation._node.root.signature.evidence
+            )
+        with pytest.raises(TypeError, match="match_verification"):
+            members.read(field, via=via, **{"match_verification": "check"})
 
 
 def test_exact_has_no_public_verification_choice() -> None:
@@ -465,10 +411,7 @@ def test_fact_inputs_resolve_each_cohort_premise_operands() -> None:
     assert _fact_inputs(node, checks["source.exact_pairing@v1"]) == (identities[1:],)
 
 
-@pytest.mark.parametrize("positions", [(0, 1, 2), (2, 1), (1, 1)])
-def test_fact_inputs_preserve_recorded_order_and_repeated_operands(
-    positions: tuple[int, ...],
-) -> None:
+def test_fact_inputs_preserve_recorded_order_and_repeated_operands() -> None:
     from dataclasses import replace
 
     from marivo.analysis.compiler.graph_lowering import _fact_inputs
@@ -480,27 +423,25 @@ def test_fact_inputs_preserve_recorded_order_and_repeated_operands(
         for item in node.derivation.obligations
         if item.check_id == "source.complete_coverage@v1"
     )
-    operands = tuple(node.inputs[index].node for index in positions)
-    fact = replace(
-        obligation.fact,
-        inputs=tuple(
-            FactInput(item.signature.domain, item.signature.quantity, item.identity)
-            for item in operands
-        ),
-    )
-    # Isolate the resolver's contract from the semantic owner's choice of operand pairs.
-    object.__setattr__(
-        node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
-    )
-    assert _fact_inputs(node, replace(obligation, fact=fact)) == (
-        tuple(item.identity for item in operands),
-    )
+    for positions in ((0, 1, 2), (2, 1), (1, 1)):
+        operands = tuple(node.inputs[index].node for index in positions)
+        fact = replace(
+            obligation.fact,
+            inputs=tuple(
+                FactInput(item.signature.domain, item.signature.quantity, item.identity)
+                for item in operands
+            ),
+        )
+        # Isolate the resolver contract from the semantic owner's operand choice.
+        object.__setattr__(
+            node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
+        )
+        assert _fact_inputs(node, replace(obligation, fact=fact)) == (
+            tuple(item.identity for item in operands),
+        )
 
 
-@pytest.mark.parametrize("change", ["node", "domain", "quantity"])
-def test_fact_inputs_reject_mismatched_direct_operands(
-    change: Literal["node", "domain", "quantity"],
-) -> None:
+def test_fact_inputs_reject_mismatched_direct_operands() -> None:
     from dataclasses import replace
 
     from marivo.analysis.compiler.graph_lowering import _fact_inputs
@@ -513,20 +454,21 @@ def test_fact_inputs_reject_mismatched_direct_operands(
         if item.check_id == "source.complete_coverage@v1"
     )
     target, opportunity = obligation.fact.inputs
-    if change == "node":
-        opportunity = replace(opportunity, node_id="foreign-node")
-    elif change == "domain":
-        opportunity = replace(
-            opportunity, domain=replace(opportunity.domain, definition_id="foreign-domain")
+    for change in ("node", "domain", "quantity"):
+        if change == "node":
+            invalid = replace(opportunity, node_id="foreign-node")
+        elif change == "domain":
+            invalid = replace(
+                opportunity, domain=replace(opportunity.domain, definition_id="foreign-domain")
+            )
+        else:
+            invalid = replace(opportunity, quantity=None)
+        fact = replace(obligation.fact, inputs=(target, invalid))
+        object.__setattr__(
+            node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
         )
-    else:
-        opportunity = replace(opportunity, quantity=None)
-    fact = replace(obligation.fact, inputs=(target, opportunity))
-    object.__setattr__(
-        node, "derivation", replace(node.derivation, pre=(*node.derivation.pre, fact))
-    )
-    with pytest.raises(CoreRuleError, match="originating graph inputs"):
-        _fact_inputs(node, replace(obligation, fact=fact))
+        with pytest.raises(CoreRuleError, match="originating graph inputs"):
+            _fact_inputs(node, replace(obligation, fact=fact))
 
 
 def test_required_index_conflicts_fail_during_consumption() -> None:

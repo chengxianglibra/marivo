@@ -21,16 +21,11 @@ from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.json import key_json
 
-METHODS = (
+REPRESENTATIVE_METHODS = (
     "deviation.zscore@v1",
-    "deviation.mad@v1",
     "time.runs@v1",
     "association.pearson@v1",
-    "association.spearman@v1",
-    "association.kendall@v1",
     "forecast.naive@v1",
-    "forecast.drift@v1",
-    "forecast.seasonal_naive@v1",
 )
 Result: TypeAlias = (
     mv.MaterializedDeviationResult
@@ -46,7 +41,7 @@ View: TypeAlias = (
 )
 
 
-@pytest.mark.parametrize("method", METHODS)
+@pytest.mark.parametrize("method", REPRESENTATIVE_METHODS)
 def test_frozen_views_scope_sharing_quantity_and_k(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,

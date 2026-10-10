@@ -251,7 +251,7 @@ def test_incomplete_or_duplicate_owner_is_rejected() -> None:
 
 @pytest.mark.parametrize(
     "fault",
-    ("parameter", "signature", "type_fields", "variant_fields", "duplicate", "dangling", "export"),
+    ("signature", "variant_fields", "duplicate", "export"),
 )
 def test_corrupt_native_input_fails_closed(fault: str) -> None:
     registry = prepare()

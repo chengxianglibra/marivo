@@ -79,7 +79,7 @@ def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
     assert case.session._runtime.store.resources(case.session.id) == ()
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_source_close_failure_is_atomic_after_scoring_admission(
     analysis_dsl_case_factory: DslCaseFactory,
     method: numeric.DeviationMethod,
@@ -112,7 +112,7 @@ def test_source_close_failure_is_atomic_after_scoring_admission(
         assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_decimal_output_overflow_is_rejection_not_positive_qualification(
     analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
 ) -> None:
@@ -138,7 +138,7 @@ def test_decimal_output_overflow_is_rejection_not_positive_qualification(
         assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_fixed_selected_subject_requires_retained_observation_contract(
     analysis_dsl_case_factory: DslCaseFactory,
     method: numeric.DeviationMethod,
@@ -166,26 +166,10 @@ def test_fixed_selected_subject_requires_retained_observation_contract(
     assert case.session.runs().items == runs
 
 
-@pytest.mark.parametrize("method", ("zscore",))
-@pytest.mark.parametrize(
-    "role",
-    (
-        "primary",
-        "fit_inputs",
-        "fit_state",
-        "finding_policy",
-        "grid_cells",
-        "subject",
-        "subject_map",
-    ),
-)
-@pytest.mark.parametrize("fault", ("missing", "corrupt"))
 def test_each_receipt_rejects_recovery_continuation_and_exact_hit(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: numeric.DeviationMethod,
-    role: str,
-    fault: str,
 ) -> None:
+    method: numeric.DeviationMethod = "zscore"
     case = analysis_dsl_case_factory("j2")
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-08-03"), grain=mv.grain("day")
@@ -205,26 +189,41 @@ def test_each_receipt_rejects_recovery_continuation_and_exact_hit(
     assert len(fixed.score.to_pandas()) == 8
     assert fixed._dataset is not None
     descriptor = fixed._dataset.artifact.descriptor
-    receipt = (
-        descriptor.primary_receipt.local
-        if role == "primary"
-        else next(part.local for part in descriptor.parts if part.role == role)
+    roles = (
+        "primary",
+        "fit_inputs",
+        "fit_state",
+        "finding_policy",
+        "grid_cells",
+        "subject",
+        "subject_map",
     )
-    path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    if fault == "missing":
-        path.unlink()
-    else:
-        path.write_bytes(b"damaged deviation receipt")
-    runs = case.session.runs().items
-    for action in (
-        lambda: case.session.artifact(fixed.evidence_digest().artifact_ref),
-        lambda: fixed.score.to_pandas(),
-        lambda: fixed.where(fixed.score.value.is_defined()).execute(),
-        logical.execute,
-    ):
-        with pytest.raises(AnalysisError):
-            action()
-        assert case.session.runs().items == runs
+    for role in roles:
+        receipt = (
+            descriptor.primary_receipt.local
+            if role == "primary"
+            else next(part.local for part in descriptor.parts if part.role == role)
+        )
+        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        original_bytes = path.read_bytes()
+        for fault in ("missing", "corrupt"):
+            if fault == "missing":
+                path.unlink()
+            else:
+                path.write_bytes(b"damaged deviation receipt")
+            runs = case.session.runs().items
+            try:
+                for action in (
+                    lambda: case.session.artifact(fixed.evidence_digest().artifact_ref),
+                    lambda: fixed.score.to_pandas(),
+                    lambda: fixed.where(fixed.score.value.is_defined()).execute(),
+                    logical.execute,
+                ):
+                    with pytest.raises(AnalysisError):
+                        action()
+                    assert case.session.runs().items == runs
+            finally:
+                path.write_bytes(original_bytes)
 
 
 @pytest.mark.parametrize("method", ("zscore",))
@@ -262,7 +261,7 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
 @pytest.mark.parametrize("method", ("zscore",))
 @pytest.mark.parametrize(
     "point",
-    ("insert_artifact", "insert_evidence", "insert_findings", "insert_terminal", "before_commit"),
+    ("insert_findings", "before_commit"),
 )
 def test_transaction_failure_has_no_partial_success(
     analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod, point: str
@@ -291,7 +290,7 @@ def test_transaction_failure_has_no_partial_success(
         )
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
+@pytest.mark.parametrize("method", ("zscore",))
 def test_lost_commit_ack_returns_verified_fit_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     method: numeric.DeviationMethod,

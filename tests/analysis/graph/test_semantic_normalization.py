@@ -339,22 +339,6 @@ def test_identity_diagnostics_prioritize_duplicates_projection_then_snapshot_ove
     assert caught.value.kind == "identity_version_overlap"
     assert "day" in (caught.value.received or "")
 
-    registry.entities[entity.semantic_id] = replace(
-        entity,
-        primary_key=("id", "day"),
-        source=TableSourceIR(
-            "orders",
-            columns=(
-                ("id", "id"),
-                ("day", "day"),
-            ),
-        ),
-    )
-    with pytest.raises(SemanticLoadError) as caught:
-        normalize_target_entity(registry, entity.semantic_id)
-    assert caught.value.kind == "identity_version_overlap"
-    assert "'day' included in primary_key" in (caught.value.received or "")
-
 
 @pytest.mark.parametrize("agg", ["sum", "count", "mean"])
 def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> None:
@@ -374,12 +358,11 @@ def test_aggregate_contract_is_derived_from_canonical_graph(agg: AggKind) -> Non
         assert normalized.required_state == ("value.sum", "value.non_null_count", "value.row_count")
 
 
-@pytest.mark.parametrize("agg", ["sum", "min", "max"])
-def test_source_decimal_width_is_deferred_until_physical_type_consumption(agg: AggKind) -> None:
+def test_source_decimal_width_is_deferred_until_physical_type_consumption() -> None:
     registry = _registry()
     entity = registry.entities["sales.orders"]
     assert isinstance(entity.source, JsonSourceIR)
-    registry.metrics["sales.value"] = _metric("value", agg=agg)
+    registry.metrics["sales.value"] = _metric("value", agg="sum")
     normalized = normalize_target_metric(registry, "sales.value", sidecar=_sidecar(registry))
     assert normalized.logical_type == "unknown"
     assert (

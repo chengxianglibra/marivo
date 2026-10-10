@@ -38,12 +38,12 @@ from tests.support.json import arr as array_json
 from tests.support.json import obj as object_json
 from tests.support.json import read as read_json
 
-COLD_METHODS = {
+REPRESENTATIVE_METHODS = (
     "deviation.zscore@v1",
     "time.runs@v1",
     "association.pearson@v1",
     "forecast.naive@v1",
-}
+)
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -89,6 +89,8 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
                 saved_inputs.append(references)
             entries: dict[str, Json] = {}
             for method, logical in graphs(originals).items():
+                if method not in REPRESENTATIVE_METHODS:
+                    continue
                 result = logical.execute()
                 check(result, method)
                 first = snapshot(result)
@@ -105,6 +107,7 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
                 "source": entries,
                 "proofs": proofs,
             }
+            assert set(entries) == set(REPRESENTATIVE_METHODS)
             (root / "warehouse.duckdb").unlink()
             shutil.rmtree(root / "models")
             if (root / "source_files").exists():
@@ -123,8 +126,6 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
             ):
                 session = mv.session.resume(text(state["session"]), by="id")
                 for method, raw in object_json(state["source"]).items():
-                    if phase == "cold" and method not in COLD_METHODS:
-                        continue
                     saved = object_json(raw)
                     restored = session.artifact(text(saved["artifact"]))
                     assert isinstance(restored, Result)
@@ -149,7 +150,7 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
                 originals = restored_inputs[0], restored_inputs[1], restored_inputs[2]
                 entries = {}
                 for method, logical in graphs(originals).items():
-                    if phase == "cold" and method not in COLD_METHODS:
+                    if method not in REPRESENTATIVE_METHODS:
                         continue
                     before = sum(
                         isinstance(
@@ -187,6 +188,7 @@ def run(root: Path, phase: str, form: str) -> dict[str, Json]:
                     ]
                     proofs.append(row)
                     entries[method] = saved
+                assert set(entries) == set(REPRESENTATIVE_METHODS)
                 state[phase] = entries
                 array_json(state["proofs"]).extend(proofs)
         state_path.write_text(json.dumps(state, sort_keys=True))

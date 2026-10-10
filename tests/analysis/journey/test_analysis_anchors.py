@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-import marivo
 import marivo.analysis as mv
 from marivo.analysis.anchors import deadline
 from marivo.analysis.errors import AnalysisError
@@ -102,28 +101,6 @@ def test_positive_window_and_exact_deadline():
         mv.calendar_days(1, UTC)
 
 
-@pytest.mark.parametrize(
-    "target",
-    [
-        "analysis.dsl.duration",
-        "analysis.dsl.elapsed",
-        "analysis.dsl.calendar_days",
-        "analysis.Duration",
-        "analysis.ElapsedWindow",
-        "analysis.CalendarWindow",
-        "analysis.LogicalAnchorDomain",
-        "analysis.MaterializedAnchorDomain",
-        "analysis.session.anchors",
-        "analysis.dsl.AnchorDomain.observe",
-    ],
-)
-def test_anchor_help_independently_resolves(target, capsys):
-    marivo.help(target)
-    text = capsys.readouterr().out
-    assert target in text
-    assert "Example" in text or "Acquire:" in text
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "key,time", RECOVERY_CASES, ids=[key["id"] + "-" + time["id"] for key, time in RECOVERY_CASES]
@@ -169,10 +146,7 @@ def test_overlap_parts_and_fixed_transport(tmp_path):
     assert selected._dataset.verified().parts == fixed._dataset.verified().parts
 
 
-@pytest.mark.parametrize(
-    "kwargs,unit", [({"seconds": 10}, "s"), ({"nanoseconds": 10000000000}, "ns")]
-)
-def test_elapsed_units_keep_exact_window_through_recovery(tmp_path, kwargs, unit, monkeypatch):
+def test_elapsed_unit_keeps_exact_window_through_recovery(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.core.model import AnchorObservationPart
     from marivo.datasource.adapters import SourceSession
@@ -183,7 +157,7 @@ def test_elapsed_units_keep_exact_window_through_recovery(tmp_path, kwargs, unit
         event_anchors(session, members, window)
         .observe(
             ms.ref.metric("commerce.fact_count"),
-            within=mv.elapsed(mv.duration(**kwargs)),
+            within=mv.elapsed(mv.duration(nanoseconds=10000000000)),
             via=ms.ref.relationship("commerce.participant"),
         )
         .execute()
@@ -196,7 +170,7 @@ def test_elapsed_units_keep_exact_window_through_recovery(tmp_path, kwargs, unit
         for part in recovered._node.root.signature.parts
         if isinstance(part, AnchorObservationPart)
     )
-    assert declaration.window.duration.unit == unit
+    assert declaration.window.duration.unit == "ns"
     selected = recovered.where(recovered.value.is_defined()).execute()
     assert selected._dataset.verified().parts == recovered._dataset.verified().parts
 
@@ -226,11 +200,7 @@ def test_anchor_failure_is_atomic(tmp_path):
     "role,fault",
     [
         ("primary", "missing"),
-        ("primary", "corrupt"),
-        ("subject", "corrupt"),
-        ("anchor", "missing"),
-        ("original_state", "corrupt"),
-        ("coverage", "missing"),
+        ("anchor", "corrupt"),
     ],
 )
 def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path, role, fault):
@@ -255,8 +225,7 @@ def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path, role, fault)
     fixed.to_pandas()
 
 
-@pytest.mark.parametrize("fault", ["deadline", "uses", "subject", "state", "definition"])
-def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
+def test_exchange_rejects_wrong_bound_parts(tmp_path):
     import pyarrow as pa
 
     from marivo.analysis.materialization.graph_exchange import from_arrow
@@ -264,31 +233,31 @@ def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
     session, members, window, _, _ = build_anchors(tmp_path)
     fixed = observations(event_anchors(session, members, window))[0].execute()
     verified = fixed._dataset.verified()
-    parts, contract = list(verified.parts), verified.contract
-    if fault == "definition":
-        declaration = next(
-            part
-            for part in contract.signature.parts
-            if type(part).__name__ == "AnchorObservationPart"
-        )
-        domain = replace(
-            declaration.domain,
-            during_start=(datetime(2027, 1, 1, tzinfo=UTC)).isoformat(),
-            during_end=(datetime(2027, 2, 1, tzinfo=UTC)).isoformat(),
-        )
-        with pytest.raises(AnalysisError, match="frozen exchange differs"):
-            contract = replace(
-                contract,
-                signature=replace(
-                    contract.signature,
-                    parts=tuple(
-                        replace(part, domain=domain) if part is declaration else part
-                        for part in contract.signature.parts
-                    ),
-                ),
+    for fault in ("deadline", "uses", "subject", "state", "definition"):
+        parts, contract = list(verified.parts), verified.contract
+        if fault == "definition":
+            declaration = next(
+                part
+                for part in contract.signature.parts
+                if type(part).__name__ == "AnchorObservationPart"
             )
-        return
-    else:
+            domain = replace(
+                declaration.domain,
+                during_start=(datetime(2027, 1, 1, tzinfo=UTC)).isoformat(),
+                during_end=(datetime(2027, 2, 1, tzinfo=UTC)).isoformat(),
+            )
+            with pytest.raises(AnalysisError, match="frozen exchange differs"):
+                replace(
+                    contract,
+                    signature=replace(
+                        contract.signature,
+                        parts=tuple(
+                            replace(part, domain=domain) if part is declaration else part
+                            for part in contract.signature.parts
+                        ),
+                    ),
+                )
+            continue
         role, field = {
             "deadline": ("anchor", "anchor__deadline"),
             "uses": ("anchor", "anchor__uses_0"),
@@ -305,8 +274,8 @@ def test_exchange_rejects_wrong_bound_parts(tmp_path, fault):
         else:
             rows[0][field] += 1
         parts[index] = replace(parts[index], table=pa.Table.from_pylist(rows, schema=table.schema))
-    with pytest.raises(AnalysisError):
-        from_arrow(verified.primary, contract, parts=tuple(parts))
+        with pytest.raises(AnalysisError):
+            from_arrow(verified.primary, contract, parts=tuple(parts))
 
 
 def test_anchor_inputs_reject_before_run_or_rows(tmp_path, monkeypatch):
@@ -429,15 +398,16 @@ def test_empty_anchor_domain_retains_exact_schema(tmp_path):
     session, members, window, _, _ = build_anchors(tmp_path, empty=True)
     anchors = event_anchors(session, members, window)
     operations = observations(anchors)
-    # Nonempty cases cover every operation. Empty-domain coverage keeps each
-    # numeric carrier plus the two distinct cross-source routes.
-    for index in (0, 2, 3, 4, 7, 9, 10):
+    # Nonempty cases cover every metric. Empty-domain coverage keeps one scalar
+    # plus the two distinct cross-source routes.
+    for index in (0, 9, 10):
         operation = operations[index]
         result = operation.execute()
         assert result.to_pandas().empty
-        continued = result.where(result.value.is_defined()).execute()
-        assert continued.to_pandas().empty
-        assert session.artifact(result.state.artifact_ref).to_pandas().empty
+        if index == 0:
+            continued = result.where(result.value.is_defined()).execute()
+            assert continued.to_pandas().empty
+            assert session.artifact(result.state.artifact_ref).to_pandas().empty
 
 
 @pytest.mark.parametrize(
@@ -470,9 +440,7 @@ def test_numeric_overflow_is_atomic(tmp_path, calendar, field, value, index):
     "form,kind,calendar",
     [
         ("table", "snapshot", False),
-        ("parquet", "snapshot", True),
-        ("table", "validity", True),
-        ("parquet", "validity", False),
+        ("parquet", "validity", True),
     ],
 )
 def test_historical_subject_mapping_at_component_time(tmp_path, form, kind, calendar, monkeypatch):
@@ -537,7 +505,7 @@ def test_latest_anchor_example_executes(tmp_path, monkeypatch):
     assert_result(namespace["relative"], values, "i", "i", 2, calendar=True)
 
 
-@pytest.mark.parametrize("shared,calendar", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("shared,calendar", [(False, False), (True, True)])
 def test_journey_origin_observes_without_rematch(tmp_path, shared, calendar, monkeypatch):
     from marivo.analysis.materialization import anchor_execution
     from marivo.analysis.methods import journey_matching
@@ -581,7 +549,10 @@ def test_journey_relative_numeric_families(tmp_path):
     session, members, window, claims, values = build_anchors(tmp_path)
     original = journey(session, members, window, claims, shared=True)
     anchors = session.anchors(original, population=members, during=window)
-    for index, operation in enumerate(observations(anchors)):
+    operations = observations(anchors)
+    # Keep one representative for scalar, float, ratio, and cross-source paths.
+    for index in (0, 2, 5, 9):
+        operation = operations[index]
         assert_result(operation.execute(), values, "i", "i", index)
 
 

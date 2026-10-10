@@ -27,20 +27,17 @@ def test_closed_receipt_round_trip() -> None:
     assert "datasource" not in repr(receipt)
 
 
-@pytest.mark.parametrize(
-    "field,value",
-    [
+def test_local_receipt_rejects_unregistered_or_mutable_authority() -> None:
+    for field, value in (
         ("format", "csv"),
         ("project_relative_path", "../foreign"),
         ("project_relative_path", "/absolute"),
         ("realized_row_count", True),
-    ],
-)
-def test_local_receipt_rejects_unregistered_or_mutable_authority(field: str, value: object) -> None:
-    payload = c.receipt_payload(_local())
-    payload[field] = value
-    with pytest.raises(IntegrityError):
-        c.decode_receipt(payload)
+    ):
+        payload = c.receipt_payload(_local())
+        payload[field] = value
+        with pytest.raises(IntegrityError):
+            c.decode_receipt(payload)
 
 
 def test_receipt_codec_does_not_open_storage(

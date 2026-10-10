@@ -211,35 +211,27 @@ def test_public_history_and_guarded_abandonment_use_graph_runs(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("journey", ["j2", "j3", "j4"])
 def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
     analysis_dsl_case_factory: DslCaseFactory,
-    journey: Literal["j2", "j3", "j4"],
 ) -> None:
-    case = analysis_dsl_case_factory(journey)
-    if journey == "j3":
-        saved = _ratio(case, coordinates=(case.names.channel,)).execute()
-    elif journey == "j2":
-        current, baseline = _observations(case)
-        saved = current.compare(baseline).absolute.execute()
-    else:
-        n = case.names
-        members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
-        window = mv.time_scope(start="2026-08-01", end="2026-09-01")
-        via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
-        revenue = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.revenue}"),
-            during=window,
-            via=via,
-            by=(mv.member(),),
-        )
-        count = members.observe(
-            ms.ref.metric(f"{n.domain}.{n.order_count}"),
-            during=window,
-            via=via,
-            by=(mv.member(),),
-        )
-        saved = revenue.correlate(count, method="spearman").execute()
+    case = analysis_dsl_case_factory("j4")
+    n = case.names
+    members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
+    window = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    via = ms.ref.relationship(f"{n.domain}.{n.buyer}")
+    revenue = members.observe(
+        ms.ref.metric(f"{n.domain}.{n.revenue}"),
+        during=window,
+        via=via,
+        by=(mv.member(),),
+    )
+    count = members.observe(
+        ms.ref.metric(f"{n.domain}.{n.order_count}"),
+        during=window,
+        via=via,
+        by=(mv.member(),),
+    )
+    saved = revenue.correlate(count, method="spearman").execute()
     reference = saved.state.artifact_ref.ref
     case.database_path.unlink()
     import shutil
@@ -261,19 +253,11 @@ session = mv.session.resume(sys.argv[1], by='id')
 saved = session.artifact(sys.argv[2])
 saved.contract()
 saved.show()
-journey = sys.argv[3]
-if journey == 'j2':
-    selected = saved.where(saved.value.lt(0)).execute()
-    assert selected.aggregate(mv.sum()).execute().to_pandas().iloc[0]['value'] == -90
-elif journey == 'j3':
-    assert saved.rollup().execute().to_pandas().iloc[0]['value'] == 40
-    assert abs(saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] - 130/3) < 1e-12
-else:
-    selected = saved.coefficient.where(saved.coefficient.value.lt(0.1)).execute()
-    assert abs(selected.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] + .4) < 1e-12
+selected = saved.coefficient.where(saved.coefficient.value.lt(0.1)).execute()
+assert abs(selected.aggregate(mv.mean()).execute().to_pandas().iloc[0]['value'] + .4) < 1e-12
 """
     process = subprocess.run(
-        [sys.executable, "-c", script, case.session.id, reference, journey],
+        [sys.executable, "-c", script, case.session.id, reference],
         cwd=case.root,
         env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
         capture_output=True,
