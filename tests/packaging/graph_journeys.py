@@ -118,7 +118,7 @@ def _produce(
         saved = current.execute()
         extras = []
     elif scenario == "j2":
-        saved = current.compare(baseline).execute()
+        saved = current.compare(baseline).absolute.execute()
         extras = [current.execute(), baseline.execute()]
     elif scenario == "j3":
         saved = members.observe(
@@ -211,7 +211,7 @@ def _continue(
         outputs["count"] = saved.aggregate(mv.count()).execute()
         assert outputs["count"].to_pandas().iloc[0]["value"] == oracle["count"]
     elif isinstance(saved, mv.MaterializedDifferenceRelation):
-        outputs["compare"] = extras[0].compare(extras[1]).execute()
+        outputs["compare"] = extras[0].compare(extras[1]).absolute.execute()
         assert outputs["compare"].to_pandas().equals(saved.to_pandas())
         outputs["sum"] = saved.aggregate(mv.sum()).execute()
         assert outputs["sum"].to_pandas().iloc[0]["value"] == oracle["sum"]

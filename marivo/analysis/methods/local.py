@@ -1,4 +1,4 @@
-"""Registered caller-owned fixed-input methods, without Artifact reading."""
+"""Registered local methods over verified current-row Cells."""
 
 from __future__ import annotations
 
@@ -135,17 +135,17 @@ def score_spearman(
 
 
 def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticResult:
-    """Finish exact admitted int64 rows after R4 verifies retained input."""
+    """Finish admitted int64 or float64 rows after R4 verifies their input."""
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method not in ("sum", "mean")
-        or stage.implementation.key.route != "artifact_python"
+        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
         or type(cells) is not tuple
     ):
         reject(
             "one qualified local current-row sum or mean",
             str(stage.node.method),
-            "Use the exact registered fixed method and validated Cells.",
+            "Use the exact registered local method and validated Cells.",
             "analysis.local",
         )
     input_type = stage.implementation.key.input_types[0]

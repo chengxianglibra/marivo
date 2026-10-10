@@ -14,20 +14,26 @@ description: 比较对齐数量、构造参照并分配绝对变化。
 {/* example: comparison-designs */}
 
 ```python
-relative = current.compare(baseline, value="relative_change")
-union = current.compare(
-    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
-)
-quotient = current.ratio(current, pairing=mv.ExactKeys())
+comparison = current.compare(baseline)
+absolute = comparison.absolute
+relative = comparison.relative
+union = current.compare(baseline, align=mv.outer())
+quotient = current.ratio(current, align=mv.exact())
+result = comparison.execute()
+result.show()
 marivo.help("analysis.dsl.NumericComparison.compare")
 marivo.help("analysis.dsl.one_to_one")
 ```
 
-TimeChange 在共享捕获目标上比较同一递归数量含义。CohortContrast 在同一观察时间、
-共同 Group/Singleton 坐标上比较不同群体。采用 window-bucket 对齐的 PeriodChange
-配对完整等长原始网格。ExactKeys 要求完整 typed keys 唯一且键集合相同；
-UnionKeys 显式保留缺失对应。绝对变化保留准入的 Decimal scale 或 Duration unit；
-相对变化与 ratio 遵守零分母和 Cell 策略。
+compare 从冻结的目标与观察时间推导唯一设计：只变时间时比较时期，只变目标时在共同
+Group/Singleton 坐标上比较群体；两者同时变化或均不变会拒绝。网格比较显式使用
+`align=mv.exact(time=mv.ordinal())`，W1 要求完整等长网格并保留 current 原桶坐标。
+`mv.exact()` 固定 checked；`mv.outer()` 默认保留缺侧，`missing="empty_value"`
+显式使用准入 Metric 的空集 finish。结果固定包含 absolute/relative 两个视图，
+通过同一 Artifact 读取，不分配新的 Run。根没有数值续接，先选择视图。
+absolute = current-baseline；relative = (current-baseline)/abs(baseline)，
+无量纲，因此 -100 到 -50 的 relative 为 +0.5。零基线只使 relative 为
+Undefined(zero_baseline)；溢出或非有限数值使整个 Run 失败。
 
 ## 继续逻辑选择
 
@@ -39,7 +45,7 @@ UnionKeys 显式保留缺失对应。绝对变化保留准入的 Decimal scale �
 july = mv.time_scope(start="2026-07-01", end="2026-08-01")
 september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 baseline = customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
-change = august_revenue.compare(baseline)
+change = august_revenue.compare(baseline).absolute
 falling = change.where(change.value.lt(0)).members()
 next_month_mean = (
     falling.observe(revenue, during=september, via=buyer, by=(mv.member(),))
@@ -122,7 +128,7 @@ baseline_counts = attribution_members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(channel,),
 ).rollup()
-change = current_counts.compare(baseline_counts)
+change = current_counts.compare(baseline_counts).absolute
 allocation = change.attribute(axes=(channel,), top_k=3).execute()
 selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
 allocated_table = mv.table(

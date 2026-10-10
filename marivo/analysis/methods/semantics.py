@@ -73,6 +73,8 @@ MethodName: TypeAlias = Literal[
     "metric.ratio",
     "metric.linear",
     "map_correspond",
+    "cell.compare",
+    "comparison.read",
     "cell.difference",
     "cell.relative_change",
     "cell.ratio",
@@ -307,6 +309,10 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("bind_project")
     if type(params) is rules.MapCorrespond:
         return MethodKey("map_correspond")
+    if type(params) is rules.CellCompare:
+        return MethodKey("cell.compare")
+    if type(params) is rules.ComparisonRead:
+        return MethodKey("comparison.read")
     if type(params) is rules.CellDerive:
         if params.method == "relative_change":
             return MethodKey("cell.relative_change")
@@ -381,6 +387,8 @@ class MethodSemantics:
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
         kinds: dict[MethodName, PersistentStateKind] = {
+            "cell.compare": "none",
+            "comparison.read": "none",
             "association.pearson": "none",
             "association.kendall": "none",
             "association.read": "none",
@@ -655,6 +663,21 @@ class MethodSemantics:
                     "Preserve exact input families and finish once.",
                 )
             return
+        if isinstance(params, rules.ComparisonRead):
+            from marivo.analysis.methods.comparison import output_type
+
+            view_type = (
+                inputs[0]
+                if params.field == "absolute"
+                else output_type("relative_change", inputs[0], inputs[0])
+            )
+            if output != view_type:
+                reject(
+                    "the owned comparison view type",
+                    repr(output),
+                    "Read the frozen comparison carrier.",
+                )
+            return
         if isinstance(params, rules.CellDerive):
             from marivo.analysis.methods.comparison import output_type
 
@@ -675,6 +698,15 @@ class MethodSemantics:
                     "two homogeneous comparison operands",
                     str(error),
                     "Bind matching numeric types and units.",
+                )
+            if isinstance(params, rules.CellCompare) and (
+                params.absolute_type != expected_comparison.name
+                or params.relative_type != output_type("relative_change", inputs[0], inputs[1]).name
+            ):
+                reject(
+                    "both exact comparison carriers",
+                    repr(params),
+                    "Preserve the original operand types.",
                 )
             if output != expected_comparison:
                 reject(
@@ -904,6 +936,10 @@ class MethodSemantics:
     @property
     def rule(self) -> rules.RuleId:
         name = self.key.name
+        if name == "cell.compare":
+            return "cell_compare@v1"
+        if name == "comparison.read":
+            return "comparison_read@v1"
         if name in ("anchor.retention", "retention.by_subject"):
             return "retention@v1"
         if name.startswith("anchor."):
@@ -995,7 +1031,7 @@ class MethodSemantics:
             return "count_all"
         if self.key.name == "row.count_defined":
             return "defined_only"
-        if self.rule == "cell_derive@v1":
+        if self.rule in ("cell_derive@v1", "cell_compare@v1"):
             return "propagate"
         if self.rule == "row_state@v1":
             return "strict"
@@ -1023,7 +1059,7 @@ class MethodSemantics:
     ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
         if self.key.name.startswith("reference."):
             return (("undefined", ("zero_denominator", "empty_reference")),)
-        if self.key.name == "cell.relative_change":
+        if self.key.name in ("cell.relative_change", "cell.compare", "comparison.read"):
             return (
                 ("undefined", ("missing_side", "zero_baseline", "zero_denominator")),
                 ("null", ("empty_contribution",)),
@@ -1114,6 +1150,8 @@ class MethodSemantics:
             "state_rollup.linear",
         ):
             return ("original_state", "coverage")
+        if self.key.name == "comparison.read":
+            return ("comparison",)
         if self.key.name == "row.weighted_mean":
             return ("statistical_weight",)
         return ()
@@ -1128,7 +1166,7 @@ class MethodSemantics:
             "metric.approx_quantile",
         ):
             return ("source.contribution_partition@v1", "source.complete_coverage@v1")
-        if self.rule == "cell_derive@v1":
+        if self.rule in ("cell_derive@v1", "cell_compare@v1"):
             return ("source.exact_pairing@v1", "source.finite_numeric@v1")
         if self.key.name == "row.count_defined":
             return ("source.cell_policy@v1",)
@@ -1178,6 +1216,8 @@ class MethodSemantics:
             "metric.approx_quantile",
         ):
             return ("coverage",)
+        if self.key.name == "cell.compare":
+            return ("current_endpoint", "baseline_endpoint", "correspondence", "comparison")
         if self.rule == "cell_derive@v1":
             return ("current_endpoint", "baseline_endpoint", "correspondence")
         if self.rule == "row_state@v1":
@@ -1384,6 +1424,10 @@ class MethodSemantics:
             return rules._bind_project(inputs, params)
         if type(params) is rules.MapCorrespond:
             return rules._map_correspond(inputs, params)
+        if type(params) is rules.CellCompare:
+            return rules._cell_compare(inputs, params)
+        if type(params) is rules.ComparisonRead:
+            return rules._comparison_read(inputs, params)
         if type(params) is rules.CellDerive:
             return rules._cell_derive(inputs, params)
         if type(params) is rules.RowState:
@@ -1494,6 +1538,8 @@ CONNECTED_METHODS = (
     MethodSemantics(MethodKey("bind_project"), "analysis.core.rules"),
     MethodSemantics(MethodKey("map_correspond"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.difference"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("cell.compare"), "analysis.core.rules"),
+    MethodSemantics(MethodKey("comparison.read"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.relative_change"), "analysis.core.rules"),
     MethodSemantics(MethodKey("cell.ratio"), "analysis.core.rules"),
     MethodSemantics(MethodKey("row.sum"), "analysis.core.rules"),

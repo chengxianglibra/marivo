@@ -15,7 +15,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis._comparison import WindowBucketAlignment, window_bucket
+from marivo.analysis._comparison import OrdinalTimeKey, exact, ordinal, outer
 from marivo.analysis.forecast_models import (
     ForecastHorizon,
     ForecastModel,
@@ -34,12 +34,33 @@ def provider() -> DisclosureProvider:
 
     for name, target, value, parameters, code, output, constraint in (
         (
-            "window_bucket",
-            "window_bucket",
-            window_bucket,
+            "exact",
+            "exact",
+            exact,
+            (P("time", "Optional original-grid ordinal mapping."),),
+            "exact()",
+            "ExactAlignment",
+            "Checked complete keys; no trust/verification option.",
+        ),
+        (
+            "outer",
+            "outer",
+            outer,
+            (
+                P("missing", "Keep by default, or explicit original empty_value finish."),
+                P("time", "Optional original-grid ordinal mapping."),
+            ),
+            "outer()",
+            "OuterAlignment",
+            "Compare only; complete equal-length time grids in W1.",
+        ),
+        (
+            "ordinal",
+            "ordinal",
+            ordinal,
             (),
-            "window_bucket()",
-            "WindowBucketAlignment",
+            "ordinal()",
+            "OrdinalTimeKey",
             "Pair complete equally sized bucket sequences by ordinal.",
         ),
         (
@@ -91,7 +112,7 @@ def provider() -> DisclosureProvider:
                 value,
                 summary=constraint,
                 discovery_group="inputs.time"
-                if name == "window_bucket"
+                if name == "ordinal"
                 else "inputs.forecast"
                 if name == "periods"
                 else "forecast_models",
@@ -105,7 +126,7 @@ def provider() -> DisclosureProvider:
         )
         exports.append(ExportInput(name, value, target))
     for type_value, producer in (
-        (WindowBucketAlignment, "window_bucket"),
+        (OrdinalTimeKey, "ordinal"),
         (ForecastHorizon, "periods"),
         (ForecastModel, "forecast_models.naive"),
     ):

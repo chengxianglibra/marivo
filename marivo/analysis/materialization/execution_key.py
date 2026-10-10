@@ -71,6 +71,7 @@ _CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | Stat
 )
 
 _WIRE_TAGS: dict[type[object], str] = {
+    core_model.ComparisonPart: "comparison_part",
     core_model.PairInputsPart: "r8_pair_inputs_part",
     core_model.AssociationStatePart: "r8_association_state_part",
     core_model.TrainingInputsPart: "r8_training_inputs_part",

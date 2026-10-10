@@ -58,7 +58,9 @@ from marivo.analysis.core.rules import (
     AssociationRead,
     AttributionDerive,
     BindProject,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     ForecastFit,
     ForecastRead,
@@ -574,6 +576,14 @@ class MemberGraph:
                     node.identity,
                     "ibis_python"
                     if (
+                        isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
+                        and any(
+                            isinstance(ancestor, MethodNode)
+                            and isinstance(ancestor.parameters, ComparisonRead)
+                            for ancestor in topology(node)
+                        )
+                    )
+                    or (
                         isinstance(node.parameters, PartsTransport)
                         and (
                             node.parameters.mode == "business_coverage"
@@ -597,7 +607,14 @@ class MemberGraph:
                         and any(
                             isinstance(ancestor, MethodNode)
                             and isinstance(ancestor.parameters, PreparedObservation)
-                            and ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
+                            and (
+                                ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
+                                or any(
+                                    isinstance(prior, MethodNode)
+                                    and isinstance(prior.parameters, ComparisonRead)
+                                    for prior in topology(ancestor)
+                                )
+                            )
                             for ancestor in topology(node)
                         )
                     )
@@ -674,6 +691,8 @@ class MemberGraph:
                         node.parameters,
                         (
                             AssociationFit,
+                            CellCompare,
+                            ComparisonRead,
                             AssociationRead,
                             ForecastFit,
                             ForecastRead,

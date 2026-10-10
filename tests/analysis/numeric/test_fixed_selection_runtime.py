@@ -252,7 +252,7 @@ def test_fixed_difference_endpoints_follow_selected_complete_keys(
         via=ms.ref.relationship(f"{n.domain}.{n.buyer}"),
         by=(mv.member(),),
     ).execute()
-    difference = current.compare(baseline).execute()
+    difference = current.compare(baseline).absolute.execute()
     _forbid_source(monkeypatch)
     first = difference.where(difference.value.gt(-45))
     chain = first.where(first.value.lt(10))

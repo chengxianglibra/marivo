@@ -125,11 +125,10 @@ reads establish matching by construction. Unknown path/version totality retains
 an exact `mapping_total` assumption. Relationship matching has no verification
 switch or automatic query. Trust adds no missing-value policy or completed proof.
 
-`ExactKeys(verification="check")` and `ExactKeys(verification="assume")`
-similarly distinguish checked pairing from a call assumption. Both policies
-enter definitions, execution keys and frozen calls. Materialized contracts
-report assumptions as not checked. Actual method input, finite-value,
-missing-operand, denominator and coverage rules remain mandatory.
+`mv.exact()` fixes checked complete-key correspondence. Applicable declarations and
+frozen constructor proofs still establish equality; unknown images are checked.
+Comparison and ordinary ratio expose no verification or trust choice. Actual
+finite-value, missing-operand, denominator and coverage rules remain mandatory.
 
 ## State and Cell contracts
 
@@ -290,7 +289,9 @@ this table does not activate additional reducers or numerical carriers.
 
 | Method identity | RequiredParts and consumption | Output / permitted K |
 | --- | --- | --- |
-| map_correspond (ExactKeys, UnionKeys, one-to-one, period variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
+| map_correspond (exact, outer, one-to-one, ordinal variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
+| cell.compare | One ordered endpoint pair, exact/outer correspondence and both type admissions | One root without quantity; two independent Cells and error bounds; one atomic Artifact |
+| comparison.read | ComparisonPart and field absolute/relative | Typed projection of the same root/Artifact; original endpoint authority is retained |
 | cell.difference | Correspondence, ordered endpoint Cells and recursively frozen quantity templates; matched values Defined/finite | current−baseline; endpoints, presence and policies retained; S/F, members only with Subject map, attribute only under its separate rule |
 | cell.relative_change | Same as difference | (current−baseline)/abs(baseline); dimensionless; zero baseline Undefined(zero_baseline); S/F, no automatic attribution |
 | cell.ratio | Exact or bound one-to-one correspondence; ordered endpoints and quotient-unit proof | Zero denominator Undefined(zero_denominator); explicit missing-side yields Undefined(missing_side); S/F, never original rollup/share |
@@ -317,24 +318,36 @@ Attribution axes accept corresponding classifications to select retained roles.
 A bare Dimension Ref requires one retained binding on each endpoint, and the
 complete ordered axis bindings must agree across endpoints.
 
-`ExactKeys(verification="check")` requires unique full typed keys and equal images;
-double empty is valid. Entity identity and constructor guarantees are trusted.
-A shared captured key domain supplies equality only through nodes that preserve
-that domain; equal DomainSignatures, row counts or Entity refs do not suffice.
-An unknown equality defaults to an actual check. `ExactKeys(verification="assume")`
-records a call-specific assumption and omits that equality check on both source
-and fixed routes. It preserves ExactKeys semantics; it does not select an
-intersection or introduce missing-value synthesis. A required operand missing
-during local consumption still fails. UnionKeys retains its own missing policy. Keep preserves MissingCoordinate
-separately from Present(Null/Undefined/Unknown) and does no arithmetic on a
-missing row. metric_empty requires complete original observation/coverage and
-the concrete Metric's empty finish; filtered/ranked/limited or missing-version
-rows are not empty contributions. It never overwrites a Present non-Defined
-Cell. A synthesized Defined endpoint participates normally; a synthesized
-Null/Undefined retains that tag and original reason in the result (no arithmetic).
-Unknown coverage cannot authorize synthesis. This explicit Null case follows
-original sum/mean empty policies; historical prose mentioning only Undefined is
-not a fill-zero rule.
+`mv.exact()` requires unique full typed keys and equal images; double empty is
+valid. Entity identity and constructor guarantees are trusted. A shared captured
+key domain supplies equality only through nodes that preserve that domain; equal
+DomainSignatures, row counts or Entity refs do not suffice. Unknown equality is
+checked on source and fixed routes. `mv.outer()` keeps missing coordinates as
+Undefined(missing_side) by default, separately from Present non-Defined Cells.
+`mv.outer(missing="empty_value")` requires complete original Metric observation
+and coverage and uses that Metric's empty finish. Filtered/ranked/limited or
+missing-version rows are not empty contributions. Synthesis never overwrites a
+present Null/Undefined/Unknown Cell; unknown coverage cannot authorize it.
+
+`current.compare(baseline, align=mv.exact())` returns a LogicalComparisonResult
+with mandatory absolute and relative views, published as one
+MaterializedComparisonResult Artifact. The root has no scalar value or numeric
+continuations. `absolute` is a DifferenceRelation with current-baseline and its
+original unit and separately admitted attribution. `relative` is a NumericRelation
+with (current-baseline)/abs(baseline), unit 1, and no original rollup or attribution.
+Both formulas read the original operands independently. Zero baseline makes only
+relative Undefined(zero_baseline); overflow or NaN/inf fails the entire Run.
+Both type admissions apply, including equal Decimal scales. Materialized views
+read the same Artifact without allocating a Run. The root exports keys plus
+absolute/relative and their separate cell_tag/cell_reason columns.
+
+Frozen target and observation-time captures determine one design: only time
+changes give time comparison (period for two grids); only targets change give
+cohort comparison on common Group/Singleton coordinates. Identical captures or
+changes to both conditions reject. Period requires explicit
+`align=mv.exact(time=mv.ordinal())` or outer with that time key. Other comparisons
+forbid align.time. W1 grids are complete and equal-length and retain current's
+original bucket coordinates; outer may union only non-time coordinates.
 
 Present non-Defined operands propagate per Cell under every pairing (value
 policy `propagate`). When either operand is Null, Undefined or Unknown, the

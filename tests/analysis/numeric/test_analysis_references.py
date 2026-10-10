@@ -837,7 +837,7 @@ def test_static_reference_rejections_are_zero_read(
     )
     with pytest.raises(AnalysisError):
         other_time.group_by(category).rollup().standardize(reference=reference)
-    ordinary = values.ratio(values, pairing=mv.ExactKeys())
+    ordinary = values.ratio(values, align=mv.exact())
     with pytest.raises(AnalysisError):
         ordinary.share_of(values.rollup())
     with pytest.raises(AnalysisError):
@@ -1018,9 +1018,7 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
         return finish(node, parts, binding)
 
     monkeypatch.setattr(graph_reference, "result", counted)
-    assert (
-        share.ratio(share, pairing=mv.ExactKeys()).execute().to_pandas().value.tolist() == [1.0] * 4
-    )
+    assert share.ratio(share, align=mv.exact()).execute().to_pandas().value.tolist() == [1.0] * 4
     assert calls == [share._node.root.identity]
     fixed = values.execute()
     reference = fixed.rollup().execute()

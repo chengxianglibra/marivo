@@ -47,9 +47,9 @@ def test_native_comparison_independent_fixed_and_cold(
             return value
 
         current, baseline, earlier = observe(8), observe(7), observe(6)
-        first, second = current.compare(baseline), baseline.compare(earlier)
+        first, second = current.compare(baseline).absolute, baseline.compare(earlier).absolute
         left, right = current.where(current.value.gt(0)), baseline.where(baseline.value.gt(0))
-        design = mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+        design = mv.outer(missing="keep")
         originals: dict[str, Json] = {}
         for name, logical in (
             ("current", current),
@@ -57,8 +57,8 @@ def test_native_comparison_independent_fixed_and_cold(
             ("second", second),
             ("left", left),
             ("right", right),
-            ("nested", first.compare(second)),
-            ("union", left.compare(right, design=design)),
+            ("nested", first.compare(second).absolute),
+            ("union", left.compare(right, align=design).absolute),
             ("ratio", current.ratio(current)),
         ):
             result = logical.execute()

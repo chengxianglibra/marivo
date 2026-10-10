@@ -34,7 +34,7 @@ baseline = customers.observe(
     via=buyer,
     by=(mv.member(),),
 )
-change = current.compare(baseline).execute()
+change = current.compare(baseline).absolute.execute()
 change.show()
 ```
 

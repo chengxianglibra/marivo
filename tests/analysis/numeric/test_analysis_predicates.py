@@ -121,7 +121,7 @@ def test_selected_difference_discloses_where_continuation(
         )
         for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
     )
-    difference = current.compare(baseline)
+    difference = current.compare(baseline).absolute
     selected = difference.where(difference.value.is_defined())
     for relation in (selected, selected.execute()):
         action = next(

@@ -258,14 +258,21 @@ Field ownership and to-one cardinality establish single-valuedness, but
 cardinality alone does not prove every target has a match. Equal Entity refs,
 DomainSignatures or row counts do not prove equal realized input key sets.
 
-`ExactKeys(verification="check")` checks unknown pairing equality.
-`verification="assume"` records an exact call assumption. Field and relationship
-matching trust the exact consuming contract and retain unknown owner/path/version
-matching as unverified assumptions. Analysis exposes no matching-verification
-option or explicit verification entry point. Assumptions omit only their
-corresponding checks; they do not create
-an intersection, missing-value policy or completed source proof. Materialized
+`mv.exact()` fixes checked pairing for compare and ordinary ratio; unknown
+complete-key equality is checked, while applicable declarations and frozen
+constructor proofs remain authoritative. No trust/verification option is public.
+Field and relationship matching retain unknown owner/path/version totality as
+unverified assumptions. Those assumptions omit only their corresponding checks;
+they do not introduce missing values or completed source proof. Materialized
 contracts disclose retained assumptions as not checked.
+
+Compare infers the sole changed target/time condition and returns
+LogicalComparisonResult, whose absolute DifferenceRelation and relative
+NumericRelation read one shared endpoint pair. Execution publishes one
+MaterializedComparisonResult with two independently tagged Cells. Use
+`current.compare(baseline).absolute` for selection and attribution, or `.relative`
+for dimensionless current-row statistics. Roots have execute/show/contract and
+materialized state/evidence/to_pandas; numeric operations require a view.
 
 Field Cells are constructed on the owner side of a lookup. A present owner's
 Null field is `Null(source_null)`; an absent owner supplies no operand and rejects

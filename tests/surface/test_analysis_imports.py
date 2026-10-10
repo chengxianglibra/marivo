@@ -137,7 +137,7 @@ assert not result.kept, result.metadata
 def test_analysis_keeps_typed_dataset_operator_values():
     import marivo.analysis as mv
 
-    assert mv.window_bucket().kind == "window_bucket"
+    assert isinstance(mv.ordinal(), mv.OrdinalTimeKey)
     assert callable(mv.naive)
     assert callable(mv.seasonal_naive)
     assert callable(mv.drift)

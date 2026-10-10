@@ -91,7 +91,11 @@ if TYPE_CHECKING:
         mv.GroupedNumericRelation,
     )
     assert_type(observed.aggregate(mv.mean()), mv.LogicalStatisticRelation)
-    difference = observed.compare(observed)
+    comparison = observed.compare(observed)
+    assert_type(comparison, mv.LogicalComparisonResult)
+    assert_type(comparison.execute(), mv.MaterializedComparisonResult)
+    assert_type(comparison.relative, mv.LogicalNumericRelation)
+    difference = comparison.absolute
     assert_type(difference, mv.LogicalDifferenceRelation)
     selected = difference.where(difference.value.lt(0))
     assert_type(selected, mv.LogicalSelectedDifferenceRelation)
@@ -149,27 +153,19 @@ if TYPE_CHECKING:
         mv.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
     )
 
-    assert_type(
-        observed.compare(
-            observed,
-            value="relative_change",
-            design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep")),
-        ),
-        mv.LogicalDifferenceRelation,
-    )
-    assert_type(fixed.compare(fixed, design=mv.CohortContrast()), mv.LogicalDifferenceRelation)
-    assert_type(difference.compare(difference), mv.LogicalDifferenceRelation)
-    assert_type(
-        observed.ratio(observed, pairing=mv.ExactKeys(verification="assume")),
-        mv.LogicalNumericRelation,
-    )
+    assert_type(observed.compare(observed, align=mv.outer()).relative, mv.LogicalNumericRelation)
+    assert_type(fixed.compare(fixed), mv.LogicalComparisonResult)
+    assert_type(difference.compare(difference).absolute, mv.LogicalDifferenceRelation)
+    assert_type(observed.ratio(observed, align=mv.exact()), mv.LogicalNumericRelation)
     assert_type(fixed.ratio(fixed), mv.LogicalNumericRelation)
     pairing = mv.one_to_one(
         left=observed, right=observed, via=ms.ref.relationship("sales.identity")
     )
     assert_type(pairing, mv.OneToOneCorrespondence)
-    assert_type(observed.ratio(observed, pairing=pairing), mv.LogicalNumericRelation)
-    assert_type(mv.PeriodChange(alignment=mv.window_bucket()), mv.PeriodChange)
+    assert_type(observed.ratio(observed, align=pairing), mv.LogicalNumericRelation)
+    assert_type(mv.exact(time=mv.ordinal()), mv.ExactAlignment)
+    assert_type(mv.outer(), mv.OuterAlignment)
+    assert_type(mv.ordinal(), mv.OrdinalTimeKey)
 
 if TYPE_CHECKING:
     ranking = observed.rank(order="descending", ties="dense", partition_by=(category,))

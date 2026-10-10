@@ -135,6 +135,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         cohort.empty_opportunity,
         dsl.OneToOneCorrespondence,
         dsl.ReferenceWeights,
+        dsl.LogicalComparisonResult,
+        dsl.MaterializedComparisonResult,
         dsl.LogicalAttributionResult,
         dsl.LogicalTimeRunResult,
         dsl.MaterializedTimeRunResult,
@@ -145,11 +147,8 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.MaterializedRankingResult,
         dsl.LogicalTable,
         dsl.MaterializedTable,
-        dsl.PeriodChange,
-        dsl.UnionKeys,
-        dsl.ExactKeys,
-        dsl.TimeChange,
-        dsl.CohortContrast,
+        dsl.OuterAlignment,
+        dsl.ExactAlignment,
         dsl.AnalysisAction,
         dsl.AnalysisContract,
         dsl.GroupedNumericRelation,
@@ -264,13 +263,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             cohort.AllInstances: "mv.all_instances(empty=mv.empty_opportunity.false())",
             cohort.EmptyOpportunityPolicy: "mv.empty_opportunity.false()",
             cohort.empty_opportunity: "mv.empty_opportunity",
-            dsl.ExactKeys: "mv.ExactKeys()",
-            dsl.UnionKeys: 'mv.UnionKeys(missing="keep")',
-            dsl.TimeChange: "mv.TimeChange()",
-            dsl.CohortContrast: "mv.CohortContrast()",
-            dsl.PeriodChange: "mv.PeriodChange(alignment=mv.window_bucket())",
+            dsl.ExactAlignment: "mv.exact()",
+            dsl.OuterAlignment: "mv.outer()",
             dsl.OneToOneCorrespondence: "mv.one_to_one(left=left, right=right, via=relationship)",
             dsl.ReferenceWeights: "mv.reference_weights(values, strata=(category,), unit=entity)",
+            dsl.LogicalComparisonResult: "current.compare(baseline)",
+            dsl.MaterializedComparisonResult: "current.compare(baseline).execute()",
             dsl.LogicalAttributionResult: "change.attribute(axes=(channel,))",
             dsl.LogicalTimeRunResult: "daily.runs(where=daily.value.gt(20))",
             dsl.MaterializedTimeRunResult: "segments.execute()",
@@ -422,6 +420,13 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else acquisition,
                 producers=("session.artifact",) if name.startswith("Materialized") else producers,
                 consumers=(
+                    "dsl.LogicalComparisonResult.execute",
+                    "dsl.Value.contract",
+                    "LogicalDifferenceRelation",
+                    "LogicalNumericRelation",
+                )
+                if type_value in (dsl.LogicalComparisonResult, dsl.MaterializedComparisonResult)
+                else (
                     "dsl.LogicalAssociationResult.where",
                     "dsl.LogicalAssociationResult.execute",
                     "LogicalCoefficientRelation",
@@ -551,7 +556,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if type_value is cohort.empty_opportunity
                     else "dsl." + name + ".show",
                     "dsl.NumericComparison.compare",
-                    *(("dsl.NumericComparison.ratio",) if type_value is dsl.ExactKeys else ()),
+                    *(("dsl.NumericComparison.ratio",) if type_value is dsl.ExactAlignment else ()),
                     *(
                         ("dsl.empty_opportunity.true", "dsl.empty_opportunity.undefined")
                         if type_value is cohort.empty_opportunity
@@ -1005,11 +1010,17 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 ParameterInput(
                     key,
                     guidance[key],
-                    ("TimeChange", "CohortContrast", "PeriodChange", "ExactKeys", "UnionKeys")
-                    if key == "design"
-                    else ("ExactKeys", "OneToOneCorrespondence")
-                    if key == "pairing" and name == "ratio"
-                    else ("ExactKeys", "UnionKeys", "OneToOneCorrespondence")
+                    (
+                        "exact",
+                        "outer",
+                        "ordinal",
+                        "LogicalComparisonResult",
+                        "MaterializedComparisonResult",
+                    )
+                    if key == "align" and name == "compare"
+                    else ("exact", "dsl.one_to_one")
+                    if key == "align" and name == "ratio"
+                    else ("exact", "outer", "one_to_one")
                     if key == "pairing"
                     else ("dsl.CompositePredicate",)
                     if key == "predicate"
@@ -1055,13 +1066,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
 
 
 _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
+    "LogicalComparisonResult": ("dsl.NumericComparison.compare",),
+    "MaterializedComparisonResult": ("dsl.LogicalComparisonResult.execute",),
     "OneToOneCorrespondence": ("dsl.one_to_one",),
     "empty_opportunity": ("empty_opportunity",),
-    "PeriodChange": ("PeriodChange",),
-    "UnionKeys": ("UnionKeys",),
-    "ExactKeys": ("ExactKeys",),
-    "TimeChange": ("TimeChange",),
-    "CohortContrast": ("CohortContrast",),
+    "OuterAlignment": ("outer",),
+    "ExactAlignment": ("exact",),
     "LogicalAnalysisDomain": ("session.members", "dsl.LogicalSelectedNumericRelation.members"),
     "LogicalFixedAnalysisDomain": ("dsl.MaterializedNumericRelation.members",),
     "LogicalNumericRelation": (
@@ -1094,7 +1104,7 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
         "dsl.LogicalRatioRelation.rollup",
         "dsl.MaterializedRatioRelation.rollup",
     ),
-    "LogicalDifferenceRelation": ("dsl.NumericComparison.compare",),
+    "LogicalDifferenceRelation": ("LogicalComparisonResult", "MaterializedComparisonResult"),
     "LogicalSelectedDifferenceRelation": (
         "dsl.LogicalDifferenceRelation.where",
         "dsl.MaterializedDifferenceRelation.where",

@@ -133,15 +133,19 @@ def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
             Path(output).write_text(json.dumps(results, indent=2) + "\n")
 
     measure("observation", lambda: current)
-    measure("difference", lambda: current.compare(baseline))
+    measure("difference", lambda: current.compare(baseline).absolute)
     measure(
         "nested_difference",
-        lambda: current.compare(baseline).compare(observe(7).compare(observe(6))),
+        lambda: (
+            current.compare(baseline)
+            .absolute.compare(observe(7).compare(observe(6)).absolute)
+            .absolute
+        ),
     )
     for depth in (1, 3, 5):
 
         def shared(depth: int = depth) -> mv.LogicalNumericRelation:
-            node = current.compare(baseline)
+            node = current.compare(baseline).absolute
             for _ in range(depth):
                 node = node.ratio(node)
             return node
@@ -162,9 +166,9 @@ def test_measure_snapshot(analysis_dsl_case_factory: DslCaseFactory) -> None:
             during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
             via=ms.ref.relationship("sales.order_buyer"),
         )
-        measure(name, lambda left=left, right=right: left.compare(right))
+        measure(name, lambda left=left, right=right: left.compare(right).absolute)
     first, second = current.execute(), baseline.execute()
-    measure("fixed_difference", lambda: first.compare(second))
+    measure("fixed_difference", lambda: first.compare(second).absolute)
     payload = json.dumps(results, indent=2)
     print(payload)
     output = os.environ.get("MARIVO_SNAPSHOT_BENCHMARK")

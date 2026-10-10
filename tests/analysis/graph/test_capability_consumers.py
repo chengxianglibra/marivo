@@ -317,7 +317,7 @@ def test_source_coordinates_statistics_and_original_state(
             )
             assert isinstance(current, mv.LogicalNumericRelation)
             assert isinstance(baseline, mv.LogicalNumericRelation)
-            differences = current.compare(baseline).execute().to_pandas()
+            differences = current.compare(baseline).absolute.execute().to_pandas()
             assert differences.set_index(["member", "coord_0", "coord_1"]).value.to_dict() == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,

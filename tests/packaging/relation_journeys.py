@@ -596,7 +596,7 @@ def _produce(
     oracle = _oracle()
     saved: dict[str, Saved] = {}
     if scenario == "a02":
-        change = current.compare(baseline)
+        change = current.compare(baseline).absolute
         saved["difference"] = change.execute()
         selected = change.where(change.value.lt(0)).members()
         saved["members"] = selected.execute()
@@ -610,16 +610,15 @@ def _produce(
         saved["next"] = next_values
         saved["current"], saved["baseline"] = current.execute(), baseline.execute()
     elif scenario == "a06":
-        saved["relative"] = current.compare(baseline, value="relative_change").execute()
+        saved["relative"] = current.compare(baseline).relative.execute()
         saved["negative_relative"] = (
             current.compare(baseline)
-            .compare(baseline.compare(current), value="relative_change")
-            .execute()
+            .absolute.compare(baseline.compare(current).absolute)
+            .relative.execute()
         )
         saved["union"] = current.compare(
-            baseline.where(baseline.value.gt(80)),
-            design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep")),
-        ).execute()
+            baseline.where(baseline.value.gt(80)), align=mv.outer(missing="keep")
+        ).absolute.execute()
         counts = targets.observe(count, during=august, via=via, by=(mv.member(),))
         previous = targets.observe(count, during=july, via=via, by=(mv.member(),))
         earlier = targets.observe(
@@ -628,7 +627,11 @@ def _produce(
             via=via,
             by=(mv.member(),),
         )
-        saved["nested"] = counts.compare(previous).compare(previous.compare(earlier)).execute()
+        saved["nested"] = (
+            counts.compare(previous)
+            .absolute.compare(previous.compare(earlier).absolute)
+            .absolute.execute()
+        )
         saved["ratio"] = current.ratio(counts).execute()
         branch = mv.runtime_metric.ratio(
             mv.runtime_metric.slice(
@@ -666,9 +669,7 @@ def _produce(
             targets.observe(count, during=grid, via=via, by=(mv.member(),)) for grid in grids
         ]
         saved["period"] = (
-            endpoints[0]
-            .compare(endpoints[1], design=mv.PeriodChange(alignment=mv.window_bucket()))
-            .execute()
+            endpoints[0].compare(endpoints[1], align=mv.exact(time=mv.ordinal())).absolute.execute()
         )
         temporal_grid = mv.time_grid(
             during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
@@ -709,8 +710,8 @@ def _produce(
         axis = ms.ref.dimension("operations.reading.sensor")
         left = targets.observe(metric, during=august, via=via, by=(mv.member(), axis)).rollup()
         right = targets.observe(metric, during=july, via=via, by=(mv.member(), axis)).rollup()
-        saved["difference"] = left.compare(right).execute()
-        allocation = left.compare(right).attribute(axes=(axis,), top_k=1)
+        saved["difference"] = left.compare(right).absolute.execute()
+        allocation = left.compare(right).absolute.attribute(axes=(axis,), top_k=1)
         saved["attribution"] = allocation.execute()
         saved["selected"] = allocation.where(allocation.contribution.value.gt(0)).execute()
         mean_energy = mv.runtime_metric.ratio(metric, count, label="energy per reading")
@@ -719,7 +720,10 @@ def _produce(
             for scope in (august, july)
         ]
         saved["component_mix"] = (
-            mix_endpoints[0].compare(mix_endpoints[1]).attribute(axes=(axis,), top_k=1).execute()
+            mix_endpoints[0]
+            .compare(mix_endpoints[1])
+            .absolute.attribute(axes=(axis,), top_k=1)
+            .execute()
         )
         from marivo.analysis.materialization import graph_attribution
 
@@ -781,7 +785,7 @@ def _continue(saved: dict[str, Saved], scenario: Scenario) -> dict[str, Saved]:
         assert isinstance(current, mv.MaterializedNumericRelation) and isinstance(
             baseline, mv.MaterializedNumericRelation
         )
-        outputs["compare"] = current.compare(baseline).execute()
+        outputs["compare"] = current.compare(baseline).absolute.execute()
         assert _mapping(outputs["compare"]) == _oracle()["difference"]
     elif scenario == "a06":
         for name in (

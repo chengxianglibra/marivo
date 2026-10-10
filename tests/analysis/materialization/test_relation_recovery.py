@@ -85,7 +85,7 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         via=via,
         by=(mv.member(),),
     )
-    difference = current.compare(baseline).execute()
+    difference = current.compare(baseline).absolute.execute()
     category = targets.read(ms.ref.dimension("sales.customer.region"))
     cohort = targets.cohort(category.value.eq("east"), rule=mv.any_instance()).execute()
     share = current.share_of(current.rollup()).execute()
@@ -103,7 +103,7 @@ def test_required_parts_revoke_recovery_and_cached_continuation(
         ).rollup()
         for month in (8, 7)
     ]
-    allocation = endpoints[0].compare(endpoints[1]).attribute(axes=(axis,)).execute()
+    allocation = endpoints[0].compare(endpoints[1]).absolute.attribute(axes=(axis,)).execute()
     table = mv.table(value=ranking.values, rank=ranking.ranks).execute()
     continuations = (
         difference.where(difference.value.is_defined()),

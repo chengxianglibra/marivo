@@ -238,7 +238,13 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: ForecastModel
    :members:
 
-.. autoclass:: WindowBucketAlignment
+.. autoclass:: ExactAlignment
+   :members:
+
+.. autoclass:: OuterAlignment
+   :members:
+
+.. autoclass:: OrdinalTimeKey
    :members:
 
 .. autoclass:: BoundedCompletenessDeclarationV1
@@ -320,7 +326,11 @@ constructors are documented inline to support case-insensitive filesystems.
 
 .. autofunction:: time_scope
 
-.. autofunction:: window_bucket
+.. autofunction:: exact
+
+.. autofunction:: outer
+
+.. autofunction:: ordinal
 
 .. autofunction:: step
 
@@ -401,6 +411,24 @@ authority rejects with a typed repair.
 .. autoclass:: MaterializedTable
    :members:
 
+Dual comparison results
+-----------------------
+
+``current.compare(baseline, align=exact())`` infers the sole changed target/time
+condition and returns two mandatory views. ``absolute`` preserves the original
+unit and attribution authority; ``relative`` is dimensionless and computes
+``(current-baseline)/abs(baseline)`` independently. A zero baseline makes only
+the relative Cell Undefined. Both Cells publish in one Artifact; select a view
+before numeric continuations. Exact alignment checks unknown key equality;
+``outer()`` keeps missing sides unless ``missing="empty_value"`` is explicit.
+Distinct complete time grids require ``time=ordinal()`` and equal lengths.
+
+.. autoclass:: LogicalComparisonResult
+   :members:
+
+.. autoclass:: MaterializedComparisonResult
+   :members:
+
 Allocated absolute changes
 --------------------------
 
@@ -430,7 +458,7 @@ R6 recovery and retired consumers
 ---------------------------------
 
 Comparison, selection/cohort, fixed references, ranking, attribution and terminal
-tables use one typed graph, Runtime and Store 7. ``session.artifact(ref)`` verifies
+tables use one typed graph, Runtime and Store 9. ``session.artifact(ref)`` verifies
 complete state before fixed continuation. Missing parts revoke the affected
 operations; recovery does not consult Semantic or lineage sources. Tables remain
 terminal. Original reductions with group keys publish
@@ -441,7 +469,7 @@ The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
 are removed. Their Help targets are unresolved, with no compatibility redirect.
 The private Event funnel Delta/Attribution families and their exclusive codecs
 are removed. The public Journey funnel chain below uses registered graph methods
-and Store 7; fixed continuations never reopen the source or rerun matching.
+and Store 9; fixed continuations never reopen the source or rerun matching.
 
 R7.4 funnel results and frozen Findings
 ---------------------------------------

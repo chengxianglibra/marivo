@@ -136,7 +136,7 @@ current = members.observe(revenue, during=august)
 baseline = members.observe(revenue, during=july)
 current_total = current.execute()
 baseline_total = baseline.execute()
-change = current.compare(baseline).execute()
+change = current.compare(baseline).absolute.execute()
 change.show()
 change.contract().show()
 
@@ -146,7 +146,7 @@ regional_current = members.observe(
 regional_baseline = members.observe(
     revenue, during=july, by=(ms.ref.dimension("sales.orders.region"),)
 )
-regional_change = regional_current.compare(regional_baseline).execute()
+regional_change = regional_current.compare(regional_baseline).absolute.execute()
 regional_change.show()
 ```
 

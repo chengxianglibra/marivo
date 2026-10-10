@@ -39,7 +39,9 @@ from marivo.analysis.core.rules import (
     AssociationRead,
     AttachCategory,
     AttributionDerive,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -91,6 +93,7 @@ from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_reference import part_keys
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
+from marivo.analysis.methods.comparison import output_type as comparison_output_type
 from marivo.analysis.methods.comparison import propagated_cell, propagated_error, roundoff
 from marivo.analysis.methods.local import arithmetic, count, count_defined
 from marivo.analysis.methods.numeric_state import checked_sum, finish_division, merge_original
@@ -1469,6 +1472,8 @@ def _difference_stage(
     tag: str
     reason: str | None
     error_rows: list[tuple[float, float, float]] = []
+    relative_rows: list[dict[str, object]] = []
+    relative_errors: list[float] = []
     operand_components = (_operand_components(current), _operand_components(baseline))
     duration_ratio = params.method == "ratio" and all(
         isinstance(edge.node.value_type, DurationType) for edge in method.stage.node.inputs
@@ -1576,6 +1581,44 @@ def _difference_stage(
         except (ValueError, OverflowError) as error:
             raise _invalid(str(error)) from error
         primary_rows.append({**identity, "value": value, "cell_tag": tag, "cell_reason": reason})
+        if isinstance(params, CellCompare):
+            relative_value: object = None
+            relative_tag, relative_reason = tag, reason
+            if tag == "defined":
+                try:
+                    relative = evaluate_comparison(
+                        "relative_change",
+                        left["value"],
+                        right["value"],
+                        method.stage.node.inputs[0].node.value_type,
+                        method.stage.node.inputs[1].node.value_type,
+                    )
+                    relative_value = relative.value if isinstance(relative, Defined) else None
+                    relative_tag = "defined" if isinstance(relative, Defined) else "undefined"
+                    relative_reason = None if isinstance(relative, Defined) else relative.reason
+                except (ValueError, OverflowError) as error:
+                    raise _invalid(f"relative comparison finish failed: {error}") from error
+            try:
+                relative_errors.append(
+                    propagated_error(
+                        "relative_change",
+                        left["value"],
+                        right["value"],
+                        relative_value,
+                        error_a,
+                        error_b,
+                    )
+                )
+            except (ValueError, OverflowError) as error:
+                raise _invalid(str(error)) from error
+            relative_rows.append(
+                {
+                    **identity,
+                    "relative__value": relative_value,
+                    "relative__cell_tag": relative_tag,
+                    "relative__cell_reason": relative_reason,
+                }
+            )
         for role, row, output in (
             ("current_endpoint", left, current_parts),
             ("baseline_endpoint", right, baseline_parts),
@@ -1718,6 +1761,55 @@ def _difference_stage(
         [{**{key: row[key] for key in keys}, "status": row["cell_tag"]} for row in primary_rows],
         schema=status_schema,
     )
+    if isinstance(params, CellCompare):
+        relative_type = comparison_output_type(
+            "relative_change",
+            method.stage.node.inputs[0].node.value_type,
+            method.stage.node.inputs[1].node.value_type,
+        )
+        schema = pa.schema(
+            (
+                *key_schema,
+                pa.field("absolute__value", arrow_scalar_type(method.stage.node.value_type)),
+                pa.field("absolute__cell_tag", pa.string()),
+                pa.field("absolute__cell_reason", pa.string()),
+                pa.field("relative__value", arrow_scalar_type(relative_type)),
+                pa.field("relative__cell_tag", pa.string()),
+                pa.field("relative__cell_reason", pa.string()),
+            )
+        )
+        primary = from_rows(
+            [
+                {
+                    **{key: left[key] for key in keys},
+                    **{
+                        f"absolute__{name}": left[name]
+                        for name in ("value", "cell_tag", "cell_reason")
+                    },
+                    **right,
+                }
+                for left, right in zip(primary_rows, relative_rows, strict=True)
+            ],
+            compact_schema(schema, output_reasons),
+        )
+        parts = (
+            *parts,
+            ExchangePart(
+                "comparison",
+                pa.Table.from_arrays(
+                    [
+                        *(primary[name] for name in keys),
+                        pa.array([row[2] for row in error_rows], type=pa.float64()),
+                        pa.array(relative_errors, type=pa.float64()),
+                    ],
+                    names=[
+                        *keys,
+                        "comparison__absolute_error_bound",
+                        "comparison__relative_error_bound",
+                    ],
+                ),
+            ),
+        )
     contract = ExchangeContract(
         method.stage.node.signature,
         method.stage.node.method,
@@ -1732,7 +1824,7 @@ def _difference_stage(
         ),
         policies(primary),
         REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind or "none",
-        status_schema,
+        None if isinstance(params, CellCompare) else status_schema,
         checks,
         not keys,
     )
@@ -1741,9 +1833,54 @@ def _difference_stage(
         contract,
         parts=parts,
         completed_checks=tuple(completed),
-        method_state=statuses,
+        method_state=None if isinstance(params, CellCompare) else statuses,
         validate=False,
     )
+
+
+def comparison_project(node: MethodNode, source: ExchangeResult, binding: str) -> ExchangeResult:
+    """Read one owned Cell and its bound from an already evaluated dual result."""
+    from marivo.analysis.materialization.cell_arrow import project, rename
+
+    params = node.parameters
+    assert isinstance(params, ComparisonRead)
+    keys = source.contract.key_fields
+    field = params.field
+    names = ("value", "cell_tag", "cell_reason")
+    primary = rename(
+        project(source.primary, (*keys, *(f"{field}__{name}" for name in names))), (*keys, *names)
+    )
+    comparison = next(part.table for part in source.parts if part.role == "comparison")
+    parts = tuple(
+        ExchangePart(
+            part.role,
+            part.table.set_column(
+                part.table.schema.get_field_index("correspondence__result_error_bound"),
+                "correspondence__result_error_bound",
+                comparison[f"comparison__{field}_error_bound"],
+            ),
+        )
+        if part.role == "correspondence"
+        else part
+        for part in source.parts
+        if part.role != "comparison"
+    )
+    contract = replace(
+        source.contract,
+        signature=node.signature,
+        method=node.method,
+        input_binding=binding,
+        schema=primary.schema,
+        state_kind="none",
+        state_schema=None,
+        pending_checks=(),
+        _frozen=None,
+        parts=tuple(
+            PartContract(part.role, part.table.schema, part_keys(node.signature, part.role))
+            for part in parts
+        ),
+    )
+    return from_arrow(primary, contract, parts=parts)
 
 
 def _coordinate_rollup_stage(
@@ -2429,7 +2566,9 @@ def execute_verified_fixed(
             result = _coordinate_rollup_stage(stage, values[0], binding)
         elif isinstance(stage.stage.node.parameters, OriginalReduce):
             result = _original_rollup_stage(stage, values[0], binding)
-        elif name in ("cell.difference", "cell.relative_change", "cell.ratio"):
+        elif name == "comparison.read":
+            result = comparison_project(stage.stage.node, values[0], binding)
+        elif name in ("cell.difference", "cell.relative_change", "cell.ratio", "cell.compare"):
             result = _difference_stage(stage, (values[0], values[1]), proof, binding, checks)
         elif name == "association.spearman":
             if values[0].contract.key_fields != values[1].contract.key_fields:

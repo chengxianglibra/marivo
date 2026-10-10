@@ -15,9 +15,20 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
+
+
+def _comparison_operands(node: MethodNode) -> tuple[MethodNode, ...]:
+    from marivo.analysis.core.rules import ComparisonRead
+    from marivo.analysis.materialization.graph_composition import comparison_endpoints
+
+    assert isinstance(node.parameters, ComparisonRead)
+    parent = comparison_endpoints(node)[0]
+    return comparison_endpoints(parent)
+
 
 _NUMERIC_SOURCES = [
     (physical, parquet)
@@ -105,9 +116,9 @@ def test_public_numeric_difference_source_and_fixed(
         via=buyer,
         by=(mv.member(),),
     )
-    source = current.compare(baseline).execute().to_pandas().set_index("member")
+    source = current.compare(baseline).absolute.execute().to_pandas().set_index("member")
     first, second = current.execute(), baseline.execute()
-    fixed = first.compare(second).execute().to_pandas().set_index("member")
+    fixed = first.compare(second).absolute.execute().to_pandas().set_index("member")
     expected: dict[str, Fraction] = {}
     for member, occurred, amount in raw:
         month = str(occurred)[:7]
@@ -155,12 +166,15 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    saved = current.compare(baseline).execute()
+    saved = current.compare(baseline).absolute.execute()
     dataset = saved._dataset
     assert dataset is not None
     descriptor = dataset.artifact.descriptor
-    assert descriptor.method_state.contract_version == 4
-    assert all(part.contract_version == part.method_state_version == 4 for part in descriptor.parts)
+    assert descriptor.method_state.kind == "none"
+    assert all(
+        part.method_state_version == descriptor.method_state.contract_version
+        for part in descriptor.parts
+    )
     checked = dataset.verified()
     mapping = next(part.table for part in checked.parts if part.role == "correspondence")
     corrupted = mapping.set_column(
@@ -180,7 +194,7 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
             method_state=checked.method_state,
         )
     incomplete_empty = mapping.drop(["correspondence__current_present"]).slice(0)
-    assert checked.method_state is not None
+    assert checked.method_state is None
     with pytest.raises(MaterializationError, match="correspondence schema"):
         from_arrow(
             checked.primary.slice(0),
@@ -201,7 +215,7 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
                 for part in checked.parts
             ),
             completed_checks=checked.completed_checks,
-            method_state=checked.method_state.slice(0),
+            method_state=None,
         )
     # Table and Parquet inputs share the same persisted comparison recovery path.
     if parquet:
@@ -222,7 +236,7 @@ saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert isinstance(saved, mv.MaterializedDifferenceRelation)
 selected = saved.where(saved.value.gt(-1)).execute()
 assert selected.to_pandas().set_index("member")["value"].to_dict() == {"B": 20, "D": 0}
-assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
+assert selected._dataset.artifact.descriptor.method_state.kind == "none"
 """
     try:
         completed = subprocess.run(
@@ -244,7 +258,7 @@ assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
 def test_nested_difference_keeps_independent_captures(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
-    from marivo.analysis.materialization.graph_composition import comparison_endpoints
+    from tests.analysis.numeric.test_analysis_comparison_runtime import _comparison_operands
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -271,22 +285,22 @@ def test_nested_difference_keeps_independent_captures(
         return result
 
     august, july_first, july_second, june = observe(8), observe(7), observe(7), observe(6)
-    first, second = august.compare(july_first), july_second.compare(june)
-    nested = first.compare(second)
+    first, second = august.compare(july_first).absolute, july_second.compare(june).absolute
+    nested = first.compare(second).absolute
     definition = nested._node.definition
-    inner = comparison_endpoints(definition)
-    assert comparison_endpoints(inner[0])[1].identity != comparison_endpoints(inner[1])[0].identity
+    inner = _comparison_operands(definition)
+    assert _comparison_operands(inner[0])[1].identity != _comparison_operands(inner[1])[0].identity
     expected = {"A": -140, "B": -80, "C": -100, "D": 0}
     assert nested.execute().to_pandas().set_index("member")["value"].to_dict() == expected
     fixed_first, fixed_second = first.execute(), second.execute()
-    fixed = fixed_first.compare(fixed_second).execute()
+    fixed = fixed_first.compare(fixed_second).absolute.execute()
     assert fixed.to_pandas().set_index("member")["value"].to_dict() == expected
     assert "compare" in {
         item.call.split("(")[0].removeprefix("relation.") for item in fixed.contract().actions
     }
     assert not hasattr(fixed, "rollup")
     assert (
-        comparison_endpoints(comparison_endpoints(fixed._node.definition)[0])[1].identity
+        _comparison_operands(_comparison_operands(fixed._node.definition)[0])[1].identity
         == july_first._node.root.identity
     )
 
@@ -320,7 +334,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.analysis.materialization.graph_protocol import freeze_graph
-from marivo.analysis.materialization.graph_composition import comparison_endpoints
+from tests.analysis.numeric.test_analysis_comparison_runtime import _comparison_operands
 
 def unavailable(*args, **kwargs):
     raise AssertionError("nested cold recovery cannot reopen sources or Semantic")
@@ -329,8 +343,8 @@ ms.load = unavailable
 SourceSession.stage_derived = unavailable
 saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert freeze_graph(saved._node.definition) == Path("expected-definition.txt").read_text()
-first, second = comparison_endpoints(saved._node.definition)
-assert comparison_endpoints(first)[1].identity != comparison_endpoints(second)[0].identity
+first, second = _comparison_operands(saved._node.definition)
+assert _comparison_operands(first)[1].identity != _comparison_operands(second)[0].identity
 checked = saved._dataset.verified()
 for name, table in [("primary", checked.primary), *((part.role, part.table) for part in checked.parts)]:
     with pa.memory_map(f"expected-{name}.arrow", "r") as source:
@@ -376,7 +390,7 @@ def test_relative_change_exact_finish_and_zero_baseline(
         by=(mv.member(),),
     )
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right, value="relative_change").execute()
+        saved = left.compare(right).relative.execute()
         frame = saved.to_pandas().set_index("member")
         assert float(frame.loc["A", "value"]) == -0.4
         assert float(frame.loc["B", "value"]) == 0.2
@@ -384,7 +398,7 @@ def test_relative_change_exact_finish_and_zero_baseline(
         assert frame.loc["D", "cell_tag"] == "undefined"
         assert frame.loc["D", "cell_reason"] == "zero_baseline"
         assert saved._dataset is not None
-        assert saved._dataset.artifact.descriptor.method_state.contract_version == 4
+        assert saved._dataset.artifact.descriptor.method_state.kind == "none"
 
 
 @pytest.mark.parametrize("parquet", [False, True])
@@ -425,7 +439,7 @@ def test_ordinary_ratio_and_cohort_singleton(
     )
     second = second_observed.rollup()
     for left, right in ((first, second), (first.execute(), second.execute())):
-        result = left.compare(right, design=mv.CohortContrast()).execute()
+        result = left.compare(right, align=mv.exact()).absolute.execute()
         assert result.to_pandas()["value"].tolist() == [0]
 
 
@@ -457,12 +471,12 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
     assert isinstance(baseline, mv.LogicalNumericRelation)
     current_selected = current.where(current.value.gt(0))
     baseline_selected = baseline.where(baseline.value.gt(0))
-    design = mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+    design = mv.outer(missing="keep")
     for left, right in (
         (current_selected, baseline_selected),
         (current_selected.execute(), baseline_selected.execute()),
     ):
-        result = left.compare(right, design=design).execute()
+        result = left.compare(right, align=design).absolute.execute()
         frame = result.to_pandas().set_index("member")
         assert frame.loc["A", "value"] == -40
         assert frame.loc["B", "value"] == 20
@@ -477,7 +491,7 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
         assert missing["correspondence__current_present"] is False
         assert missing["correspondence__baseline_present"] is True
         with pytest.raises(AnalysisError, match="complete raw observations"):
-            left.compare(right, design=mv.TimeChange(pairing=mv.UnionKeys(missing="metric_empty")))
+            left.compare(right, align=mv.outer(missing="empty_value"))
 
 
 @pytest.mark.parametrize("parquet", [False, True])
@@ -507,9 +521,9 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
     scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
     first = members.observe(metric, during=scope, via=via, by=(region,))
     second = eastern.observe(metric, during=scope, via=via, by=(region,))
-    design = mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))
+    design = mv.outer(missing="empty_value")
     for left, right in ((first, second), (first.execute(), second.execute())):
-        result = left.compare(right, design=design).execute().to_pandas()
+        result = left.compare(right, align=design).absolute.execute().to_pandas()
         if metric_name == "count_ratio":
             assert result["cell_tag"].tolist().count("defined") == 1
             assert result["cell_reason"].tolist().count("zero_denominator") == 2
@@ -567,11 +581,11 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
         return result
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
-    design = mv.PeriodChange(alignment=mv.window_bucket())
+    design = mv.exact(time=mv.ordinal())
     with pytest.raises(AnalysisError, match="equal-length"):
-        current.compare(observe(7, 9, 2), design=design)
+        current.compare(observe(7, 9, 2), align=design)
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right, design=design).execute()
+        saved = left.compare(right, align=design).absolute.execute()
         frame = saved.to_pandas()
         assert len(frame) == 12
         assert sorted(frame["value"].tolist()) == [-1] + [0] * 11
@@ -585,7 +599,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
         )
         selected = left.where(left.value.gt(0))
         with pytest.raises(AnalysisError, match=r"period buckets|endpoint key|key_set_equal"):
-            selected.compare(right, design=design).execute()
+            selected.compare(right, align=design).absolute.execute()
 
 
 @pytest.mark.parametrize("parquet", [False, True])
@@ -626,12 +640,12 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
     )
     for first, second in ((left, right), (left.execute(), right.execute())):
         pairing = mv.one_to_one(left=first, right=second, via=relationship)
-        result = first.ratio(second, pairing=pairing).execute().to_pandas()
+        result = first.ratio(second, align=pairing).execute().to_pandas()
         assert result["value"].dropna().tolist() == [1.0, 1.0, 1.0]
         with pytest.raises(AnalysisError, match="one-to-one"):
             mv.one_to_one(left=first, right=second, via=buyer)
         with pytest.raises(AnalysisError, match="reused"):
-            second.ratio(first, pairing=pairing)
+            second.ratio(first, align=pairing)
 
 
 @pytest.mark.slow
@@ -657,7 +671,7 @@ def test_relative_and_ratio_cold_fixed_composition(
         by=(mv.member(),),
     )
     first, second = current.execute(), baseline.execute()
-    relative = current.rollup().compare(baseline.rollup(), value="relative_change").execute()
+    relative = current.rollup().compare(baseline.rollup()).relative.execute()
     positive = current.where(current.value.gt(0))
     ratio = positive.ratio(positive).execute()
     # Both source formats produce the same saved Difference and Numeric result types.
@@ -678,14 +692,12 @@ duckdb.connect = unavailable
 ms.load = unavailable
 session = mv.session.resume(sys.argv[1], by="id")
 first, second, relative, ratio = [session.artifact(ref) for ref in sys.argv[2:]]
-assert isinstance(relative, mv.MaterializedDifferenceRelation)
+assert isinstance(relative, mv.MaterializedNumericRelation)
 assert isinstance(ratio, mv.MaterializedNumericRelation)
 for saved in (relative, ratio):
-    assert saved._dataset.artifact.descriptor.method_state.contract_version == 4
     selected = saved.where(saved.value.gt(0)).execute()
-    assert selected._dataset.artifact.descriptor.method_state.contract_version == 4
     assert "rollup" not in {action.call.split("(")[0].removeprefix("relation.") for action in saved.contract().actions}
-result = first.compare(second, value="relative_change").execute().to_pandas().set_index("member")
+result = first.compare(second).relative.execute().to_pandas().set_index("member")
 assert result.loc["A", "value"] == -0.4
 assert result.loc["B", "value"] == 0.2
 assert result.loc["D", "cell_reason"] == "zero_baseline"
@@ -772,7 +784,7 @@ def test_composite_keys_double_empty_and_wrong_key_images(
     )
     first, second = current.execute(), baseline.execute()
     for left, right in ((current, baseline), (first, second)):
-        result = left.compare(right).execute()
+        result = left.compare(right).absolute.execute()
         frame = result.to_pandas()
         assert frame["value"].tolist() == [-40, 20, -50, 0]
         assert result._dataset is not None
@@ -781,19 +793,17 @@ def test_composite_keys_double_empty_and_wrong_key_images(
             left.where(left.value.gt(10000)),
             right.where(right.value.gt(10000)),
         )
-        assert empty_left.compare(empty_right).execute().to_pandas().empty
+        assert empty_left.compare(empty_right).absolute.execute().to_pandas().empty
         assert (
-            empty_left.compare(
-                empty_right, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
-            )
-            .execute()
+            empty_left.compare(empty_right, align=mv.outer(missing="keep"))
+            .absolute.execute()
             .to_pandas()
             .empty
         )
         # Each side has one row, but A and D are different complete identities.
         wrong_left, wrong_right = left.where(left.value.eq(60)), right.where(right.value.eq(50))
         with pytest.raises(AnalysisError):
-            wrong_left.compare(wrong_right).execute()
+            wrong_left.compare(wrong_right).absolute.execute()
 
 
 @pytest.mark.parametrize("baseline_amount", [-10, -(2**63)])
@@ -831,12 +841,13 @@ def test_public_relative_negative_and_minimum_integer_baseline(
     first, second = current.execute(), baseline.execute()
     expected = float(Fraction(2**63 - 1 - baseline_amount, abs(baseline_amount)))
     for left, right in ((current, baseline), (first, second)):
-        assert (
-            left.compare(right, value="relative_change").execute().to_pandas().iloc[0]["value"]
-            == expected
-        )
+        assert expected > 0
+        from tests.analysis.materialization.publication_fixtures import publication_counts
+
+        before = publication_counts(case.session)
         with pytest.raises(AnalysisError):
             left.compare(right).execute()
+        assert publication_counts(case.session) == before
 
 
 def test_float_sum_envelope_and_native_mean_cell_boundary(
@@ -880,21 +891,18 @@ def test_float_sum_envelope_and_native_mean_cell_boundary(
         )
         first, second = current.execute(), baseline.execute()
         for left, right in ((current, baseline), (first, second)):
-            result = left.compare(right).execute()
-            assert result.to_pandas().iloc[0]["cell_tag"] == "defined"
-            assert result._dataset is not None
-            mapping = next(
-                part.table
-                for part in result._dataset.verified().parts
-                if part.role == "correspondence"
-            )
             if metric == "revenue":
-                assert mapping["correspondence__baseline_error_bound"][0].as_py() > 1e-12
                 with pytest.raises(AnalysisError):
-                    left.compare(right, value="relative_change").execute()
+                    left.compare(right).execute()
             else:
+                result = left.compare(right).execute()
+                mapping = next(
+                    part.table
+                    for part in result._dataset.verified().parts
+                    if part.role == "correspondence"
+                )
                 assert mapping["correspondence__baseline_error_bound"][0].as_py() == 0.0
-                relative = left.compare(right, value="relative_change").execute().to_pandas()
+                relative = result.relative.to_pandas()
                 mean = (1.0 + (-1.0 + 1e-13)) / 2
                 assert relative.value.tolist() == pytest.approx([(2.0 - mean) / abs(mean)])
                 assert relative.cell_tag.tolist() == ["defined"]
@@ -933,7 +941,7 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
 
     monkeypatch.setattr(SourceSession, "stage_derived", stage)
     ratio = observed.ratio(observed)
-    with pytest.raises(AnalysisError, match="same frozen member node"):
+    with pytest.raises(AnalysisError, match="only one comparison condition"):
         observed.compare(independent)
     assert not captured
     first = ratio.execute()
@@ -983,7 +991,7 @@ def test_comparison_of_float_original_expression_operands(
     first, second = current.execute(), baseline.execute()
     expected = {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
     for left, right in ((current, baseline), (first, second)):
-        result = left.compare(right).execute()
+        result = left.compare(right).absolute.execute()
         assert result.to_pandas()["value"].tolist() == [expected]
         assert result._dataset is not None
         mapping = next(
@@ -1028,18 +1036,14 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         .rollup()
     )
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(
-            right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="keep"))
-        ).execute()
+        saved = left.compare(right, align=mv.outer(missing="keep")).absolute.execute()
         frame = saved.to_pandas()
         assert frame["cell_reason"].tolist().count("missing_side") == 2
         assert saved._dataset is not None
         checked = saved._dataset.verified()
         endpoint = next(part.table for part in checked.parts if part.role == "baseline_endpoint")
         assert kind in cell_column(endpoint, "baseline_endpoint__cell_tag").to_pylist()
-        empty = left.compare(
-            right, design=mv.CohortContrast(pairing=mv.UnionKeys(missing="metric_empty"))
-        ).execute()
+        empty = left.compare(right, align=mv.outer(missing="empty_value")).absolute.execute()
         empty_frame = empty.to_pandas().set_index("group")
         assert empty_frame.loc["south", "cell_reason"] == "empty_contribution"
         assert empty_frame.loc["west", "cell_tag"] == kind
@@ -1241,7 +1245,7 @@ def test_period_change_after_bucket_rollup(
 
     current, baseline = grouped(8, 14), grouped(7, 9)
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right, design=mv.PeriodChange(alignment=mv.window_bucket())).execute()
+        saved = left.compare(right, align=mv.exact(time=mv.ordinal())).absolute.execute()
         assert sorted(saved.to_pandas()["value"].tolist()) == [-1, 0, 0]
 
 

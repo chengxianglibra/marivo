@@ -360,7 +360,7 @@ def test_public_mixed_fixed_and_live_rejects_before_run(
     count_before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match="mixed live and materialized"):
-        live.compare(fixed).execute()
+        live.compare(fixed).absolute.execute()
     assert len(case.session.runs().items) == count_before
 
 
@@ -382,9 +382,9 @@ def test_public_comparison_rejects_different_members_and_metric_units(
     different_metric = first_members.observe(count, during=july, via=buyer, by=(mv.member(),))
     before = len(case.session.runs().items)
 
-    with pytest.raises(AnalysisError, match=r"endpoints|Metric|metric"):
+    with pytest.raises(AnalysisError, match="only one comparison condition"):
         current.compare(separate)
-    with pytest.raises(AnalysisError, match=r"endpoints|Metric|metric"):
+    with pytest.raises(AnalysisError, match="different quantity templates"):
         current.compare(different_metric)
     assert len(case.session.runs().items) == before
 
@@ -429,22 +429,21 @@ def test_public_j2_selected_members_and_next_month_mean(
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 
-    change = customers.observe(revenue, during=august, via=buyer, by=(mv.member(),)).compare(
-        customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
+    change = (
+        customers.observe(revenue, during=august, via=buyer, by=(mv.member(),))
+        .compare(customers.observe(revenue, during=july, via=buyer, by=(mv.member(),)))
+        .absolute
     )
     selected = change.where(change.value.lt(0)).members()
-    result = (
-        selected.observe(
-            revenue,
-            during=september,
-            via=buyer,
-            by=(mv.member(),),
-        )
-        .aggregate(mv.mean())
-        .execute()
+    observed = selected.observe(
+        revenue,
+        during=september,
+        via=buyer,
+        by=(mv.member(),),
     )
-
+    result = observed.aggregate(mv.mean()).execute()
     assert result.to_pandas().iloc[0]["value"] == 15
+    assert observed.rollup().execute().to_pandas()["value"].tolist() == [30]
 
 
 def test_public_j3_ratio_rollup_differs_from_current_row_mean(

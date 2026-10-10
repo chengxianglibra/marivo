@@ -41,7 +41,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
     )
     current = current.group_by(ms.ref.entity("sales.customer")).rollup()
     baseline = baseline.group_by(ms.ref.entity("sales.customer")).rollup()
-    change = current.compare(baseline)
+    change = current.compare(baseline).absolute
     facts = analysis_dsl_rows("j2")
     expected = {}
     for _, member, channel, _, day, _ in facts.orders:
@@ -173,8 +173,8 @@ def test_numeric_source_fixed_and_axis_expansion(
             if kind == "weighted"
             else mv.runtime_metric.ratio(base, base, label="ratio")
         )
-        retained = endpoint(8, True, expression).compare(endpoint(7, True, expression))
-        expanded = endpoint(8, False, expression).compare(endpoint(7, False, expression))
+        retained = endpoint(8, True, expression).compare(endpoint(7, True, expression)).absolute
+        expanded = endpoint(8, False, expression).compare(endpoint(7, False, expression)).absolute
         by_side = []
         for month in (8, 7):
             denominators = sum(
@@ -336,7 +336,7 @@ def test_common_other_mapping_each_parent_and_resolution(
             by=axes,
         ).rollup()
 
-    change = endpoint(8).compare(endpoint(7))
+    change = endpoint(8).compare(endpoint(7)).absolute
     for source in (change, change.execute()):
         result = source.attribute(axes=axes, mode=mode, top_k=1).execute()
         rows = cell_rows(result._dataset.verified().primary)
@@ -377,7 +377,7 @@ def test_offline_cold_parts_and_selected_views(
             by=axes,
         ).rollup()
 
-    saved = endpoint(8).compare(endpoint(7)).execute()
+    saved = endpoint(8).compare(endpoint(7)).absolute.execute()
     result = saved.attribute(axes=axes, top_k=1).execute()
     checked = result._dataset.verified()
     for part in checked.parts:
@@ -498,7 +498,7 @@ def test_static_refusals_and_shared_compiled_submissions(
         ).rollup()
 
     current, baseline = endpoint(8), endpoint(7)
-    change = current.compare(baseline)
+    change = current.compare(baseline).absolute
     before = change._runtime.last_run_ref
     with monkeypatch.context() as patch:
 
@@ -514,8 +514,9 @@ def test_static_refusals_and_shared_compiled_submissions(
                 change.attribute(axes=bad)
         with pytest.raises(AnalysisError):
             change.attribute(axes=axes, mode="hierarchy")
-        with pytest.raises(AnalysisError):
-            current.compare(baseline, value="relative_change").attribute(axes=axes)
+        relative = current.compare(baseline).relative
+        assert isinstance(relative, mv.LogicalNumericRelation)
+        assert not hasattr(relative, "attribute")
         assert change._runtime.last_run_ref == before
     issued = []
     submitted = []
@@ -585,7 +586,7 @@ def test_period_buckets_and_retained_coarsened_partition(
             key = member, channel
             expected[key] = expected.get(key, 0) + (1 if str(day).startswith("2026-08") else -1)
     for first, second in ((current, baseline), (current.execute(), baseline.execute())):
-        change = first.compare(second, design=mv.PeriodChange(alignment=mv.window_bucket()))
+        change = first.compare(second, align=mv.exact(time=mv.ordinal())).absolute
         result = change.attribute(axes=axes).execute()
         actual = {
             (r["key_0"], r["key_3"]): r["value"]
@@ -633,7 +634,7 @@ def test_zero_component_basis_cannot_hide_under_other(
             by=axes,
         ).rollup()
 
-    change = endpoint(8).compare(endpoint(7))
+    change = endpoint(8).compare(endpoint(7)).absolute
     for current in (change, change.execute()):
         with pytest.raises(AnalysisError, match="contradictory"):
             current.attribute(axes=axes, top_k=1).execute()
@@ -658,7 +659,7 @@ def test_new_source_evaluation_preserves_fixed_basis(
             by=axes,
         ).rollup()
 
-    difference = endpoint(8).compare(endpoint(7))
+    difference = endpoint(8).compare(endpoint(7)).absolute
     logical = difference.attribute(axes=axes)
     first = logical.execute()
     fixed_expression = difference.execute().attribute(axes=axes)
@@ -716,7 +717,7 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
             by=axes,
         ).rollup()
 
-    change = endpoint(8).compare(endpoint(7))
+    change = endpoint(8).compare(endpoint(7)).absolute
     # Three rounded contributions of 0.333333 sum to 0.999999. The 1e-6
     # residual exceeds the 1e-9 tolerance for the independently computed target of 1.
     for difference in (change, change.execute()):
@@ -767,7 +768,7 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
             by=axes,
         ).rollup()
 
-    allocation = endpoint(8).compare(endpoint(7)).attribute(axes=axes)
+    allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes)
     for result in (allocation, allocation.execute()):
         ratio = result.current.ratio(result.baseline).execute()
         checked = ratio._dataset.verified()
@@ -822,7 +823,7 @@ def test_numeric_view_rank_uses_typed_other_order(
             by=axes,
         ).rollup()
 
-    allocation = endpoint(8).compare(endpoint(7)).attribute(axes=axes, top_k=2)
+    allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes, top_k=2)
     for result in (allocation, allocation.execute()):
         calls = {a.call for a in result.contribution.contract().actions}
         assert "relation.where(predicate)" in calls
@@ -855,7 +856,7 @@ def test_attribution_publication_cleans_only_failed_run(
             by=axes,
         ).rollup()
 
-    change = endpoint(8).compare(endpoint(7))
+    change = endpoint(8).compare(endpoint(7)).absolute
     fixed = change.execute()
     expected = fixed.to_pandas()
     for difference in (change, fixed):

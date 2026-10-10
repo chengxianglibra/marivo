@@ -14,7 +14,7 @@ description: 筛选值、识别连续区间、描述关联并预测完整时间�
 {/* example: signed-deviation */}
 
 ```python
-scored = current.compare(baseline).deviation(method="mad")
+scored = current.compare(baseline).absolute.deviation(method="mad")
 defined = scored.where(scored.score.value.is_defined())
 positive = defined.where(defined.score.value.gt(0))
 followup = positive.observed.members().observe(

@@ -1712,3 +1712,21 @@ Transport 不凭空增加事实，也不删除仍相关的假设依赖。
 - **R11 — Evelyn M. Kitagawa (1955), Components of a Difference Between Two Rates.**
   Journal of the American Statistical Association 50(272)。对应第 8.4 节的率/结构分解；
   本文只引用分解形式，不规定采用哪一种分解，也不赋予分项因果含义。
+
+## W1 public comparison binding
+
+`current.compare(baseline, align=mv.exact())` binds one ordered endpoint pair and
+one correspondence domain through `cell.compare@v1`. Its root quantity is absent;
+ComparisonPart owns both formula quantities and physical types. `comparison.read@v1`
+projects absolute or relative without repeating pairing. Absolute evaluates
+current-baseline; relative evaluates (current-baseline)/abs(baseline) independently
+from original operands. Each finishes once and owns its Cell and error bound.
+Zero baseline is a relative Undefined, while any numeric violation fails the Run.
+Both formula admissions apply, so a relative-only Decimal scale exception is not
+part of this contract. Views of a materialized root share one Artifact.
+
+Target/time captures infer the one changed condition; identical captures and
+simultaneous target/time changes reject. Exact is fixed checked with retained
+declaration/construction proofs; outer defaults to keep, with explicit empty_value.
+W1 ordinal correspondence requires complete equal-length grids and preserves
+current original buckets. Unequal grids and aligned output coordinates belong to W2.

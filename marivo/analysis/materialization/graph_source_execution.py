@@ -29,7 +29,9 @@ from marivo.analysis.core.rules import (
     AssociationRead,
     AttributionDerive,
     BindProject,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -366,7 +368,7 @@ def _check(
                 and isinstance(owner, MethodNode)
                 and isinstance(owner.parameters, CellDerive)
             ):
-                repair = "Use corresponding complete inputs, or explicitly assume equality with mv.ExactKeys(verification='assume') when this exact call guarantees it."
+                repair = "Use inputs with equal complete key sets, or compare with align=mv.outer() to preserve missing sides explicitly."
             elif (
                 fact.kind == "mapping_total"
                 and isinstance(owner, MethodNode)
@@ -651,6 +653,8 @@ def execute_source_graph(
             or isinstance(
                 stage.stage.node.parameters,
                 (
+                    CellCompare,
+                    ComparisonRead,
                     AssociationFit,
                     AssociationRead,
                     ForecastFit,

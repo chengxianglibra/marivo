@@ -18,6 +18,7 @@ from marivo.analysis.core.rules import (
     AttributionDerive,
     BindProject,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -1242,6 +1243,37 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     declarations = tuple(
         replace(item, contract_version=7) for item in _grain_implementations(method)
     )
+    if method.name in (
+        "row.count",
+        "row.count_defined",
+        "row.sum",
+        "row.mean",
+        "row.min",
+        "row.max",
+        "state_rollup",
+    ):
+        keys = {item.key for item in declarations}
+        row_additions = tuple(
+            replace(
+                item,
+                key=replace(item.key, route="ibis_python"),
+                resources=ResourceRequirements(
+                    "complete", "producer", 100_000 if method.name == "row.count" else None
+                ),
+                numeric_specialization="consumer",
+                qualification=Qualified(
+                    f"comparison.w1.rows.{item.key}@v1",
+                    "analysis.materialization.graph_local_execution",
+                    "tests/analysis/numeric/test_comparison_result.py",
+                ),
+            )
+            for item in declarations
+            if item.key.route == "ibis"
+            and isinstance(item.key.shape, SourceShape)
+            and isinstance(item.qualification, Qualified)
+            and replace(item.key, route="ibis_python") not in keys
+        )
+        declarations = (*declarations, *row_additions)
     if method.name not in ("metric.ratio", "metric.linear") and not method.name.startswith(
         "state_rollup."
     ):
@@ -1350,6 +1382,33 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             + sqlite_implementations(method)
             + remote_implementations(method)
         )
+    if method.name in ("cell.compare", "comparison.read"):
+        producer: Literal["cell.difference", "parts_transport"] = (
+            "cell.difference" if method.name == "cell.compare" else "parts_transport"
+        )
+        declarations = tuple(
+            replace(
+                item,
+                key=replace(
+                    item.key,
+                    method=method,
+                    route="ibis_python"
+                    if item.key.route != "artifact_python"
+                    else "artifact_python",
+                ),
+                parts=tuple(dict.fromkeys((*item.parts, "comparison"))),
+                numeric_specialization="consumer",
+                qualification=Qualified(
+                    f"comparison.w1.{item.key}@v1",
+                    "analysis.materialization.graph_local_execution",
+                    "tests/analysis/numeric/test_comparison_result.py",
+                ),
+            )
+            for item in implementations(MethodKey(producer))
+            if not prepared_numeric(item)
+            and (method.name == "cell.compare" or len(item.key.input_types) == 1)
+        )
+        return tuple({item.key: item for item in declarations}.values())
     if method.name in ("cell.relative_change", "cell.ratio"):
         comparisons = tuple(
             replace(
@@ -2271,6 +2330,8 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
             ),
         )
     allowed = (
+        "cell.compare",
+        "comparison.read",
         "cell.difference",
         "cell.relative_change",
         "cell.ratio",
@@ -2305,6 +2366,8 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         for value in key.input_types
     )
     float_inputs = key.method.name in (
+        "cell.compare",
+        "comparison.read",
         "cell.difference",
         "cell.relative_change",
         "cell.ratio",
@@ -2505,6 +2568,9 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
                 repr(params.check_id),
                 "Bind source.group_mapping@v1 for the exact Group projection.",
             )
+    elif isinstance(params, ComparisonRead):
+        if params.field not in ("absolute", "relative"):
+            reject("an owned comparison view", repr(params), "Read absolute or relative.")
     elif isinstance(params, CellDerive):
         if params.method not in ("difference", "relative_change", "ratio") or (
             params.pairing_check_id

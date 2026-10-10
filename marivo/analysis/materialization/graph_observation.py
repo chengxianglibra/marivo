@@ -21,6 +21,7 @@ from marivo.analysis.core.graph import (
 )
 from marivo.analysis.core.model import Coordinate, DomainSignature, ObservedQuantity, SubjectPart
 from marivo.analysis.core.rules import (
+    CellCompare,
     DeviationFit,
     DirectMetricDefinition,
     EntityObservationTarget,
@@ -882,7 +883,7 @@ def _observe_component(
     )
     for node in topology(member_root):
         if not isinstance(node, MethodNode) or not isinstance(
-            node.parameters, (DeviationFit, TimeRuns)
+            node.parameters, (DeviationFit, TimeRuns, CellCompare)
         ):
             continue
         subject = next(
@@ -894,6 +895,9 @@ def _observe_component(
             ancestor
             for ancestor in topology(node.inputs[0].node)
             if ancestor.signature.quantity is None
+            and not (
+                isinstance(ancestor, MethodNode) and isinstance(ancestor.parameters, CellCompare)
+            )
             and ancestor.signature.domain.instance_key == subject.subject_key
             and any(
                 isinstance(part, SubjectPart)

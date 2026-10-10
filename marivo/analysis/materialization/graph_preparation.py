@@ -23,7 +23,7 @@ from marivo.analysis.compiler.graph_lowering import (
     canonical_layout,
 )
 from marivo.analysis.core.domain_captures import fail
-from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.core.graph import MethodNode, topology
 from marivo.analysis.core.model import (
     ConditionCellsPart,
     CoordinateStatePart,
@@ -48,7 +48,9 @@ from marivo.analysis.core.rules import (
     AssociationFit,
     AssociationRead,
     AttributionDerive,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -429,6 +431,9 @@ def _execute(
             isinstance(
                 item.stage.node.parameters,
                 (
+                    CellCompare,
+                    ComparisonRead,
+                    AttributionDerive,
                     AssociationFit,
                     AssociationRead,
                     ForecastFit,
@@ -456,6 +461,25 @@ def _execute(
                     FunnelRead,
                     FunnelAttribute,
                 ),
+            )
+            or (
+                isinstance(
+                    item.stage.node.parameters,
+                    (
+                        PartsTransport,
+                        RowState,
+                        MapCorrespond,
+                        OriginalReduce,
+                        CellDerive,
+                        DisplayRank,
+                        DisplayTable,
+                    ),
+                )
+                and any(
+                    isinstance(ancestor, MethodNode)
+                    and isinstance(ancestor.parameters, ComparisonRead)
+                    for ancestor in topology(item.stage.node)
+                )
             )
             or (
                 isinstance(
@@ -567,12 +591,17 @@ def _execute(
         table = _read(
             source,
             lowered,
-            stage.expression,
+            stage.transport if stage.transport is not None else stage.expression,
             purpose="analysis.domain.prepare",
             replacements=replacements,
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
+        retained_parts: tuple[ExchangePart, ...] = ()
+        if stage.transport is not None:
+            from marivo.analysis.materialization.graph_source_execution import _split_transport
+
+            table, retained_parts = _split_transport(stage, table)
         _consume_field(stage, table)
         if _field_lookup(stage):
             issued = _issue(
@@ -645,7 +674,7 @@ def _execute(
             table = table.replace_schema_metadata(
                 {**(table.schema.metadata or {}), **_metadata(params, lowered, source)}
             )
-            results[stage.output] = _result(stage, table, (), ())
+            results[stage.output] = _result(stage, table, (), (), retained_parts)
         elif isinstance(params, PreparedObservation):
             table = table.replace_schema_metadata(
                 {
@@ -700,7 +729,7 @@ def _execute(
             and stage.output not in anchor_candidate_outputs
             and stage.output not in results
         ):
-            results[stage.output] = _result(stage, table, (), ())
+            results[stage.output] = _result(stage, table, (), (), retained_parts)
         tables[stage.output] = table
     for item in locals_:
         check()
@@ -875,6 +904,12 @@ def _execute(
                 tuple(results[key] for key in item.stage.inputs),
                 item.stage.node.identity,
             )
+        elif isinstance(params, ComparisonRead):
+            from marivo.analysis.materialization.graph_local_execution import comparison_project
+
+            results[item.stage.output] = comparison_project(
+                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
+            )
         elif isinstance(params, TimeProduct):
             from marivo.analysis.materialization.graph_local_execution import time_product
 
@@ -930,6 +965,7 @@ def _execute(
                             "source.unique_key@v1",
                             "source.exact_pairing@v1",
                             "source.finite_numeric@v1",
+                            "source.complete_coverage@v1",
                         )
                     ),
                 )
@@ -949,6 +985,15 @@ def _execute(
                     ),
                     None,
                 )
+                if (
+                    prior is None
+                    and isinstance(params, AttributionDerive)
+                    and requirement.obligation.fact in item.stage.node.derivation.pre
+                    and requirement.obligation.check_id == "source.exact_pairing@v1"
+                ):
+                    # Allocation verifies exact basis and ordered endpoint keys.
+                    completed.append(CompletedCheck(requirement, receipt_hash))
+                    continue
                 if (
                     prior is None
                     and isinstance(params, OriginalReduce)
@@ -975,7 +1020,9 @@ def _execute(
             results[item.stage.output] = result
         elif isinstance(params, RowState):
             owned_check = (
-                "source.cell_policy@v1"
+                None
+                if params.method == "count"
+                else "source.cell_policy@v1"
                 if params.method == "count_defined"
                 else "source.finite_numeric@v1"
             )

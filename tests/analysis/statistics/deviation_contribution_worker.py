@@ -49,9 +49,9 @@ def accept_chain(
 ) -> dict[str, Json]:
     metric = ms.ref.metric(f"sales.total_{index}")
     changed = (
-        current.compare(baseline, design=mv.PeriodChange(alignment=mv.window_bucket()))
+        current.compare(baseline, align=mv.exact(time=mv.ordinal())).absolute
         if domain == "entity_time"
-        else current.compare(baseline)
+        else current.compare(baseline).absolute
     )
     scored = changed.deviation(method=method)
     defined = scored.where(scored.score.value.is_defined())

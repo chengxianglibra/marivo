@@ -399,7 +399,7 @@ def test_mixed_component_attribution_source_and_fixed(
             axis,
         ),
     ).rollup()
-    change = current.compare(baseline)
+    change = current.compare(baseline).absolute
     for relation in (change, change.execute()):
         if weight < 1:
             with pytest.raises(AnalysisError, match="denominator"):
@@ -501,7 +501,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
             axis,
         ),
     )
-    change = current.compare(baseline)
+    change = current.compare(baseline).absolute
     fixed = change.execute()
     assert fixed._dataset is not None
     assert fixed._dataset.verified().primary.schema.field("value").type == pa.decimal128(38, scale)
@@ -577,8 +577,8 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
         by=(mv.member(),),
     )
     for change in (
-        current.compare(baseline, value="relative_change"),
-        current.execute().compare(baseline.execute(), value="relative_change"),
+        current.compare(baseline).relative,
+        current.execute().compare(baseline.execute()).relative,
     ):
         result = change.execute()
         rows = result.to_pandas()

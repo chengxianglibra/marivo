@@ -221,7 +221,7 @@ actual source precision. Civil dates preserve their calendar interpretation.
 Report, window, grid and calendar authorities remain separate frozen parameters
 or domain facts and participate in fingerprints and execution identity. The
 report timezone never replaces the physical source shape, and no generic
-fallback bypasses exact qualification. Graph snapshots use `graph_dag/v7`; older
+fallback bypasses exact qualification. Graph snapshots use `graph_dag/v8`; older
 versions require source re-execution. Fixed and cold recovery use frozen facts
 without reader probes, source connections or host timezone resolution.
 
@@ -233,7 +233,7 @@ authority without reopening the source. Shared authority values live in
 
 ## Period correspondence
 
-`PeriodChange(alignment=window_bucket())` pairs the complete ordered buckets
+`compare(..., align=mv.exact(time=mv.ordinal()))` pairs the complete ordered buckets
 inside each equal non-time coordinate by their retained ordinal within the
 original two bound grids. Both sides must retain their exact ordered grid,
 calendar/timezone authority, boundary instants or DATE keys, evaluation key and
@@ -243,9 +243,9 @@ coordinate and not a claim of equal weekdays/fiscal meaning.
 
 Filter/limit/rank cannot re-number surviving buckets. If complete original bucket
 maps survive, selection is validated against that original correspondence;
-otherwise pairing rejects. UnionKeys may union non-time coordinates only after
+otherwise pairing rejects. Outer alignment may union non-time coordinates only after
 this complete bucket rule succeeds; it cannot truncate, pad or infer missing
-time buckets. A one-to-one ordinary ratio using a PeriodChange consumes the
+time buckets. A one-to-one ordinary ratio using `one_to_one(time=mv.ordinal(), ...)` consumes the
 same exact time correspondence bound to its ordered input nodes.
 
 Each comparison design keeps its originating observation/grid authority through

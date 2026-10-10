@@ -15,22 +15,27 @@ the chosen axes, not the cause of a business outcome.
 {/* example: comparison-designs */}
 
 ```python
-relative = current.compare(baseline, value="relative_change")
-union = current.compare(
-    baseline, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
-)
-quotient = current.ratio(current, pairing=mv.ExactKeys())
+comparison = current.compare(baseline)
+absolute = comparison.absolute
+relative = comparison.relative
+union = current.compare(baseline, align=mv.outer())
+quotient = current.ratio(current, align=mv.exact())
+result = comparison.execute()
+result.show()
 marivo.help("analysis.dsl.NumericComparison.compare")
 marivo.help("analysis.dsl.one_to_one")
 ```
 
-TimeChange compares one recursive quantity meaning on shared captured targets.
-CohortContrast compares populations at the same observation time on common
-Group/Singleton coordinates. PeriodChange with window-bucket alignment pairs
-complete equal-length original grids. ExactKeys requires unique complete typed
-keys and equal sets; UnionKeys keeps absent correspondence explicit.
-Absolute change preserves admitted Decimal scale or Duration unit; relative
-change and ratio retain zero-denominator and Cell policies.
+Compare infers one changed condition from frozen target/time captures: only time
+changes compare periods; only targets change compare cohorts on common Group/Singleton
+coordinates. Identical captures or changing both conditions reject. Grid comparison
+requires explicit `align=mv.exact(time=mv.ordinal())`; W1 requires complete equal-length
+grids and retains current's original buckets. `mv.exact()` fixes checked correspondence;
+`mv.outer()` keeps missing sides by default, with explicit `missing="empty_value"` for
+admitted Metric empty finish. Both views read one Artifact without a new Run. Choose a
+view before numeric continuations. Absolute is current-baseline; relative is
+(current-baseline)/abs(baseline), dimensionless: -100 to -50 gives +0.5. Zero baseline
+makes only relative Undefined(zero_baseline); overflow/nonfinite values fail the Run.
 
 ## Continue a logical selection
 
@@ -42,7 +47,7 @@ change and ratio retain zero-denominator and Cell policies.
 july = mv.time_scope(start="2026-07-01", end="2026-08-01")
 september = mv.time_scope(start="2026-09-01", end="2026-10-01")
 baseline = customers.observe(revenue, during=july, via=buyer, by=(mv.member(),))
-change = august_revenue.compare(baseline)
+change = august_revenue.compare(baseline).absolute
 falling = change.where(change.value.lt(0)).members()
 next_month_mean = (
     falling.observe(revenue, during=september, via=buyer, by=(mv.member(),))
@@ -126,7 +131,7 @@ baseline_counts = attribution_members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(channel,),
 ).rollup()
-change = current_counts.compare(baseline_counts)
+change = current_counts.compare(baseline_counts).absolute
 allocation = change.attribute(axes=(channel,), top_k=3).execute()
 selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
 allocated_table = mv.table(

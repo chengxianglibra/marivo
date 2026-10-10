@@ -76,7 +76,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     if name == "rollup":
                         value.rollup()
                     else:
-                        value.compare(value).attribute(
+                        value.compare(value).absolute.attribute(
                             axes=(ms.ref.dimension("sales.facts.owner"),)
                         )
                 except AnalysisError as error:

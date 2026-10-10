@@ -444,9 +444,9 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v7", "graph_dag/v999")
+        body = body.replace("graph_dag/v8", "graph_dag/v999")
     elif damage == "previous_version":
-        body = body.replace("graph_dag/v7", "graph_dag/v6")
+        body = body.replace("graph_dag/v8", "graph_dag/v7")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)

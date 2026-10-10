@@ -91,9 +91,9 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             assert isinstance(current, mv.MaterializedNumericRelation)
             assert isinstance(left, mv.MaterializedSelectedNumericRelation)
             assert isinstance(right, mv.MaterializedSelectedNumericRelation)
-            design = mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
-            nested = execute("nested", first.compare(second))
-            union = execute("union", left.compare(right, design=design))
+            design = mv.outer(missing="keep")
+            nested = execute("nested", first.compare(second).absolute)
+            union = execute("union", left.compare(right, align=design).absolute)
             ratio = execute("ratio", current.ratio(current))
             assert isinstance(nested, mv.MaterializedDifferenceRelation)
             assert isinstance(union, mv.MaterializedDifferenceRelation)
@@ -134,10 +134,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         current, left, right = restored["current"], restored["left"], restored["right"]
         assert isinstance(current, mv.MaterializedNumericRelation)
 
-        nested = execute("nested", first.compare(second))
-        union = execute(
-            "union", left.compare(right, design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep")))
-        )
+        nested = execute("nested", first.compare(second).absolute)
+        union = execute("union", left.compare(right, align=mv.outer(missing="keep")).absolute)
         ratio = execute("ratio", current.ratio(current))
         assert isinstance(nested, mv.MaterializedDifferenceRelation)
         assert isinstance(union, mv.MaterializedDifferenceRelation)

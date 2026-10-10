@@ -16,7 +16,6 @@ from marivo.analysis.compiler.graph_lowering import SemanticCheck
 from marivo.analysis.core.graph import MethodNode, SourceLeaf
 from marivo.analysis.core.model import available_facts
 from marivo.analysis.core.rules import derive
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_source_execution as native
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
@@ -226,7 +225,7 @@ def test_owner_matching_trusts_contract_without_a_matching_query(
             members.read(field, via=via, **{"match_verification": "check"})
 
 
-def test_pairing_assumption_is_exactly_bound_and_avoids_only_its_check(
+def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
@@ -234,48 +233,37 @@ def test_pairing_assumption_is_exactly_bound_and_avoids_only_its_check(
             ms.ref.measure("cost.facts.y")
         )
         assert isinstance(values, mv.LogicalNumericRelation)
-        left, right = values.where(values.value.gt(20)), values.where(values.value.gt(16))
-        assert left._node.root.signature.domain == right._node.root.signature.domain
-        assert left._node.root.signature.key_domain_id != right._node.root.signature.key_domain_id
+        left = values.where(values.value.gt(20))
+        unequal = values.where(values.value.gt(16))
+        matching = values.where(values.value.gt(20))
         common = values.ratio(values)
         assert not any(
             item.fact.kind == "key_set_equal" for item in common._node.root.signature.obligations
         )
-        with pytest.raises(MaterializationError, match="key_set_equal"):
-            left.ratio(right).execute()
-        assumed = left.ratio(right, pairing=mv.ExactKeys(verification="assume"))
-        signature = assumed._node.root.signature
-        fact = next(item.fact for item in signature.evidence if item.basis == "assumption")
-        assert tuple(item.node_id for item in fact.inputs) == (
-            left._node.root.identity,
-            right._node.root.identity,
-        )
-        assert fact in available_facts(signature)
+        checked = left.ratio(matching, align=mv.exact())
+        assert checked._node.root.fingerprint == left.ratio(matching)._node.root.fingerprint
         assert any(
-            fact in item.dependencies for item in signature.evidence if item.basis == "builder"
+            item.fact.kind == "key_set_equal" for item in checked._node.root.signature.obligations
         )
-        assert assumed._node.root.fingerprint != left.ratio(right)._node.root.fingerprint
-        checks: list[str] = []
-        original = native._check
-
-        def check(source, lowered, requirement, replacements):
-            if isinstance(requirement, SemanticCheck):
-                checks.append(requirement.requirement.obligation.fact.kind)
-            return original(source, lowered, requirement, replacements)
-
-        monkeypatch.setattr(native, "_check", check)
-        result = assumed.execute()
-        assert "key_set_equal" not in checks
+        assert not any(
+            item.basis == "assumption" and item.fact.kind == "key_set_equal"
+            for item in checked._node.root.signature.evidence
+        )
+        with pytest.raises(MaterializationError, match="key_set_equal"):
+            left.ratio(unequal).execute()
+        result = checked.execute()
         assert result._dataset is not None
+        assert any(
+            item.fact.kind == "key_set_equal"
+            for item in result._dataset.artifact.descriptor.completed_checks
+        )
         assert all(row["value"] == 1.0 for row in cell_rows(result._dataset.verified().primary))
-        first, second = left.execute(), right.execute()
-        with pytest.raises(MaterializationError, match="key sets differ"):
-            first.ratio(second).execute()
-        fixed = first.ratio(second, pairing=mv.ExactKeys(verification="assume")).execute()
+        first, second, wrong = left.execute(), matching.execute(), unequal.execute()
+        fixed = first.ratio(second, align=mv.exact()).execute()
         assert fixed._dataset is not None
         assert all(row["value"] == 1.0 for row in cell_rows(fixed._dataset.verified().primary))
-        with pytest.raises(MaterializationError, match="operand is missing"):
-            second.ratio(first, pairing=mv.ExactKeys(verification="assume")).execute()
+        with pytest.raises(MaterializationError, match="key sets differ"):
+            first.ratio(wrong).execute()
 
 
 def test_shared_matching_assumption_never_becomes_completed_evidence(
@@ -297,13 +285,15 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         )
 
 
-def test_named_verification_values_are_closed() -> None:
-    with pytest.raises(AnalysisError, match="check or assume"):
-        mv.ExactKeys(verification="skip")
+def test_exact_has_no_public_verification_choice() -> None:
+    from inspect import signature
+
+    assert tuple(signature(mv.exact).parameters) == ("time",)
+    assert not hasattr(mv.exact(), "verification")
 
 
 @pytest.mark.slow
-def test_assumptions_remain_assumptions_after_source_offline_cold_recovery(
+def test_checked_pairing_survives_source_offline_cold_recovery(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import os
@@ -315,12 +305,11 @@ def test_assumptions_remain_assumptions_after_source_offline_cold_recovery(
             ms.ref.measure("cost.facts.y")
         )
         assert isinstance(values, mv.LogicalNumericRelation)
-        left, right = values.where(values.value.gt(20)), values.where(values.value.gt(16))
-        saved = left.ratio(right, pairing=mv.ExactKeys(verification="assume")).execute()
+        left, right = values.where(values.value.gt(20)), values.where(values.value.gt(20))
+        saved = left.ratio(right, align=mv.exact()).execute()
         assert saved._dataset is not None
         descriptor = saved._dataset.artifact.descriptor
-        assert not any(item.fact.kind == "key_set_equal" for item in descriptor.completed_checks)
-        assert "premise_assumptions" in dict(saved.contract()._facts)
+        assert any(item.fact.kind == "key_set_equal" for item in descriptor.completed_checks)
         expected = saved._dataset.verified().primary.num_rows
         (tmp_path / "models").rename(tmp_path / "models.offline")
         env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
@@ -345,9 +334,8 @@ session = mv.session.resume(sys.argv[1])
 saved = session.artifact(sys.argv[2])
 assert isinstance(saved, mv.MaterializedNumericRelation)
 evidence = saved._node.root.signature.evidence
-assumptions = [item.fact for item in evidence if item.basis == "assumption"]
-assert assumptions and all(item.kind == "key_set_equal" for item in assumptions)
-assert not any(item.basis == "check" and item.fact in assumptions for item in evidence)
+assert not any(item.basis == "assumption" and item.fact.kind == "key_set_equal" for item in evidence)
+assert any(item.fact.kind == "key_set_equal" for item in saved._dataset.artifact.descriptor.completed_checks)
 result = saved.aggregate(mv.sum()).execute()
 assert result._dataset.verified().primary["value"].to_pylist() == [float(sys.argv[3])]
 """,

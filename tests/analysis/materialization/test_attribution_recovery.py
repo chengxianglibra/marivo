@@ -84,7 +84,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
                 during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
                 by=(mv.member(), *axes),
             ).rollup()
-            change = current.compare(baseline)
+            change = current.compare(baseline).absolute
             difference = change.execute()
             allocation = change.attribute(axes=axes).execute()
             assert isinstance(difference, mv.MaterializedDifferenceRelation)

@@ -57,10 +57,8 @@ regions = orders.read(
     ms.ref.dimension("commerce.customer.region"),
     via=ms.ref.relationship("commerce.order_customer"),
 )
-quotient = current.ratio(reference, pairing=mv.ExactKeys(verification="assume"))
-change = current.compare(
-    reference, design=mv.TimeChange(pairing=mv.ExactKeys(verification="check"))
-)
+quotient = current.ratio(reference, align=mv.exact())
+change = current.compare(reference, align=mv.exact())
 quotient.contract().show()
 ```
 
@@ -70,8 +68,9 @@ contract and retains unverified assumptions; it has no automatic verification qu
 A present owner's Null field remains `Null(source_null)`; an absent owner operand
 fails when the field is consumed. Downstream filtering or reduction cannot hide
 that failure: the lookup is consumed once and its result is reused. This creates
-no matching proof or missing-value policy. Pairing `verification="assume"` remains an explicit caller
-premise, not a successful check. Repair failed pairing inputs or alignment.
+no matching proof or missing-value policy. Pairing is fixed checked: unknown key equality is checked and applicable
+declarations/frozen construction proofs remain authoritative. Compare can retain
+missing sides explicitly with `align=mv.outer()`.
 
 ## Repair recovery and output
 

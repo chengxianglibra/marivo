@@ -20,13 +20,12 @@ if TYPE_CHECKING:
     from marivo.analysis._cohort import any_instance as any_instance
     from marivo.analysis._cohort import at_least as at_least
     from marivo.analysis._cohort import empty_opportunity as empty_opportunity
-    from marivo.analysis._comparison import CohortContrast as CohortContrast
-    from marivo.analysis._comparison import ExactKeys as ExactKeys
-    from marivo.analysis._comparison import PeriodChange as PeriodChange
-    from marivo.analysis._comparison import TimeChange as TimeChange
-    from marivo.analysis._comparison import UnionKeys as UnionKeys
-    from marivo.analysis._comparison import WindowBucketAlignment as WindowBucketAlignment
-    from marivo.analysis._comparison import window_bucket as window_bucket
+    from marivo.analysis._comparison import ExactAlignment as ExactAlignment
+    from marivo.analysis._comparison import OrdinalTimeKey as OrdinalTimeKey
+    from marivo.analysis._comparison import OuterAlignment as OuterAlignment
+    from marivo.analysis._comparison import exact as exact
+    from marivo.analysis._comparison import ordinal as ordinal
+    from marivo.analysis._comparison import outer as outer
     from marivo.analysis._subject import SubjectBinding as SubjectBinding
     from marivo.analysis.anchors import AnyAnchor as AnyAnchor
     from marivo.analysis.anchors import CalendarWindow as CalendarWindow
@@ -89,6 +88,7 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import (
         LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
     )
+    from marivo.analysis.public_dsl import LogicalComparisonResult as LogicalComparisonResult
     from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
     from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
     from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
@@ -154,6 +154,9 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.public_dsl import (
         MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
+    )
+    from marivo.analysis.public_dsl import (
+        MaterializedComparisonResult as MaterializedComparisonResult,
     )
     from marivo.analysis.public_dsl import (
         MaterializedCompletedJourneys as MaterializedCompletedJourneys,

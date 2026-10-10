@@ -120,6 +120,8 @@ RuleId: TypeAlias = Literal[
     "bind_project@v1",
     "map_correspond@v1",
     "cell_derive@v1",
+    "cell_compare@v1",
+    "comparison_read@v1",
     "row_state@v1",
     "original_reduce@v1",
     "occurrence_combine@v1",
@@ -342,6 +344,19 @@ class CellDerive:
     bucket_mapping: tuple[tuple[str, str], ...] = ()
     relationship: TargetRelationshipContract | None = None
     verification: Literal["check", "assume"] = "check"
+
+
+@dataclass(frozen=True, slots=True)
+class CellCompare(CellDerive):
+    """One paired domain with two mandatory independent arithmetic finishes."""
+
+    absolute_type: str = ""
+    relative_type: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonRead:
+    field: Literal["absolute", "relative"]
 
 
 RowMethod: TypeAlias = Literal[
@@ -719,6 +734,8 @@ RuleParameters: TypeAlias = (
     | AttachCategory
     | TimeProduct
     | CellDerive
+    | CellCompare
+    | ComparisonRead
     | RowState
     | OriginalReduce
     | OriginalRatio
@@ -2147,7 +2164,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         reject(
             "check or assume",
             str(params.verification),
-            "Use ExactKeys(verification='check' or 'assume').",
+            "Use the checked exact correspondence supplied by mv.exact().",
             "core.cell.verification",
         )
     pairing_evidence: tuple[Evidence, ...] = ()
@@ -2270,6 +2287,78 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         eval_id=f"cell_derive.{params.method}@v1",
         established=pairing_evidence,
         preserve_key_domain=params.pairing == "exact",
+    )
+
+
+def _cell_compare(inputs: tuple[Signature, ...], params: CellCompare) -> RuleDerivation:
+    from dataclasses import replace
+
+    from marivo.analysis.core.model import ComparisonPart
+
+    if params.method != "difference" or params.verification != "check" or not params.relative_type:
+        reject(
+            "a checked dual comparison",
+            repr(params),
+            "Use compare with typed alignment.",
+            "core.comparison",
+        )
+    absolute = _cell_derive(inputs, params)
+    relative = _cell_derive(
+        inputs,
+        replace(params, method="relative_change", definition_id=params.definition_id + ":relative"),
+    )
+    assert isinstance(absolute.output.quantity, DerivedQuantity)
+    assert isinstance(relative.output.quantity, DerivedQuantity)
+    part = ComparisonPart(
+        absolute.output.domain.binding,
+        absolute.output.quantity,
+        relative.output.quantity,
+        params.absolute_type,
+        params.relative_type,
+    )
+    return replace(
+        absolute,
+        rule="cell_compare@v1",
+        output=replace(absolute.output, quantity=None, parts=(*absolute.output.parts, part)),
+        part_transform=replace(
+            absolute.part_transform, created=(*absolute.part_transform.created, "comparison")
+        ),
+        eval_id="cell_compare.finish@v1",
+    )
+
+
+def _comparison_read(inputs: tuple[Signature, ...], params: ComparisonRead) -> RuleDerivation:
+    from marivo.analysis.core.model import ComparisonPart
+
+    if len(inputs) != 1 or params.field not in ("absolute", "relative"):
+        reject(
+            "one ComparisonResult and a closed view",
+            repr(params),
+            "Choose absolute or relative.",
+            "core.comparison",
+        )
+    source = inputs[0]
+    part = require_part(source, "comparison")
+    if not isinstance(part, ComparisonPart) or source.quantity is not None:
+        reject(
+            "a dual comparison container",
+            repr(source),
+            "Read a ComparisonResult view.",
+            "core.comparison",
+        )
+    return _result(
+        "comparison_read@v1",
+        inputs,
+        source.domain,
+        part.absolute if params.field == "absolute" else part.relative,
+        tuple(p for p in source.parts if not isinstance(p, ComparisonPart)),
+        pre=(),
+        required=("comparison",),
+        created=(),
+        post=(),
+        obligations=(),
+        eval_id="comparison_read.project@v1",
+        preserve_key_domain=True,
     )
 
 

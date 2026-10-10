@@ -14,6 +14,7 @@ from marivo._data_render import _DataCard, _validate_display
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     AttributionPart,
+    ComparisonPart,
     CoveragePart,
     DerivedQuantity,
     DisplayPart,
@@ -30,7 +31,9 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import (
     BindProject,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DisplayTable,
     ObserveCount,
     ObserveMetric,
@@ -103,6 +106,11 @@ def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.
             )
         )
     names = list(table.column_names)
+    for field in ("absolute", "relative"):
+        for component in ("value", "cell_tag", "cell_reason"):
+            name = f"{field}__{component}"
+            if name in names:
+                names[names.index(name)] = field if component == "value" else f"{field}_{component}"
     for index, key in enumerate(result.contract.key_fields):
         names[names.index(key)] = (
             ("member" if signature.domain.kind == "entity" else "group")
@@ -187,6 +195,10 @@ def interpretation_facts(
     """Read interpretation boundaries from the exact retained input contracts."""
     facts: list[tuple[str, str]] = []
     for part in signature.parts:
+        if isinstance(part, ComparisonPart):
+            facts.extend(
+                (("absolute_unit", part.absolute.unit or "not declared"), ("relative_unit", "1"))
+            )
         if isinstance(part, HistoryViewPart) and part.request.kind == "distribution":
             axes = tuple(axis.dimension.ref.path for axis in part.request.axes)
             pool = ", ".join(("checkpoint", *axes))
@@ -237,6 +249,20 @@ def _meaning(
     signature = node.signature if signature is None else signature
     domain = signature.domain
     facts: list[tuple[str, str]] = [("grain", domain.kind)]
+    if isinstance(node, MethodRecord) and isinstance(node.parameters, CellCompare):
+        comparison_params = node.parameters
+        facts.extend(
+            (
+                ("design", comparison_params.design),
+                ("alignment", comparison_params.pairing),
+                ("verification", "checked"),
+                ("absolute", "current - baseline"),
+                (
+                    "relative",
+                    "(current - baseline) / abs(baseline); unit=1; zero_baseline is Undefined",
+                ),
+            )
+        )
     if domain.instance_key:
         facts.append(
             (
@@ -318,15 +344,22 @@ def _meaning(
     if (
         expand_inputs
         and isinstance(node, MethodRecord)
-        and isinstance(node.parameters, (CellDerive, DisplayTable))
+        and isinstance(node.parameters, (CellDerive, ComparisonRead, DisplayTable))
     ):
         labels = (
             node.parameters.labels
             if isinstance(node.parameters, DisplayTable)
             else ("current", "baseline")
         )
-        inputs = node.retained_endpoints or tuple(edge.node for edge in node.inputs)
         records = {record.identity: record for record in document.nodes}
+        input_owner = (
+            records[node.inputs[0].node] if isinstance(node.parameters, ComparisonRead) else node
+        )
+        inputs = (
+            input_owner.retained_endpoints or tuple(edge.node for edge in input_owner.inputs)
+            if isinstance(input_owner, MethodRecord)
+            else ()
+        )
         for label, child in zip(labels, inputs, strict=False):
             facts.extend(
                 (f"{label}.{name}", value)
@@ -476,6 +509,8 @@ class GraphDataset:
     artifact: GraphArtifact
     projection: (
         Literal[
+            "absolute",
+            "relative",
             "values",
             "ranks",
             "contribution",
@@ -581,7 +616,18 @@ class GraphDataset:
         if self.projection is not None:
             from marivo.analysis.materialization.graph_display import project
 
-            if self.projection in ("coefficient", "selected", "prediction", "lower", "upper"):
+            if self.projection in ("absolute", "relative"):
+                from marivo.analysis.materialization.graph_local_execution import comparison_project
+                from marivo.analysis.materialization.graph_relation import Relation
+
+                node = (
+                    Relation._from_verified_artifact(self.runtime, current)
+                    .comparison_field(self.projection)
+                    .root
+                )
+                assert isinstance(node, MethodNode)
+                result = comparison_project(node, result, current.artifact_ref)
+            elif self.projection in ("coefficient", "selected", "prediction", "lower", "upper"):
                 from marivo.analysis.materialization.graph_relation import Relation
                 from marivo.analysis.materialization.statistical_execution import (
                     execute as execute_statistical,
@@ -716,6 +762,8 @@ class GraphDataset:
         labels = dict(zip(columns, columns, strict=True))
         cell_columns: dict[str, tuple[str, str]] = {}
         for column in columns:
+            if column in ("absolute", "relative"):
+                cell_columns[column] = (column + "_cell_tag", column + "_cell_reason")
             if column in ("value", "coefficient") or column.endswith("__value"):
                 prefix = "" if column == "coefficient" else column.removesuffix("value")
                 tag, reason = prefix + "cell_tag", prefix + "cell_reason"

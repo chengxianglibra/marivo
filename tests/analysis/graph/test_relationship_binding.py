@@ -218,7 +218,10 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         via=BUYER,
         by=(buyer, recipient),
     ).rollup()
-    for change in (current.compare(baseline), current.compare(baseline).execute()):
+    for change in (
+        current.compare(baseline).absolute,
+        current.compare(baseline).absolute.execute(),
+    ):
         with pytest.raises(AnalysisError):
             change.attribute(axes=(REGION,))
         attributed = change.attribute(axes=(buyer, recipient)).execute()

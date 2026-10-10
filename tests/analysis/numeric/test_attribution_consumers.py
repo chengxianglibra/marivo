@@ -106,7 +106,7 @@ def test_source_and_retained(
                 *axes,
             ),
         ).rollup()
-        change = current.compare(baseline)
+        change = current.compare(baseline).absolute
         if axis_kind == "null":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
             with pytest.raises(MaterializationError) as invalid_axis:

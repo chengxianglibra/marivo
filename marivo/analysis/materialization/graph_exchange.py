@@ -87,7 +87,9 @@ class PartContract:
             or len(set(self.key_fields)) != len(self.key_fields)
             or not set(self.key_fields) <= set(self.schema.names)
         ):
-            raise _invalid("invalid part role, schema or complete key")
+            raise _invalid(
+                f"invalid part role or complete key: role={self.role!r}, keys={self.key_fields!r}, columns={tuple(self.schema.names)!r}"
+            )
 
 
 if TYPE_CHECKING:
@@ -240,6 +242,8 @@ class ExchangeContract:
                         "display.table",
                         "parts_transport",
                         "cell.difference",
+                        "cell.compare",
+                        "comparison.read",
                         "cell.relative_change",
                         "cell.ratio",
                     )
@@ -766,6 +770,59 @@ def collect(
         "cell.ratio@v1",
     ):
         _verify_difference_parts(contract, parts, primary)
+    from marivo.analysis.core.model import ComparisonPart
+
+    comparison = next((p for p in contract.signature.parts if isinstance(p, ComparisonPart)), None)
+    if comparison is not None:
+        from marivo.analysis.materialization.cell_arrow import logical_table
+        from marivo.analysis.materialization.graph_reference import physical_type
+
+        table = logical_table(primary)
+        error_table = next(part.table for part in parts if part.role == "comparison")
+        for field, quantity, dtype in (
+            ("absolute", comparison.absolute, comparison.absolute_type),
+            ("relative", comparison.relative, comparison.relative_type),
+        ):
+            fields = (
+                *contract.key_fields,
+                *(f"{field}__{name}" for name in ("value", "cell_tag", "cell_reason")),
+            )
+            if (
+                not set(fields) <= set(table.column_names)
+                or physical_type(table.schema.field(f"{field}__value").type).name != dtype
+            ):
+                raise _invalid("comparison is missing a mandatory precisely typed Cell")
+            projected = table.select(fields).rename_columns(
+                (*contract.key_fields, "value", "cell_tag", "cell_reason")
+            )
+            adjusted = tuple(
+                ExchangePart(
+                    part.role,
+                    part.table.set_column(
+                        part.table.schema.get_field_index("correspondence__result_error_bound"),
+                        "correspondence__result_error_bound",
+                        error_table[f"comparison__{field}_error_bound"],
+                    ),
+                )
+                if part.role == "correspondence"
+                else part
+                for part in parts
+                if part.role != "comparison"
+            )
+            view_contract = replace(
+                contract,
+                signature=replace(
+                    contract.signature,
+                    quantity=quantity,
+                    parts=tuple(
+                        p for p in contract.signature.parts if not isinstance(p, ComparisonPart)
+                    ),
+                ),
+                schema=projected.schema,
+                parts=tuple(part for part in contract.parts if part.role != "comparison"),
+                _frozen=None,
+            )
+            _verify_difference_parts(view_contract, adjusted, projected)
     if isinstance(
         contract.signature.quantity, DerivedQuantity
     ) and contract.signature.quantity.method_version.startswith("reference."):

@@ -22,9 +22,12 @@ def test_registered_templates_and_non_scalar_units_keep_their_actions(
     assert "relation.correlate(*others)" not in {
         action.call for action in statistic.contract().actions
     }
-    assert isinstance(
-        statistic.compare(statistic, design=mv.CohortContrast()), mv.LogicalDifferenceRelation
-    )
+    import pytest
+
+    from marivo.analysis.errors import AnalysisError
+
+    with pytest.raises(AnalysisError, match="identical"):
+        statistic.compare(statistic)
 
 
 def test_retained_journey_count_keys_stay_fixed_and_typed() -> None:

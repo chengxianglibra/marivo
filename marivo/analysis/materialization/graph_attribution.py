@@ -20,6 +20,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import (
     AttributionDerive,
     CellDerive,
+    ComparisonRead,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -167,7 +168,15 @@ def bind(
         raise invalid(
             "nonempty unique ordered Dimension bindings; hierarchy requires two axes; top_k must be None or integer 1..1000 excluding bool"
         )
-    definition = relation.definition
+    view_definition = relation.definition
+    definition = view_definition
+    if (
+        isinstance(definition.parameters, ComparisonRead)
+        and definition.parameters.field == "absolute"
+    ):
+        from marivo.analysis.materialization.graph_composition import comparison_endpoints
+
+        definition = comparison_endpoints(definition)[0]
     if (
         not isinstance(definition.parameters, CellDerive)
         or definition.parameters.method != "difference"
@@ -238,6 +247,10 @@ def bind(
             for e in definition.inputs
         )
         expanded = method_node(children, definition.parameters, value_type=physical)
+        if isinstance(view_definition.parameters, ComparisonRead):
+            expanded = method_node(
+                (Edge("subject", expanded),), ComparisonRead("absolute"), value_type=physical
+            )
     source = relation.root.signature.domain
     owner = references[0].path.rsplit(".", 1)[0]
 
@@ -268,7 +281,7 @@ def bind(
         (relation._edge(), Edge("quantity", expanded)),
         AttributionDerive(domain, references, chosen, physical.name, mode, top_k, bindings),
         value_type=physical,
-        retained_endpoints=(definition, definition)
+        retained_endpoints=(view_definition, view_definition)
         if isinstance(relation.binding, FrozenBinding)
         else (),
     )

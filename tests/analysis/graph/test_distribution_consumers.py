@@ -298,7 +298,9 @@ def test_native_distribution(
             with pytest.raises(AnalysisError):
                 relation.rollup()
             with pytest.raises(AnalysisError):
-                relation.compare(relation).attribute(axes=(ms.ref.dimension("sales.facts.owner"),))
+                relation.compare(relation).absolute.attribute(
+                    axes=(ms.ref.dimension("sales.facts.owner"),)
+                )
 
         def forbid_source(*args: object, **kwargs: object) -> NoReturn:
             pytest.fail("Fixed C10 continuation read source")

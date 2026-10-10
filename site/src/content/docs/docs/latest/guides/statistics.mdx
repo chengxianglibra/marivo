@@ -15,7 +15,7 @@ lag, Cell state and selection determine the result’s interpretation.
 {/* example: signed-deviation */}
 
 ```python
-scored = current.compare(baseline).deviation(method="mad")
+scored = current.compare(baseline).absolute.deviation(method="mad")
 defined = scored.where(scored.score.value.is_defined())
 positive = defined.where(defined.score.value.gt(0))
 followup = positive.observed.members().observe(

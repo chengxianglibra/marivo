@@ -57,17 +57,17 @@ def test_complete_keys_source_and_fixed(
             endpoint = current.execute()
             fixed_logical = endpoint.ratio(endpoint)
         elif operation == "nested":
-            first, second = current.compare(baseline), baseline.compare(earlier)
-            source = first.compare(second).execute()
+            first, second = current.compare(baseline).absolute, baseline.compare(earlier).absolute
+            source = first.compare(second).absolute.execute()
             first_fixed, second_fixed = first.execute(), second.execute()
-            fixed_logical = first_fixed.compare(second_fixed)
+            fixed_logical = first_fixed.compare(second_fixed).absolute
         else:
-            design = mv.TimeChange(pairing=mv.UnionKeys(missing="keep"))
+            design = mv.outer(missing="keep")
             left = current.where(current.value.gt(0))
             right = baseline.where(baseline.value.gt(0))
-            source = left.compare(right, design=design).execute()
+            source = left.compare(right, align=design).absolute.execute()
             left_fixed, right_fixed = left.execute(), right.execute()
-            fixed_logical = left_fixed.compare(right_fixed, design=design)
+            fixed_logical = left_fixed.compare(right_fixed, align=design).absolute
         source_trace.record(source)
         submissions_before = len(source_trace.native_sql)
 

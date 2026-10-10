@@ -83,15 +83,13 @@ def test_propagated_cell_priority_is_unknown_undefined_null() -> None:
 @pytest.mark.parametrize("parquet", [False, True])
 @pytest.mark.parametrize(
     "design",
-    [
-        mv.TimeChange(),
-        mv.TimeChange(pairing=mv.UnionKeys(missing="keep")),
-        mv.TimeChange(pairing=mv.UnionKeys(missing="metric_empty")),
-    ],
+    [mv.exact(), mv.outer(missing="keep"), mv.outer(missing="empty_value")],
     ids=("exact", "keep", "metric_empty"),
 )
 def test_null_operand_propagates_in_time_comparison(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, design: mv.TimeChange
+    analysis_dsl_case_factory: DslCaseFactory,
+    parquet: bool,
+    design: mv.ExactAlignment | mv.OuterAlignment,
 ) -> None:
     case = _case(analysis_dsl_case_factory, parquet)
     metric = ms.ref.metric("sales.revenue")
@@ -102,7 +100,10 @@ def test_null_operand_propagates_in_time_comparison(
             ("difference", {"A": -30, "B": 80, "C": 0}),
             ("relative_change", {"A": -0.5, "B": 80 / 120}),
         ):
-            result = left.compare(right, value=value, design=design).execute()
+            result = getattr(
+                left.compare(right, align=design),
+                "absolute" if value == "difference" else "relative",
+            ).execute()
             frame = result.to_pandas().set_index("member")
             for member, number in expected.items():
                 assert frame.loc[member, "cell_tag"] == "defined"
@@ -139,9 +140,9 @@ def test_null_operands_propagate_in_period_comparison(
         return result
 
     current, baseline = observe(8, 14), observe(7, 9)
-    design = mv.PeriodChange(alignment=mv.window_bucket())
+    design = mv.exact(time=mv.ordinal())
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        frame = left.compare(right, design=design).execute().to_pandas()
+        frame = left.compare(right, align=design).absolute.execute().to_pandas()
         assert len(frame) == 12
         defined = frame[frame["cell_tag"] == "defined"]
         assert sorted(defined["value"].tolist()) == [-50, 0, 20]
@@ -192,7 +193,7 @@ def test_null_on_both_sides_stays_null(
     members = _members(case)
     current, baseline = _monthly(members, metric, 10), _monthly(members, metric, 9)
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        frame = left.compare(right).execute().to_pandas()
+        frame = left.compare(right).absolute.execute().to_pandas()
         assert frame["cell_tag"].eq("null").all()
         assert frame["cell_reason"].eq("empty_contribution").all()
 
@@ -211,7 +212,7 @@ def test_nonfinite_operand_still_fails_the_whole_run(
     metric = ms.ref.metric("sales.revenue")
     current, baseline = _monthly(members, metric, 9), _monthly(members, metric, 8)
     with pytest.raises(MaterializationError):
-        current.compare(baseline).execute()
+        current.compare(baseline).absolute.execute()
 
 
 @pytest.mark.slow
@@ -221,7 +222,7 @@ def test_propagated_null_survives_cold_recovery(
     case = analysis_dsl_case_factory("j2")
     members = _members(case)
     metric = ms.ref.metric("sales.revenue")
-    saved = _monthly(members, metric, 9).compare(_monthly(members, metric, 8)).execute()
+    saved = _monthly(members, metric, 9).compare(_monthly(members, metric, 8)).absolute.execute()
     source = case.database_path
     offline = source.with_name(source.name + ".offline")
     source.rename(offline)

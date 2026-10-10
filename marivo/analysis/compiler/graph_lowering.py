@@ -22,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
     admitted_capture,
 )
 from marivo.analysis.compiler.member_version import select_version, version_predicate
-from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph
+from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph, topology
 from marivo.analysis.core.model import (
     AnchorDomainPart,
     AnchorObservationPart,
@@ -70,7 +70,9 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     AttributionDerive,
     BindProject,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DisplayRank,
     DisplayTable,
     EntityObservationTarget,
@@ -163,6 +165,10 @@ class PartColumns:
 
 
 def components(part: Part) -> tuple[str, ...]:
+    from marivo.analysis.core.model import ComparisonPart
+
+    if isinstance(part, ComparisonPart):
+        return ("absolute_error_bound", "relative_error_bound")
     from marivo.analysis.core.model import InstanceRetentionPart, SubjectRetentionPart
 
     if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
@@ -3826,6 +3832,15 @@ def lower(
                 )
             if isinstance(stage.node.parameters, AssociationScore):
                 output_layout = replace(output_layout, extras=("status",))
+            if isinstance(stage.node.parameters, CellCompare):
+                output_layout = replace(
+                    canonical_layout(stage.node.signature, has_value=False),
+                    extras=tuple(
+                        f"{field}__{component}"
+                        for field in ("absolute", "relative")
+                        for component in ("value", "cell_tag", "cell_reason")
+                    ),
+                )
             stages.append(
                 LoweredLocal(stage, tuple(layouts[item] for item in stage.inputs), output_layout)
             )
@@ -4239,7 +4254,29 @@ def lower(
             checks.append(requirement)
             continue
         if isinstance(owner, MethodNode) and (
-            isinstance(owner.parameters, PreparedObservation)
+            isinstance(owner.parameters, (PreparedObservation, CellCompare, ComparisonRead))
+            or (
+                isinstance(
+                    owner.parameters,
+                    (
+                        PartsTransport,
+                        RowState,
+                        MapCorrespond,
+                        OriginalReduce,
+                        CellDerive,
+                        AttributionDerive,
+                    ),
+                )
+                and any(
+                    isinstance(ancestor, MethodNode)
+                    and isinstance(ancestor.parameters, ComparisonRead)
+                    for ancestor in topology(owner)
+                )
+                and any(
+                    isinstance(stage, LocalMethodStage) and stage.node is owner
+                    for stage in admitted.stages
+                )
+            )
             or (
                 isinstance(owner.parameters, (DisplayRank, DisplayTable))
                 and any(

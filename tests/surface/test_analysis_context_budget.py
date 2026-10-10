@@ -142,7 +142,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
         via=buyer,
         by=(mv.member(),),
     )
-    change = values.compare(earlier)
+    change = values.compare(earlier).absolute
     trace.help(values.ratio)
     revenue = members.observe(
         ms.ref.metric("sales.revenue"),

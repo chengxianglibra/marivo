@@ -138,7 +138,7 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v7, `graph-dag-v7:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
+| graph_dag/v8, `graph-dag-v8:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
 
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
 | artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
@@ -599,3 +599,9 @@ retained Artifact reads never require current semantic models.
 The Session metadata column requires SQLite Store generation 9. Existing
 Store-generation directories are preserved without migration or dual reads.
 A prior generation is not qualified by the new source/fixed/cold acceptance.
+
+ComparisonResult publishes both mandatory Cells and shared endpoint/correspondence
+parts as one successful Artifact. Graph v8 includes CellCompare, ComparisonRead and
+ComparisonPart in the shared codec. Store generation remains 9; older graphs require
+source re-execution. Artifact restore returns MaterializedComparisonResult; reading
+absolute/relative allocates no Run and needs no source access.

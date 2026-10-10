@@ -39,7 +39,9 @@ from marivo.analysis.core.rules import (
     AssociationScore,
     AttachCategory,
     BindProject,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     FunnelAxesPrepare,
     JourneyRead,
     MapCorrespond,
@@ -300,7 +302,9 @@ class Relation:
             and isinstance(self.root, FixedLeaf)
             and len(root.inputs) == 1
             and root.inputs[0].node is self.root
-            and isinstance(root.parameters, (PartsTransport, OriginalReduce, RowState))
+            and isinstance(
+                root.parameters, (PartsTransport, OriginalReduce, RowState, ComparisonRead)
+            )
         ):
             root = replace(
                 root,
@@ -1109,6 +1113,81 @@ class Relation:
             return f"{quantity.method_version} has no qualified retained comparison error envelope"
         return None
 
+    def _validate_comparison_numerics(self, other: Relation) -> None:
+        """Reject numerical terminal boundaries before comparison design inference."""
+        for endpoint in (self, other):
+            if endpoint.comparison_error is not None:
+                raise DatasetConstructionError(
+                    expected="a retained operand error envelope",
+                    received=endpoint.comparison_error,
+                    repair="Use comparison-qualified sum/mean/ratio/linear operands; keep unqualified folds and quantiles as terminal results.",
+                    location="analysis.graph_relation.comparison",
+                )
+
+    def compare(
+        self,
+        other: Relation,
+        *,
+        design: Literal["time", "cohort", "period"],
+        pairing: Literal["exact", "keep", "metric_empty"],
+    ) -> Relation:
+        """Construct one dual result over the existing frozen correspondence."""
+        absolute = self.combine(other, "difference", design=design, pairing=pairing)
+        node = absolute.root
+        assert isinstance(node, MethodNode) and isinstance(node.parameters, CellDerive)
+        params = node.parameters
+        try:
+            relative_type = output_type(
+                "relative_change", self.root.value_type, other.root.value_type
+            )
+        except ValueError as error:
+            raise _reject(str(error)) from error
+        return absolute._with(
+            method_node(
+                node.inputs,
+                CellCompare(
+                    "difference",
+                    digest("compare" + self.root.fingerprint + other.root.fingerprint),
+                    params.value_policy,
+                    params.unit,
+                    params.time_scope,
+                    params.pairing_check_id,
+                    params.numeric_check_id,
+                    params.design,
+                    params.pairing,
+                    params.empty_rules,
+                    params.time_index,
+                    params.bucket_mapping,
+                    params.relationship,
+                    "check",
+                    node.value_type.name,
+                    relative_type.name,
+                ),
+                value_type=node.value_type,
+                retained_endpoints=node.retained_endpoints,
+            )
+        )
+
+    def comparison_field(self, field: Literal["absolute", "relative"]) -> Relation:
+        import ibis.expr.datatypes as dt
+
+        from marivo.analysis.core.model import ComparisonPart, require_part
+        from marivo.analysis.materialization.graph_reference import physical_type
+
+        part = require_part(self.root.signature, "comparison")
+        assert isinstance(part, ComparisonPart)
+        return self._with(
+            method_node(
+                (self._edge(),),
+                ComparisonRead(field),
+                value_type=physical_type(
+                    dt.dtype(
+                        part.absolute_type if field == "absolute" else part.relative_type
+                    ).to_pyarrow()
+                ),
+            )
+        )
+
     def combine(
         self,
         other: Relation,
@@ -1125,14 +1204,7 @@ class Relation:
         ):
             raise _reject("different Session owners")
         if method != "spearman":
-            for endpoint in (self, other):
-                if endpoint.comparison_error is not None:
-                    raise DatasetConstructionError(
-                        expected="a retained operand error envelope",
-                        received=endpoint.comparison_error,
-                        repair="Use comparison-qualified sum/mean/ratio/linear operands; keep unqualified folds and quantiles as terminal results.",
-                        location="analysis.graph_relation.comparison",
-                    )
+            self._validate_comparison_numerics(other)
         if method == "spearman" and any(
             isinstance(p, CoordinateStatePart)
             for relation in (self, other)

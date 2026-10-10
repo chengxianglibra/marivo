@@ -89,7 +89,7 @@ def test_direct_score_runs_and_next_business_round(
         during=mv.time_scope(start="2026-08-04", end="2026-08-07"),
         by=(mv.member(), axis),
     ).rollup()
-    comparison = following.compare(previous)
+    comparison = following.compare(previous).absolute
     allocation = comparison.attribute(axes=(axis,), mode="joint").execute()
     assert isinstance(allocation, mv.MaterializedAttributionResult)
     contributions = allocation.contribution.to_pandas()
@@ -225,7 +225,7 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
                 ),
             )
             endpoints.append(observed.group_by(ms.ref.entity("sales.customer")).rollup())
-        changed = endpoints[0].compare(endpoints[1])
+        changed = endpoints[0].compare(endpoints[1]).absolute
         result = changed.attribute(axes=axes, mode="joint").execute()
         assert sum(result.contribution.to_pandas().value) == target
         assert dict(result.contract()._facts)["complete_partition"] == "True"
@@ -285,7 +285,9 @@ def test_score_select_members_followup_one_dag(
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
-    scored = current.compare(baseline).deviation(method="zscore" if method == "zscore" else "mad")
+    scored = current.compare(baseline).absolute.deviation(
+        method="zscore" if method == "zscore" else "mad"
+    )
     defined = scored.where(scored.score.value.is_defined())
     positive = defined.where(defined.score.value.gt(0))
     selected = positive.observed.members()

@@ -95,7 +95,7 @@ def test_public_source_fixed_views_and_selection(
         via=via,
         by=(mv.member(),),
     )
-    change = current.compare(baseline)
+    change = current.compare(baseline).absolute
     source = change.deviation(method=method)
     fixed = source.execute()
     observed = fixed.observed.to_pandas()
@@ -154,6 +154,9 @@ def test_f11_complete_source_chain(
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         factor = "0.001" if profile == "DECIMAL(38,38)" else "1"
+        if profile == "DECIMAL(38,38)":
+            # The dual comparison must also represent C's relative value above -1.
+            db.execute('UPDATE "order" SET amount = 10 WHERE order_id = ?', ["j2_ac"])
         db.execute(
             f'ALTER TABLE "order" ALTER amount TYPE {profile} USING CAST(amount * {factor} AS {profile})'
         )
@@ -171,7 +174,7 @@ def test_f11_complete_source_chain(
         via=via,
         by=(mv.member(),),
     )
-    deviation = current.compare(baseline).deviation(method=method)
+    deviation = current.compare(baseline).absolute.deviation(method=method)
     defined = deviation.where(deviation.score.value.is_defined())
     positive = defined.where(defined.score.value.gt(0))
     selected = positive.observed.members()

@@ -925,8 +925,21 @@ class FindingPolicyPart:
     version: Literal["v1"] = "v1"
 
 
+@dataclass(frozen=True, slots=True)
+class ComparisonPart:
+    """Own both comparison quantities and their exact physical carriers."""
+
+    binding: Binding
+    absolute: DerivedQuantity
+    relative: DerivedQuantity
+    absolute_type: str
+    relative_type: str
+    version: Literal["v1"] = "v1"
+
+
 Part: TypeAlias = (
-    PairInputsPart
+    ComparisonPart
+    | PairInputsPart
     | AssociationStatePart
     | TrainingInputsPart
     | ForecastStatePart
@@ -967,6 +980,7 @@ Part: TypeAlias = (
     | PairCountsPart
 )
 PartRole: TypeAlias = Literal[
+    "comparison",
     "pair_inputs",
     "association_state",
     "training_inputs",
@@ -1021,6 +1035,8 @@ PartRole: TypeAlias = Literal[
 
 
 def part_role(part: Part) -> PartRole:
+    if isinstance(part, ComparisonPart):
+        return "comparison"
     if isinstance(part, PairInputsPart):
         return "pair_inputs"
     if isinstance(part, AssociationStatePart):
@@ -1093,6 +1109,24 @@ def part_role(part: Part) -> PartRole:
 
 
 def validate_part(part: Part) -> None:
+    if isinstance(part, ComparisonPart):
+        validate_quantity(part.absolute)
+        validate_quantity(part.relative)
+        if (
+            part.version != "v1"
+            or part.absolute.method_version != "cell.difference@v1"
+            or part.relative.method_version != "cell.relative_change@v1"
+            or part.absolute.input_ids != part.relative.input_ids
+            or not part.absolute_type
+            or not part.relative_type
+        ):
+            reject(
+                "two typed ordered comparison quantities",
+                repr(part),
+                "Re-execute the source comparison.",
+                "core.comparison",
+            )
+        return
     if isinstance(
         part,
         (

@@ -151,7 +151,7 @@ order=ms.business_order(name='order',subject=subjects,sequences=(ms.event_sequen
         baseline = complete_funnel(datetime(2026, 7, 29, tzinfo=timezone.utc))
         assert current.to_pandas().reached_count.tolist() == [3, 2]
         assert baseline.to_pandas().reached_count.tolist() == [2, 1]
-        change = current.compare(baseline).execute()
+        change = current.compare(baseline).absolute.execute()
         assert change.to_pandas().loss_rate_delta.tolist()[-1] == pytest.approx(-1 / 6)
         assert change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[
             -1
@@ -195,7 +195,7 @@ assert change.evidence_digest().finding_set_digest == sys.argv[4]
         axes = (ms.ref.dimension("sales.subjects.id"),)
         grouped_current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
         grouped_baseline = complete_funnel(datetime(2026, 7, 26, tzinfo=timezone.utc), axes)
-        grouped_change = grouped_current.compare(grouped_baseline).execute()
+        grouped_change = grouped_current.compare(grouped_baseline).absolute.execute()
         allocation = grouped_change.attribute(
             target=mv.funnel_loss_rate(step=end), axes=axes
         ).execute()

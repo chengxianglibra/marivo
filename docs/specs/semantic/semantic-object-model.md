@@ -1170,3 +1170,9 @@ owner is [occurrence time](../analysis/timezone-and-calendar-design.md#occurrenc
 Semantic definitions are not themselves coverage receipts or Runtime passes.
 Public domain construction and execution use the unified typed graph and
 registered consumers; frozen declarations alone grant no runtime capability.
+
+Analysis comparison alignment is authored with `mv.exact()`, `mv.outer()` and, for
+complete equal-length grids, `mv.ordinal()`. Ordinal correspondence does not assert
+calendar equivalence. Compare fixes checked correspondence and publishes both
+absolute and relative Cells; Metric empty finish is requested explicitly through
+`mv.outer(missing="empty_value")` and requires retained complete original state.

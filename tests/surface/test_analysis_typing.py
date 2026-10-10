@@ -144,7 +144,7 @@ def rejected(
     assert 'has no attribute "execute"' in output
     assert 'LogicalFixedAnalysisDomain" has no attribute "observe"' in output
     assert 'Argument 1 to "compare"' in output
-    assert 'LogicalDifferenceRelation" has no attribute "rollup"' in output
+    assert 'LogicalComparisonResult" has no attribute "rollup"' in output
     assert 'Argument "method" to "correlate"' in output
     assert 'Argument 1 to "path"' in output
     assert 'Too many arguments for "sum"' in output

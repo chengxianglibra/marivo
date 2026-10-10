@@ -102,7 +102,9 @@ boundaries. Trailing days and weeks retain fixed86400/604800-second duration.
 Retained cumulative coverage uses instants for timestamp axes, so a DST civil day
 may have 23 or 25 hours without becoming incomplete by a 24-hour assumption.
 
-Native `window_bucket` is the closed public alignment value. Comparison uses its
+Native `ordinal()` is the closed public time-key descriptor, supplied through
+`exact(time=ordinal())`, `outer(time=ordinal())`, or bound `one_to_one(time=ordinal())`.
+W1 requires complete equal-length original grids and retains current bucket coordinates. Comparison uses its
 registered pairing contract and retains unavailable/missing coordinates explicitly.
 A catalog's correspondence or work-schedule object is not itself an analysis
 alignment algorithm. Do not infer an additional comparison policy from a semantic

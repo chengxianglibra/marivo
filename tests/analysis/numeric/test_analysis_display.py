@@ -110,7 +110,7 @@ def test_business_display_identifies_current_and_baseline_windows(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    current.compare(baseline).execute().show(n=0)
+    current.compare(baseline).absolute.execute().show(n=0)
     text = capsys.readouterr().out
     assert "current.metric: sales.revenue" in text
     assert "baseline.metric: sales.revenue" in text

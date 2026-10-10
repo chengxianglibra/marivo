@@ -168,7 +168,7 @@ def test_member_classification_survives_rollup_for_fixed_attribution(
             by=(mv.member(), region) if keep_member else (region,),
         ).rollup()
 
-    fixed = endpoint(8).compare(endpoint(7)).execute()
+    fixed = endpoint(8).compare(endpoint(7)).absolute.execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     attributed = fixed.attribute(axes=(region,)).execute()
     rows = attributed.contribution.to_pandas()
@@ -523,16 +523,20 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     current, baseline = endpoint(8), endpoint(7)
     expected = {"east": -20, "south": -50, "west": 0}
     assert (
-        current.compare(baseline).execute().to_pandas().set_index("group").value.to_dict()
+        current.compare(baseline).absolute.execute().to_pandas().set_index("group").value.to_dict()
         == expected
     )
-    with pytest.raises(AnalysisError, match="distinct time bindings"):
+    with pytest.raises(AnalysisError, match="identical"):
         current.compare(current)
     fixed_current, fixed_baseline = current.execute(), baseline.execute()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     restored = case.session.artifact(fixed_current.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedNumericRelation)
     assert (
-        restored.compare(fixed_baseline).execute().to_pandas().set_index("group").value.to_dict()
+        restored.compare(fixed_baseline)
+        .absolute.execute()
+        .to_pandas()
+        .set_index("group")
+        .value.to_dict()
         == expected
     )

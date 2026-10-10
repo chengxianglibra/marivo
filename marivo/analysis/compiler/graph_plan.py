@@ -38,7 +38,9 @@ from marivo.analysis.core.rules import (
     AssociationRead,
     AttachCategory,
     AttributionDerive,
+    CellCompare,
     CellDerive,
+    ComparisonRead,
     DeviationFit,
     DeviationRead,
     DisplayRank,
@@ -347,7 +349,14 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                 )
             prepared_ancestors[node.identity] = (
                 isinstance(node.parameters, PreparedObservation)
-                and node.inputs[0].node.identity == node.inputs[1].node.identity
+                and (
+                    node.inputs[0].node.identity == node.inputs[1].node.identity
+                    or any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, ComparisonRead)
+                        for ancestor in topology(node)
+                    )
+                )
             ) or any(prepared_ancestors.get(edge.node.identity, False) for edge in node.inputs)
             prepared_consumer = (
                 isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
@@ -355,11 +364,32 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             )
             if (
                 not prepared_consumer
+                and not (
+                    route == "ibis_python"
+                    and isinstance(
+                        node.parameters,
+                        (
+                            PartsTransport,
+                            RowState,
+                            MapCorrespond,
+                            CellDerive,
+                            DisplayRank,
+                            DisplayTable,
+                        ),
+                    )
+                    and any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, ComparisonRead)
+                        for ancestor in topology(node)
+                    )
+                )
                 and any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
                 and not isinstance(
                     node.parameters,
                     (
+                        CellCompare,
+                        ComparisonRead,
                         AssociationFit,
                         AssociationRead,
                         ForecastFit,
@@ -434,6 +464,8 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                         and edge.node.method.name
                         in (
                             "cell.difference",
+                            "cell.compare",
+                            "comparison.read",
                             "cell.relative_change",
                             "cell.ratio",
                             "reference.share",
@@ -454,7 +486,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             ):
                 _refuse(
                     "source inputs for Ibis preparation",
-                    "a local predecessor",
+                    f"a local predecessor for {node.method}",
                     "Keep the source prefix in Ibis; local-to-source transport is not qualified.",
                 )
             key = QualificationKey(
@@ -482,6 +514,23 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             )
             local_consumer = (
                 prepared_consumer
+                or (
+                    isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
+                    and route != "ibis"
+                    and any(edge.node.identity in local for edge in node.inputs)
+                )
+                or (
+                    isinstance(
+                        node.parameters, (CellDerive, AttributionDerive, DisplayRank, DisplayTable)
+                    )
+                    and route != "ibis"
+                    and any(edge.node.identity in local for edge in node.inputs)
+                    and any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, ComparisonRead)
+                        for ancestor in topology(node)
+                    )
+                )
                 or (
                     isinstance(node.parameters, PartsTransport)
                     and (
@@ -537,6 +586,8 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                 or isinstance(
                     node.parameters,
                     (
+                        CellCompare,
+                        ComparisonRead,
                         AssociationFit,
                         AssociationRead,
                         ForecastFit,

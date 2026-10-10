@@ -1051,6 +1051,24 @@
     "subject_indices": [],
     "distribution_indices": []
   },
+  "cell.compare@v1": {
+    "count": 132,
+    "declarations": "8e87d9bfa93d676733da8bc7bca2dca80a8f1e6f66dc2605130fdc3ce9cc7553",
+    "specialization": "91ea29f2bd0e39cfcb6484b1ccd39eb5cd875a59bb7a13549167fad5d603f39f",
+    "exact_indices": [],
+    "prepared_indices": [],
+    "subject_indices": [],
+    "distribution_indices": []
+  },
+  "comparison.read@v1": {
+    "count": 1364,
+    "declarations": "0e3996f2c3558fc1f182ff9ae2900de01d137efe741d0e3d0b604f0148f83462",
+    "specialization": "43367bf3df9e0176dd20769e4a4a30046c0de94e7bd86b953ec1c718493e74fb",
+    "exact_indices": [],
+    "prepared_indices": [],
+    "subject_indices": [],
+    "distribution_indices": []
+  },
   "cell.relative_change@v1": {
     "count": 132,
     "declarations": "64fb149ff0ef4bcfc9df394cd80a8c063808965dffd0fd4214a153acc0a8fa48",
@@ -1072,9 +1090,9 @@
     "distribution_indices": []
   },
   "row.sum@v1": {
-    "count": 383,
-    "declarations": "e67f88abe5cd723b12d35bd1e8778e0b5302cf0fbd9cd98ebae8f29cb4c499f3",
-    "specialization": "51f2f602699b977c10d6c1925f75a9c78cbdfef3fcd4fe4861e2a548ee794b13",
+    "count": 525,
+    "declarations": "0d9d488d0ba60156d827e6a5eadee5dc9ea33b0b12b4ddc5d89de912c0cf84be",
+    "specialization": "6e3ba29907d68c9384aea96216f746800d362c678549c29bb0d7e7738006c099",
     "exact_indices": [
       53,
       54,
@@ -1092,9 +1110,9 @@
     "distribution_indices": []
   },
   "row.mean@v1": {
-    "count": 496,
-    "declarations": "87284efde1afc60e9afc07ba2ac63530693953c2b94743c7a9e84d01330ead19",
-    "specialization": "a1108c35aca65adc7f63296ac69fa186aae167280cfeb03850d8c1f8b94d53ab",
+    "count": 643,
+    "declarations": "bb7c3ddab7d242f11bba60caceae45df003dbc143c5bb745f9e88aae84de64c8",
+    "specialization": "64b7e2359d0de73aa79778d786d9996a7b2af75f710a03bd7d2ebfeb7f7e2aa6",
     "exact_indices": [
       72,
       73,
@@ -1117,18 +1135,18 @@
     "distribution_indices": []
   },
   "row.min@v1": {
-    "count": 312,
-    "declarations": "35c6805f4ae5be393d946335d10012ebf90ae1e59af0987c4b595fb5410e8f3a",
-    "specialization": "11ecaa938ff5ed9867fe1d3a54c50adfae5aa0baca9e5438a9bad00de05eaadd",
+    "count": 444,
+    "declarations": "e9cf6f2ded636cc26a9558a9a7d894e6d7aad7a47e60af652facca24631222b3",
+    "specialization": "f651377f17dcd309b67568381a8b042919a31670dfa41097f6ed2c60143e6a40",
     "exact_indices": [],
     "prepared_indices": [],
     "subject_indices": [],
     "distribution_indices": []
   },
   "row.max@v1": {
-    "count": 312,
-    "declarations": "84eccefa2d3ab67410465fd5e09127288f2f7b64d1e1a48feb309f9df64a7c0a",
-    "specialization": "44f156f97a485df668ad74097bc95bc09f06f556668d74b9ace335d1c3b03ebb",
+    "count": 444,
+    "declarations": "5f817e1c2008bd7d41dbbd884c50bfa76bc4d4869846244e787645dc4ad5ce40",
+    "specialization": "311c44de3c6425ae8a259f371ba16b0b674b147b62095397d57bc046d1fe8b03",
     "exact_indices": [],
     "prepared_indices": [],
     "subject_indices": [],
@@ -1184,9 +1202,9 @@
     "distribution_indices": []
   },
   "state_rollup@v1": {
-    "count": 234,
-    "declarations": "da6c3aba0c190d53b753959ac328a6d09cb568d07e0ad2015c8ac79b3e089c18",
-    "specialization": "764cae8cd46c2665bef29a93408c573c6f4eb097caa60573a27680ad525c9e1b",
+    "count": 365,
+    "declarations": "5892abb2907c1362941c8f92834eb7dfeff22a6bc51dcaee51eab69163d2a510",
+    "specialization": "08c0e2e9ae8acea6fe30a8f0e6365ef4a544a9bb3df41cc5ddded8dbd4151b54",
     "exact_indices": [],
     "prepared_indices": [],
     "subject_indices": [],

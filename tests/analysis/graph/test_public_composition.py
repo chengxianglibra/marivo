@@ -104,8 +104,8 @@ def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    difference = current.compare(baseline)
-    fixed = current.execute().compare(baseline.execute()).execute()
+    difference = current.compare(baseline).absolute
+    fixed = current.execute().compare(baseline.execute()).absolute.execute()
     source_selection = difference.where(getattr(difference.value, operator)(0)).execute()
     fixed_selection = fixed.where(getattr(fixed.value, operator)(0)).execute()
     assert source_selection.to_pandas().equals(fixed_selection.to_pandas())
@@ -115,7 +115,13 @@ def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
         "C": -50,
         "D": 0,
     }
-    reverse = baseline.compare(current).execute().to_pandas().set_index("member")["value"].to_dict()
+    reverse = (
+        baseline.compare(current)
+        .absolute.execute()
+        .to_pandas()
+        .set_index("member")["value"]
+        .to_dict()
+    )
     assert reverse == {"A": 40, "B": -20, "C": 50, "D": 0}
 
 
@@ -123,7 +129,7 @@ def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     current, baseline = _observations(analysis_dsl_case_factory("j2"))
-    difference = current.compare(baseline).execute()
+    difference = current.compare(baseline).absolute.execute()
     empty = difference.where(difference.value.lt(-1000)).execute()
     assert empty.to_pandas().empty
     assert empty.aggregate(mv.sum()).execute().to_pandas().iloc[0]["value"] == 0
@@ -221,7 +227,7 @@ def test_public_exact_cold_continuations_after_source_and_models_are_deleted(
         saved = _ratio(case, coordinates=(case.names.channel,)).execute()
     elif journey == "j2":
         current, baseline = _observations(case)
-        saved = current.compare(baseline).execute()
+        saved = current.compare(baseline).absolute.execute()
     else:
         n = case.names
         members = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
@@ -317,9 +323,9 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     monkeypatch.setattr(SourceSession, "batches", forbidden)
     monkeypatch.setattr(graph_dataset, "read_result", forbidden)
     for action in (
-        lambda: first.compare(second),
-        lambda: fixed.compare(baseline),
-        lambda: fixed.compare(second_fixed),
+        lambda: first.compare(second).absolute,
+        lambda: fixed.compare(baseline).absolute,
+        lambda: fixed.compare(second_fixed).absolute,
     ):
         with pytest.raises(AnalysisError):
             action()
@@ -351,7 +357,7 @@ def test_invalid_threshold_rejects_without_another_run(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     current, baseline = _observations(case)
-    difference = current.compare(baseline)
+    difference = current.compare(baseline).absolute
     with pytest.raises(AnalysisError):
         difference.value.lt(threshold)
     assert case.session.runs().items == ()

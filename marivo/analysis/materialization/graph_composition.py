@@ -30,6 +30,7 @@ from marivo.analysis.core.rules import (
     AttachCategory,
     BindProject,
     CellDerive,
+    ComparisonRead,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
@@ -150,13 +151,13 @@ def period_mapping(
     left, right = current.signature.domain, baseline.signature.domain
     first, second = left.time_grid, right.time_grid
     if first is None or second is None or len(first.cells) != len(second.cells):
-        raise _invalid_composition("PeriodChange requires complete equal-length frozen grids")
+        raise _invalid_composition("Period comparison requires complete equal-length frozen grids")
     indexes = tuple(i for i, key in enumerate(left.instance_key) if key.role == "anchor")
     if len(indexes) != 1 or indexes != tuple(
         i for i, key in enumerate(right.instance_key) if key.role == "anchor"
     ):
         raise _invalid_composition(
-            "PeriodChange requires one corresponding complete time coordinate"
+            "Period comparison requires one corresponding complete time coordinate"
         )
     return indexes[0], tuple(
         (a.identity, b.identity) for a, b in zip(first.cells, second.cells, strict=True)
@@ -245,6 +246,8 @@ def _comparison_template(
     visit: Callable[[MethodNode], tuple[object, ...]],
 ) -> tuple[object, ...]:
     params = node.parameters
+    if isinstance(params, ComparisonRead):
+        return ("comparison_read", params.field, visit(comparison_endpoints(node)[0]))
     if isinstance(params, PreparedObservation):
         params = params.observation
     if isinstance(params, PartsTransport) and params.keep_quantity:
@@ -402,6 +405,9 @@ def comparison_endpoints(node: MethodNode) -> tuple[MethodNode, ...]:
 def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tuple[str, str], ...]:
     """Keep independent captures distinct, even when their definitions are equal."""
     params = node.parameters
+    if isinstance(params, ComparisonRead):
+        parent = comparison_endpoints(node)[0]
+        return comparison_bindings(parent, period=period)
     if isinstance(params, PreparedObservation):
         params = params.observation
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
@@ -410,12 +416,22 @@ def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tupl
             target = target.inputs[0].node
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):
             target = target.inputs[0].node
-        return ((target.identity, params.quantity.time_scope),)
+        return (
+            (
+                target.identity,
+                params.quantity.time_scope,
+            ),
+        )
     if isinstance(params, BindProject):
         target = node.inputs[0].node
         if period and isinstance(target, MethodNode) and isinstance(target.parameters, TimeProduct):
             target = target.inputs[0].node
-        return ((target.identity, params.attribute_time),)
+        return (
+            (
+                target.identity,
+                params.attribute_time,
+            ),
+        )
     if isinstance(params, AttachCategory):
         return comparison_bindings(comparison_endpoints(node)[0], period=period)
     if isinstance(
@@ -427,6 +443,37 @@ def comparison_bindings(node: MethodNode, *, period: bool = False) -> tuple[tupl
             for item in comparison_bindings(child, period=period)
         )
     raise _invalid_composition("quantity has no retained target realization")
+
+
+def infer_comparison_design(
+    current: MethodNode, baseline: MethodNode, *, time: bool
+) -> Literal["time", "cohort", "period"]:
+    """Infer the sole changed condition from exact frozen endpoint captures."""
+    grids = (current.signature.domain.time_grid, baseline.signature.domain.time_grid)
+    strip_time = all(grid is not None for grid in grids)
+    left = comparison_bindings(current, period=strip_time)
+    right = comparison_bindings(baseline, period=strip_time)
+    targets_equal = tuple(t for t, _ in left) == tuple(t for t, _ in right)
+    times_equal = tuple(s for _, s in left) == tuple(s for _, s in right)
+    if times_equal and targets_equal:
+        raise _invalid_composition(
+            "comparison needs distinct targets or time roles; both captures are identical"
+        )
+    if not times_equal and not targets_equal:
+        raise _invalid_composition(
+            f"only one comparison condition may differ; current={left!r}, baseline={right!r}"
+        )
+    design: Literal["time", "cohort", "period"] = (
+        "cohort" if times_equal else "period" if strip_time else "time"
+    )
+    if time != (design == "period"):
+        raise _invalid_composition(
+            "period comparison requires align=mv.exact(time=mv.ordinal()) or mv.outer(time=mv.ordinal())"
+            if design == "period"
+            else "time mapping requires two distinct complete time grids; omit align.time"
+        )
+    validate_time_comparison(current, baseline, design)
+    return design
 
 
 def validate_time_comparison(
@@ -447,10 +494,12 @@ def validate_time_comparison(
             or current.signature.domain.instance_key != baseline.signature.domain.instance_key
         ):
             raise _invalid_composition(
-                "CohortContrast requires common Group or Singleton coordinates"
+                "Cohort comparison requires common Group or Singleton coordinates"
             )
         if tuple(item[1] for item in left) != tuple(item[1] for item in right):
-            raise _invalid_composition("CohortContrast requires identical observation time roles")
+            raise _invalid_composition(
+                "Cohort comparison requires identical observation time roles"
+            )
         return
     if tuple(item[0] for item in left) != tuple(item[0] for item in right):
         raise _invalid_composition("endpoints do not share the same frozen member node")
