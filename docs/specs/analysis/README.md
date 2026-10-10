@@ -8,6 +8,7 @@ and ownership, not a release or backend qualification certificate.
 
 | Document | Owns |
 | --- | --- |
+| [Analysis Algebra Theory](algebra-theory.md) | Proposed semantic foundation for typed domains, quantities, composition rules and their proof obligations; it is not current API or runtime qualification |
 | [Python Analysis Design](python-analysis-design.md) | Public entry shapes, algebra-to-graph architecture, method registration, planning, execution routes and composition boundaries |
 | [Operators and Frames](operators-and-frames.md) | Cell semantics, sufficient state, numerical policies, method equations, part transport and conditional continuations |
 | [Session State and Runtime](session-state-and-runtime.md) | Run identity, source/fixed execution, deadlines, atomic publication, Store 9 and recovery |
