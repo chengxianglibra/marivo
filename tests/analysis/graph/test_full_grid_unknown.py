@@ -52,27 +52,27 @@ def test_business_coverage_union_and_original_bucket_boundaries() -> None:
     assert not any(complete(cell, ()) for cell in grid.cells)
 
 
-@pytest.mark.parametrize("fault", ["naive", "outside", "too_many"])
-def test_business_coverage_refuses_unbound_claims(fault: str) -> None:
+def test_business_coverage_refuses_unbound_claims() -> None:
     grid = bind_grid(
         mv.time_scope(start=START, end=START + timedelta(days=3)),
         mv.grain("day"),
         report_timezone="UTC",
     )
-    spans: tuple[TimeScope, ...] = (mv.time_scope(start=START, end=START + timedelta(days=1)),)
-    if fault == "naive":
-        spans = (
-            mv.time_scope(
-                start=START.replace(tzinfo=None),
-                end=(START + timedelta(days=1)).replace(tzinfo=None),
-            ),
-        )
-    elif fault == "outside":
-        spans = (mv.time_scope(start=START - timedelta(days=1), end=START + timedelta(days=1)),)
-    else:
-        spans *= 65
-    with pytest.raises(AnalysisError, match="complete_during"):
-        normalize(spans, grid)
+    for fault in ("naive", "outside", "too_many"):
+        spans: tuple[TimeScope, ...] = (mv.time_scope(start=START, end=START + timedelta(days=1)),)
+        if fault == "naive":
+            spans = (
+                mv.time_scope(
+                    start=START.replace(tzinfo=None),
+                    end=(START + timedelta(days=1)).replace(tzinfo=None),
+                ),
+            )
+        elif fault == "outside":
+            spans = (mv.time_scope(start=START - timedelta(days=1), end=START + timedelta(days=1)),)
+        else:
+            spans *= 65
+        with pytest.raises(AnalysisError, match="complete_during"):
+            normalize(spans, grid)
 
 
 @pytest.mark.slow

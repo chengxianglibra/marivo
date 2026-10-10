@@ -271,8 +271,16 @@ def forbidden(*_args: object, **_kwargs: object) -> None:
 
 
 @pytest.mark.parametrize("scenario", ["empty-null-unavailable"])
-@pytest.mark.parametrize("method", ["pearson", "zscore", "naive", "runs"])
 def test_public_retained_cell_boundaries_supporting(
+    scenario: str,
+    retained_pair: RetainedPair,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for method in ("pearson", "zscore", "naive", "runs"):
+        _assert_public_retained_cell_boundary_case(method, scenario, retained_pair, monkeypatch)
+
+
+def _assert_public_retained_cell_boundary_case(
     method: Literal[
         "pearson",
         "spearman",
@@ -455,8 +463,16 @@ def test_public_retained_cell_boundaries_supporting(
 
 
 @pytest.mark.parametrize("scenario", ["complete-identity-domain"])
-@pytest.mark.parametrize("method", ["pearson", "zscore", "naive", "runs"])
 def test_public_retained_identity(
+    scenario: str,
+    retained_pair: RetainedPair,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for method in ("pearson", "zscore", "naive", "runs"):
+        _assert_public_retained_identity_case(method, scenario, retained_pair, monkeypatch)
+
+
+def _assert_public_retained_identity_case(
     method: Literal[
         "pearson",
         "spearman",
@@ -730,16 +746,25 @@ def test_public_retained_runs_algorithm(
 
 
 @pytest.mark.parametrize(
-    "method,scenario",
+    ("scenario", "methods"),
     [
-        ("pearson", "complete-pair-lag-order"),
-        ("pearson", "centered-numeric-extremes"),
-        ("spearman", "invalid-constant-pairs"),
-        ("spearman", "ties-average-rank-tau-b"),
-        ("kendall", "ties-average-rank-tau-b"),
+        ("complete-pair-lag-order", ("pearson",)),
+        ("centered-numeric-extremes", ("pearson",)),
+        ("invalid-constant-pairs", ("spearman",)),
+        ("ties-average-rank-tau-b", ("spearman", "kendall")),
     ],
 )
 def test_public_retained_association_algorithm(
+    scenario: str,
+    methods: tuple[Literal["pearson", "spearman", "kendall"], ...],
+    retained_pair: RetainedPair,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for method in methods:
+        _assert_public_retained_association_case(method, scenario, retained_pair, monkeypatch)
+
+
+def _assert_public_retained_association_case(
     method: Literal["pearson", "spearman", "kendall"],
     scenario: str,
     retained_pair: RetainedPair,

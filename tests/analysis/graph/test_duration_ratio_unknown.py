@@ -142,53 +142,47 @@ def test_public_duration_ratio_preserves_unknown(
         )
 
 
-@pytest.mark.parametrize("unknown_side", ["current", "baseline", "both"])
-@pytest.mark.parametrize("defined_value", [0])
-def test_duration_ratio_unknown_endpoint_integrity(unknown_side: str, defined_value: int) -> None:
+def test_duration_ratio_unknown_endpoint_integrity() -> None:
     from marivo.analysis.methods.state_validation import difference_matches
 
-    primary: dict[str, object] = {
-        "value": None,
-        "cell_tag": "unknown",
-        "cell_reason": "coverage_censored",
-    }
-    endpoints: dict[str, dict[str, object]] = {}
-    for side in ("current", "baseline"):
-        unknown = unknown_side in (side, "both")
-        endpoints[side] = {
-            side + "_endpoint__value": None if unknown else defined_value,
-            side + "_endpoint__cell_tag": "unknown" if unknown else "defined",
-            side + "_endpoint__cell_reason": "coverage_censored" if unknown else None,
+    for unknown_side in ("current", "baseline", "both"):
+        primary: dict[str, object] = {
+            "value": None,
+            "cell_tag": "unknown",
+            "cell_reason": "coverage_censored",
         }
-    assert difference_matches(
-        primary,
-        endpoints["current"],
-        endpoints["baseline"],
-        method="cell.ratio@v1",
-        duration_ratio=True,
-    )
-    assert not difference_matches(
-        primary, endpoints["current"], endpoints["baseline"], method="cell.ratio@v1"
-    )
-    assert not difference_matches(
-        {**primary, "value": 1.0, "cell_tag": "defined", "cell_reason": None},
-        endpoints["current"],
-        endpoints["baseline"],
-        method="cell.ratio@v1",
-        duration_ratio=True,
-    )
+        endpoints: dict[str, dict[str, object]] = {}
+        for side in ("current", "baseline"):
+            unknown = unknown_side in (side, "both")
+            endpoints[side] = {
+                side + "_endpoint__value": None if unknown else 0,
+                side + "_endpoint__cell_tag": "unknown" if unknown else "defined",
+                side + "_endpoint__cell_reason": "coverage_censored" if unknown else None,
+            }
+        assert difference_matches(
+            primary,
+            endpoints["current"],
+            endpoints["baseline"],
+            method="cell.ratio@v1",
+            duration_ratio=True,
+        )
+        assert not difference_matches(
+            primary, endpoints["current"], endpoints["baseline"], method="cell.ratio@v1"
+        )
+        assert not difference_matches(
+            {**primary, "value": 1.0, "cell_tag": "defined", "cell_reason": None},
+            endpoints["current"],
+            endpoints["baseline"],
+            method="cell.ratio@v1",
+            duration_ratio=True,
+        )
 
 
-@pytest.mark.parametrize(
-    "method",
-    ["forecast.naive", "time.runs"],
-)
-def test_duration_quotient_does_not_qualify_full_grid_consumers(
-    method: Literal["forecast.naive", "time.runs"],
-) -> None:
+def test_duration_quotient_does_not_qualify_full_grid_consumers() -> None:
     from marivo.analysis.methods.builtin import implementations
     from marivo.analysis.methods.semantics import MethodKey
 
-    assert all(
-        "journey" not in item.key.input_domains for item in implementations(MethodKey(method))
-    )
+    for method in ("forecast.naive", "time.runs"):
+        assert all(
+            "journey" not in item.key.input_domains for item in implementations(MethodKey(method))
+        )

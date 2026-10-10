@@ -197,15 +197,15 @@ def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.parametrize("empty", (False, True))
 def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
-    empty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    scenario = "empty" if empty else "all_null"
-    with workload("duckdb", "ordinary-table", 64, scenario, tmp_path, monkeypatch) as work:
-        _forbid_staging(monkeypatch)
-        _scalar_parts(_sum(work).execute(), 0, 0)
-        assert work.session._runtime.store.resources(work.session.id) == ()
+    for scenario in ("all_null", "empty"):
+        root = tmp_path / scenario
+        with workload("duckdb", "ordinary-table", 64, scenario, root, monkeypatch) as work:
+            _forbid_staging(monkeypatch)
+            _scalar_parts(_sum(work).execute(), 0, 0)
+            assert work.session._runtime.store.resources(work.session.id) == ()
 
 
 @pytest.mark.parametrize("defect", ("schema", "checks"))

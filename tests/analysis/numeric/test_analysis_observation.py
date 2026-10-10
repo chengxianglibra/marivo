@@ -516,33 +516,32 @@ def test_opaque_metric_rejects_instead_of_inventing_components(
     assert by_member["A"] == 450
 
 
-@pytest.mark.parametrize("metric_name", ("revenue", "order_count"))
 def test_ratio_uses_each_components_own_state_and_rolls_up(
     analysis_dsl_case_factory: DslCaseFactory,
-    metric_name: str,
 ) -> None:
     """Both sum/sum and count/count finish and retain independently mergeable state."""
     import marivo.analysis as mv
     import marivo.semantic as ms
 
     case = analysis_dsl_case_factory("j1")
-    metric = ms.ref.metric(f"sales.{metric_name}")
-    expression = mv.runtime_metric.ratio(metric, metric, label="identity_ratio")
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc[["A", "B", "C"], "value"].tolist() == [1.0, 1.0, 1.0]
-    assert rows.loc["D", "cell_tag"] == ("null" if metric_name == "revenue" else "undefined")
-    assert rows.loc["D", "cell_reason"] == (
-        "empty_contribution" if metric_name == "revenue" else "zero_denominator"
-    )
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
+    for metric_name in ("revenue", "order_count"):
+        metric = ms.ref.metric(f"sales.{metric_name}")
+        expression = mv.runtime_metric.ratio(metric, metric, label="identity_ratio")
+        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+            expression,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(mv.member(),),
+        )
+        fixed = observed.execute()
+        rows = fixed.to_pandas().set_index("member")
+        assert rows.loc[["A", "B", "C"], "value"].tolist() == [1.0, 1.0, 1.0]
+        assert rows.loc["D", "cell_tag"] == ("null" if metric_name == "revenue" else "undefined")
+        assert rows.loc["D", "cell_reason"] == (
+            "empty_contribution" if metric_name == "revenue" else "zero_denominator"
+        )
+        assert observed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
+        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [1.0]
 
 
 def test_linear_executes_more_than_two_occurrences(
@@ -572,10 +571,8 @@ def test_linear_executes_more_than_two_occurrences(
     assert rows["cell_tag"].tolist() == ["defined"] * 4
 
 
-@pytest.mark.parametrize("metric_name", ("order_count", "zero_revenue", "revenue"))
 def test_linear_preserves_each_empty_branch_policy(
     analysis_dsl_case_factory: DslCaseFactory,
-    metric_name: str,
 ) -> None:
     """An empty filtered count is zero, while an empty filtered sum remains Null."""
     import marivo.analysis as mv
@@ -589,39 +586,38 @@ def test_linear_preserves_each_empty_branch_policy(
     )
     ms.load(workspace_dir=case.root)
     count = ms.ref.metric("sales.order_count")
-    web_count = mv.runtime_metric.slice(
-        ms.ref.metric(f"sales.{metric_name}"),
-        by={ms.ref.dimension("sales.order.channel"): "web"},
-        label="web_count",
-    )
-    expression = mv.runtime_metric.linear(add=[web_count, count], label="total")
-    rows = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    for metric_name in ("order_count", "zero_revenue", "revenue"):
+        web_count = mv.runtime_metric.slice(
+            ms.ref.metric(f"sales.{metric_name}"),
+            by={ms.ref.dimension("sales.order.channel"): "web"},
+            label="web_count",
         )
-        .execute()
-        .to_pandas()
-    )
-    rows = rows.set_index("member")
-    assert rows.loc[["A", "C"], "value"].tolist() == (
-        [2, 2] if metric_name == "order_count" else [451, 401]
-    )
-    if metric_name == "revenue":
-        assert rows.loc[["B", "D"], "cell_tag"].tolist() == ["null", "null"]
-        assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
-    else:
-        assert rows.loc[["B", "D"], "value"].tolist() == [1, 0]
-        assert rows["cell_tag"].tolist() == ["defined"] * 4
+        expression = mv.runtime_metric.linear(add=[web_count, count], label="total")
+        rows = (
+            case.session.members(ms.ref.entity("sales.customer"))
+            .observe(
+                expression,
+                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .execute()
+            .to_pandas()
+        )
+        rows = rows.set_index("member")
+        assert rows.loc[["A", "C"], "value"].tolist() == (
+            [2, 2] if metric_name == "order_count" else [451, 401]
+        )
+        if metric_name == "revenue":
+            assert rows.loc[["B", "D"], "cell_tag"].tolist() == ["null", "null"]
+            assert rows.loc[["B", "D"], "cell_reason"].tolist() == ["empty_contribution"] * 2
+        else:
+            assert rows.loc[["B", "D"], "value"].tolist() == [1, 0]
+            assert rows["cell_tag"].tolist() == ["defined"] * 4
 
 
-@pytest.mark.parametrize("windowed", (False, True))
 def test_runtime_aggregate_resolves_the_declared_default_axis(
     analysis_dsl_case_factory: DslCaseFactory,
-    windowed: bool,
 ) -> None:
     """A runtime sum uses an explicit Entity default without a catalog Metric wrapper."""
     import marivo.analysis as mv
@@ -641,20 +637,25 @@ def test_runtime_aggregate_resolves_the_declared_default_axis(
         agg="sum",
         label="total",
     )
-    rows = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    for windowed in (False, True):
+        rows = (
+            case.session.members(ms.ref.entity("sales.customer"))
+            .observe(
+                expression,
+                during=mv.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None,
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .execute()
+            .to_pandas()
+            .set_index("member")
         )
-        .execute()
-        .to_pandas()
-        .set_index("member")
-    )
-    assert rows.loc[["A", "B", "C"], "value"].tolist() == [450 if windowed else 626, 150, 400]
-    assert rows.loc["D", "cell_tag"] == "null"
+        assert rows.loc[["A", "B", "C"], "value"].tolist() == [
+            450 if windowed else 626,
+            150,
+            400,
+        ]
+        assert rows.loc["D", "cell_tag"] == "null"
 
 
 def test_linear_executes_three_independently_reduced_roots(
@@ -897,9 +898,8 @@ def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
     _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 3)
 
 
-@pytest.mark.parametrize("extra", (False, True))
 def test_observation_rejects_wrong_or_extra_root_routes(
-    analysis_dsl_case_factory: DslCaseFactory, extra: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     """A valid relationship cannot acquire another declared root role."""
     import marivo.analysis as mv
@@ -908,18 +908,19 @@ def test_observation_rejects_wrong_or_extra_root_routes(
     case = analysis_dsl_case_factory("j3")
     buyer = ms.ref.relationship("sales.order_buyer")
     line_order = ms.ref.relationship("sales.line_order")
-    routes = (
-        (
-            mv.path(buyer),
-            mv.path(line_order, buyer),
+    for extra in (False, True):
+        routes = (
+            (
+                mv.path(buyer),
+                mv.path(line_order, buyer),
+            )
+            if extra
+            else (mv.path(line_order, buyer),)
         )
-        if extra
-        else (mv.path(line_order, buyer),)
-    )
-    with pytest.raises(AnalysisError, match=r"route|root"):
-        case.session.members(ms.ref.entity("sales.customer")).observe(
-            ms.ref.metric("sales.order_count"), via=routes, by=(mv.member(),)
-        )
+        with pytest.raises(AnalysisError, match=r"route|root"):
+            case.session.members(ms.ref.entity("sales.customer")).observe(
+                ms.ref.metric("sales.order_count"), via=routes, by=(mv.member(),)
+            )
 
 
 def test_linear_rejects_incommensurable_units(

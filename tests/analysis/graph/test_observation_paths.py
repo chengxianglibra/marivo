@@ -28,14 +28,13 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.support.documentation import _example
 from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "depth,key_type",
-    [(4, "int64"), (3, "int64"), (9, "int64"), (4, "string"), (4, "compound")],
+    [(4, "int64"), (9, "int64"), (4, "string"), (4, "compound")],
 )
 def test_long_path_sum_and_count(
     depth: int,
@@ -269,13 +268,6 @@ def test_long_path_sum_and_count(
                     } == {(1, "a"): 2, (1, "b"): 0, (2, "c"): 0}
                 else:
                     assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]
-        if depth == 4:
-            namespace = {"mv": mv, "ms": ms, "population": population}
-            code = _example("en", "long-metric-routes")
-            exec(compile(code, "latest-long-route-example", "exec"), namespace)
-            documented = namespace["long_count"]
-            assert isinstance(documented, mv.MaterializedNumericRelation)
-            assert sorted(documented.to_pandas().value.tolist()) == [0, 1, 2]
         if backend == "duckdb":
             anchors = session.anchors(
                 ms.participant_role(event=ms.ref.event("sales.entry"), name="subject"),

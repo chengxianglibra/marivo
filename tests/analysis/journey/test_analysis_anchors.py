@@ -196,32 +196,30 @@ def test_anchor_failure_is_atomic(tmp_path):
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
 
 
-@pytest.mark.parametrize(
-    "role,fault",
-    [
-        ("primary", "missing"),
-        ("anchor", "corrupt"),
-    ],
-)
-def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path, role, fault):
+def test_receipt_damage_rejects_read_continuation_and_hit(tmp_path):
     session, members, window, _, _ = build_anchors(tmp_path)
     fixed = observations(event_anchors(session, members, window))[0].execute()
     logical = fixed.where(fixed.value.is_defined())
     continued = logical.execute()
     descriptor = continued._dataset.artifact.descriptor
-    receipt = (
-        descriptor.primary_receipt.local
-        if role == "primary"
-        else next(part.local for part in descriptor.parts if part.role == role)
-    )
-    path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-    path.unlink() if fault == "missing" else path.write_bytes(b"corrupt Anchor receipt")
     before = session.runs().items
-    with pytest.raises(AnalysisError):
-        session.artifact(continued.state.artifact_ref.ref)
-    with pytest.raises(AnalysisError):
-        logical.execute()
-    assert session.runs().items == before
+    for role, fault in (("primary", "missing"), ("anchor", "corrupt")):
+        receipt = (
+            descriptor.primary_receipt.local
+            if role == "primary"
+            else next(part.local for part in descriptor.parts if part.role == role)
+        )
+        path = tmp_path / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        original = path.read_bytes()
+        path.unlink() if fault == "missing" else path.write_bytes(b"corrupt Anchor receipt")
+        try:
+            with pytest.raises(AnalysisError):
+                session.artifact(continued.state.artifact_ref.ref)
+            with pytest.raises(AnalysisError):
+                logical.execute()
+            assert session.runs().items == before
+        finally:
+            path.write_bytes(original)
     fixed.to_pandas()
 
 
@@ -410,30 +408,29 @@ def test_empty_anchor_domain_retains_exact_schema(tmp_path):
             assert session.artifact(result.state.artifact_ref).to_pandas().empty
 
 
-@pytest.mark.parametrize(
-    "calendar,field,value,index",
-    [
-        (False, "integer", "9223372036854775807", 1),
-        (False, "amount", "1e308", 2),
-        (False, "decimal", "99999999999999999999999999999999.000000", 3),
-        (True, "ticks", "to_microseconds(9223372036854775807)", 4),
-    ],
-)
-def test_numeric_overflow_is_atomic(tmp_path, calendar, field, value, index):
+def test_numeric_overflow_is_atomic(tmp_path):
     import ibis
 
     session, members, window, _, _ = build_anchors(tmp_path)
     old = members.execute()
-    backend = ibis.duckdb.connect(tmp_path / "source.duckdb")
-    try:
-        backend.raw_sql(f"UPDATE facts SET {field}={value}")
-    finally:
-        backend.disconnect()
-    with pytest.raises((AnalysisError, OverflowError)):
-        observations(event_anchors(session, members, window), calendar=calendar)[index].execute()
-    assert session.artifact(old.state.artifact_ref).to_pandas().equals(old.to_pandas())
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+    for calendar, field, value, index in (
+        (False, "integer", "9223372036854775807", 1),
+        (False, "amount", "1e308", 2),
+        (False, "decimal", "99999999999999999999999999999999.000000", 3),
+        (True, "ticks", "to_microseconds(9223372036854775807)", 4),
+    ):
+        backend = ibis.duckdb.connect(tmp_path / "source.duckdb")
+        try:
+            backend.raw_sql(f"UPDATE facts SET {field}={value}")
+        finally:
+            backend.disconnect()
+        with pytest.raises((AnalysisError, OverflowError)):
+            observations(event_anchors(session, members, window), calendar=calendar)[
+                index
+            ].execute()
+        assert session.artifact(old.state.artifact_ref).to_pandas().equals(old.to_pandas())
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize(
@@ -556,28 +553,41 @@ def test_journey_relative_numeric_families(tmp_path):
         assert_result(operation.execute(), values, "i", "i", index)
 
 
-@pytest.mark.parametrize("fault", ["cancel", "deadline"])
-def test_local_consumption_failure_closes_prepared_resources(tmp_path, fault, monkeypatch):
+def test_local_consumption_failure_closes_prepared_resources(tmp_path, monkeypatch):
+    from contextvars import Token
+
     from marivo.analysis.materialization import anchor_execution
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
     session, members, window, _, _ = build_anchors(tmp_path)
     previous = members.execute()
     observe = anchor_execution.observe
+    for fault in ("cancel", "deadline"):
+        tokens: list[Token[ExecuteDeadline | None]] = []
 
-    def fail(*args, **kwargs):
-        if fault == "cancel":
-            raise KeyboardInterrupt("cancelled after source preparation")
-        CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
-        return observe(*args, **kwargs)
+        def fail(*args, _fault=fault, _tokens=tokens, **kwargs):
+            if _fault == "cancel":
+                raise KeyboardInterrupt("cancelled after source preparation")
+            _tokens.append(CURRENT.set(ExecuteDeadline(0, clock=lambda: 601)))
+            return observe(*args, **kwargs)
 
-    monkeypatch.setattr(anchor_execution, "observe", fail)
-    with pytest.raises((AnalysisError, KeyboardInterrupt)):
-        observations(event_anchors(session, members, window), calendar=True)[0].execute()
-    session.artifact(previous.state.artifact_ref).to_pandas()
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0
+        with monkeypatch.context() as scoped:
+            scoped.setattr(anchor_execution, "observe", fail)
+            try:
+                with pytest.raises((AnalysisError, KeyboardInterrupt)):
+                    observations(event_anchors(session, members, window), calendar=True)[
+                        0
+                    ].execute()
+            finally:
+                for token in tokens:
+                    CURRENT.reset(token)
+        session.artifact(previous.state.artifact_ref).to_pandas()
+        with session._runtime.store._read() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+            assert (
+                connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0]
+                == 0
+            )
 
 
 def test_null_contributions_and_empty_policies(tmp_path):
@@ -635,32 +645,34 @@ def test_fixed_anchor_rejects_new_live_metric_before_run(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_calendar_checks_actual_anchor_deadlines(tmp_path, empty):
+def test_calendar_checks_actual_anchor_deadlines(tmp_path):
     import marivo.semantic as ms
     from tests.analysis.lifecycle.lifecycle_fixtures import START
 
     point = datetime(2026, 3, 7, 7, 30, tzinfo=UTC)
     offset = int((point - START).total_seconds())
-    session, members, _, _, _ = build_anchors(
-        tmp_path, rows=[(0, "started", offset, 1)], empty=empty
-    )
-    anchors = event_anchors(
-        session,
-        members,
-        mv.time_scope(start=point.isoformat(), end=(point + timedelta(seconds=1)).isoformat()),
-    )
-    operation = anchors.observe(
-        ms.ref.metric("commerce.fact_count"),
-        within=mv.calendar_days(1, ZoneInfo("America/New_York")),
-        via=ms.ref.relationship("commerce.participant"),
-    )
-    if empty:
-        assert operation.execute().to_pandas().empty
-    else:
-        with pytest.raises(AnalysisError) as failure:
-            operation.execute()
-        assert failure.value.constraint_id == "r7.calendar_deadline"
+    for empty in (False, True):
+        root = tmp_path / ("empty" if empty else "nonempty")
+        root.mkdir()
+        session, members, _, _, _ = build_anchors(
+            root, rows=[(0, "started", offset, 1)], empty=empty
+        )
+        anchors = event_anchors(
+            session,
+            members,
+            mv.time_scope(start=point.isoformat(), end=(point + timedelta(seconds=1)).isoformat()),
+        )
+        operation = anchors.observe(
+            ms.ref.metric("commerce.fact_count"),
+            within=mv.calendar_days(1, ZoneInfo("America/New_York")),
+            via=ms.ref.relationship("commerce.participant"),
+        )
+        if empty:
+            assert operation.execute().to_pandas().empty
+        else:
+            with pytest.raises(AnalysisError) as failure:
+                operation.execute()
+            assert failure.value.constraint_id == "r7.calendar_deadline"
 
 
 def test_native_float_cancellation_uses_analysis_error_owner(tmp_path):
@@ -727,20 +739,12 @@ def test_anchor_root_routes_keep_declared_root_authority(tmp_path, monkeypatch):
     assert session.runs().items == before
 
 
-@pytest.mark.parametrize("empty", [False, True])
-def test_actual_anchor_subject_image_source_first(tmp_path, empty, monkeypatch):
+def test_actual_anchor_subject_image_source_first(tmp_path, monkeypatch):
     import marivo.semantic as ms
     from marivo.analysis.materialization import anchor_execution, graph_local_execution
     from marivo.datasource.adapters import SourceSession
 
     session, members, window, _, _ = build_anchors(tmp_path)
-    numeric = observations(event_anchors(session, members, window))[0]
-    selected = numeric.where(numeric.value.lt(0) if empty else numeric.value.gt(0))
-    operation = selected.members().observe(
-        ms.ref.metric("commerce.fact_count"),
-        during=window,
-        via=ms.ref.relationship("commerce.participant"),
-    )
     reads = 0
     batches = SourceSession.batches
 
@@ -755,8 +759,16 @@ def test_actual_anchor_subject_image_source_first(tmp_path, empty, monkeypatch):
     monkeypatch.setattr(SourceSession, "batches", guard)
     monkeypatch.setattr(anchor_execution, "observe", reject_local)
     monkeypatch.setattr(graph_local_execution, "execute_fixed_transport", reject_local)
-    fixed = operation.execute()
-    assert reads > 0
-    assert fixed.to_pandas()["value"].tolist() == ([] if empty else [6])
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
+    for empty in (False, True):
+        before = reads
+        numeric = observations(event_anchors(session, members, window))[0]
+        selected = numeric.where(numeric.value.lt(0) if empty else numeric.value.gt(0))
+        operation = selected.members().observe(
+            ms.ref.metric("commerce.fact_count"),
+            during=window,
+            via=ms.ref.relationship("commerce.participant"),
+        )
+        fixed = operation.execute()
+        assert reads > before
+        assert fixed.to_pandas()["value"].tolist() == ([] if empty else [6])
+        assert session.artifact(fixed.state.artifact_ref).to_pandas().equals(fixed.to_pandas())

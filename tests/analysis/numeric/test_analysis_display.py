@@ -120,11 +120,7 @@ def test_business_display_identifies_current_and_baseline_windows(
     assert "current.timezone: UTC" in text
 
 
-@pytest.mark.parametrize(
-    "ties,expected",
-    [("ordinal", [1, 2, 3]), ("dense", [1, 1, 2]), ("min", [1, 1, 3]), ("max", [2, 2, 3])],
-)
-def test_exact_ties_and_nondefined_tail(ties: str, expected: list[int]) -> None:
+def test_exact_ties_and_nondefined_tail() -> None:
     rows = [
         {"key_0": 2, "value": Decimal("2.000000"), "cell_tag": "defined"},
         {"key_0": 1, "value": Decimal("2.000000"), "cell_tag": "defined"},
@@ -134,10 +130,16 @@ def test_exact_ties_and_nondefined_tail(ties: str, expected: list[int]) -> None:
             for key, tag in ((6, "null"), (4, "unknown"), (5, "undefined"))
         ),
     ]
-    result = ranked(rows, ("key_0",), "descending", ties, ())
-    assert [result[(key,)][0] for key in (1, 2, 3)] == expected
-    assert [result[(key,)][1] for key in (4, 5, 6)] == [4, 5, 6]
-    assert ranked(list(reversed(rows)), ("key_0",), "descending", ties, ()) == result
+    for ties, expected in (
+        ("ordinal", [1, 2, 3]),
+        ("dense", [1, 1, 2]),
+        ("min", [1, 1, 3]),
+        ("max", [2, 2, 3]),
+    ):
+        result = ranked(rows, ("key_0",), "descending", ties, ())
+        assert [result[(key,)][0] for key in (1, 2, 3)] == expected
+        assert [result[(key,)][1] for key in (4, 5, 6)] == [4, 5, 6]
+        assert ranked(list(reversed(rows)), ("key_0",), "descending", ties, ()) == result
 
 
 @pytest.mark.parametrize(("order", "ties"), [("ascending", "ordinal"), ("descending", "dense")])
