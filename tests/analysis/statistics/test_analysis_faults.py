@@ -6,14 +6,19 @@ import json
 import os
 from collections.abc import Iterator
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
 
+import marivo.analysis as mv
 from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import runs_execution
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.deviation_execution import load, save
 from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
@@ -231,6 +236,62 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
         from_arrow(
             retained.primary, retained.contract, parts=parts, method_state=retained.method_state
         )
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("selection", ("full", "subset", "empty"))
+def test_run_owned_fields_compare_logical_cells(
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    selection: Literal["full", "subset", "empty"],
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    session = prepare(case, "table")
+    timed = inputs(session)[2]
+    result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
+    expected_rows = 2
+    if selection == "subset":
+        result = result.where(
+            result.start.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc))
+        ).execute()
+        expected_rows = 1
+    elif selection == "empty":
+        result = result.where(result.count.value.gt(1)).execute()
+        expected_rows = 0
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("validation resegmented original cells")
+
+    monkeypatch.setattr(runs_execution, "compute", forbidden)
+    for view in (result, result.count, result.start, result.end, result.duration):
+        assert view._dataset is not None
+        retained = view._dataset.verified()
+        assert retained.primary.column_names == ["key_0", "value"]
+        assert retained.primary.num_rows == expected_rows
+        logical = logical_table(retained.primary)
+        for primary in (retained.primary, logical):
+            contract = replace(retained.contract, schema=primary.schema)
+            checked = from_arrow(
+                primary, contract, parts=retained.parts, method_state=retained.method_state
+            )
+            assert logical_table(checked.primary).equals(logical)
+            if not expected_rows:
+                continue
+            value_field = primary.schema.field("value")
+            increment = pa.scalar(
+                1, pa.int64() if pa.types.is_integer(value_field.type) else pa.duration("us")
+            )
+            damaged = primary.set_column(
+                primary.schema.get_field_index("value"),
+                value_field,
+                pc.add(primary["value"], increment),
+            )
+            with pytest.raises(
+                AnalysisError, match="run owned field differs from original retained intervals"
+            ):
+                from_arrow(
+                    damaged, contract, parts=retained.parts, method_state=retained.method_state
+                )
 
 
 @pytest.mark.runtime

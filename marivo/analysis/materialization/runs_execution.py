@@ -16,6 +16,7 @@ from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import ConditionCellsPart, RunCellsPart, Signature, part_role
 from marivo.analysis.core.predicates import ValuePredicate, compose, leaves
 from marivo.analysis.core.rules import TimeRunRead, TimeRuns
+from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
@@ -698,6 +699,6 @@ def validate(
         and contract.signature.quantity is not None
         and contract.signature.quantity.definition_id
         == capture.run_id + ":" + ("count" if view.view == "result" else view.view)
-        and not expected.equals(primary)
+        and not expected.equals(logical_table(primary))
     ):
         raise invalid("run owned field differs from original retained intervals")
