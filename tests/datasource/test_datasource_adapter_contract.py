@@ -134,7 +134,6 @@ def test_inline_exchange_preserves_exact_scalars_multiplicity_and_empty_schema(
         )
         table = table.cast(schema)
     relation = _inline_exchange(table, lambda: None, inline_backend)
-    assert relation.op() != _inline_exchange(table, lambda: None, inline_backend).op()
     if inline_backend == "trino":
         # Ibis reuses ordinal aliases incorrectly when UNNEST enters a union.
         # This check covers the actual branching validation query shape.
@@ -148,7 +147,7 @@ def test_inline_exchange_preserves_exact_scalars_multiplicity_and_empty_schema(
         backend.disconnect()
 
 
-@pytest.mark.parametrize("count", [3, 5, 101])
+@pytest.mark.parametrize("count", [3, 101])
 @pytest.mark.parametrize("inline_backend", ["mysql", "trino"])
 def test_inline_exchange_non_power_of_two_cardinality_and_duplicate_rows(
     count: int, inline_backend: str

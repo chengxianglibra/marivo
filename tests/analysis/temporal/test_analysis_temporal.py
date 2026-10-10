@@ -273,6 +273,7 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
     )
 
 
+@pytest.mark.slow
 def test_grid_produce_and_offline_continuation_are_separate_processes(
     tmp_path: Path,
 ) -> None:
@@ -338,11 +339,12 @@ metric = sys.argv[4]
 result = (fixed.group_by(mv.grain('month')).rollup() if metric == 'running' else
           fixed.group_by(ms.ref.entity('sales.customer')).rollup() if metric == 'folded' else
           fixed.rollup()).execute()
-primary = result._dataset.verified().primary
+verified = result._dataset.verified()
+primary = verified.primary
 keys = [(name, 'ascending') for name in primary.column_names if name.startswith('key_')]
 values = (primary.sort_by(keys) if keys else primary)['value'].to_pylist()
 assert values == ([1077,1176,1176] if metric == 'running' else [450,150,400,None] if metric == 'folded' else [1099]), values
-state = next(p.table.to_pylist() for p in result._dataset.verified().parts if p.role == 'original_state')
+state = next(p.table.to_pylist() for p in verified.parts if p.role == 'original_state')
 print(json.dumps({'value': values, 'state': state, 'K': result._dataset.artifact.descriptor.execution_key_digest}))
 """
     recovered = subprocess.run(

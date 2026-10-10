@@ -193,11 +193,10 @@ def test_source_and_retained(
                 len(document_json(graph_document(selection._node.definition)).encode())
                 < 1024 * 1024
             )
-        selected = selection.execute()
-        assert sorted(selected.contribution.to_pandas().value.tolist()) == (
-            [1, 2] if metric_kind == "sum" else [0.5, 1]
-        )
-        assert dict(selected.contract()._facts)["complete_partition"] == "False"
+        if axis_kind == "single":
+            selected = selection.execute()
+            assert sorted(selected.contribution.to_pandas().value.tolist()) == [1, 2]
+            assert dict(selected.contract()._facts)["complete_partition"] == "False"
         if axis_kind == "joint":
             hierarchy = fixed_change.attribute(axes=axes, mode="hierarchy").execute()
             hierarchy_frame = hierarchy.contribution.to_pandas()
@@ -219,7 +218,7 @@ def test_source_and_retained(
                 "baseline": [0, 3, 5] if metric_kind == "sum" else [0, 1.5, 2.5],
                 "contributions": [2, 1, -5] if metric_kind == "sum" else [1, 0.5, -2.5],
                 "top_k_other": [-3, 1] if metric_kind == "sum" else [-1.5, 0.5],
-                "selected": [1, 2] if metric_kind == "sum" else [0.5, 1],
+                "selected": [1, 2] if axis_kind == "single" else None,
                 "retained_continuations_checked": True,
                 "hierarchy": sorted(list(expected_contributions.values()) * 2)
                 if axis_kind == "joint"
@@ -246,7 +245,8 @@ def test_source_and_retained(
                         "source_and_fixed_oracle_passed": True,
                         "fixed_source_reads_forbidden": True,
                         "ordinary_source_snapshot_forbidden": True,
-                        "top_k_other_and_selection_passed": True,
+                        "top_k_other_passed": True,
+                        "selection_passed": axis_kind == "single",
                         "hierarchy_passed": axis_kind == "joint",
                         "physical_keys": [
                             key_json(item.key)

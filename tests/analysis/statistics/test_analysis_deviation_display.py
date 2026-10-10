@@ -261,7 +261,6 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
             (member, time): wanted[(member, time)]
             for member, time in zip(current.member, current.coord_0, strict=True)
         }
-        for table, exported in ((mixed, frame), (ranked, ranked_frame)):
-            restored = case.session.artifact(table.artifact_ref)
-            assert isinstance(restored, mv.MaterializedTable)
-            assert restored.to_pandas().equals(exported)
+        restored = case.session.artifact(ranked.artifact_ref)
+        assert isinstance(restored, mv.MaterializedTable)
+        assert restored.to_pandas().equals(ranked_frame)

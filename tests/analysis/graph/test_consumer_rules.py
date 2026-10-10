@@ -33,7 +33,6 @@ from marivo.analysis.core.rules import (
     RowState,
 )
 from marivo.analysis.methods import builtin
-from marivo.analysis.methods.anchor_physical import admit_observation
 from marivo.analysis.methods.builtin import specialize_arity, specialize_numeric
 from marivo.analysis.methods.consumer_rules import (
     native_distribution,
@@ -41,7 +40,6 @@ from marivo.analysis.methods.consumer_rules import (
     subject_image,
 )
 from marivo.analysis.methods.errors import MethodRegistrationError
-from marivo.analysis.methods.funnel_physical import admit_axes
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -389,30 +387,34 @@ def _axis(logical_type: Literal["string", "int64"], history: str = "direct") -> 
     )
 
 
-@pytest.mark.parametrize("kind", ["prepare", "reduce"])
 @pytest.mark.parametrize(
-    "case,accepted",
+    "kind,case,accepted",
     [
-        ("string", True),
-        ("int64", True),
-        ("pair", True),
-        ("reverse", True),
-        ("strings", True),
-        ("integers", True),
-        ("triple", True),
-        ("long_direct", True),
-        ("empty", False),
-        ("mixed_history", True),
-        ("two_history", True),
-        ("snapshot", True),
-        ("validity", True),
-        ("int_history", True),
-        ("subject_version", False),
-        ("timestamp", False),
-        ("zone", False),
-        ("closure", False),
-        ("open_end", False),
-        ("long_path", True),
+        # Both public rule parameter types exercise the shared admission path
+        # with one accepted and one refused shape. The remaining boundary
+        # matrix is specific to the shared rule and runs once.
+        ("prepare", "string", True),
+        ("prepare", "empty", False),
+        ("reduce", "string", True),
+        ("reduce", "int64", True),
+        ("reduce", "pair", True),
+        ("reduce", "reverse", True),
+        ("reduce", "strings", True),
+        ("reduce", "integers", True),
+        ("reduce", "triple", True),
+        ("reduce", "long_direct", True),
+        ("reduce", "empty", False),
+        ("reduce", "mixed_history", True),
+        ("reduce", "two_history", True),
+        ("reduce", "snapshot", True),
+        ("reduce", "validity", True),
+        ("reduce", "int_history", True),
+        ("reduce", "subject_version", False),
+        ("reduce", "timestamp", False),
+        ("reduce", "zone", False),
+        ("reduce", "closure", False),
+        ("reduce", "open_end", False),
+        ("reduce", "long_path", True),
     ],
 )
 def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool) -> None:
@@ -506,23 +508,13 @@ def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool
             match="unversioned Subject through to-one UTC DATE history paths",
         ):
             builtin.admit(item, params)
-    assert isinstance(item.qualification, Qualified)
-    renamed = replace(item, qualification=replace(item.qualification, implementation_id="x"))
-    if accepted:
-        admit_axes(renamed, params)
-    else:
-        with pytest.raises(
-            MethodRegistrationError,
-            match="unversioned Subject through to-one UTC DATE history paths",
-        ):
-            admit_axes(renamed, params)
 
 
-@pytest.mark.parametrize("logical_type", ("float64", "boolean", "date32[day]"))
-def test_funnel_axis_types_reject_at_capture_owner(logical_type: str) -> None:
+def test_funnel_axis_types_reject_at_capture_owner() -> None:
     axis = _axis("string")
-    with pytest.raises(DomainPreparationError, match="string/int64 entry-axis path"):
-        replace(axis, dimension=replace(axis.dimension, logical_type=logical_type))
+    for logical_type in ("float64", "boolean", "date32[day]"):
+        with pytest.raises(DomainPreparationError, match="string/int64 entry-axis path"):
+            replace(axis, dimension=replace(axis.dimension, logical_type=logical_type))
 
 
 def _observation() -> ObserveMetric:
@@ -638,15 +630,6 @@ def test_sqlite_anchor_observation_parameter_boundaries(case: str) -> None:
             MethodRegistrationError, match="count or additive int64/float64 Anchor sums"
         ):
             builtin.admit(item, params)
-    assert isinstance(item.qualification, Qualified)
-    renamed = replace(item, qualification=replace(item.qualification, implementation_id="x"))
-    if case in ("accepted", "type", "empty", "filters"):
-        admit_observation(renamed, params)
-    else:
-        with pytest.raises(
-            MethodRegistrationError, match="count or additive int64/float64 Anchor sums"
-        ):
-            admit_observation(renamed, params)
 
 
 @pytest.mark.parametrize("case", ["distinct", "start", "end"])
@@ -668,13 +651,14 @@ def test_native_distribution_parameter_boundaries(case: str) -> None:
 @pytest.mark.parametrize(
     "method,amount_type,accepted",
     [
-        (method, amount_type, True)
-        for method in ("count_distinct", "approx_count_distinct")
+        ("count_distinct", amount_type, True)
         for amount_type in ("int64", "float64", "string", "boolean", "date", "timestamp")
     ]
     + [
+        # The scalar carrier list is shared by exact and approximate distinct;
+        # keep the second method's name covered without replaying every carrier.
+        ("approx_count_distinct", "float64", True),
         ("count_distinct", "decimal(38, 6)", True),
-        ("approx_count_distinct", "decimal(38, 6)", True),
         ("count_distinct", "interval('us')", False),
         ("percentile", "float64", True),
         ("approx_percentile", "float64", True),

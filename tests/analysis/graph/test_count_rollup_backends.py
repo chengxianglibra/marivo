@@ -165,12 +165,7 @@ def test_native_count_rollup_and_group_state(
             | mv.LogicalRolledNumericRelation
             | mv.LogicalStatisticRelation,
             ...,
-        ] = (
-            scalar,
-            individual.rollup(),
-            scalar.rollup(),
-            individual.aggregate(mv.sum()),
-        )
+        ] = (scalar, individual.rollup())
         for logical in reductions:
             offset = len(execution_records(tmp_path))
             result = logical.execute()

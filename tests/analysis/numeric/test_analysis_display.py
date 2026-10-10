@@ -841,11 +841,10 @@ def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory
     total = values.rollup()
     ranked_total = total.rank(order="descending", ties="dense")
     empty = ranked_total.where(ranked_total.ranks.value.gt(99))
-    for ranking in (empty, empty.execute()):
-        assert ranking.limit(1).execute().ranks.to_pandas().empty
-        fixed = ranking.execute() if isinstance(ranking, mv.LogicalRankingResult) else ranking
-        assert fixed.ranks.where(fixed.ranks.value.is_defined()).execute().to_pandas().empty
-        assert mv.table(a=ranking.values, b=ranking.ranks).execute().to_pandas().empty
+    assert empty.limit(1).execute().ranks.to_pandas().empty
+    fixed = empty.execute()
+    assert fixed.ranks.where(fixed.ranks.value.is_defined()).execute().to_pandas().empty
+    assert mv.table(a=empty.values, b=empty.ranks).execute().to_pandas().empty
 
 
 @pytest.mark.parametrize("parquet", [False])

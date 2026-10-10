@@ -160,5 +160,5 @@ def assert_view(result, name, expected):
         ),
     }[name]
     actual = [(tuple(row[k] for k in keys), *(row[field] for field in fields)) for row in rows]
+    assert len(rows) == len(expected[name])
     assert sorted(actual, key=repr) == sorted(expected[name], key=repr)
-    assert len(result.to_pandas()) == len(actual)

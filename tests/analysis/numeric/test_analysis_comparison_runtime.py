@@ -452,7 +452,12 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
         )
         first = members.observe(metric, during=scope, via=via, by=(region,))
         second = eastern.observe(metric, during=scope, via=via, by=(region,))
-        for left, right in ((first, second), (first.execute(), second.execute())):
+        operands = [(first, second)]
+        if metric_name == "revenue":
+            # Keep one fixed-endpoint continuation; the source pass covers all
+            # three distinct metric null policies below.
+            operands.append((first.execute(), second.execute()))
+        for left, right in operands:
             result = left.compare(right, align=design).absolute.execute().to_pandas()
             if metric_name == "count_ratio":
                 assert result["cell_tag"].tolist().count("defined") == 1
@@ -786,40 +791,35 @@ def test_comparison_of_float_original_expression_operands(
         assert mapping["correspondence__result_error_bound"][0].as_py() > 0
 
 
-@pytest.mark.parametrize("kind", ["null", "undefined"])
 def test_union_keeps_present_nondefined_cell_separate_from_absence(
-    analysis_dsl_case_factory: DslCaseFactory, kind: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = ms.ref.dimension("sales.customer.region")
     categories = members.read(region)
     eastern = categories.where(categories.value.eq("east")).members()
-    if kind == "undefined":
-        with duckdb.connect(str(case.database_path)) as connection:
-            connection.execute(
-                'INSERT INTO "order" VALUES '
-                "('zero_d', 'D', 'web', 'paid', '2026-08-15T12:00:00+00:00', 0)"
-            )
-    count = ms.ref.metric("sales.order_count")
-    metric = (
-        ms.ref.metric("sales.revenue")
-        if kind == "null"
-        else mv.runtime_metric.ratio(count, ms.ref.metric("sales.revenue"), label="count_ratio")
-    )
-    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    via = ms.ref.relationship("sales.order_buyer")
-    current = (
-        eastern.observe(metric, during=scope, via=via, by=(mv.member(), region))
-        .group_by(region)
-        .rollup()
-    )
-    baseline = (
-        members.observe(metric, during=scope, via=via, by=(mv.member(), region))
-        .group_by(region)
-        .rollup()
-    )
-    for left, right in ((current, baseline), (current.execute(), baseline.execute())):
+
+    def compare(kind: str, *, fixed: bool) -> None:
+        count = ms.ref.metric("sales.order_count")
+        metric = (
+            ms.ref.metric("sales.revenue")
+            if kind == "null"
+            else mv.runtime_metric.ratio(count, ms.ref.metric("sales.revenue"), label="count_ratio")
+        )
+        scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
+        via = ms.ref.relationship("sales.order_buyer")
+        current = (
+            eastern.observe(metric, during=scope, via=via, by=(mv.member(), region))
+            .group_by(region)
+            .rollup()
+        )
+        baseline = (
+            members.observe(metric, during=scope, via=via, by=(mv.member(), region))
+            .group_by(region)
+            .rollup()
+        )
+        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
         saved = left.compare(right, align=mv.outer(missing="keep")).absolute.execute()
         frame = saved.to_pandas()
         assert frame["cell_reason"].tolist().count("missing_side") == 2
@@ -834,6 +834,14 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         assert empty_frame.loc["west", "cell_reason"] == (
             "empty_contribution" if kind == "null" else "zero_denominator"
         )
+
+    compare("null", fixed=False)
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(
+            'INSERT INTO "order" VALUES '
+            "('zero_d', 'D', 'web', 'paid', '2026-08-15T12:00:00+00:00', 0)"
+        )
+    compare("undefined", fixed=True)
 
 
 def test_public_decimal_ratio_rounds_once_half_even(

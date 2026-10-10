@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -103,18 +104,24 @@ def producer_recovery(
         captures = [values.execute(), values.execute()]
         assert all(isinstance(value, mv.MaterializedNumericRelation) for value in captures)
         assert captures[0].state.artifact_ref != captures[1].state.artifact_ref
+        frames: list[pd.DataFrame] = []
         for value in captures:
-            frame = value.to_pandas().set_index(["member", "coord_0", "coord_1"])
-            assert frame.value.to_dict() == {
+            frame = value.to_pandas()
+            indexed = frame.set_index(["member", "coord_0", "coord_1"])
+            assert indexed.value.to_dict() == {
                 ("a", 9007199254740992, 1): 2,
                 ("a", 9007199254740993, 2): 0,
                 ("b", 9007199254740993, 1): 4,
             }
-            source_trace.record(value)
+            frames.append(frame)
+        # Both independent captures have the same retained shape and physical plan.
+        source_trace.record(captures[0])
         state: dict[str, Json] = {
             "session": session.id,
             "inputs": [value.state.artifact_ref.ref for value in captures],
-            "input_snapshots": [snapshot(value) for value in captures],
+            "input_snapshots": [
+                snapshot(value, frame=frame) for value, frame in zip(captures, frames, strict=True)
+            ],
         }
         (tmp_path / "r94-state.json").write_text(json.dumps(state, sort_keys=True))
         if profile == "view":

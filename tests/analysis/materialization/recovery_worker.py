@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pandas as pd
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -25,7 +26,11 @@ def forbidden(*args: object, **kwargs: object) -> NoReturn:
     raise AssertionError("retained execution accessed a source or current Semantic")
 
 
-def snapshot(result: mv.MaterializedNumericRelation | mv.MaterializedRatioRelation) -> Json:
+def snapshot(
+    result: mv.MaterializedNumericRelation | mv.MaterializedRatioRelation,
+    *,
+    frame: pd.DataFrame | None = None,
+) -> Json:
     assert result._dataset is not None
     verified = result._dataset.verified()
     evidence = result.evidence_digest()
@@ -38,7 +43,9 @@ def snapshot(result: mv.MaterializedNumericRelation | mv.MaterializedRatioRelati
             "execution_key_digest": descriptor.execution_key_digest,
             "continuation_snapshot_digest": descriptor.continuation_snapshot_digest,
             "schema": descriptor.realized_schema,
-            "frame": json.loads(result.to_pandas().to_json(orient="split")),
+            "frame": json.loads(
+                (result.to_pandas() if frame is None else frame).to_json(orient="split")
+            ),
             "parts": [part.role for part in verified.parts],
             "required_parts": list(result.contract().required_parts),
             "evidence": {
@@ -93,19 +100,20 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         logical = value.ratio(value)
         result = logical.execute()
         assert isinstance(result, mv.MaterializedNumericRelation)
-        frame = result.to_pandas().set_index(["member", "coord_0", "coord_1"])
-        assert frame.cell_tag.to_dict() == {
+        frame = result.to_pandas()
+        indexed = frame.set_index(["member", "coord_0", "coord_1"])
+        assert indexed.cell_tag.to_dict() == {
             ("a", 9007199254740992, 1): "defined",
             ("a", 9007199254740993, 2): "undefined",
             ("b", 9007199254740993, 1): "defined",
         }
-        assert frame.loc[frame.cell_tag == "defined", "value"].tolist() == [1, 1]
-        assert frame.loc[frame.cell_tag == "undefined", "cell_reason"].tolist() == [
+        assert indexed.loc[indexed.cell_tag == "defined", "value"].tolist() == [1, 1]
+        assert indexed.loc[indexed.cell_tag == "undefined", "cell_reason"].tolist() == [
             "zero_denominator"
         ]
         assert kernel.call_count > 0
         assert len(session.runs().items) == before + 1
-        saved = snapshot(result)
+        saved = snapshot(result, frame=frame)
         with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
             assert snapshot(logical.execute()) == saved
         assert len(session.runs().items) == before + 1

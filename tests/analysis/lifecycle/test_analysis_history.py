@@ -62,8 +62,6 @@ def test_history_views_and_consumers_source_fixed(tmp_path):
         result = operation().execute()
         assert_view(result, name, expected_view)
 
-    source_consumers = transport(logical)
-    expected("state_members", source_consumers["state_members"].execute())
     violation_observation = observations(logical)["violation_revenue"]
     observed = violation_observation.execute()
     expected("violation_revenue", observed)

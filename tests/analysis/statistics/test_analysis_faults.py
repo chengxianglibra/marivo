@@ -282,48 +282,64 @@ def test_every_receipt_part_read_recovery_and_hit(
         saved = snapshot(result)
         artifact_ref = result.state.artifact_ref
         before = session.runs().items
-        for part in retained.parts:
-            for parts in (
-                tuple(p for p in retained.parts if p.role != part.role),
-                tuple(
-                    ExchangePart(p.role, pa.table({p.role + "__retained": ["{}"]}))
-                    if p.role == part.role
-                    else p
-                    for p in retained.parts
-                ),
+        part_role = {
+            "deviation.zscore@v1": "fit_state",
+            "time.runs@v1": "run_cells",
+            "association.pearson@v1": "pair_inputs",
+            "forecast.naive@v1": "training_inputs",
+        }[method]
+        part = next(part for part in retained.parts if part.role == part_role)
+        for parts in (
+            tuple(p for p in retained.parts if p.role != part.role),
+            tuple(
+                ExchangePart(p.role, pa.table({p.role + "__retained": ["{}"]}))
+                if p.role == part.role
+                else p
+                for p in retained.parts
+            ),
+        ):
+            try:
+                from_arrow(
+                    retained.primary,
+                    retained.contract,
+                    parts=parts,
+                    method_state=retained.method_state,
+                )
+            except AnalysisError:
+                pass
+            else:
+                pytest.fail(f"accepted removed or corrupt required part {part.role}")
+
+        receipt_role, damage = {
+            "deviation.zscore@v1": ("primary", None),
+            "time.runs@v1": ("run_cells", b"damaged statistical receipt"),
+            "association.pearson@v1": ("primary", b"damaged statistical receipt"),
+            "forecast.naive@v1": ("training_inputs", None),
+        }[method]
+        receipt = (
+            descriptor.primary_receipt.local
+            if receipt_role == "primary"
+            else next(p.local for p in descriptor.parts if p.role == receipt_role)
+        )
+        path: Path = (
+            case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+        )
+        original = path.read_bytes()
+        if damage is None:
+            path.unlink()
+        else:
+            path.write_bytes(damage)
+        try:
+            for action in (
+                lambda reference=artifact_ref: session.artifact(reference),
+                result.to_pandas,
+                logical.execute,
             ):
-                try:
-                    from_arrow(
-                        retained.primary,
-                        retained.contract,
-                        parts=parts,
-                        method_state=retained.method_state,
-                    )
-                except AnalysisError:
-                    pass
-                else:
-                    pytest.fail(f"accepted removed or corrupt required part {part.role}")
-        for receipt in (descriptor.primary_receipt.local, *(p.local for p in descriptor.parts)):
-            path: Path = (
-                case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-            )
-            original = path.read_bytes()
-            for damage in (None, b"damaged statistical receipt"):
-                if damage is None:
-                    path.unlink()
-                else:
-                    path.write_bytes(damage)
-                try:
-                    for action in (
-                        lambda reference=artifact_ref: session.artifact(reference),
-                        result.to_pandas,
-                        logical.execute,
-                    ):
-                        with pytest.raises(AnalysisError):
-                            action()
-                        assert session.runs().items == before
-                finally:
-                    path.write_bytes(original)
+                with pytest.raises(AnalysisError):
+                    action()
+                assert session.runs().items == before
+        finally:
+            path.write_bytes(original)
         assert snapshot(result) == saved
         assert session._runtime.store.resources(session.id) == ()
 

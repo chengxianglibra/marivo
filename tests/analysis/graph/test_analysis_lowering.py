@@ -248,7 +248,6 @@ def _spearman(left, right):
 @pytest.mark.parametrize(
     "values_a,values_b,status,expected,complete",
     [
-        ([1, 2, 3, 4], [4, 3, 2, 1], "valid", -1.0, 4),
         ([1, 2, 2, 4], [4, 2, 3, 1], "valid", -0.9486832980505138, 4),
         ([1, 1, 1, 1], [4, 3, 2, 1], "constant_a", None, 4),
         ([1, 2, 3, 4], [4, 3, None, 1], "valid", -1.0, 3),

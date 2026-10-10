@@ -30,7 +30,7 @@ from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.materialization.runs_execution import _decode as decode_runs
 from marivo.analysis.materialization.statistical_execution import decode_forecast, decode_pairs
 from marivo.analysis.methods.physical import FixedShape, Qualified
-from marivo.datasource.adapters import SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.statistics.deviation_oracle import expected as deviation_oracle
@@ -40,6 +40,8 @@ from tests.support.json import key_json
 Carrier = int | float | Decimal
 Profile = Literal["int64-near-extremes", "finite-float64", "decimal-exact"]
 Method = Literal["pearson", "spearman", "kendall", "zscore", "mad"]
+_CROSS_BATCH_CHUNK_SIZE = 2
+_CROSS_BATCH_ROW_COUNT = _CROSS_BATCH_CHUNK_SIZE + 1
 
 
 @pytest.fixture
@@ -165,8 +167,8 @@ def retained_pair(
     zone = "America/New_York" if dst else "UTC"
     start = datetime(2026, 10, 28) if dst else datetime(2026, 8, 1)
     days = (
-        1025
-        if scenario == "cross-batch-long-run"
+        _CROSS_BATCH_ROW_COUNT
+        if scenario == "cross-batch-run"
         else 6
         if scenario == "full-grid-dst-adjacency-duration"
         else 4
@@ -229,8 +231,16 @@ def retained_pair(
                 sizes.append(batch.num_rows)
                 yield batch
 
+        source_batches = SourceSession.batches
+
+        def small_batches(
+            source: SourceSession, read: CompiledRead, *, chunk_size: int
+        ) -> SourceBatchStream:
+            return source_batches(source, read, chunk_size=_CROSS_BATCH_CHUNK_SIZE)
+
         with monkeypatch.context() as producer:
-            if scenario == "cross-batch-long-run":
+            if scenario == "cross-batch-run":
+                producer.setattr(SourceSession, "batches", small_batches)
                 producer.setattr(SourceBatchStream, "_iterate", observed)
             fixed_history = history.group_by(grid).rollup().execute()
         assert isinstance(fixed_history, mv.MaterializedGroupedNumericRelation)
@@ -620,7 +630,7 @@ def _assert_public_retained_identity_case(
 
 
 @pytest.mark.parametrize(
-    "scenario", ["full-grid-dst-adjacency-duration", "cross-batch-long-run", "unavailable-breaks"]
+    "scenario", ["full-grid-dst-adjacency-duration", "cross-batch-run", "unavailable-breaks"]
 )
 def test_public_retained_runs_algorithm(
     scenario: str,
@@ -649,8 +659,8 @@ def test_public_retained_runs_algorithm(
         lookup = {value: i for i, value in enumerate(values[anchor].to_pylist())}
         ordered = [lookup[cell.identity] for cell in grid.cells]
         expected_count = (
-            1025
-            if scenario == "cross-batch-long-run"
+            _CROSS_BATCH_ROW_COUNT
+            if scenario == "cross-batch-run"
             else 6
             if scenario == "full-grid-dst-adjacency-duration"
             else 4
@@ -697,9 +707,9 @@ def test_public_retained_runs_algorithm(
             ]
             assert views["left_kind"].to_pylist() == ["scope_boundary", "unavailable"]
             assert views["right_kind"].to_pylist() == ["unavailable", "scope_boundary"]
-        if scenario == "cross-batch-long-run":
+        if scenario == "cross-batch-run":
             assert any(
-                len(sizes) > 1 and sum(sizes) >= 1025 for sizes in retained_pair.source_batches
+                sizes == (_CROSS_BATCH_CHUNK_SIZE, 1) for sizes in retained_pair.source_batches
             )
         selected = result.where(result.count.value.gte(1)).execute()
         assert selected._dataset is not None

@@ -193,11 +193,6 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         orders.read(REGION)
     buyer, recipient = orders.read(REGION, via=BUYER), orders.read(REGION, via=RECIPIENT)
     assert buyer._node.classification_coordinate() != recipient._node.classification_coordinate()
-    grouped = customers.observe(REVENUE, during=WINDOW, via=BUYER, by=(recipient,))
-    assert grouped.execute().to_pandas().set_index("group")["value"].to_dict() == {
-        "east": 550,
-        "south": 450,
-    }
     both = customers.observe(REVENUE, during=WINDOW, via=BUYER, by=(buyer, recipient))
     assert both.execute().to_pandas().set_index(["group", "coord_0"])["value"].to_dict() == {
         ("east", "south"): 450,

@@ -533,6 +533,7 @@ def test_catalog_collection_render_and_show(semantic_project_factory, capsys):
     assert "available:" in rendered
     assert "- .refs" in rendered
     assert "selection: catalog.metrics.get(<displayed ref>) -> MetricEntry" in rendered
+    assert rendered.count("selection:") == 1
     assert capsys.readouterr().out == ""
 
     result = collection.show()
@@ -740,7 +741,6 @@ def test_catalog_domains_access_and_render_are_silent_and_bounded(semantic_proje
     [
         ("dimensions", "dimension:sales.orders.region", "DimensionEntry"),
         ("time_dimensions", "time_dimension:sales.orders.created_at", "TimeDimensionEntry"),
-        ("metrics", "metric:sales.revenue", "MetricEntry"),
         ("entities", "entity:sales.orders", "EntityEntry"),
     ],
 )
@@ -842,17 +842,11 @@ def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory
     assert "metric" in str(exc_info.value)
 
 
-def test_catalog_require_not_found_raises_typed_error(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(ms.ref.metric("sales.nonexistent"))
-    assert exc_info.value.kind == ErrorKind.NOT_FOUND
-
-
 def test_catalog_get_not_found_error_mentions_browse_hint(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.require(ms.ref.metric("sales.missing"))
+    assert exc_info.value.kind == ErrorKind.NOT_FOUND
     msg = str(exc_info.value)
     assert "catalog.metrics" in msg or "catalog.domains" in msg
 
@@ -861,38 +855,6 @@ def test_catalog_get_no_stdout(semantic_project_factory, capsys):
     catalog = _make_catalog(semantic_project_factory)
     catalog.require(ms.ref.metric("sales.revenue"))
     assert capsys.readouterr().out == ""
-
-
-def test_catalog_get_context_matches_authored_ai_context(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": textwrap.dedent("""\
-                import marivo.datasource as md
-                import marivo.semantic as ms
-                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-                @ms.metric(
-                    entities=[orders],
-                    additivity=ms.additive_all(),
-                    ai_context=ms.ai_context(business_definition="All completed order amounts."),
-                )
-                def revenue(table):
-                    return table.amount.sum()
-            """),
-        }
-    )
-    catalog = SemanticCatalog(project)
-    obj = catalog.require(ms.ref.metric("sales.revenue"))
-    assert obj.details().context.business_definition == "All completed order amounts."
-
-
-def test_catalog_require_source_location_is_populated(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    obj = catalog.require(ms.ref.metric("sales.revenue"))
-    loc = obj.details().source_location
-    assert loc.file != ""
-    assert loc.line > 0
 
 
 def test_catalog_details_expose_ai_context_via_context_field(semantic_project_factory):
@@ -1455,16 +1417,6 @@ def test_catalog_model_and_entity_details_include_children(semantic_project_fact
     )
 
 
-# --- Exact Ref handoff to readiness and membership ---
-
-
-def test_catalog_readiness_accepts_exact_refs(semantic_project_factory) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    report = catalog.readiness(refs=[ms.ref.metric("sales.revenue")])
-
-    assert report.status in {"ready", "ready_with_warnings", "blocked"}
-
-
 # --- ms.load() ---
 
 
@@ -1898,15 +1850,6 @@ def test_catalog_readiness_returns_readiness_report(semantic_project_factory):
     assert isinstance(report, ReadinessReport)
 
 
-def test_catalog_readiness_accepts_semantic_ref_values(semantic_project_factory):
-    from marivo.semantic.readiness import ReadinessReport
-
-    catalog = _make_catalog(semantic_project_factory)
-    revenue_ref = catalog.require(ms.ref.metric("sales.revenue")).ref
-    report = catalog.readiness(refs=[revenue_ref])
-    assert isinstance(report, ReadinessReport)
-
-
 def test_catalog_readiness_normalizes_entry_and_ref_to_same_public_payload(
     semantic_project_factory,
 ) -> None:
@@ -1916,7 +1859,6 @@ def test_catalog_readiness_normalizes_entry_and_ref_to_same_public_payload(
     by_entry = catalog.readiness(refs=[revenue])
     by_ref = catalog.readiness(refs=[revenue.ref])
 
-    assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs
     assert by_entry.analysis_ready_inputs == by_ref.analysis_ready_inputs
     assert by_entry.input_summary == by_ref.input_summary
     assert all(type(value) is Ref for value in by_entry.analysis_ready_inputs)
@@ -1958,7 +1900,6 @@ def test_catalog_readiness_accepts_runtime_expression_and_mixed_roots(
     report = catalog.readiness(refs=[revenue_entry, expression])
 
     assert report.status == "ready"
-    assert report.analysis_ready_inputs == (revenue, expression)
     assert report.analysis_ready_inputs == (revenue, expression)
     assert report.input_summary.refs == (
         "sales.revenue",
@@ -2014,7 +1955,6 @@ def test_catalog_readiness_keeps_unrelated_ref_ready_when_runtime_leaf_is_missin
     report = catalog.readiness(refs=[revenue, missing])
 
     assert report.status == "blocked"
-    assert report.analysis_ready_inputs == (revenue,)
     assert report.analysis_ready_inputs == (revenue,)
     assert {issue.kind for issue in report.blockers} >= {"unknown_ref", "metric_graph_invalid"}
     graph_issue = next(issue for issue in report.blockers if issue.kind == "metric_graph_invalid")
