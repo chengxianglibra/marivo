@@ -114,6 +114,61 @@ def test_checkpoint_raw_oracle_coverage_and_end(tmp_path, coverage):
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize("coverage", ["unknown", "prefix", "complete"])
+def test_history_field_reads_preserve_compact_cell_states(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, coverage: str
+) -> None:
+    from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+    from marivo.datasource.adapters import SourceSession
+
+    session, members, window, claims, values = build_lifecycle_public(tmp_path)
+    known = (
+        None
+        if coverage == "unknown"
+        else START + timedelta(seconds=12)
+        if coverage == "prefix"
+        else END
+    )
+    supplied = () if known is None else (replace(claims[0], complete_through=known),)
+    history = replay(session, members, window, supplied).execute()
+    expected = views(values, known=known)
+
+    def forbid(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Fixed History field read accessed its source")
+
+    monkeypatch.setattr(SourceSession, "batches", forbid)
+    fields = {
+        "distribution": (("share_among_seeded", 4, "undefined", "zero_denominator"),),
+        "transitions": (("share_of_modeled_transitions", 2, "undefined", "zero_denominator"),),
+        "intervals": (("observed_duration", 4, "unknown", "insufficient_coverage"),),
+        "dwell": (
+            ("mean_duration", 6, "undefined", "empty_completed_set"),
+            ("median_duration", 7, "undefined", "empty_completed_set"),
+            ("p90_duration", 8, "undefined", "empty_completed_set"),
+            ("interval_count", 1, "defined", None),
+        ),
+    }
+    for name, selections in fields.items():
+        logical = operations(history)[name]()
+        materialized = logical.execute()
+        assert_view(materialized, name, expected)
+        for receiver in (logical, materialized):
+            for field, index, missing_tag, reason in selections:
+                result = getattr(receiver, field).execute()
+                rows = cell_rows(result._dataset.verified().primary)
+                wanted = [
+                    {
+                        **{f"key_{i}": key for i, key in enumerate(row[0])},
+                        "value": row[index],
+                        "cell_tag": missing_tag if row[index] is None else "defined",
+                        "cell_reason": reason if row[index] is None else None,
+                    }
+                    for row in expected[name]
+                ]
+                assert sorted(rows, key=repr) == sorted(wanted, key=repr)
+
+
+@pytest.mark.runtime
 def test_empty_subject_domain_retains_zero_states_pairs(tmp_path):
     session, members, window, claims, values = build_lifecycle_public(tmp_path, empty=True)
     history = replay(session, members, window, claims).execute()

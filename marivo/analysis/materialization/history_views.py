@@ -22,6 +22,8 @@ from marivo.analysis.core.history_types import (
 )
 from marivo.analysis.core.model import DerivedQuantity, HistoryViewPart
 from marivo.analysis.core.rules import HistoryAxesPrepare, HistoryRead, HistoryView
+from marivo.analysis.materialization.cell_arrow import binding as cell_binding
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import required
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
@@ -487,18 +489,20 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         primary = cell_project(source.primary, keys)
         field = params.field
         primary = primary.append_column("value", source.primary[field])
-        tag = field + "__cell_tag"
-        reason = field + "__cell_reason"
+        cell = next(
+            (c for c in cell_binding(source.primary.schema).cells if c.fields.value == field),
+            None,
+        )
         primary = primary.append_column(
             "cell_tag",
-            source.primary[tag]
-            if tag in source.primary.column_names
+            cell_column(source.primary, cell.fields.tag)
+            if cell is not None
             else pa.array(["defined"] * primary.num_rows, type=pa.string()),
         )
         primary = primary.append_column(
             "cell_reason",
-            source.primary[reason]
-            if reason in source.primary.column_names
+            cell_column(source.primary, cell.fields.reason)
+            if cell is not None
             else pa.nulls(primary.num_rows, type=pa.string()),
         )
     retained = ExchangePart(

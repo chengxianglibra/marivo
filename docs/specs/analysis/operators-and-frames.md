@@ -689,6 +689,9 @@ on the unified local graph path. Logical and materialized History both return
 Logical views; materialized receivers retain fixed leaves. Dwell Duration summary
 fields cannot be pooled with aggregate or rollup. Current-row mean is admitted on
 interval observed_duration and retains exact sum/count for fixed merging.
+History field reads decode Cell state and reason through the field's frozen Cell
+binding, preserving Unknown and Undefined even when physical tag/reason columns
+are absent. Non-Cell fields such as counts remain Defined.
 
 Replay starts at real inception, which may precede the report window; only
 source-origin authority proves its absence. A complete origin history with a
