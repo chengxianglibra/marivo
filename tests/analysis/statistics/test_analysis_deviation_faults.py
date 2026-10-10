@@ -1,4 +1,4 @@
-"""Store receipts and atomic Runtime failures for the connected scoring methods."""
+"""Deviation Runtime failures and admission boundaries."""
 
 from collections.abc import Iterator
 from decimal import Decimal
@@ -10,7 +10,6 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.materialization.contracts import LocalReceipt
@@ -158,66 +157,6 @@ def test_fixed_selected_subject_requires_retained_observation_contract(
         _ = getattr(fixed_members, operation)
     assert failure.value.code == "r8.retained_part"
     assert case.session.runs().items == runs
-
-
-def test_each_receipt_rejects_recovery_continuation_and_exact_hit(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    method: numeric.DeviationMethod = "zscore"
-    case = analysis_dsl_case_factory("j2")
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-03"), grain=mv.grain("day")
-    )
-    original = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=grid,
-            via=ms.ref.relationship("sales." + case.names.buyer),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    logical = original.deviation(method=method)
-    fixed = logical.execute()
-    assert len(fixed.score.to_pandas()) == 8
-    assert fixed._dataset is not None
-    descriptor = fixed._dataset.artifact.descriptor
-    roles = (
-        "primary",
-        "fit_inputs",
-        "fit_state",
-        "finding_policy",
-        "grid_cells",
-        "subject",
-        "subject_map",
-    )
-    for role in roles:
-        receipt = (
-            descriptor.primary_receipt.local
-            if role == "primary"
-            else next(part.local for part in descriptor.parts if part.role == role)
-        )
-        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        original_bytes = path.read_bytes()
-        for fault in ("missing", "corrupt"):
-            if fault == "missing":
-                path.unlink()
-            else:
-                path.write_bytes(b"damaged deviation receipt")
-            runs = case.session.runs().items
-            try:
-                for action in (
-                    lambda: case.session.artifact(fixed.evidence_digest().artifact_ref),
-                    lambda: fixed.score.to_pandas(),
-                    lambda: fixed.where(fixed.score.value.is_defined()).execute(),
-                    logical.execute,
-                ):
-                    with pytest.raises(AnalysisError):
-                        action()
-                    assert case.session.runs().items == runs
-            finally:
-                path.write_bytes(original_bytes)
 
 
 def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(

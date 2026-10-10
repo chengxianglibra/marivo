@@ -56,7 +56,7 @@ assert math.isclose(actual, float(sys.argv[3]), rel_tol=1e-14), actual
     assert result.returncode == 0, result.stderr
 
 
-def test_relationship_path_rejects_empty_or_non_relationship_hops() -> None:
+def test_relationship_path_preserves_hop_order_and_bounded_display(capsys) -> None:
     import marivo.analysis as mv
 
     with pytest.raises(AnalysisError, match=r"mv\.path"):
@@ -65,10 +65,6 @@ def test_relationship_path_rejects_empty_or_non_relationship_hops() -> None:
         mv.path()
     with pytest.raises(AnalysisError, match="Relationship"):
         mv.path(ref.entity("sales.order"))
-
-
-def test_relationship_path_preserves_hop_order_and_bounded_display(capsys) -> None:
-    import marivo.analysis as mv
 
     first, second = ref.relationship("sales.line_order"), ref.relationship("sales.buyer")
     selection = mv.path(first, second)
@@ -97,10 +93,8 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
     import marivo.analysis as mv
     import marivo.semantic as ms
 
-    case = analysis_dsl_case_factory("j3")
+    case = analysis_dsl_case_factory("j3", revenue_unit="1")
     names = case.names
-    order = ms.ref.entity(f"{names.domain}.{names.order}")
-    line = ms.ref.entity(f"{names.domain}.{names.order_line}")
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
     line_order = ms.ref.relationship(f"{names.domain}.{names.line_order}")
     line_revenue = ms.ref.metric(f"{names.domain}.{names.line_revenue}")
@@ -126,6 +120,21 @@ def test_observe_runtime_ratio_over_two_contribution_roots(
     assert list(zip(framed["member"], framed["value"], strict=True)) == [
         ("A", 50.0),
         ("B", 30.0),
+    ]
+    linear = mv.runtime_metric.linear(add=[line_revenue, order_count], label="net_readings")
+    combined = (
+        members.observe(
+            linear,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=(mv.path(line_order, buyer), mv.path(buyer)),
+            by=(mv.member(),),
+        )
+        .execute()
+        .to_pandas()
+    )
+    assert list(zip(combined["member"], combined["value"], strict=True)) == [
+        ("A", 102),
+        ("B", 62),
     ]
 
 
@@ -174,6 +183,29 @@ def test_observe_sliced_runtime_component_selects_its_own_branch(
     assert rows["D"][1] == "null"
     # The unfiltered total would be 1000; the slice must not silently include B.
     assert sum(value for value, tag, _ in rows.values() if tag == "defined") == 850
+    unfiltered = (
+        members.observe(
+            revenue,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=buyer,
+            by=(mv.member(),),
+        )
+        .execute()
+        .to_pandas()
+    )
+    unfiltered_rows = {
+        member: (value, tag)
+        for member, value, tag in zip(
+            unfiltered["member"], unfiltered["value"], unfiltered["cell_tag"], strict=True
+        )
+    }
+    assert [unfiltered_rows[key] for key in ("A", "B", "C")] == [
+        (450.0, "defined"),
+        (150.0, "defined"),
+        (400.0, "defined"),
+    ]
+    assert unfiltered_rows["D"][1] == "null"
+    assert sum(value for value, tag in unfiltered_rows.values() if tag == "defined") == 1000
 
 
 def test_sliced_weighted_mean_filters_pairs_before_reduction(
@@ -210,76 +242,6 @@ def test_sliced_weighted_mean_filters_pairs_before_reduction(
     expected = (450**2 + 400**2) / (450 + 400)
     assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([expected])
-
-
-def test_unsliced_observation_keeps_every_member_contribution(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """The same table without a slice keeps the contributions the slice excluded."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
-
-    members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    observed = members.observe(
-        revenue,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=buyer,
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-    rows = {
-        member: (value, tag)
-        for member, value, tag in zip(
-            framed["member"], framed["value"], framed["cell_tag"], strict=True
-        )
-    }
-
-    # Unfiltered, B's mobile order of 150 is counted and the whole window is 1000.
-    assert rows["A"] == (450.0, "defined")
-    assert rows["B"] == (150.0, "defined")
-    assert rows["C"] == (400.0, "defined")
-    # D has no in-window order at all, so its cell is empty rather than zero.
-    assert rows["D"][1] == "null"
-    assert sum(value for value, tag in rows.values() if tag == "defined") == 1000
-
-
-def test_root_routes_rejects_a_route_per_occurrence_of_one_root(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """Routes bind distinct roots; repetition within one observation rejects."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j3")
-    names = case.names
-    domain = names.domain
-    line = ms.ref.entity(f"{domain}.{names.order_line}")
-    order = ms.ref.entity(f"{domain}.{names.order}")
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    line_order = ms.ref.relationship(f"{domain}.{names.line_order}")
-    line_revenue = ms.ref.metric(f"{domain}.{names.line_revenue}")
-    order_count = ms.ref.metric(f"{domain}.{names.order_count}")
-
-    expression = mv.runtime_metric.ratio(line_revenue, order_count, label="amount_per_order")
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-
-    with pytest.raises(AnalysisError, match="distinct contribution roots"):
-        members.observe(
-            expression,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=(
-                mv.path(line_order, buyer),
-                mv.path(line_order, buyer),
-                mv.path(buyer),
-            ),
-            by=(mv.member(),),
-        )
 
 
 def test_observe_two_branches_of_one_root_over_a_single_route(
@@ -331,46 +293,6 @@ def test_observe_two_branches_of_one_root_over_a_single_route(
     # appear as 150/1. It must instead be an empty contribution.
     assert rows["B"][1] == "null"
     assert rows["B"][2] == "empty_contribution"
-
-
-def test_observe_linear_over_two_distinct_contribution_roots(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    """A signed linear combination reduces each root before combining."""
-    import marivo.analysis as mv
-    import marivo.semantic as ms
-
-    case = analysis_dsl_case_factory("j3", revenue_unit="1")
-    names = case.names
-    domain = names.domain
-    order = ms.ref.entity(f"{domain}.{names.order}")
-    line = ms.ref.entity(f"{domain}.{names.order_line}")
-    buyer = ms.ref.relationship(f"{domain}.{names.buyer}")
-    line_order = ms.ref.relationship(f"{domain}.{names.line_order}")
-    line_revenue = ms.ref.metric(f"{domain}.{names.line_revenue}")
-    order_count = ms.ref.metric(f"{domain}.{names.order_count}")
-
-    expression = mv.runtime_metric.linear(add=[line_revenue, order_count], label="net_readings")
-    members = case.session.members(ms.ref.entity(f"{domain}.{names.customer}"))
-    observed = members.observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=(
-            mv.path(line_order, buyer),
-            mv.path(buyer),
-        ),
-        by=(mv.member(),),
-    )
-
-    framed = observed.execute().to_pandas()
-
-    # j3 raw facts per member: lines 40+60 (A) and 20+40 (B), two orders each.
-    # Both roots reduce independently, so A is 100 + 2 and B is 60 + 2. A single
-    # combined table would fan out to (40+60+20+40) lines and (2+2) orders.
-    assert list(zip(framed["member"], framed["value"], strict=True)) == [
-        ("A", 102),
-        ("B", 62),
-    ]
 
 
 def test_linear_subtract_reverses_its_named_term(
@@ -922,6 +844,19 @@ def test_observation_rejects_wrong_or_extra_root_routes(
                 ms.ref.metric("sales.order_count"), via=routes, by=(mv.member(),)
             )
 
+    expression = mv.runtime_metric.ratio(
+        ms.ref.metric("sales.line_revenue"),
+        ms.ref.metric("sales.order_count"),
+        label="amount_per_order",
+    )
+    with pytest.raises(AnalysisError, match="distinct contribution roots"):
+        case.session.members(ms.ref.entity("sales.customer")).observe(
+            expression,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=(mv.path(line_order, buyer), mv.path(line_order, buyer), mv.path(buyer)),
+            by=(mv.member(),),
+        )
+
 
 def test_linear_rejects_incommensurable_units(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -949,17 +884,7 @@ def test_linear_rejects_incommensurable_units(
         )
 
 
-@pytest.mark.parametrize(
-    "changes",
-    (
-        {"original_state__non_null_pair_count": 3},
-        {"original_state__row_count": -1},
-        {"original_state__weight_sum": 0},
-        {"original_state__weighted_numerator": 2**63},
-        {"original_state__non_null_pair_count": 0},
-    ),
-)
-def test_weighted_state_rejects_corrupted_components(changes: dict[str, int]) -> None:
+def test_weighted_state_rejects_corrupted_components() -> None:
     from marivo.analysis.methods.state_validation import state_matches
 
     primary = {"value": 250.0, "cell_tag": "defined", "cell_reason": None}
@@ -970,7 +895,14 @@ def test_weighted_state_rejects_corrupted_components(changes: dict[str, int]) ->
         "original_state__row_count": 2,
     }
     assert state_matches("original_weighted_mean", primary, state)
-    assert not state_matches("original_weighted_mean", primary, {**state, **changes})
+    for changes in (
+        {"original_state__non_null_pair_count": 3},
+        {"original_state__row_count": -1},
+        {"original_state__weight_sum": 0},
+        {"original_state__weighted_numerator": 2**63},
+        {"original_state__non_null_pair_count": 0},
+    ):
+        assert not state_matches("original_weighted_mean", primary, {**state, **changes}), changes
 
 
 def test_composite_slice_reaches_each_leaf_before_reduction(

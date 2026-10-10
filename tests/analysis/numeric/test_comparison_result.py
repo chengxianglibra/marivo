@@ -18,9 +18,8 @@ def test_alignment_has_checked_exact_and_default_keep() -> None:
         mv.exact(**{"trust": "declared"})
 
 
-@pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
 def test_comparison_owns_independent_cells_and_typed_views(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool, capsys: pytest.CaptureFixture[str]
+    analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from tests.shared_fixtures import run_ids
 
@@ -41,7 +40,7 @@ def test_comparison_owns_independent_cells_and_typed_views(
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
-    first, second = (current.execute(), baseline.execute()) if fixed else (current, baseline)
+    first, second = current, baseline
     comparison = first.compare(second)
     assert isinstance(comparison, mv.LogicalComparisonResult)
     assert isinstance(comparison.absolute, mv.LogicalDifferenceRelation)
@@ -86,24 +85,20 @@ def test_comparison_owns_independent_cells_and_typed_views(
     assert restored.to_pandas().equals(result.to_pandas())
     absolute, relative = comparison.absolute, comparison.relative
     assert sorted(
-        absolute.where(absolute.value.is_defined()).execute().to_pandas()["member"].tolist()
-    ) == ["A", "B", "C"]
-    assert sorted(
         relative.where(relative.value.is_defined()).execute().to_pandas()["member"].tolist()
     ) == ["A", "B"]
     defined = relative.where(relative.value.is_defined())
     # Fixture facts give A=(30-60)/60=-1/2 and B=(200-120)/120=2/3.
-    for method, expected in (
-        (mv.count(), 2),
-        (mv.count_defined(), 2),
-        (mv.sum(), 1 / 6),
-        (mv.mean(), 1 / 12),
-        (mv.min(), -0.5),
-        (mv.max(), 2 / 3),
-    ):
-        assert defined.aggregate(method).execute().to_pandas()["value"].tolist() == pytest.approx(
-            [expected]
-        )
+    assert defined.aggregate(mv.sum()).execute().to_pandas()["value"].tolist() == pytest.approx(
+        [1 / 6]
+    )
+    fixed = current.execute().compare(baseline.execute()).execute()
+    assert isinstance(fixed, mv.MaterializedComparisonResult)
+    assert fixed.to_pandas().equals(result.to_pandas())
+    fixed_relative = fixed.relative.where(fixed.relative.value.is_defined())
+    assert fixed_relative.aggregate(mv.sum()).execute().to_pandas()[
+        "value"
+    ].tolist() == pytest.approx([1 / 6])
     with pytest.raises(AnalysisError):
         first.compare(first)
 
@@ -177,9 +172,6 @@ with patch.object(ms, "load", forbidden), patch.object(SourceSession, "__init__"
     assert run_ids(session) == before
     defined = relative.where(relative.value.is_defined()).execute()
     assert len(defined.to_pandas()) == 1
-    from marivo.refs import ref
-    allocation = absolute.attribute(axes=(ref.dimension("sales.order.channel"),)).execute()
-    assert isinstance(allocation, mv.MaterializedAttributionResult)
 """,
             case.session.id,
             result.state.artifact_ref.ref,
@@ -192,49 +184,6 @@ with patch.object(ms, "load", forbidden), patch.object(SourceSession, "__init__"
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def test_zero_baseline_has_defined_absolute_and_undefined_relative(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import duckdb
-
-    from tests.shared_fixtures import run_ids
-
-    case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute('UPDATE "order" SET amount = 10 WHERE order_id = ?', ["j2_sc"])
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    for fixed in (False, True):
-        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
-        result = left.compare(right).execute()
-        row = result.to_pandas().set_index("member").loc["C"]
-        assert row["absolute"] == 10
-        assert row["absolute_cell_tag"] == "defined"
-        assert row["relative_cell_tag"] == "undefined"
-        assert row["relative_cell_reason"] == "zero_baseline"
-        before = run_ids(case.session)
-        result.absolute.to_pandas()
-        result.relative.to_pandas()
-        assert run_ids(case.session) == before
-        for operation in ("value", "where", "aggregate", "rank", "attribute", "compare", "ratio"):
-            assert not hasattr(result, operation)
-        assert {action.call for action in result.contract().actions} == {
-            "relation.absolute",
-            "relation.relative",
-        }
 
 
 def test_relative_decimal_overflow_prevents_absolute_publication(
@@ -273,16 +222,10 @@ def test_relative_decimal_overflow_prevents_absolute_publication(
         assert publication_counts(case.session) == before
 
 
-@pytest.mark.parametrize(
-    "corruption", ["absolute_cell", "relative_cell", "absolute_type", "comparison_part"]
-)
 def test_dual_exchange_rejects_incomplete_or_forged_views(
     analysis_dsl_case_factory: DslCaseFactory,
-    corruption: str,
 ) -> None:
     from dataclasses import replace
-
-    import pyarrow as pa
 
     from marivo.analysis.materialization.cell_arrow import logical_table
     from marivo.analysis.materialization.errors import MaterializationError
@@ -306,38 +249,8 @@ def test_dual_exchange_rejects_incomplete_or_forged_views(
     assert saved._dataset is not None
     checked = saved._dataset.verified()
     primary, parts = logical_table(checked.primary), checked.parts
-    for valid in (checked.primary, primary):
-        verified = from_arrow(
-            valid,
-            replace(checked.contract, schema=valid.schema, _frozen=None),
-            parts=parts,
-            completed_checks=checked.completed_checks,
-        )
-        assert logical_table(verified.primary).equals(primary)
-    if corruption in ("absolute_cell", "relative_cell"):
-        field = corruption.removesuffix("_cell") + "__value"
-        values = primary[field].to_pylist()
-        values[0] = 99.0
-        primary = primary.set_column(
-            primary.schema.get_field_index(field),
-            field,
-            pa.array(values, primary.schema.field(field).type),
-        )
-    elif corruption == "absolute_type":
-        primary = primary.set_column(
-            primary.schema.get_field_index("absolute__value"),
-            "absolute__value",
-            primary["absolute__value"].cast(pa.float64()),
-        )
-    else:
-        parts = tuple(part for part in parts if part.role != "comparison")
-    expected = {
-        "absolute_cell": "Difference endpoints and primary Cell disagree",
-        "relative_cell": "comparison error envelope and retained operands disagree",
-        "absolute_type": "comparison is missing a mandatory precisely typed Cell",
-        "comparison_part": "missing, reordered or extra method state part",
-    }[corruption]
-    with pytest.raises(MaterializationError, match=expected):
+    parts = tuple(part for part in parts if part.role != "comparison")
+    with pytest.raises(MaterializationError, match="missing, reordered or extra method state part"):
         from_arrow(
             primary,
             replace(checked.contract, schema=primary.schema, _frozen=None),

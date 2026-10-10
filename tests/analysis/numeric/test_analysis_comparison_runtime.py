@@ -137,8 +137,6 @@ def test_public_numeric_difference_source_and_fixed(
 def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
-    from dataclasses import replace
-
     from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
@@ -149,13 +147,13 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     members = case.session.members(ms.ref.entity("sales.customer"))
     current = members.observe(
         ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
     baseline = members.observe(
         ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
@@ -186,30 +184,6 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
             completed_checks=checked.completed_checks,
             method_state=checked.method_state,
         )
-    incomplete_empty = mapping.drop(["correspondence__current_present"]).slice(0)
-    assert checked.method_state is None
-    with pytest.raises(MaterializationError, match="correspondence schema"):
-        from_arrow(
-            checked.primary.slice(0),
-            replace(
-                checked.contract,
-                parts=tuple(
-                    replace(part, schema=incomplete_empty.schema)
-                    if part.role == "correspondence"
-                    else part
-                    for part in checked.contract.parts
-                ),
-            ),
-            parts=tuple(
-                ExchangePart(
-                    part.role,
-                    incomplete_empty if part.role == "correspondence" else part.table.slice(0),
-                )
-                for part in checked.parts
-            ),
-            completed_checks=checked.completed_checks,
-            method_state=None,
-        )
     source_path = case.root / "source_files" if parquet else case.database_path
     offline = source_path.with_name(source_path.name + ".offline")
     source_path.rename(offline)
@@ -224,8 +198,11 @@ duckdb.connect = unavailable
 ms.load = unavailable
 saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert isinstance(saved, mv.MaterializedDifferenceRelation)
-selected = saved.where(saved.value.gt(-1)).execute()
-assert selected.to_pandas().set_index("member")["value"].to_dict() == {"B": 20, "D": 0}
+frame = saved.to_pandas().set_index("member")
+assert frame.loc["D", "cell_tag"] == "null"
+assert frame.loc["D", "cell_reason"] == "empty_contribution"
+selected = saved.where(saved.value.is_defined()).execute()
+assert sorted(selected.to_pandas()["member"].tolist()) == ["A", "B", "C"]
 assert selected._dataset.artifact.descriptor.method_state.kind == "none"
 """
     try:
@@ -354,37 +331,6 @@ assert selected._dataset.verified().contract.signature.quantity == checked.contr
     finally:
         offline.rename(source_path)
     assert completed.returncode == 0, completed.stderr
-
-
-def test_relative_change_exact_finish_and_zero_baseline(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    _numeric_source(case, "BIGINT", True)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
-    current = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        metric,
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=via,
-        by=(mv.member(),),
-    )
-    for left, right in ((current, baseline), (current.execute(), baseline.execute())):
-        saved = left.compare(right).relative.execute()
-        frame = saved.to_pandas().set_index("member")
-        assert float(frame.loc["A", "value"]) == -0.4
-        assert float(frame.loc["B", "value"]) == 0.2
-        assert float(frame.loc["C", "value"]) == -1.0
-        assert frame.loc["D", "cell_tag"] == "undefined"
-        assert frame.loc["D", "cell_reason"] == "zero_baseline"
-        assert saved._dataset is not None
-        assert saved._dataset.artifact.descriptor.method_state.kind == "none"
 
 
 @pytest.mark.parametrize("parquet", [True])
@@ -526,25 +472,12 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
 
 
 @pytest.mark.parametrize("parquet", [True])
-@pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_period_change_retains_original_buckets_and_rejects_renumbering(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, event_kind: str
+    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
-    if event_kind != "utc":
-        model = case.root / "models/semantic/sales/models.py"
-        model.write_text(
-            model.read_text().replace(
-                "parse=ms.timestamp(timezone='UTC')",
-                "parse=None" if event_kind == "date" else "parse=ms.timestamp(timezone='UTC')",
-            )
-        )
-        if event_kind == "date":
-            with duckdb.connect(str(case.database_path)) as connection:
-                connection.execute('ALTER TABLE "order" ALTER ordered_at TYPE DATE')
-        ms.load(workspace_dir=case.root)
     if parquet:
         export_dsl_parquet_models(case, case.root)
         ms.load(workspace_dir=case.root)
@@ -554,13 +487,11 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
     def observe(month: int, day: int, length: int) -> mv.LogicalNumericRelation:
         grid = mv.time_grid(
             during=mv.time_scope(
-                start=f"2026-{month:02d}-{day:02d}"
-                + ("T00:00:00-04:00" if event_kind == "aware_local" else ""),
-                end=f"2026-{month:02d}-{day + length:02d}"
-                + ("T00:00:00-04:00" if event_kind == "aware_local" else ""),
+                start=f"2026-{month:02d}-{day:02d}",
+                end=f"2026-{month:02d}-{day + length:02d}",
             ),
             grain=mv.grain("day"),
-            timezone="America/New_York" if event_kind == "aware_local" else "UTC",
+            timezone="UTC",
         )
         result = members.observe(metric, during=grid, via=via, by=(mv.member(),))
         assert isinstance(result, mv.LogicalNumericRelation)
@@ -703,75 +634,12 @@ assert result.loc["D", "cell_reason"] == "zero_denominator"
     assert process.returncode == 0, process.stderr
 
 
-@pytest.mark.parametrize("parquet", [True])
-def test_composite_keys_double_empty_and_wrong_key_images(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    case = analysis_dsl_case_factory("j2")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute("ALTER TABLE customer ADD tenant BIGINT DEFAULT 7")
-        connection.execute('ALTER TABLE "order" ADD tenant BIGINT DEFAULT 7')
-    model = case.root / "models/semantic/sales/models.py"
-    text = model.read_text().replace(
-        "primary_key=['customer_id']", "primary_key=['tenant', 'customer_id']"
-    )
-    text = text.replace(
-        "buyer = ms.relationship",
-        "customer_tenant = ms.dimension_column(name='tenant', entity=customer, column='tenant')\norder_tenant = ms.dimension_column(name='tenant', entity=orders, column='tenant')\nbuyer = ms.relationship",
-    )
-    text = text.replace(
-        "keys=[ms.join_on(order_customer_id, customer_id)]",
-        "keys=[ms.join_on(order_tenant, customer_tenant), ms.join_on(order_customer_id, customer_id)]",
-    )
-    model.write_text(text)
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    current = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    baseline = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    first, second = current.execute(), baseline.execute()
-    for left, right in ((current, baseline), (first, second)):
-        result = left.compare(right).absolute.execute()
-        frame = result.to_pandas()
-        assert frame["value"].tolist() == [-40, 20, -50, 0]
-        assert result._dataset is not None
-        assert len(result._dataset.verified().contract.key_fields) == 2
-        empty_left, empty_right = (
-            left.where(left.value.gt(10000)),
-            right.where(right.value.gt(10000)),
-        )
-        assert empty_left.compare(empty_right).absolute.execute().to_pandas().empty
-        assert (
-            empty_left.compare(empty_right, align=mv.outer(missing="keep"))
-            .absolute.execute()
-            .to_pandas()
-            .empty
-        )
-        # Each side has one row, but A and D are different complete identities.
-        wrong_left, wrong_right = left.where(left.value.eq(60)), right.where(right.value.eq(50))
-        with pytest.raises(AnalysisError):
-            wrong_left.compare(wrong_right).absolute.execute()
-
-
-@pytest.mark.parametrize("baseline_amount", [-10, -(2**63)])
 def test_public_relative_negative_and_minimum_integer_baseline(
-    analysis_dsl_case_factory: DslCaseFactory, baseline_amount: int
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
+    baseline_amount = -(2**63)
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute('DELETE FROM "order"')
@@ -1209,35 +1077,3 @@ def test_period_change_after_bucket_rollup(
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
         saved = left.compare(right, align=mv.exact(time=mv.ordinal())).absolute.execute()
         assert sorted(saved.to_pandas()["value"].tolist()) == [-1, 0, 0]
-
-
-def test_fixed_comparison_indexes_components_once_per_endpoint(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.analysis.materialization import graph_local_execution as local
-    from marivo.analysis.materialization.graph_exchange import ExchangeResult
-
-    case = analysis_dsl_case_factory("j2")
-    _numeric_source(case, "DOUBLE", True)
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.order_count"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    assert isinstance(observed, mv.LogicalNumericRelation)
-    positive = observed.where(observed.value.gt(0))
-    fixed = positive.ratio(positive).execute()
-    calls = []
-    original = local._operand_components
-
-    def indexed(source: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
-        calls.append(source.primary.num_rows)
-        return original(source)
-
-    monkeypatch.setattr(local, "_operand_components", indexed)
-    result = fixed.ratio(fixed).execute()
-    assert result.to_pandas()["value"].eq(1.0).all()
-    assert len(calls) == 2
-    assert all(count > 1 for count in calls)

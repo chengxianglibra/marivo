@@ -56,25 +56,44 @@ def funnel_public(tmp_path, request):
 
 
 def test_public_funnel_counts_owned_read_and_fixed(funnel_public):
+    from dataclasses import replace
+
+    import marivo.analysis as mv
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization.graph_exchange import from_arrow
+
     session, journeys, pattern, _ = funnel_public
     logical = journeys().funnel()
     fixed = logical.execute()
     frame = fixed.to_pandas()
     assert frame["cohort_count"].tolist() == [2, 2]
     assert frame["lost_count"].tolist() == [0, 1]
-    loss = fixed.read(
-        __import__("marivo.analysis", fromlist=["funnel_loss_rate"]).funnel_loss_rate(
-            step=pattern.steps[1]
-        )
-    ).execute()
+    loss = fixed.read(mv.funnel_loss_rate(step=pattern.steps[1])).execute()
     assert loss.to_pandas()["value"].tolist() == [0.5]
     assert session.artifact(fixed.state.artifact_ref).to_pandas().equals(frame)
     assert fixed.evidence_digest().finding_count == 0
 
+    all_loss = fixed.read(fixed.loss_rate_from_previous).execute()._dataset.verified()
+    selected = loss._dataset.verified()
+    with pytest.raises(AnalysisError):
+        from_arrow(
+            all_loss.primary,
+            replace(selected.contract, schema=all_loss.primary.schema),
+            parts=selected.parts,
+            method_state=None,
+        )
+    with pytest.raises(AnalysisError):
+        from_arrow(
+            selected.primary.slice(0, 0),
+            selected.contract,
+            parts=selected.parts,
+            method_state=None,
+        )
+    ranked = fixed.read(fixed.lost_count).rank(order="descending", ties="ordinal").execute()
+    table = mv.table(lost=ranked.values, rank=ranked.ranks).execute().to_pandas()
+    assert dict(zip(table.lost, table["rank"], strict=True)) == {1: 1, 0: 2}
 
-def test_public_compare_nonempty_findings(funnel_public):
-    session, journeys, _, _ = funnel_public
-    result = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
+    result = logical.compare(journeys(START - timedelta(days=3)).funnel()).execute()
     assert result.evidence_digest().finding_count == 1
     page = result.findings()
     assert len(page.items) == 1
@@ -91,11 +110,18 @@ def test_public_compare_nonempty_findings(funnel_public):
 
 def test_grouped_axis_expansion_allocation_and_fixed(funnel_public):
     import marivo.analysis as mv
+    from marivo.analysis.datasets.errors import DatasetConstructionError
     from marivo.refs import ref
 
     session, journeys, pattern, _ = funnel_public
     axes = (ref.dimension("sales.customers.region"),)
-    change = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel())
+    current_logical = journeys().funnel()
+    foreign = journeys().funnel()
+    with pytest.raises(DatasetConstructionError):
+        current_logical.read(foreign.lost_count)
+    with pytest.raises(DatasetConstructionError):
+        current_logical.read(mv.funnel_loss_rate(step=pattern.steps[0]))
+    change = current_logical.compare(journeys(START - timedelta(days=3)).funnel())
     allocation = change.attribute(
         target=mv.funnel_loss_rate(step=pattern.steps[1]), axes=axes
     ).execute()
@@ -109,6 +135,26 @@ def test_grouped_axis_expansion_allocation_and_fixed(funnel_public):
         session.artifact(allocation.state.artifact_ref).findings().items
         == allocation.findings().items
     )
+    parts = change.attribute(
+        target=mv.funnel_loss_rate(step=pattern.steps[1]), axes=axes, top_k=1
+    ).execute()
+    selected = parts.where(parts.contribution.value.gt(0)).execute()
+    declaration = next(
+        part
+        for part in selected._node.root.signature.parts
+        if isinstance(
+            part,
+            __import__(
+                "marivo.analysis.core.model", fromlist=["FunnelAllocationPart"]
+            ).FunnelAllocationPart,
+        )
+    )
+    assert not declaration.complete
+    assert selected.to_pandas()["value"].gt(0).all()
+    ranking = parts.contribution.rank(order="descending", ties="ordinal").execute()
+    table = mv.table(contribution=ranking.values, rank=ranking.ranks).execute()
+    ranked_frame = table.to_pandas()
+    assert sorted(ranked_frame["rank"].tolist()) == list(range(1, len(ranked_frame) + 1))
     current = journeys().funnel(axes=axes).execute()
     baseline = journeys(START - timedelta(days=3)).funnel(axes=axes).execute()
     fixed = current.compare(baseline).execute()
@@ -229,43 +275,6 @@ def test_outer_null_empty_and_zero_delta_shares():
             2,
             1,
         )
-
-
-def test_allocation_selection_rank_table_and_repair(funnel_public):
-    import marivo.analysis as mv
-    from marivo.analysis.datasets.errors import DatasetConstructionError
-    from marivo.refs import ref
-
-    _, journeys, pattern, _ = funnel_public
-    current = journeys().funnel()
-    foreign = journeys().funnel()
-    with pytest.raises(DatasetConstructionError):
-        current.read(foreign.lost_count)
-    with pytest.raises(DatasetConstructionError):
-        current.read(mv.funnel_loss_rate(step=pattern.steps[0]))
-    change = current.compare(journeys(START - timedelta(days=3)).funnel())
-    parts = change.attribute(
-        target=mv.funnel_loss_rate(step=pattern.steps[1]),
-        axes=(ref.dimension("sales.customers.region"),),
-        top_k=1,
-    ).execute()
-    selected = parts.where(parts.contribution.value.gt(0)).execute()
-    declaration = next(
-        p
-        for p in selected._node.root.signature.parts
-        if isinstance(
-            p,
-            __import__(
-                "marivo.analysis.core.model", fromlist=["FunnelAllocationPart"]
-            ).FunnelAllocationPart,
-        )
-    )
-    assert not declaration.complete
-    assert selected.to_pandas()["value"].gt(0).all()
-    ranking = parts.contribution.rank(order="descending", ties="ordinal").execute()
-    table = mv.table(contribution=ranking.values, rank=ranking.ranks).execute()
-    frame = table.to_pandas()
-    assert sorted(frame["rank"].tolist()) == list(range(1, len(frame) + 1))
 
 
 def test_findings_transaction_failure_has_no_partial_publication(funnel_public):
@@ -553,33 +562,6 @@ def test_funnel_exact_period_and_matching_rejections(funnel_public):
         )
 
 
-def test_owned_read_exact_step_and_rank_projection(funnel_public):
-    from dataclasses import replace
-
-    import marivo.analysis as mv
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import from_arrow
-
-    _, journeys, pattern, _ = funnel_public
-    fixed = journeys().funnel().execute()
-    all_loss = fixed.read(fixed.loss_rate_from_previous).execute()._dataset.verified()
-    selected = fixed.read(mv.funnel_loss_rate(step=pattern.steps[1])).execute()._dataset.verified()
-    with pytest.raises(AnalysisError):
-        from_arrow(
-            all_loss.primary,
-            replace(selected.contract, schema=all_loss.primary.schema),
-            parts=selected.parts,
-            method_state=None,
-        )
-    with pytest.raises(AnalysisError):
-        from_arrow(
-            selected.primary.slice(0, 0), selected.contract, parts=selected.parts, method_state=None
-        )
-    ranked = fixed.read(fixed.lost_count).rank(order="descending", ties="ordinal").execute()
-    table = mv.table(lost=ranked.values, rank=ranked.ranks).execute().to_pandas()
-    assert dict(zip(table.lost, table["rank"], strict=True)) == {1: 1, 0: 2}
-
-
 def test_large_exact_count_ratio_and_numeric_axis_order():
     from marivo.analysis.methods.funnel import FunnelRow, axis_key
 
@@ -594,10 +576,13 @@ def test_large_exact_count_ratio_and_numeric_axis_order():
     ]
 
 
-def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
-    from marivo.analysis.materialization.errors import MaterializationError
+def test_finding_publication_rejects_corruption_and_preserves_empty_policy(funnel_public):
+    import duckdb
 
-    session, journeys, _, _ = funnel_public
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.graph_findings import POLICY
+
+    session, journeys, _, database = funnel_public
     zero = journeys().funnel().execute()
     compared = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()
     with session._runtime.store._write() as connection:
@@ -610,13 +595,6 @@ def test_zero_policy_rejects_an_injected_nonempty_collection(funnel_public):
     with pytest.raises(MaterializationError):
         zero.findings()
 
-
-def test_no_eligible_rows_preserves_frozen_extractor_policy(funnel_public):
-    import duckdb
-
-    from marivo.analysis.materialization.graph_findings import POLICY
-
-    session, journeys, _, database = funnel_public
     with duckdb.connect(str(database)) as connection:
         connection.execute("DELETE FROM started_rows")
     result = journeys().funnel().compare(journeys(START - timedelta(days=3)).funnel()).execute()

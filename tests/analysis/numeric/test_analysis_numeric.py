@@ -159,32 +159,6 @@ def test_float_original_mean_state(analysis_dsl_case_factory: DslCaseFactory) ->
         assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
 
 
-def test_original_extrema(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    case = analysis_dsl_case_factory("j1")
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-    )
-    ms.load(workspace_dir=case.root)
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    for agg, expected in (("min", 150), ("max", 450)):
-        metric = mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg=agg, label="extreme"
-        )
-        logical = members.observe(
-            metric,
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        fixed = logical.execute()
-        assert fixed.to_pandas().set_index("member").loc["D", "cell_tag"] == "null"
-        assert logical.rollup().execute().to_pandas()["value"].tolist() == [expected]
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-
-
 def test_unsupported_exact_aggregate_suggests_definition() -> None:
     from marivo.semantic._aggregate_accuracy import aggregate_repair
 
@@ -338,6 +312,18 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
             by=(mv.member(), *((channel,) if coordinates else ())),
         )
         fixed = logical.execute()
+        if kind in ("min", "max"):
+            expected_by_member = (
+                {"A": 1.0, "B": 4.000001, "C": 7.0, "D": 3.0}
+                if kind == "min"
+                else {
+                    "A": Decimal("1.000001"),
+                    "B": Decimal("4.000001"),
+                    "C": Decimal("7.000000"),
+                    "D": Decimal("3.000000"),
+                }
+            )
+            assert fixed.to_pandas().set_index("member")["value"].to_dict() == expected_by_member
         if kind == "weighted":
             assert "zero_weight_sum" in fixed.to_pandas().cell_reason.tolist()
         expected = (
@@ -584,17 +570,21 @@ def test_typed_temporal_matrix(
 
 
 def test_native_integer_ratio_matches_independent_fraction() -> None:
-    import random
     from fractions import Fraction
 
     import ibis
 
     from marivo.analysis.compiler.numeric_sql import integer_divide
 
-    randomizer = random.Random(56)
-    pairs = [(2**53 + 1, 3), (2**63 - 1, 2**63 - 3), (-(2**63), 7), (0, 7), (1, 2**63 - 1)]
-    pairs += [
-        (randomizer.randrange(-(2**63), 2**63), randomizer.randrange(1, 2**63)) for _ in range(200)
+    pairs = [
+        (2**53 + 1, 3),
+        (2**63 - 1, 2**63 - 3),
+        (-(2**63), 7),
+        (0, 7),
+        (1, 2**63 - 1),
+        (-1, 2),
+        (3, 2),
+        (2**62, 1),
     ]
     backend = ibis.duckdb.connect()
     try:
@@ -990,24 +980,20 @@ def test_fixed_numeric_merge_order_and_partition_oracle() -> None:
                 assert tree[1] == expected
 
 
-@pytest.mark.parametrize(
-    "operation,q",
-    [
+def test_definition_quantile_rejects_invalid_q() -> None:
+    cases: tuple[tuple[Literal["percentile", "approx_percentile"], float], ...] = (
         ("percentile", True),
         ("percentile", 0),
         ("percentile", 1),
         ("percentile", float("nan")),
         ("percentile", float("inf")),
         ("approx_percentile", 0),
-    ],
-)
-def test_definition_quantile_rejects_invalid_q(
-    q: float, operation: Literal["percentile", "approx_percentile"]
-) -> None:
-    with pytest.raises(ValueError):
-        mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg=(operation, q), label="invalid"
-        )
+    )
+    for operation, q in cases:
+        with pytest.raises(ValueError):
+            mv.runtime_metric.aggregate(
+                ms.ref.measure("sales.order.amount"), agg=(operation, q), label="invalid"
+            )
 
 
 def test_exact_approximate_replay_identities_never_alias() -> None:

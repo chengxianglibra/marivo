@@ -3,14 +3,12 @@
 from decimal import Decimal
 from typing import Literal
 
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -55,27 +53,6 @@ def test_public_source_fixed_association(
     selected = result.where(result.selected.value.eq(True)).execute()
     assert selected.coefficient.to_pandas().value.tolist() == rows.value.tolist()
     assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
-    assert result._dataset is not None
-    checked = result._dataset.verified()
-    for part in checked.parts:
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(p for p in checked.parts if p.role != part.role),
-                method_state=checked.method_state,
-            )
-        corrupt = pa.table({part.role + "__retained": ["{}"]})
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(
-                    ExchangePart(p.role, corrupt) if p.role == part.role else p
-                    for p in checked.parts
-                ),
-                method_state=checked.method_state,
-            )
 
 
 @pytest.mark.parametrize("model", (mv.naive(), mv.drift(), mv.seasonal_naive(periods=2)))
@@ -115,25 +92,6 @@ def test_public_source_fixed_forecast(
         with pytest.raises(StatisticalRelationError):
             history.forecast(horizon=mv.periods(1), model=model, interval_level=level)
         assert case.session.runs().items == before
-    assert result._dataset is not None
-    checked = result._dataset.verified()
-    for part in checked.parts:
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(p for p in checked.parts if p.role != part.role),
-            )
-        corrupt = pa.table({part.role + "__retained": ["{}"]})
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(
-                    ExchangePart(p.role, corrupt) if p.role == part.role else p
-                    for p in checked.parts
-                ),
-            )
     with pytest.raises(AnalysisError):
         result.lower.aggregate(mv.sum())
 

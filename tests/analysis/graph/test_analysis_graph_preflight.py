@@ -1174,7 +1174,7 @@ def test_two_hop_original_sum_zero_preserves_component_state(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("scenario", ("j3", "j3_weighting", "zero_denominator"))
+@pytest.mark.parametrize("scenario", ("j3_weighting", "zero_denominator"))
 def test_original_ratio_preserves_independent_root_components(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,

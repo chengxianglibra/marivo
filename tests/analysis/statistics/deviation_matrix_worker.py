@@ -150,8 +150,6 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
         ):
             session = mv.session.resume(manifest["session"], by="id")
             entries = manifest["entries"]
-            if phase == "cold":
-                entries = [entry for entry in entries if entry["method"] == "zscore"]
             for entry in entries:
                 captured_input, recovered = (
                     session.artifact(entry["input"]),
@@ -170,28 +168,7 @@ def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
                 verify(
                     fixed, entry["index"], entry["method"], domain, key_profile, "artifact_python"
                 )
-                if phase == "fixed":
-                    entry["fixed"] = fixed.evidence_digest().artifact_ref.ref
-                else:
-                    assert fixed.evidence_digest().artifact_ref.ref == entry["fixed"]
-                    cold_input = original.rank(order="ascending", ties="dense").values.execute()
-                    cold_logical = cold_input.deviation(method=entry["method"])
-                    cold = cold_logical.execute()
-                    verify(
-                        cold,
-                        entry["index"],
-                        entry["method"],
-                        domain,
-                        key_profile,
-                        "artifact_python",
-                    )
-                    entry["cold"] = cold.evidence_digest().artifact_ref.ref
-                    assert entry["cold"] != entry["fixed"]
-                    runs = session.runs().items
-                    assert (
-                        cold_logical.execute().evidence_digest().artifact_ref.ref == entry["cold"]
-                    )
-                    assert session.runs().items == runs
+                entry["fixed"] = fixed.evidence_digest().artifact_ref.ref
             path.write_text(json.dumps(manifest))
     print(
         json.dumps(

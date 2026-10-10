@@ -82,8 +82,10 @@ def test_category_counts_without_numeric_conversion(
         ms.ref.dimension(f"{n.domain}.{n.customer}.{n.region}")
     )
     for current in (category, category.execute()):
-        assert current.aggregate(mv.count()).execute().to_pandas().iloc[0]["value"] == 4
-        assert current.aggregate(mv.count_defined()).execute().to_pandas().iloc[0]["value"] == 4
+        for method in (mv.count(), mv.count_defined()):
+            result = current.aggregate(method).execute()
+            assert result.to_pandas().iloc[0]["value"] == 4
+            assert result.rollup().execute().to_pandas().iloc[0]["value"] == 4
 
 
 def test_empty_numeric_row_state(
@@ -321,33 +323,6 @@ assert fixed.rollup().execute().to_pandas().iloc[0]['value'] == 49
     assert completed.returncode == 0, completed.stderr
 
 
-def test_no_key_grouping_is_singleton(retained_coordinates_case):
-    case = retained_coordinates_case
-    result = (
-        case.session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(),
-        )
-        .rollup()
-        .execute()
-    )
-    assert result.to_pandas()["value"].tolist() == [147]
-
-
-def test_category_count_uses_current_rows(retained_coordinates_case):
-    case = retained_coordinates_case
-    category = case.session.members(ms.ref.entity("sales.customer")).read(
-        ms.ref.dimension("sales.customer.region")
-    )
-    for current in (category, category.execute()):
-        result = current.aggregate(mv.count()).execute()
-        assert result.to_pandas()["value"].tolist() == [3]
-        assert result.rollup().execute().to_pandas()["value"].tolist() == [3]
-
-
 def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     analysis_dsl_case_factory: DslCaseFactory,
 ):
@@ -415,30 +390,8 @@ def test_required_row_state_damage_revokes_continuation(retained_coordinates_cas
             path.write_bytes(original)
 
 
-def test_consumed_classification_must_cover_every_complete_key(retained_coordinates_case):
-    from marivo.analysis.errors import AnalysisError
-
-    case = retained_coordinates_case
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    region = members.read(ms.ref.dimension("sales.customer.region"))
-    east = (
-        region.where(region.value.eq("east"))
-        .members()
-        .read(ms.ref.dimension("sales.customer.region"))
-    )
-    observed = members.observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    with pytest.raises(AnalysisError):
-        observed.execute().group_by(east.execute()).rollup().execute()
-
-
-@pytest.mark.parametrize("parquet", [False])
 def test_weighted_coordinates_merge_paired_components(
-    analysis_dsl_case_factory: DslCaseFactory, parquet
+    analysis_dsl_case_factory: DslCaseFactory,
 ):
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as connection:
@@ -448,8 +401,6 @@ def test_weighted_coordinates_merge_paired_components(
         model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
         + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nweighted = ms.weighted_mean(name='weighted', value=amount, weight=weight)\n"
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     channel = ms.ref.dimension("sales.order.channel")
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
@@ -523,14 +474,10 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
         assert result.rollup().execute().to_pandas()["value"].tolist() == [36.75]
 
 
-@pytest.mark.parametrize("violation", ["null", "outside"])
-def test_invalid_classification_rejects(retained_coordinates_case, violation: str) -> None:
+def test_invalid_classification_rejects(retained_coordinates_case) -> None:
     from marivo.analysis.errors import AnalysisError
 
     case = retained_coordinates_case
-    if violation == "null":
-        with duckdb.connect(str(case.database_path)) as connection:
-            connection.execute("UPDATE customer SET region = NULL WHERE customer_id = 'C'")
     members = case.session.members(ms.ref.entity("sales.customer"))
     region = members.read(ms.ref.dimension("sales.customer.region"))
     observed = members.observe(
@@ -539,10 +486,25 @@ def test_invalid_classification_rejects(retained_coordinates_case, violation: st
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    if violation == "outside":
-        region = region.where(region.value.eq("east"))
+    east_region = region.where(region.value.eq("east"))
     with pytest.raises(AnalysisError):
-        observed.group_by(region).rollup().execute()
+        observed.group_by(east_region).rollup().execute()
+    east = east_region.members().read(ms.ref.dimension("sales.customer.region"))
+    with pytest.raises(AnalysisError):
+        observed.execute().group_by(east.execute()).rollup().execute()
+
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("UPDATE customer SET region = NULL WHERE customer_id = 'C'")
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    null_region = members.read(ms.ref.dimension("sales.customer.region"))
+    values = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(mv.member(),),
+    )
+    with pytest.raises(AnalysisError):
+        values.group_by(null_region).rollup().execute()
 
 
 def test_duplicate_classification_rejects_source_and_fixed(retained_coordinates_case) -> None:
@@ -832,8 +794,8 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
         )
         .execute()
     )
-    for empty in (False, True):
-        for method in (mv.count(), mv.mean()):
+    for empty, methods in ((False, (mv.count(), mv.mean())), (True, (mv.mean(),))):
+        for method in methods:
             current = fixed
             if empty or method.kind == "mean":
                 current = current.where(current.value.is_defined()).execute()

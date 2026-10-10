@@ -10,13 +10,12 @@ from marivo.analysis._cohort import decide
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize(
-    "rule,k,t,u,f,expected",
-    [
+def test_quantifier_decisions() -> None:
+    cases: tuple[tuple[Literal["any", "at_least", "all"], int, int, int, int, bool | None], ...] = (
         ("at_least", 3, 3, 1, 0, True),
         ("at_least", 3, 1, 1, 2, False),
         ("at_least", 3, 2, 1, 1, None),
@@ -24,33 +23,30 @@ from tests.support.paths import PROJECT_ROOT
         ("any", 1, 0, 1, 1, None),
         ("all", 1, 1, 1, 1, False),
         ("all", 1, 2, 0, 0, True),
-    ],
-)
-def test_quantifier_decisions(
-    rule: Literal["any", "at_least", "all"],
-    k: int,
-    t: int,
-    u: int,
-    f: int,
-    expected: bool | None,
-) -> None:
-    assert decide(rule, k, "false", t, u, f) is expected
+    )
+    for rule, k, true_count, unknown_count, false_count, expected in cases:
+        assert decide(rule, k, "false", true_count, unknown_count, false_count) is expected, (
+            rule,
+            k,
+            true_count,
+            unknown_count,
+            false_count,
+        )
+
+    empty_cases: tuple[tuple[Literal["true", "false", "undefined"], bool | None], ...] = (
+        ("true", True),
+        ("false", False),
+        ("undefined", None),
+    )
+    for empty, expected in empty_cases:
+        assert decide("all", 1, empty, 0, 0, 0) is expected
+        assert decide("any", 1, empty, 0, 0, 0) is False
+        assert decide("at_least", 3, empty, 0, 0, 0) is False
 
 
-@pytest.mark.parametrize("empty,expected", [("true", True), ("false", False), ("undefined", None)])
-def test_explicit_empty_policy(
-    empty: Literal["true", "false", "undefined"], expected: bool | None
-) -> None:
-    assert decide("all", 1, empty, 0, 0, 0) is expected
-    assert decide("any", 1, empty, 0, 0, 0) is False
-    assert decide("at_least", 3, empty, 0, 0, 0) is False
-
-
-@pytest.mark.parametrize("parquet", [False])
 @pytest.mark.parametrize("event_kind", ["utc", "date", "aware_local"])
 def test_full_entity_time_cohort(
     analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
     event_kind: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -65,9 +61,6 @@ def test_full_entity_time_cohort(
         )
         with duckdb.connect(str(case.database_path)) as db:
             db.execute('ALTER TABLE "order" ALTER ordered_at TYPE DATE')
-        ms.load(workspace_dir=case.root)
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
         ms.load(workspace_dir=case.root)
     targets = case.session.members(ms.ref.entity(f"{n.domain}.{n.customer}"))
     grid = mv.time_grid(
@@ -111,10 +104,8 @@ def test_full_entity_time_cohort(
     assert incomplete.value.stage == "graph_check"
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_previous_week_mean_selects_users_for_current_week_spending(
     analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
 ) -> None:
     import duckdb
 
@@ -155,15 +146,6 @@ def test_previous_week_mean_selects_users_for_current_week_spending(
         "spending_amount = ms.aggregate(name='spending_amount', measure=purchase_amount, agg='sum', time=purchase_time)\n"
         "purchase_to_user = ms.relationship(name='purchase_to_user', from_entity=purchases, to_entity=customer, keys=[ms.join_on(purchase_user, customer_id)])\n"
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        with duckdb.connect(str(case.database_path)) as database:
-            for name in ("usage_sessions", "purchases"):
-                target = case.root / "source_files" / f"{name}.parquet"
-                database.sql(f"SELECT * FROM {name}").write_parquet(str(target))
-                model.write_text(
-                    model.read_text().replace(f"md.table({name!r})", f"md.parquet({str(target)!r})")
-                )
     ms.load(workspace_dir=case.root)
     user = ms.ref.entity("sales.customer")
     users = case.session.members(user)

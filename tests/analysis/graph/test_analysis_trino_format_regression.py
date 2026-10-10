@@ -1,7 +1,6 @@
 """Datasource-owned strptime translation and dialect compilation regression."""
 
 import ibis
-import pytest
 
 from marivo.datasource.engines import profile_for_backend_name
 
@@ -16,17 +15,15 @@ def test_ibis_emits_strptime_for_trino_dialect():
     assert "yyyyMMdd" not in sql
 
 
-@pytest.mark.parametrize(
-    "backend,dialect", [("trino", "trino"), ("presto", "trino"), ("mysql", "mysql")]
-)
-def test_profile_translates_minutes_for_native_dialect(backend, dialect):
-    table = ibis.table({"created_at": "string"}, name="orders")
-    fmt = profile_for_backend_name(backend).translate_strptime_format("%Y-%m-%d %H:%M:%S")
-    assert "%M" not in fmt
-    assert "%i" in fmt
-    sql = ibis.to_sql(table.created_at.as_timestamp(fmt), dialect=dialect)
-    assert "%M" not in sql
-    assert "%i" in sql or "%T" in sql
+def test_profile_translates_minutes_for_native_dialect():
+    for backend, dialect in (("trino", "trino"), ("presto", "trino"), ("mysql", "mysql")):
+        table = ibis.table({"created_at": "string"}, name="orders")
+        fmt = profile_for_backend_name(backend).translate_strptime_format("%Y-%m-%d %H:%M:%S")
+        assert "%M" not in fmt
+        assert "%i" in fmt
+        sql = ibis.to_sql(table.created_at.as_timestamp(fmt), dialect=dialect)
+        assert "%M" not in sql
+        assert "%i" in sql or "%T" in sql
 
 
 def test_duckdb_profile_preserves_python_minutes():

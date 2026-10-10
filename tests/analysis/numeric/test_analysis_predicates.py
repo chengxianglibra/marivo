@@ -291,8 +291,14 @@ assert result.members(through=result.subject_binding).execute().to_pandas().memb
     assert completed.returncode == 0, completed.stderr
 
 
-@pytest.mark.parametrize("physical", ["BIGINT", "DOUBLE", "DECIMAL(18,2)"])
 def test_public_precise_field_comparisons(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    for physical in ("BIGINT", "DOUBLE", "DECIMAL(18,2)"):
+        _assert_public_precise_field_comparison(analysis_dsl_case_factory, physical)
+
+
+def _assert_public_precise_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory, physical: str
 ) -> None:
     import duckdb
@@ -328,8 +334,14 @@ def test_public_precise_field_comparisons(
             assert restored.where(restored.value.gt(threshold)).execute().to_pandas().equals(frame)
 
 
-@pytest.mark.parametrize("unit,parquet", [("us", False), ("s", True), ("ns", True)])
 def test_public_duration_field_comparison(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    for unit, parquet in (("us", False), ("s", True), ("ns", True)):
+        _assert_public_duration_field_comparison(analysis_dsl_case_factory, unit, parquet)
+
+
+def _assert_public_duration_field_comparison(
     analysis_dsl_case_factory: DslCaseFactory, unit: str, parquet: bool
 ) -> None:
     import duckdb

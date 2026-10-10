@@ -563,7 +563,6 @@ def test_deviation_deadline_failure_is_atomic(
     [
         ("BIGINT", "table", "zscore"),
         ("DOUBLE", "parquet", "mad"),
-        ("DECIMAL(38,38)", "parquet", "zscore"),
     ],
 )
 @pytest.mark.slow

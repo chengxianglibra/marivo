@@ -41,13 +41,13 @@ RECOVERY_METHODS = (
 )
 
 
-@pytest.mark.parametrize("method", RECOVERY_METHODS)
 def test_source_parts_versions_keys_scope_and_finding_authority(
-    analysis_dsl_case_factory: DslCaseFactory, method: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     """Mutate each authority separately while retaining the other valid parts."""
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
+    method = "forecast.naive@v1"
     result = graphs(inputs(session))[method].execute()
     check(result, method)
     assert result._dataset is not None
@@ -162,9 +162,8 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         )
 
 
-@pytest.mark.parametrize("fault", ("missing_interval", "duration", "schema"))
 def test_frozen_run_witnesses_reject_damage_without_segmenting(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
@@ -173,51 +172,48 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
     retained = result._dataset.verified()
     _, state = runs_execution._decode(retained.parts)
     original = load(state.views)
-    rows = original.to_pylist()
-    if fault == "missing_interval":
-        rows.clear()
-    elif fault == "duration":
-        from datetime import timedelta
-
-        rows[0]["duration"] = timedelta(days=1)
-    elif fault == "input_row":
-        rows[0]["input_rows"] = [0, 1]
-    elif fault == "overlap":
-        rows.append(rows[0].copy())
-    elif fault == "termination":
-        rows[0]["left_kind"] = "scope_boundary"
-    views = pa.Table.from_pylist(rows, schema=original.schema)
-    if fault == "schema":
-        views = views.set_column(
-            views.schema.get_field_index("duration"),
-            "duration",
-            views["duration"].cast(pa.duration("ms")),
-        )
-    damaged = replace(state, views=save(views))
-    parts = tuple(
-        ExchangePart(
-            p.role,
-            pa.table({"run_cells__retained": [runs_execution.RUNS.dump_json(damaged).decode()]}),
-        )
-        if p.role == "run_cells"
-        else p
-        for p in retained.parts
-    )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("recovery resegmented original cells")
 
     monkeypatch.setattr(runs_execution, "compute", forbidden)
-    from_arrow(
-        retained.primary,
-        retained.contract,
-        parts=retained.parts,
-        method_state=retained.method_state,
-    )
-    with pytest.raises(AnalysisError):
-        from_arrow(
-            retained.primary, retained.contract, parts=parts, method_state=retained.method_state
+    for fault in ("missing_interval", "duration", "schema"):
+        rows = original.to_pylist()
+        if fault == "missing_interval":
+            rows.clear()
+        elif fault == "duration":
+            from datetime import timedelta
+
+            rows[0]["duration"] = timedelta(days=1)
+        views = pa.Table.from_pylist(rows, schema=original.schema)
+        if fault == "schema":
+            views = views.set_column(
+                views.schema.get_field_index("duration"),
+                "duration",
+                views["duration"].cast(pa.duration("ms")),
+            )
+        damaged = replace(state, views=save(views))
+        parts = tuple(
+            ExchangePart(
+                p.role,
+                pa.table(
+                    {"run_cells__retained": [runs_execution.RUNS.dump_json(damaged).decode()]}
+                ),
+            )
+            if p.role == "run_cells"
+            else p
+            for p in retained.parts
         )
+        from_arrow(
+            retained.primary,
+            retained.contract,
+            parts=retained.parts,
+            method_state=retained.method_state,
+        )
+        with pytest.raises(AnalysisError):
+            from_arrow(
+                retained.primary, retained.contract, parts=parts, method_state=retained.method_state
+            )
 
 
 def test_run_owned_fields_compare_logical_cells(
@@ -274,66 +270,68 @@ def test_run_owned_fields_compare_logical_cells(
                     )
 
 
-@pytest.mark.parametrize("method", RECOVERY_METHODS)
 def test_every_receipt_part_read_recovery_and_hit(
-    analysis_dsl_case_factory: DslCaseFactory, method: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
     originals = inputs(session)
     fixed_inputs = tuple(v.execute() for v in originals)
-    logical = graphs((fixed_inputs[0], fixed_inputs[1], fixed_inputs[2]))[method]
-    result = logical.execute()
-    check(result, method)
-    assert result._dataset is not None
-    retained = result._dataset.verified()
-    descriptor = result._dataset.artifact.descriptor
-    saved = snapshot(result)
-    before = session.runs().items
-    for part in retained.parts:
-        for parts in (
-            tuple(p for p in retained.parts if p.role != part.role),
-            tuple(
-                ExchangePart(p.role, pa.table({p.role + "__retained": ["{}"]}))
-                if p.role == part.role
-                else p
-                for p in retained.parts
-            ),
-        ):
-            try:
-                from_arrow(
-                    retained.primary,
-                    retained.contract,
-                    parts=parts,
-                    method_state=retained.method_state,
-                )
-            except AnalysisError:
-                pass
-            else:
-                pytest.fail(f"accepted removed or corrupt required part {part.role}")
-    for receipt in (descriptor.primary_receipt.local, *(p.local for p in descriptor.parts)):
-        path: Path = (
-            case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        )
-        original = path.read_bytes()
-        for damage in (None, b"damaged statistical receipt"):
-            if damage is None:
-                path.unlink()
-            else:
-                path.write_bytes(damage)
-            try:
-                for action in (
-                    lambda: session.artifact(result.state.artifact_ref),
-                    result.to_pandas,
-                    logical.execute,
-                ):
-                    with pytest.raises(AnalysisError):
-                        action()
-                    assert session.runs().items == before
-            finally:
-                path.write_bytes(original)
-    assert snapshot(result) == saved
-    assert session._runtime.store.resources(session.id) == ()
+    fixed = (fixed_inputs[0], fixed_inputs[1], fixed_inputs[2])
+    for method in RECOVERY_METHODS:
+        logical = graphs(fixed)[method]
+        result = logical.execute()
+        check(result, method)
+        assert result._dataset is not None
+        retained = result._dataset.verified()
+        descriptor = result._dataset.artifact.descriptor
+        saved = snapshot(result)
+        artifact_ref = result.state.artifact_ref
+        before = session.runs().items
+        for part in retained.parts:
+            for parts in (
+                tuple(p for p in retained.parts if p.role != part.role),
+                tuple(
+                    ExchangePart(p.role, pa.table({p.role + "__retained": ["{}"]}))
+                    if p.role == part.role
+                    else p
+                    for p in retained.parts
+                ),
+            ):
+                try:
+                    from_arrow(
+                        retained.primary,
+                        retained.contract,
+                        parts=parts,
+                        method_state=retained.method_state,
+                    )
+                except AnalysisError:
+                    pass
+                else:
+                    pytest.fail(f"accepted removed or corrupt required part {part.role}")
+        for receipt in (descriptor.primary_receipt.local, *(p.local for p in descriptor.parts)):
+            path: Path = (
+                case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
+            )
+            original = path.read_bytes()
+            for damage in (None, b"damaged statistical receipt"):
+                if damage is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(damage)
+                try:
+                    for action in (
+                        lambda reference=artifact_ref: session.artifact(reference),
+                        result.to_pandas,
+                        logical.execute,
+                    ):
+                        with pytest.raises(AnalysisError):
+                            action()
+                        assert session.runs().items == before
+                finally:
+                    path.write_bytes(original)
+        assert snapshot(result) == saved
+        assert session._runtime.store.resources(session.id) == ()
 
 
 def test_resources_atomic_publication_and_deadline(

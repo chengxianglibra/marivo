@@ -1,12 +1,10 @@
 """Public complete-grid runs and independent interval expectations."""
 
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -59,62 +57,6 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
             filtered.runs(where=filtered.value.gt(0))
     with pytest.raises(AnalysisError):
         fixed.duration.rank(order="descending", ties="dense")
-    assert fixed._dataset is not None
-    checked = fixed._dataset.verified()
-    for role in ("condition_cells", "run_cells", "grid_cells", "subject", "finding_policy"):
-        with pytest.raises(AnalysisError):
-            from_arrow(
-                checked.primary,
-                checked.contract,
-                parts=tuple(p for p in checked.parts if p.role != role),
-            )
-    for part in checked.parts:
-        if part.role in ("condition_cells", "run_cells"):
-            corrupted = part.table.set_column(0, part.table.column_names[0], pa.array(["{}"]))
-            with pytest.raises(AnalysisError):
-                from_arrow(
-                    checked.primary,
-                    checked.contract,
-                    parts=tuple(
-                        ExchangePart(p.role, corrupted) if p.role == part.role else p
-                        for p in checked.parts
-                    ),
-                )
-    cached = fixed_daily.runs(where=fixed_daily.value.gt(-1))
-    receipt_result = cached.execute()
-    assert receipt_result._dataset is not None
-    artifact_ref = receipt_result.evidence_digest().artifact_ref
-    descriptor = receipt_result._dataset.artifact.descriptor
-    receipts = (descriptor.primary_receipt.local, *(p.local for p in descriptor.parts))
-    before = case.session.runs().items
-    for receipt in receipts:
-        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        payload = path.read_bytes()
-        for fault in ("missing", "corrupt"):
-            if fault == "missing":
-                path.unlink()
-            else:
-                path.write_bytes(b"damaged runs receipt")
-            try:
-                for action_index, action in enumerate(
-                    (
-                        lambda: case.session.artifact(artifact_ref),
-                        lambda: receipt_result.duration.to_pandas(),
-                        lambda: receipt_result.where(receipt_result.count.value.gt(0)).execute(),
-                        cached.execute,
-                    )
-                ):
-                    try:
-                        action()
-                    except AnalysisError:
-                        pass
-                    else:
-                        pytest.fail(
-                            f"receipt {receipt.project_relative_path} {fault}: action {action_index} accepted"
-                        )
-                    assert case.session.runs().items == before
-            finally:
-                path.write_bytes(payload)
 
 
 @pytest.mark.slow

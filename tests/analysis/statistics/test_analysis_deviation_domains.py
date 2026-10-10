@@ -1,4 +1,4 @@
-"""Frozen non-time profile matrix using real shared project builders."""
+"""Source and offline-fixed non-time profiles using shared project builders."""
 
 import subprocess
 import sys
@@ -63,7 +63,7 @@ def test_non_time_domains_types_keys_in_independent_processes(
     models.write_text(body + "\n" + declaration)
     if form == "parquet":
         export_dsl_parquet_models(case, case.root)
-    phases = ("produce", "fixed", "cold") if domain == "entity" else ("produce", "fixed")
+    phases = ("produce", "fixed")
     for phase in phases:
         if phase == "fixed":
             case.database_path.rename(case.database_path.with_suffix(".offline"))

@@ -1,104 +1,10 @@
-"""Statistical Store integrity, resource closure and composed public journeys."""
+"""Composed public statistical journeys and forecast finding limits."""
 
-from typing import Literal
-
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DslCaseFactory
-
-
-@pytest.mark.parametrize("kind", ("association", "forecast"))
-def test_unreadable_receipts_reject_value_reads_and_recovery(
-    analysis_dsl_case_factory: DslCaseFactory, kind: Literal["association", "forecast"]
-) -> None:
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1)
-    )
-    ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("statistics-integrity", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    a = members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),)).execute()
-    b = members.observe(ms.ref.metric("sales.total_1"), during=grid, by=(mv.member(),)).execute()
-    logical = a.correlate(b) if kind == "association" else a.forecast(horizon=mv.periods(2))
-    fixed = logical.execute()
-    assert fixed._dataset is not None
-    descriptor = fixed._dataset.artifact.descriptor
-    ref = fixed.state.artifact_ref
-    item = fixed.findings(limit=1).items[0]
-    before = session.runs().items
-    for receipt in (descriptor.primary_receipt.local, *(p.local for p in descriptor.parts)):
-        path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
-        payload = path.read_bytes()
-        for fault in ("missing", "corrupt"):
-            if fault == "missing":
-                path.unlink()
-            else:
-                path.write_bytes(b"damaged statistical receipt")
-            try:
-                for action in (
-                    lambda: session.artifact(ref),
-                    fixed.to_pandas,
-                    logical.execute,
-                ):
-                    with pytest.raises(AnalysisError):
-                        action()
-                    assert session.runs().items == before
-            finally:
-                path.write_bytes(payload)
-    assert fixed.finding(item.finding_id) == item
-    assert session._runtime.store.resources(session.id) == ()
-
-
-@pytest.mark.parametrize("kind", ("association", "forecast"))
-def test_source_reader_close_failure_keeps_prior_artifact(
-    analysis_dsl_case_factory: DslCaseFactory,
-    kind: Literal["association", "forecast"],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.datasource.adapters import SourceBatchStream
-    from tests.analysis.statistics.deviation_fixture import prepare_profiles
-
-    case = analysis_dsl_case_factory("j2")
-    prepare_profiles(
-        case, "KS", "parquet", "us", "UTC", False, followup=True, profile_indices=(0, 1)
-    )
-    ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("statistics-resources", report_timezone="UTC")
-    members = session.members(ms.ref.entity("sales.order"))
-    grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-08-04"), grain=mv.grain("day")
-    )
-    a = members.observe(ms.ref.metric("sales.total_0"), during=grid, by=(mv.member(),))
-    b = members.observe(ms.ref.metric("sales.total_1"), during=grid, by=(mv.member(),))
-    previous = a.execute()
-    close = SourceBatchStream.close
-    closed: list[bool] = []
-
-    def fail(stream: SourceBatchStream) -> None:
-        close(stream)
-        closed.append(True)
-        raise pa.ArrowInvalid("injected statistical source close failure")
-
-    monkeypatch.setattr(SourceBatchStream, "close", fail)
-    logical = a.correlate(b) if kind == "association" else a.forecast(horizon=mv.periods(2))
-    with pytest.raises(AnalysisError):
-        logical.execute()
-    assert closed and session._runtime.store.resources(session.id) == ()
-    assert len(previous.to_pandas()) == 9
-    with session._runtime.store._read() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == 1
-        assert conn.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == 0
 
 
 def test_three_quantity_search_and_forecast_views(

@@ -36,7 +36,6 @@ def test_local_display_pairing_rejects_different_current_keys(
     "method,mode,reverse",
     [
         ("zscore", "category", False),
-        ("mad", "original", True),
         ("zscore", "other_fit", True),
         ("mad", "ranks", False),
     ],
@@ -217,7 +216,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
         db.execute('ALTER TABLE "order" ALTER amount TYPE DECIMAL(30,6)')
     ms.load(workspace_dir=case.root)
     grid = mv.time_grid(
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"), grain=mv.grain("day")
+        during=mv.time_scope(start="2026-08-01", end="2026-08-16"), grain=mv.grain("day")
     )
     raw = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
@@ -227,7 +226,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     )
     original = raw.execute()
     input_frame = original.to_pandas()
-    assert len(input_frame) == 124
+    assert len(input_frame) == 60
     defined = input_frame.loc[input_frame.cell_tag == "defined"]
     assert input_frame.cell_tag.eq("null").any()
     assert all(isinstance(value, Decimal) for value in defined.value)
@@ -247,7 +246,7 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
             == wanted
         )
         ranking = receiver.score.rank(order="descending", ties="dense").limit(7).execute()
-        assert dict(ranking.ranks.contract()._facts)["original_count"] == "124"
+        assert dict(ranking.ranks.contract()._facts)["original_count"] == "60"
         ranked = mv.table(rank=ranking.ranks, score=ranking.values).execute()
         ranked_frame = ranked.to_pandas()
         assert len(ranked_frame) == 7

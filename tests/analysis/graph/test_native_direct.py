@@ -133,32 +133,30 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             proofs.append(result)
             return result
 
-        monkeypatch.setattr(SourceSession, "batches", read)
-        monkeypatch.setattr(native, "_ordered_checks", completed)
-        _forbid_staging(monkeypatch)
-        results = []
-        for _ in range(2):
-            before = len(purposes)
-            result = logical.execute()
-            _scalar_parts(result, 529, 61)
-            submitted = purposes[before:]
-            assert submitted.count("analysis.graph.stage") == 1
-            assert submitted.count("analysis.graph.check") == 1
-            assert submitted.index("analysis.graph.check") < submitted.index("analysis.graph.stage")
-            assert "analysis.domain.prepare" not in submitted
-            results.append(result)
-        first, second = results
-        assert len(proofs) == 2
-        assert first.state.artifact_ref != second.state.artifact_ref
-        assert first.state.producing_run_ref != second.state.producing_run_ref
-        assert len(work.session.runs().items) == 2
-        assert work.session._runtime.store.resources(work.session.id) == ()
+        with monkeypatch.context() as patch:
+            patch.setattr(SourceSession, "batches", read)
+            patch.setattr(native, "_ordered_checks", completed)
+            _forbid_staging(patch)
+            results = []
+            for _ in range(2):
+                before = len(purposes)
+                result = logical.execute()
+                _scalar_parts(result, 529, 61)
+                submitted = purposes[before:]
+                assert submitted.count("analysis.graph.stage") == 1
+                assert submitted.count("analysis.graph.check") == 1
+                assert submitted.index("analysis.graph.check") < submitted.index(
+                    "analysis.graph.stage"
+                )
+                assert "analysis.domain.prepare" not in submitted
+                results.append(result)
+            first, second = results
+            assert len(proofs) == 2
+            assert first.state.artifact_ref != second.state.artifact_ref
+            assert first.state.producing_run_ref != second.state.producing_run_ref
+            assert len(work.session.runs().items) == 2
+            assert work.session._runtime.store.resources(work.session.id) == ()
 
-
-def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
         _forbid_staging(monkeypatch)
         result = _values(work).execute()
         assert result._dataset is not None
