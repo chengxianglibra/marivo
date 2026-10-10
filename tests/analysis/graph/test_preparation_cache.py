@@ -303,50 +303,53 @@ def test_preparation_does_not_cache_across_calls() -> None:
     assert case.primary.conversions == 2
 
 
-@pytest.mark.parametrize("failure", ["key", "envelope", "grid", "duplicate"])
 def test_preparation_retains_complete_key_and_subject_window_rejections(
-    monkeypatch: pytest.MonkeyPatch, failure: str
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    case = _case()
-    selected = case.selected
-    parts = selected.parts
-    rows = case.primary.table.to_pylist()
-    if failure == "key":
-        selected = replace(
-            selected,
-            primary=case.primary.table.set_column(1, "key_1", pa.array([True] * len(rows))),
-        )
-    elif failure == "envelope":
-        subject_rows = parts[0].table.to_pylist()
-        subject_rows[0]["subject__key_0"] = "escaped"
-        selected = replace(
-            selected, parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),)
-        )
-    elif failure == "grid":
-        rows[0]["key_2"] = "outside-grid"
-        subject_rows = parts[0].table.to_pylist()
-        subject_rows[0]["key_2"] = "outside-grid"
-        selected = replace(
-            selected,
-            primary=pa.Table.from_pylist(rows),
-            parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),),
-        )
-    else:
-        rows.append(rows[0])
-        selected = replace(selected, primary=pa.Table.from_pylist(rows))
-    calls: list[str] = []
+    for failure in ("key", "envelope", "grid", "duplicate"):
+        case = _case()
+        selected = case.selected
+        parts = selected.parts
+        rows = case.primary.table.to_pylist()
+        if failure == "key":
+            selected = replace(
+                selected,
+                primary=case.primary.table.set_column(1, "key_1", pa.array([True] * len(rows))),
+            )
+        elif failure == "envelope":
+            subject_rows = parts[0].table.to_pylist()
+            subject_rows[0]["subject__key_0"] = "escaped"
+            selected = replace(
+                selected, parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),)
+            )
+        elif failure == "grid":
+            rows[0]["key_2"] = "outside-grid"
+            subject_rows = parts[0].table.to_pylist()
+            subject_rows[0]["key_2"] = "outside-grid"
+            selected = replace(
+                selected,
+                primary=pa.Table.from_pylist(rows),
+                parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),),
+            )
+        else:
+            rows.append(rows[0])
+            selected = replace(selected, primary=pa.Table.from_pylist(rows))
+        calls: list[str] = []
 
-    class DateParser:
-        @staticmethod
-        def fromisoformat(value: str) -> datetime:
-            calls.append(value)
-            return datetime.fromisoformat(value)
+        class DateParser:
+            @staticmethod
+            def fromisoformat(value: str, _calls: list[str] = calls) -> datetime:
+                _calls.append(value)
+                return datetime.fromisoformat(value)
 
-    monkeypatch.setattr(preparation, "datetime", DateParser)
-    with pytest.raises(DomainPreparationError) as caught:
-        preparation._observation(case.stage, case.candidates, selected, case.original)
-    assert caught.value.constraint_id == "r7.input_binding"
-    assert calls == ([] if failure in ("key", "envelope") else [START.isoformat(), END.isoformat()])
+        with monkeypatch.context() as patch:
+            patch.setattr(preparation, "datetime", DateParser)
+            with pytest.raises(DomainPreparationError) as caught:
+                preparation._observation(case.stage, case.candidates, selected, case.original)
+        assert caught.value.constraint_id == "r7.input_binding"
+        assert calls == (
+            [] if failure in ("key", "envelope") else [START.isoformat(), END.isoformat()]
+        )
 
 
 def test_preparation_empty_selection_does_not_eagerly_parse_or_require_grid(

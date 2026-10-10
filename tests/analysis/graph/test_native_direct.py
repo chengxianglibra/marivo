@@ -201,11 +201,8 @@ def test_native_terminal_arrow_preserves_full_int64_keys_and_null_support(
 def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
     empty: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        with sqlite3.connect(tmp_path / "r96.sqlite") as connection:
-            connection.execute(
-                "DELETE FROM r96_facts" if empty else "UPDATE r96_facts SET amount=NULL"
-            )
+    scenario = "empty" if empty else "all_null"
+    with workload("duckdb", "ordinary-table", 64, scenario, tmp_path, monkeypatch) as work:
         _forbid_staging(monkeypatch)
         _scalar_parts(_sum(work).execute(), 0, 0)
         assert work.session._runtime.store.resources(work.session.id) == ()
@@ -279,7 +276,7 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-def test_native_field_consumption_rejects_owner_removed_after_key_check(
+def test_sqlite_field_consumption_rejects_owner_removed_after_key_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:

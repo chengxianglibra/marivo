@@ -17,14 +17,12 @@ from marivo.analysis.materialization.graph_dataset import _shared_column_boundar
 from tests.analysis.lifecycle.lifecycle_fixtures import START, build_lifecycle_public
 
 
-@pytest.mark.parametrize(
-    "unit,divisor", (("s", 1), ("ms", 1000), ("us", 1000000), ("ns", 1000000000))
-)
-def test_duration_disclosure_uses_actual_carrier(unit: str, divisor: int) -> None:
-    assert dict(duration_facts(unit)) == {
-        "duration_unit": unit,
-        "duration_seconds": f"seconds = ticks / {divisor}",
-    }
+def test_duration_disclosure_uses_actual_carrier() -> None:
+    for unit, divisor in (("s", 1), ("ms", 1000), ("us", 1000000), ("ns", 1000000000)):
+        assert dict(duration_facts(unit)) == {
+            "duration_unit": unit,
+            "duration_seconds": f"seconds = ticks / {divisor}",
+        }
 
 
 @pytest.mark.slow

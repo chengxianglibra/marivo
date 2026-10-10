@@ -8,7 +8,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.observation.route_inputs import RelationshipPath
 from marivo.refs import ref
 from marivo.semantic.errors import SemanticError
-from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
+from tests.shared_fixtures import DslCase, DslCaseFactory
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -744,12 +744,8 @@ def test_ratio_accepts_a_negative_sum_denominator(
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [-3 / 1000]
 
 
-@pytest.mark.parametrize("runtime", (False, True))
-@pytest.mark.parametrize("parquet", [False])
 def test_weighted_mean_preserves_pairs_and_fixed_rollup(
     analysis_dsl_case_factory: DslCaseFactory,
-    runtime: bool,
-    parquet: bool,
 ) -> None:
     """Value-null and weight-null rows must not contribute orphaned weights."""
     import duckdb
@@ -774,51 +770,54 @@ def test_weighted_mean_preserves_pairs_and_fixed_rollup(
         )
         + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\nweighted = ms.weighted_mean(name='weighted', value=amount, weight=weight)\n"
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
-    expression = (
-        mv.runtime_metric.weighted_mean(
-            ms.ref.measure("sales.order.amount"),
-            ms.ref.measure("sales.order.weight"),
-            label="weighted",
+    for runtime in (False, True):
+        expression = (
+            mv.runtime_metric.weighted_mean(
+                ms.ref.measure("sales.order.amount"),
+                ms.ref.measure("sales.order.weight"),
+                label="weighted",
+            )
+            if runtime
+            else ms.ref.metric("sales.weighted")
         )
-        if runtime
-        else ms.ref.metric("sales.weighted")
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        expression,
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = observed.execute()
-    rows = fixed.to_pandas().set_index("member")
-    assert rows.loc["A", "value"] == pytest.approx(1000 / 3)
-    assert rows.loc["B", "cell_reason"] == "zero_weight_sum"
-    assert rows.loc["C", "value"] == 400
-    assert rows.loc["D", "cell_reason"] == "empty_contribution"
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
-    if runtime:
-        _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 2600 / 7)
-        from marivo.analysis.materialization import graph_store
+        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+            expression,
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(mv.member(),),
+        )
+        fixed = observed.execute()
+        rows = fixed.to_pandas().set_index("member")
+        assert rows.loc["A", "value"] == pytest.approx(1000 / 3)
+        assert rows.loc["B", "cell_reason"] == "zero_weight_sum"
+        assert rows.loc["C", "value"] == 400
+        assert rows.loc["D", "cell_reason"] == "empty_contribution"
+        assert observed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx(
+            [2600 / 7]
+        )
+        assert fixed.rollup().execute().to_pandas()["value"].tolist() == pytest.approx([2600 / 7])
+        if runtime:
+            _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 2600 / 7)
+            from marivo.analysis.materialization import graph_store
 
-        store = case.session._runtime.store
-        with store._read() as connection:
-            record = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
-        assert record is not None
-        original = next(part for part in record.descriptor.parts if part.role == "original_state")
-        path = case.root / original.local.project_relative_path
-        missing = path.with_name(path.name + ".missing")
-        path.rename(missing)
-        try:
-            with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-                fixed.contract()
-            with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
-                case.session.artifact(fixed.state.artifact_ref)
-        finally:
-            missing.rename(path)
+            store = case.session._runtime.store
+            with store._read() as connection:
+                record = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
+            assert record is not None
+            original = next(
+                part for part in record.descriptor.parts if part.role == "original_state"
+            )
+            path = case.root / original.local.project_relative_path
+            missing = path.with_name(path.name + ".missing")
+            path.rename(missing)
+            try:
+                with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
+                    fixed.contract()
+                with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing"):
+                    case.session.artifact(fixed.state.artifact_ref)
+            finally:
+                missing.rename(path)
 
 
 def test_observation_preserves_full_member_identity(

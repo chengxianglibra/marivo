@@ -137,9 +137,8 @@ def test_explicit_classification_rollup_and_current_rows(
         assert counts["value"].to_dict() == {"east": 2, "south": 1, "west": 1}
 
 
-@pytest.mark.parametrize("fixed", [False, True])
 def test_selected_row_groups_preserve_count_mean_state(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     n = case.names
@@ -154,29 +153,34 @@ def test_selected_row_groups_preserve_count_mean_state(
         by=(mv.member(),),
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
-    current = observed.execute() if fixed else observed
-    category = categories.execute() if fixed else categories
-    grouped = current.group_by(category)
-    counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
-    assert counts["value"].to_dict() == {"east": 2}
-    mean = grouped.aggregate(mv.mean()).execute()
-    frame = mean.to_pandas().set_index("group")
-    assert frame.loc["east", "value"] == 300
-    state = next(
-        p.table.to_pylist() for p in mean._dataset.verified().parts if p.role == "row_state"
-    )
-    assert state == [
-        {"key_0": "east", "row_state__sum": 600, "row_state__count": 2},
-    ]
-    merged = mean.group_by(ms.ref.dimension("sales.customer.region")).rollup().execute()
-    assert merged.to_pandas().equals(mean.to_pandas())
-    assert merged._node.root.signature.quantity == mean._node.root.signature.quantity
-    assert (
-        next(p.table.to_pylist() for p in merged._dataset.verified().parts if p.role == "row_state")
-        == state
-    )
-    assert any(a.call == "relation.rollup()" for a in merged.contract().actions)
-    assert mean.rollup().execute().to_pandas().iloc[0]["value"] == 300
+    for fixed in (False, True):
+        current = observed.execute() if fixed else observed
+        category = categories.execute() if fixed else categories
+        grouped = current.group_by(category)
+        counts = grouped.aggregate(mv.count()).execute().to_pandas().set_index("group")
+        assert counts["value"].to_dict() == {"east": 2}
+        mean = grouped.aggregate(mv.mean()).execute()
+        frame = mean.to_pandas().set_index("group")
+        assert frame.loc["east", "value"] == 300
+        state = next(
+            p.table.to_pylist() for p in mean._dataset.verified().parts if p.role == "row_state"
+        )
+        assert state == [
+            {"key_0": "east", "row_state__sum": 600, "row_state__count": 2},
+        ]
+        merged = mean.group_by(ms.ref.dimension("sales.customer.region")).rollup().execute()
+        assert merged.to_pandas().equals(mean.to_pandas())
+        assert merged._node.root.signature.quantity == mean._node.root.signature.quantity
+        assert (
+            next(
+                p.table.to_pylist()
+                for p in merged._dataset.verified().parts
+                if p.role == "row_state"
+            )
+            == state
+        )
+        assert any(a.call == "relation.rollup()" for a in merged.contract().actions)
+        assert mean.rollup().execute().to_pandas().iloc[0]["value"] == 300
 
 
 def test_original_mean_merges_support_not_finished_values(
@@ -519,11 +523,8 @@ def test_numeric_read_grouping_creates_only_row_statistics(retained_coordinates_
         assert result.rollup().execute().to_pandas()["value"].tolist() == [36.75]
 
 
-@pytest.mark.parametrize(
-    ("violation", "fixed"),
-    [("null", False), ("outside", False), ("duplicate", False), ("duplicate", True)],
-)
-def test_invalid_classification_rejects(retained_coordinates_case, violation, fixed):
+@pytest.mark.parametrize("violation", ["null", "outside"])
+def test_invalid_classification_rejects(retained_coordinates_case, violation: str) -> None:
     from marivo.analysis.errors import AnalysisError
 
     case = retained_coordinates_case
@@ -540,12 +541,29 @@ def test_invalid_classification_rejects(retained_coordinates_case, violation, fi
     )
     if violation == "outside":
         region = region.where(region.value.eq("east"))
-    values = observed.execute() if fixed else observed
-    category = region.execute() if fixed else region
     with pytest.raises(AnalysisError):
-        values.group_by(
-            category, *([category] if violation == "duplicate" else [])
-        ).rollup().execute()
+        observed.group_by(region).rollup().execute()
+
+
+def test_duplicate_classification_rejects_source_and_fixed(retained_coordinates_case) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    case = retained_coordinates_case
+    members = case.session.members(ms.ref.entity("sales.customer"))
+    region = members.read(ms.ref.dimension("sales.customer.region"))
+    observed = members.observe(
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        by=(mv.member(),),
+    )
+    with pytest.raises(AnalysisError):
+        observed.group_by(region, region).rollup().execute()
+
+    fixed_values = observed.execute()
+    fixed_region = region.execute()
+    with pytest.raises(AnalysisError):
+        fixed_values.group_by(fixed_region, fixed_region).rollup().execute()
 
 
 def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case):

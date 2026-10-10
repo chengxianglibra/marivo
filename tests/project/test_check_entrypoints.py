@@ -8,11 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from tests.support.paths import PROJECT_ROOT
-
-pytestmark = pytest.mark.slow
 
 _ROOT = PROJECT_ROOT
 _TOOLS = ("python", "pip", "pytest", "mypy", "ruff", "lint-imports", "twine", "sphinx-build")

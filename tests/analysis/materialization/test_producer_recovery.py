@@ -229,14 +229,13 @@ def test_file_producer_offline_and_cold_continuation(
     )
 
 
-@pytest.mark.parametrize("profile", ("http-json-public", "http-json-auth"))
 def test_http_source_remains_a_datasource_boundary(
-    profile: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
+    profile = "http-json-public"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:

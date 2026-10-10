@@ -39,8 +39,11 @@ def history_view_exchange_templates(
     return history._dataset.verified(), view._dataset.verified()
 
 
-def test_history_views_source_fixed(tmp_path):
-    session, members, window, claims, values = build_lifecycle_public(
+def test_history_views_and_consumers_source_fixed(tmp_path):
+    from tests.analysis.lifecycle.history_consumers import expected, observations, transport
+    from tests.analysis.lifecycle.history_fixtures import build_history_public
+
+    session, members, window, claims, values = build_history_public(
         tmp_path,
         subject="i",
         occurrence="i",
@@ -50,13 +53,25 @@ def test_history_views_source_fixed(tmp_path):
     )
     logical = replay(session, members, window, claims)
     history = logical.execute()
-    expected = views(values, "i", "i")
+    expected_view = views(values, "i", "i")
     for name, operation in operations(logical).items():
         result = operation().execute()
-        assert_view(result, name, expected)
+        assert_view(result, name, expected_view)
     for name, operation in operations(history).items():
         result = operation().execute()
-        assert_view(result, name, expected)
+        assert_view(result, name, expected_view)
+
+    source_consumers = transport(logical)
+    for name in ("state_members", "violation_members"):
+        expected(name, source_consumers[name].execute())
+    violation_observation = observations(logical)["violation_revenue"]
+    observed = violation_observation.execute()
+    expected("violation_revenue", observed)
+    expected("violation_revenue", observed.rollup().execute())
+
+    fixed_consumers = transport(history)
+    for name in ("completed_members", "state_members", "violation_members"):
+        expected(name, fixed_consumers[name].execute())
 
 
 @pytest.mark.slow
@@ -438,35 +453,6 @@ def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
     assert not {"relation.compare(baseline)", "relation.ratio(other)"} & {
         a.call for a in field.contract().actions
     }
-
-
-def test_history_consumers_source_fixed(tmp_path):
-    from tests.analysis.lifecycle.history_consumers import expected, observations, transport
-    from tests.analysis.lifecycle.history_fixtures import build_history_public
-
-    session, members, window, claims, _ = build_history_public(
-        tmp_path,
-        subject="i",
-        occurrence="i",
-        form="parquet",
-        unit="us",
-        zone="UTC",
-    )
-    logical = replay(session, members, window, claims)
-    history = logical.execute()
-    source_consumers = transport(logical)
-    for name in ("state_members", "violation_members"):
-        expected(name, source_consumers[name].execute())
-    violation_observation = observations(logical)["violation_revenue"]
-    observed = violation_observation.execute()
-    expected("violation_revenue", observed)
-    expected("violation_revenue", observed.rollup().execute())
-
-    # Fixed follow-ups retain one representative consumer for each History
-    # result owner; source selection already covers the additional shapes.
-    fixed_consumers = transport(history)
-    for name in ("completed_members", "state_members", "violation_members"):
-        expected(name, fixed_consumers[name].execute())
 
 
 @pytest.mark.slow

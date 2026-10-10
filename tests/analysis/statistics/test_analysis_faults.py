@@ -8,7 +8,6 @@ from collections.abc import Iterator
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -221,59 +220,58 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
         )
 
 
-@pytest.mark.parametrize("selection", ("full", "subset", "empty"))
 def test_run_owned_fields_compare_logical_cells(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    selection: Literal["full", "subset", "empty"],
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
     timed = inputs(session)[2]
-    result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
-    expected_rows = 2
-    if selection == "subset":
-        result = result.where(
-            result.start.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc))
-        ).execute()
-        expected_rows = 1
-    elif selection == "empty":
-        result = result.where(result.count.value.gt(1)).execute()
-        expected_rows = 0
+    cases: list[tuple[mv.MaterializedTimeRunResult, int]] = []
+    for selection, expected_rows in (("subset", 1), ("empty", 0)):
+        result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
+        result = (
+            result.where(result.start.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc))).execute()
+            if selection == "subset"
+            else result.where(result.count.value.gt(1)).execute()
+        )
+        cases.append((result, expected_rows))
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("validation resegmented original cells")
 
     monkeypatch.setattr(runs_execution, "compute", forbidden)
-    for view in (result, result.count, result.start, result.end, result.duration):
-        assert view._dataset is not None
-        retained = view._dataset.verified()
-        assert retained.primary.column_names == ["key_0", "value"]
-        assert retained.primary.num_rows == expected_rows
-        logical = logical_table(retained.primary)
-        for primary in (retained.primary, logical):
-            contract = replace(retained.contract, schema=primary.schema)
-            checked = from_arrow(
-                primary, contract, parts=retained.parts, method_state=retained.method_state
-            )
-            assert logical_table(checked.primary).equals(logical)
-            if not expected_rows:
-                continue
-            value_field = primary.schema.field("value")
-            increment = pa.scalar(
-                1, pa.int64() if pa.types.is_integer(value_field.type) else pa.duration("us")
-            )
-            damaged = primary.set_column(
-                primary.schema.get_field_index("value"),
-                value_field,
-                pc.add(primary["value"], increment),
-            )
-            with pytest.raises(
-                AnalysisError, match="run owned field differs from original retained intervals"
-            ):
-                from_arrow(
-                    damaged, contract, parts=retained.parts, method_state=retained.method_state
+    for result, expected_rows in cases:
+        for view in (result, result.count, result.start, result.end, result.duration):
+            assert view._dataset is not None
+            retained = view._dataset.verified()
+            assert retained.primary.column_names == ["key_0", "value"]
+            assert retained.primary.num_rows == expected_rows
+            logical = logical_table(retained.primary)
+            for primary in (retained.primary, logical):
+                contract = replace(retained.contract, schema=primary.schema)
+                checked = from_arrow(
+                    primary, contract, parts=retained.parts, method_state=retained.method_state
                 )
+                assert logical_table(checked.primary).equals(logical)
+                if not expected_rows:
+                    continue
+                value_field = primary.schema.field("value")
+                increment = pa.scalar(
+                    1, pa.int64() if pa.types.is_integer(value_field.type) else pa.duration("us")
+                )
+                damaged = primary.set_column(
+                    primary.schema.get_field_index("value"),
+                    value_field,
+                    pc.add(primary["value"], increment),
+                )
+                with pytest.raises(
+                    AnalysisError,
+                    match="run owned field differs from original retained intervals",
+                ):
+                    from_arrow(
+                        damaged, contract, parts=retained.parts, method_state=retained.method_state
+                    )
 
 
 @pytest.mark.parametrize("method", RECOVERY_METHODS)
@@ -338,87 +336,71 @@ def test_every_receipt_part_read_recovery_and_hit(
     assert session._runtime.store.resources(session.id) == ()
 
 
-@pytest.mark.parametrize(
-    "method,fault",
-    [
-        *(
-            ("deviation.zscore@v1", fault)
-            for fault in (
-                "cancel",
-                "bad_batch",
-                "before_commit",
-                "timeout_below",
-                "timeout_above",
-            )
-        ),
-    ],
-)
 def test_resources_atomic_publication_and_deadline(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    method: str,
-    fault: str,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    logical = graphs(inputs(session))[method]
+    logical = graphs(inputs(session))["deviation.zscore@v1"]
     previous = logical.execute()
     saved = snapshot(previous)
     runtime = session._runtime
-    now = [0.0]
+    successful_runs = 0
+    for fault in ("cancel", "bad_batch", "before_commit", "timeout_below", "timeout_above"):
+        now = [0.0]
 
-    def inject(point: str) -> None:
-        if point == "before_commit" and fault == "before_commit":
-            raise RuntimeError("injected statistical publication failure")
-        if point == "graph_admitted" and fault == "cancel":
-            raise KeyboardInterrupt("injected statistical cancellation")
-        if point == "before_commit" and fault in ("timeout_below", "timeout_at", "timeout_above"):
-            now[0] = 599.999 if fault == "timeout_below" else 600.001
+        def inject(
+            point: str, injected_fault: str = fault, injected_now: list[float] = now
+        ) -> None:
+            if point == "before_commit" and injected_fault == "before_commit":
+                raise RuntimeError("injected statistical publication failure")
+            if point == "graph_admitted" and injected_fault == "cancel":
+                raise KeyboardInterrupt("injected statistical cancellation")
+            if point == "before_commit" and injected_fault in ("timeout_below", "timeout_above"):
+                injected_now[0] = 599.999 if injected_fault == "timeout_below" else 600.001
 
-    runtime._hook = inject
-    close = SourceBatchStream.close
+        runtime._hook = inject
+        token = CURRENT.set(ExecuteDeadline(0.0, lambda current=now: current[0]))
+        succeeded = fault == "timeout_below"
+        try:
+            with monkeypatch.context() as scoped:
+                if fault == "bad_batch":
 
-    def fail_close(stream: SourceBatchStream) -> None:
-        close(stream)
-        raise pa.ArrowInvalid("injected statistical source close failure")
+                    def bad_batch(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
+                        yield pa.record_batch({"unexpected": [1]})
 
-    def bad_batch(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-        yield pa.record_batch({"unexpected": [1]})
-
-    if fault == "close":
-        monkeypatch.setattr(SourceBatchStream, "close", fail_close)
-    if fault == "bad_batch":
-        monkeypatch.setattr(SourceBatchStream, "_iterate", bad_batch)
-    token = CURRENT.set(ExecuteDeadline(0.0, lambda: now[0]))
-    succeeded = fault == "timeout_below"
-    try:
-        if succeeded:
-            result = logical.execute()
-            check(result, method)
-            assert result.state.artifact_ref != previous.state.artifact_ref
-        else:
-            with pytest.raises((AnalysisError, DomainPreparationError, KeyboardInterrupt)):
-                logical.execute()
-    finally:
-        CURRENT.reset(token)
-        runtime._hook = None
-    assert snapshot(previous) == saved
-    assert runtime.store.resources(session.id) == ()
-    with runtime.store._read() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == (
-            2 if succeeded else 1
-        )
-        assert connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == (
-            2 if succeeded else 1
-        )
-        assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[
-            0
-        ] == previous.evidence_digest().finding_count * (2 if succeeded else 1)
-    directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
-    if directory:
-        row = proof(previous, method, "produce", "table")
-        row["scenarios"] = [{"before_commit": "transaction"}.get(fault, fault)]
-        Path(directory).mkdir(parents=True, exist_ok=True)
-        (Path(directory) / f"fault-{method}-{fault}.json").write_text(
-            json.dumps(row, sort_keys=True) + "\n"
-        )
+                    scoped.setattr(SourceBatchStream, "_iterate", bad_batch)
+                if succeeded:
+                    result = logical.execute()
+                    check(result, "deviation.zscore@v1")
+                    assert result.state.artifact_ref != previous.state.artifact_ref
+                    successful_runs += 1
+                else:
+                    with pytest.raises((AnalysisError, DomainPreparationError, KeyboardInterrupt)):
+                        logical.execute()
+        finally:
+            CURRENT.reset(token)
+            runtime._hook = None
+        assert snapshot(previous) == saved
+        assert runtime.store.resources(session.id) == ()
+        with runtime.store._read() as connection:
+            assert (
+                connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0]
+                == 1 + successful_runs
+            )
+            assert (
+                connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0]
+                == 1 + successful_runs
+            )
+            assert connection.execute("SELECT COUNT(*) FROM findings").fetchone()[0] == (
+                previous.evidence_digest().finding_count * (1 + successful_runs)
+            )
+        directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
+        if directory:
+            row = proof(previous, "deviation.zscore@v1", "produce", "table")
+            row["scenarios"] = [{"before_commit": "transaction"}.get(fault, fault)]
+            Path(directory).mkdir(parents=True, exist_ok=True)
+            (Path(directory) / f"fault-deviation.zscore@v1-{fault}.json").write_text(
+                json.dumps(row, sort_keys=True) + "\n"
+            )

@@ -194,10 +194,8 @@ with patch.object(ms, "load", forbidden), patch.object(SourceSession, "__init__"
     assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
-@pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
 def test_zero_baseline_has_defined_absolute_and_undefined_relative(
     analysis_dsl_case_factory: DslCaseFactory,
-    fixed: bool,
 ) -> None:
     import duckdb
 
@@ -219,28 +217,28 @@ def test_zero_baseline_has_defined_absolute_and_undefined_relative(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
-    result = left.compare(right).execute()
-    row = result.to_pandas().set_index("member").loc["C"]
-    assert row["absolute"] == 10
-    assert row["absolute_cell_tag"] == "defined"
-    assert row["relative_cell_tag"] == "undefined"
-    assert row["relative_cell_reason"] == "zero_baseline"
-    before = run_ids(case.session)
-    result.absolute.to_pandas()
-    result.relative.to_pandas()
-    assert run_ids(case.session) == before
-    for operation in ("value", "where", "aggregate", "rank", "attribute", "compare", "ratio"):
-        assert not hasattr(result, operation)
-    assert {action.call for action in result.contract().actions} == {
-        "relation.absolute",
-        "relation.relative",
-    }
+    for fixed in (False, True):
+        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
+        result = left.compare(right).execute()
+        row = result.to_pandas().set_index("member").loc["C"]
+        assert row["absolute"] == 10
+        assert row["absolute_cell_tag"] == "defined"
+        assert row["relative_cell_tag"] == "undefined"
+        assert row["relative_cell_reason"] == "zero_baseline"
+        before = run_ids(case.session)
+        result.absolute.to_pandas()
+        result.relative.to_pandas()
+        assert run_ids(case.session) == before
+        for operation in ("value", "where", "aggregate", "rank", "attribute", "compare", "ratio"):
+            assert not hasattr(result, operation)
+        assert {action.call for action in result.contract().actions} == {
+            "relation.absolute",
+            "relation.relative",
+        }
 
 
-@pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
 def test_relative_decimal_overflow_prevents_absolute_publication(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
 
@@ -266,12 +264,13 @@ def test_relative_decimal_overflow_prevents_absolute_publication(
         via=via,
         by=(mv.member(),),
     )
-    left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
-    before = publication_counts(case.session)
-    # C has absolute=-0.05 and relative=-1, outside DECIMAL(38,38)'s range.
-    with pytest.raises(AnalysisError, match="relative comparison finish failed"):
-        left.compare(right).absolute.execute()
-    assert publication_counts(case.session) == before
+    for fixed in (False, True):
+        left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
+        before = publication_counts(case.session)
+        # C has absolute=-0.05 and relative=-1, outside DECIMAL(38,38)'s range.
+        with pytest.raises(AnalysisError, match="relative comparison finish failed"):
+            left.compare(right).absolute.execute()
+        assert publication_counts(case.session) == before
 
 
 @pytest.mark.parametrize(

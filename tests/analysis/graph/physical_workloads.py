@@ -35,16 +35,22 @@ GROUPS = 16
 BATCH_ROWS = 2048
 
 
-def _rows(facts: int, scenario: Literal["baseline"]) -> list[dict[str, object]]:
-    if facts < 2 or scenario != "baseline":
-        raise ValueError("Integer-sum fixtures require at least two original facts")
+def _rows(
+    facts: int, scenario: Literal["baseline", "all_null", "empty"]
+) -> list[dict[str, object]]:
+    if facts < 2:
+        raise ValueError("Integer-sum fixtures require at least two requested facts")
+    if scenario == "empty":
+        return []
+    if scenario not in ("baseline", "all_null"):
+        raise ValueError("Integer-sum fixture has an unsupported scenario")
     return [
         {
             "id": 9007199254740992 + index,
             "revision": 1,
             "tenant": "a",
             "owner": index % (GROUPS - 1),
-            "amount": None if index % 23 == 0 else index % 17 + 1,
+            "amount": None if scenario == "all_null" or index % 23 == 0 else index % 17 + 1,
             "y": index % 31 + 1,
             "happened": START,
             "kind": "started" if index % 2 == 0 else "finished",
@@ -540,7 +546,7 @@ def workload(
     backend: str,
     profile: str,
     facts: int,
-    scenario: Literal["baseline"],
+    scenario: Literal["baseline", "all_null", "empty"],
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[Workload]:

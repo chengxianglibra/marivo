@@ -1018,9 +1018,8 @@ def test_public_undefined_ranks_and_strict_two_step_filter(
     ]
 
 
-@pytest.mark.parametrize("fixed,view", [(False, "values"), (False, "ranks"), (True, "ranks")])
 def test_ranking_views_can_be_ranked_again(
-    analysis_dsl_case_factory: DslCaseFactory, fixed: bool, view: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
@@ -1033,9 +1032,7 @@ def test_ranking_views_can_be_ranked_again(
         by=(mv.member(),),
     )
     ranking = values.rank(order="descending", ties="ordinal")
-    current = ranking.execute() if fixed else ranking
-    numeric = current.values if view == "values" else current.ranks
-    result = numeric.rank(order="ascending", ties="ordinal").execute()
+    fixed_ranking = ranking.execute()
     facts = analysis_dsl_rows("j2")
     counts = {
         member: sum(
@@ -1044,21 +1041,25 @@ def test_ranking_views_can_be_ranked_again(
         )
         for member, *_ in facts.customers
     }
-    scores = (
-        counts
-        if view == "values"
-        else {
-            key: index + 1
-            for index, key in enumerate(sorted(counts, key=lambda key: (-counts[key], key)))
-        }
-    )
-    ordered = sorted(scores, key=lambda key: (scores[key], key))
-    frame = result.ranks.to_pandas()
-    assert frame.member.tolist() == ordered
-    assert frame.value.tolist() == list(range(1, len(ordered) + 1))
-    values_frame = result.values.to_pandas()
-    assert values_frame.member.tolist() == ordered
-    assert values_frame.value.tolist() == [scores[key] for key in ordered]
+    ranked_scores = {
+        key: index + 1
+        for index, key in enumerate(sorted(counts, key=lambda key: (-counts[key], key)))
+    }
+    for current, view in (
+        (ranking, "values"),
+        (ranking, "ranks"),
+        (fixed_ranking, "ranks"),
+    ):
+        scores = counts if view == "values" else ranked_scores
+        ordered = sorted(scores, key=lambda key: (scores[key], key))
+        numeric = current.values if view == "values" else current.ranks
+        result = numeric.rank(order="ascending", ties="ordinal").execute()
+        frame = result.ranks.to_pandas()
+        assert frame.member.tolist() == ordered
+        assert frame.value.tolist() == list(range(1, len(ordered) + 1))
+        values_frame = result.values.to_pandas()
+        assert values_frame.member.tolist() == ordered
+        assert values_frame.value.tolist() == [scores[key] for key in ordered]
 
 
 @pytest.mark.parametrize("domain", ("anchor", "journey"))

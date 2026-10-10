@@ -185,7 +185,7 @@ def test_workflow_evidence_and_cold_recovery_examples(
     # Repeated source definitions must create a new evaluation and immutable Artifact.
     assert len(session.runs().items) == 2
     second = namespace["artifact"]
-    assert isinstance(second, mv.MaterializedDifferenceRelation)
+    assert isinstance(second, mv.MaterializedComparisonResult)
     assert second.state.artifact_ref != change.state.artifact_ref
     case.database_path.unlink()
     namespace["session"] = mv.session.resume(session.id, by="id")

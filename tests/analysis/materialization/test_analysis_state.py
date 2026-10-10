@@ -13,24 +13,21 @@ from tests.analysis.materialization.state_fixtures import _values
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("state", ("missing", "empty", "old"))
-def test_read_factory_never_initializes_missing_or_unversioned_state(
-    tmp_path: Path, state: str
-) -> None:
-    path = tmp_path / ".marivo/analysis/generations/v9/session_store.db"
-    if state != "missing":
-        path.parent.mkdir(parents=True)
-        with sqlite3.connect(path) as connection:
-            if state == "old":
-                connection.execute("PRAGMA user_version=6")
-    before = {
-        str(p.relative_to(tmp_path)): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()
-    }
-    with pytest.raises(IntegrityError):
-        SessionStore.open_existing(tmp_path)
-    assert {
-        str(p.relative_to(tmp_path)): p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()
-    } == before
+def test_read_factory_never_initializes_missing_or_unversioned_state(tmp_path: Path) -> None:
+    for state in ("missing", "empty", "old"):
+        root = tmp_path / state
+        path = root / ".marivo/analysis/generations/v9/session_store.db"
+        if state != "missing":
+            path.parent.mkdir(parents=True)
+            with sqlite3.connect(path) as connection:
+                if state == "old":
+                    connection.execute("PRAGMA user_version=6")
+        before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        with pytest.raises(IntegrityError):
+            SessionStore.open_existing(root)
+        assert {
+            str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()
+        } == before
 
 
 def test_current_continuation_registry_resolves_to_actual_bound_methods(
@@ -52,9 +49,8 @@ def test_current_continuation_registry_resolves_to_actual_bound_methods(
                 assert REGISTRY.by_callable(getattr(value, method)) is route.descriptor
 
 
-@pytest.mark.parametrize("with_key", (False, True))
 def test_retired_standalone_group_artifact_requires_reexecution_without_writes(
-    analysis_dsl_case_factory: DslCaseFactory, with_key: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import marivo.semantic as ms
 
@@ -62,27 +58,27 @@ def test_retired_standalone_group_artifact_requires_reexecution_without_writes(
     category = case.session.members(ms.ref.entity("sales.customer")).read(
         ms.ref.dimension("sales.customer.region")
     )
-    # Internal key projection remains necessary for numeric grouping. Persist it
-    # directly to model a standalone group Artifact from the removed public API.
-    domain, _ = category._group_nodes((category,))
-    if not with_key:
-        domain = category._node.group_domain(())
-    dataset = domain.execute()
-    reference = dataset.artifact.artifact_ref
-    state = case.root / ".marivo/analysis"
-    before = {
-        p: p.read_bytes()
-        for p in state.rglob("*")
-        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
-    }
-    with pytest.raises(IntegrityError) as caught:
-        case.session.artifact(reference)
-    assert caught.value.stage == "graph_protocol"
-    assert "standalone group-domain" in caught.value.received
-    assert caught.value.repair is not None
-    assert "observe(by=...)" in caught.value.repair.action
-    assert {
-        p: p.read_bytes()
-        for p in state.rglob("*")
-        if p.is_file() and not p.name.endswith(("-wal", "-shm"))
-    } == before
+    for with_key in (False, True):
+        # Keep both legacy shapes under the same standalone group-domain refusal.
+        domain, _ = category._group_nodes((category,))
+        if not with_key:
+            domain = category._node.group_domain(())
+        dataset = domain.execute()
+        reference = dataset.artifact.artifact_ref
+        state = case.root / ".marivo/analysis"
+        before = {
+            p: p.read_bytes()
+            for p in state.rglob("*")
+            if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+        }
+        with pytest.raises(IntegrityError) as caught:
+            case.session.artifact(reference)
+        assert caught.value.stage == "graph_protocol"
+        assert "standalone group-domain" in caught.value.received
+        assert caught.value.repair is not None
+        assert "observe(by=...)" in caught.value.repair.action
+        assert {
+            p: p.read_bytes()
+            for p in state.rglob("*")
+            if p.is_file() and not p.name.endswith(("-wal", "-shm"))
+        } == before

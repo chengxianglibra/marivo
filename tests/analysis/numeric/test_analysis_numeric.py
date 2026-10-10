@@ -121,10 +121,7 @@ def test_native_quantile_precision_is_source_owned(
         assert isinstance(result, Decimal)
 
 
-@pytest.mark.parametrize("weighted", [False, True])
-def test_float_original_mean_state(
-    analysis_dsl_case_factory: DslCaseFactory, weighted: bool
-) -> None:
+def test_float_original_mean_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import duckdb
 
     case = analysis_dsl_case_factory("j1")
@@ -148,24 +145,18 @@ def test_float_original_mean_state(
         + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
     )
     ms.load(workspace_dir=case.root)
-    metric = (
-        mv.runtime_metric.weighted_mean(
-            ms.ref.measure("sales.order.amount"),
-            ms.ref.measure("sales.order.weight"),
-            label="weighted",
+    amount = ms.ref.measure("sales.order.amount")
+    weight = ms.ref.measure("sales.order.weight")
+    for metric, expected in (
+        (mv.runtime_metric.aggregate(amount, agg="mean", label="mean"), 4.0),
+        (mv.runtime_metric.weighted_mean(amount, weight, label="weighted"), 20.75 / 4),
+    ):
+        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
+            metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
         )
-        if weighted
-        else mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg="mean", label="mean"
-        )
-    )
-    observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-        metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
-    )
-    fixed = observed.execute()
-    expected = 20.75 / 4 if weighted else 4.0
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-    assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
+        fixed = observed.execute()
+        assert observed.rollup().execute().to_pandas()["value"].tolist() == [expected]
+        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
 
 
 def test_original_extrema(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -507,18 +498,16 @@ def test_duration_matrix(
 
 
 @pytest.mark.parametrize(
-    "family,kind",
+    ("family", "kinds"),
     [
-        ("int64", "first"),
-        ("float64", "last"),
-        ("decimal", "mean"),
-        ("duration", "min"),
-        ("int64", "max"),
-        ("decimal", "cumulative"),
+        ("int64", ("first", "max")),
+        ("float64", ("last",)),
+        ("decimal", ("mean", "cumulative")),
+        ("duration", ("min",)),
     ],
 )
 def test_typed_temporal_matrix(
-    analysis_dsl_case_factory: DslCaseFactory, family: str, kind: str
+    analysis_dsl_case_factory: DslCaseFactory, family: str, kinds: tuple[str, ...]
 ) -> None:
     from datetime import datetime, timezone
     from decimal import Decimal
@@ -546,47 +535,52 @@ def test_typed_temporal_matrix(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
     path = case.root / "models/semantic/sales/models.py"
-    path.write_text(
-        path.read_text()
-        + f"""
-status_amount = ms.measure_column(name='status_amount', entity=orders, column='amount',
-    additivity=ms.additive_all(except_=(ordered_at,)),
-    status_time_dimension=ordered_at, status_time_fold={("mean" if kind == "cumulative" else kind)!r})
-folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
-running = ms.cumulative(name='running', base=revenue)
-"""
-    )
-    ms.load(workspace_dir=case.root)
-    logical = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.running" if kind == "cumulative" else "sales.folded"),
-        at=datetime(2026, 8, 3, tzinfo=timezone.utc) if kind == "cumulative" else None,
-        during=None
-        if kind == "cumulative"
-        else mv.time_scope(start="2026-08-01", end="2026-08-03"),
-        via=ms.ref.relationship("sales.order_buyer"),
-        by=(mv.member(),),
-    )
-    fixed = logical.execute()
-    expected: int | float | Decimal = {
-        "first": 2,
-        "last": 5,
-        "min": 2,
-        "max": 5,
-        "mean": 3.5,
-        "cumulative": 7,
-    }[kind]
-    if family == "duration":
-        expected = round(expected)
-    elif family == "decimal":
-        expected = Decimal(str(expected)).quantize(Decimal("0.000001"))
-    for result in (logical.rollup().execute(), fixed.rollup().execute()):
-        frame = result.to_pandas()
-        actual = (
-            pa.array(frame.value).cast(pa.duration("us")).cast(pa.int64()).to_pylist()
-            if family == "duration"
-            else frame.value.tolist()
+    definitions = []
+    for kind in kinds:
+        if kind == "cumulative":
+            definitions.append("running = ms.cumulative(name='running', base=revenue)")
+            continue
+        metric_name = f"status_amount_{kind}"
+        definitions.extend(
+            [
+                f"{metric_name} = ms.measure_column(name={metric_name!r}, entity=orders, column='amount',",
+                "    additivity=ms.additive_all(except_=(ordered_at,)),",
+                f"    status_time_dimension=ordered_at, status_time_fold={kind!r})",
+                f"folded_{kind} = ms.aggregate(name='folded_{kind}', measure={metric_name}, agg='sum')",
+            ]
         )
-        assert actual == [expected]
+    path.write_text(path.read_text() + "\n" + "\n".join(definitions) + "\n")
+    ms.load(workspace_dir=case.root)
+    for kind in kinds:
+        cumulative = kind == "cumulative"
+        logical = case.session.members(ms.ref.entity("sales.customer")).observe(
+            ms.ref.metric("sales.running" if cumulative else f"sales.folded_{kind}"),
+            at=datetime(2026, 8, 3, tzinfo=timezone.utc) if cumulative else None,
+            during=None if cumulative else mv.time_scope(start="2026-08-01", end="2026-08-03"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(mv.member(),),
+        )
+        fixed = logical.execute()
+        expected: int | float | Decimal = {
+            "first": 2,
+            "last": 5,
+            "min": 2,
+            "max": 5,
+            "mean": 3.5,
+            "cumulative": 7,
+        }[kind]
+        if family == "duration":
+            expected = round(expected)
+        elif family == "decimal":
+            expected = Decimal(str(expected)).quantize(Decimal("0.000001"))
+        for result in (logical.rollup().execute(), fixed.rollup().execute()):
+            frame = result.to_pandas()
+            actual = (
+                pa.array(frame.value).cast(pa.duration("us")).cast(pa.int64()).to_pylist()
+                if family == "duration"
+                else frame.value.tolist()
+            )
+            assert actual == [expected]
 
 
 def test_native_integer_ratio_matches_independent_fraction() -> None:

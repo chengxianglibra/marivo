@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
 from dataclasses import replace
 
 import duckdb
@@ -16,7 +13,6 @@ from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import DSL_NAMES, DslCaseFactory
-from tests.support.paths import PROJECT_ROOT
 
 
 def test_public_j1_scope_uses_persisted_report_timezone(
@@ -211,7 +207,7 @@ def test_public_member_read_and_category_selection(
     assert len(case.session.runs().items) == before
 
 
-def test_public_grouped_same_entity_observation_allows_omitted_route(
+def test_public_singleton_same_entity_observation_allows_omitted_route(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -220,22 +216,14 @@ def test_public_grouped_same_entity_observation_allows_omitted_route(
     channel = ms.ref.dimension(f"{names.domain}.{names.order}.{names.channel}")
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-
-    observed = orders.observe(revenue, during=august, by=(channel,))
-    assert isinstance(observed, mv.LogicalNumericRelation)
-    rows = observed.execute().to_pandas()
+    grouped = orders.observe(revenue, during=august, by=(channel,))
+    assert isinstance(grouped, mv.LogicalNumericRelation)
+    rows = grouped.execute().to_pandas()
     assert dict(zip(rows["group"], rows["value"], strict=True)) == {"web": 850, "mobile": 150}
 
-
-def test_public_singleton_same_entity_observation_allows_omitted_route(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    orders = case.session.members(ms.ref.entity(f"{names.domain}.{names.order}"))
     observed = orders.observe(
-        ms.ref.metric(f"{names.domain}.{names.revenue}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        revenue,
+        during=august,
         by=(),
     )
 
@@ -591,76 +579,6 @@ def test_public_missing_key_and_wrong_relationship_reject(
         )
     assert route.value.repair is not None
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
-
-
-def test_public_missing_retained_part_blocks_recovery(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    result = (
-        case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-        .observe(
-            ms.ref.metric(f"{names.domain}.{names.revenue}"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(mv.member(),),
-        )
-        .execute()
-    )
-    from marivo.analysis.materialization import graph_store
-
-    store = case.session._runtime.store
-    with store._read() as connection:
-        record = graph_store.artifact(store, connection, result.state.artifact_ref.ref)
-    assert record is not None and record.descriptor.parts
-    receipt = record.descriptor.parts[0].local
-    path = case.root / receipt.project_relative_path
-    offline = path.with_name(path.name + ".offline")
-    path.rename(offline)
-    try:
-        with pytest.raises(AnalysisError, match=r"(?i)part|receipt|file|missing") as missing:
-            case.session.artifact(result.state.artifact_ref)
-        assert missing.value.repair is not None
-        assert missing.value.repair.help_target.canonical_id == "session.artifact"
-    finally:
-        offline.rename(path)
-
-
-def test_public_cold_process_continues_from_retained_parts(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    customers = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    observed = customers.observe(
-        ms.ref.metric(f"{names.domain}.{names.revenue}"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-        by=(mv.member(),),
-    ).execute()
-    saved_ref = observed.state.artifact_ref.ref
-    offline = case.database_path.with_suffix(".offline")
-    case.database_path.rename(offline)
-    script = """
-import sys
-import marivo.analysis as mv
-saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
-assert isinstance(saved, mv.MaterializedNumericRelation)
-assert saved.rollup().execute().to_pandas().iloc[0]["value"] == 1000
-"""
-    try:
-        completed = subprocess.run(
-            [sys.executable, "-c", script, case.session.id, saved_ref],
-            cwd=case.root,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    finally:
-        offline.rename(case.database_path)
-    assert completed.returncode == 0, completed.stderr
 
 
 def test_retired_grouping_calls_reject_before_execution(

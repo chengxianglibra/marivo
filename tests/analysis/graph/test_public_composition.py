@@ -168,7 +168,12 @@ def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
                 "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
                 (json.dumps(value, sort_keys=True, separators=(",", ":")), reference),
             )
-    for action in (lambda: case.session.artifact(reference), saved.contract, saved.to_pandas):
+    with pytest.raises(AnalysisError) as caught:
+        case.session.artifact(reference)
+    if corruption == "part":
+        assert caught.value.repair is not None
+        assert caught.value.repair.help_target.canonical_id == "session.artifact"
+    for action in (saved.contract, saved.to_pandas):
         with pytest.raises(AnalysisError):
             action()
     assert len(case.session.runs().items) == before
