@@ -29,10 +29,10 @@ from tests.support.paths import PROJECT_ROOT
 def test_direct_distribution(
     analysis_dsl_case_factory: DslCaseFactory, agg: AggKind, parquet: bool, floating: bool
 ) -> None:
+    import duckdb
+
     case = analysis_dsl_case_factory("j1")
     if floating:
-        import duckdb
-
         with duckdb.connect(str(case.database_path)) as db:
             db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
     models = case.root / "models/semantic/sales/models.py"
@@ -67,6 +67,35 @@ def test_direct_distribution(
     for relation in (observed, fixed):
         with pytest.raises(AnalysisError):
             relation.group_by(ms.ref.entity("sales.customer")).rollup()
+    if agg == "count_distinct" and not parquet:
+        with duckdb.connect(str(case.database_path)) as db:
+            db.execute('DELETE FROM "order"')
+            for index, number in enumerate([1, 1, 2, 4, None]):
+                db.execute(
+                    'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
+                    [str(index), "A", "web", "paid", "2026-08-15", number],
+                )
+        for duplicate_agg, expected in (
+            ("count_distinct", 3),
+            ("median", 1.5),
+            (("percentile", 0.75), 2.5),
+        ):
+            duplicate_metric = mv.runtime_metric.aggregate(
+                ms.ref.measure("sales.order.amount"), agg=duplicate_agg, label="duplicates"
+            )
+            duplicate_result = (
+                case.session.members(ms.ref.entity("sales.customer"))
+                .observe(
+                    duplicate_metric,
+                    during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+                    via=ms.ref.relationship("sales.order_buyer"),
+                    by=(mv.member(),),
+                )
+                .execute()
+            )
+            assert duplicate_result.to_pandas().loc[0, "value"] == expected
+            with pytest.raises(AnalysisError):
+                duplicate_result.rollup()
 
 
 @pytest.mark.parametrize("decimal_input", [False, True])
@@ -121,45 +150,7 @@ def test_native_quantile_precision_is_source_owned(
         assert isinstance(result, Decimal)
 
 
-def test_float_original_mean_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    import duckdb
-
-    case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as db:
-        db.execute("SET threads=1")
-        db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
-        db.execute('ALTER TABLE "order" ADD COLUMN weight DOUBLE DEFAULT 0.5')
-        db.execute('DELETE FROM "order"')
-        for index, (member, amount, weight) in enumerate(
-            [("A", 1.25, 0.5), ("A", 2.75, 1.5), ("B", 8.0, 2.0), ("B", None, 99.0)]
-        ):
-            db.execute(
-                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [str(index), member, "web", "paid", "2026-08-15", amount, weight],
-            )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace(
-            "granularity='second',", "granularity='second', is_default=True,"
-        )
-        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
-    )
-    ms.load(workspace_dir=case.root)
-    amount = ms.ref.measure("sales.order.amount")
-    weight = ms.ref.measure("sales.order.weight")
-    for metric, expected in (
-        (mv.runtime_metric.aggregate(amount, agg="mean", label="mean"), 4.0),
-        (mv.runtime_metric.weighted_mean(amount, weight, label="weighted"), 20.75 / 4),
-    ):
-        observed = case.session.members(ms.ref.entity("sales.customer")).observe(
-            metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
-        )
-        fixed = observed.execute()
-        assert observed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
-
-
-def test_decimal_original_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
+def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCaseFactory) -> None:
     from decimal import Decimal
 
     import duckdb
@@ -167,20 +158,57 @@ def test_decimal_original_state(analysis_dsl_case_factory: DslCaseFactory) -> No
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute("SET threads=1")
-        db.execute('ALTER TABLE "order" ALTER amount TYPE DECIMAL(18,2)')
-        db.execute('UPDATE "order" SET amount=amount+0.25')
+        db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
+        db.execute('ALTER TABLE "order" ADD COLUMN weight DOUBLE')
+        db.execute('ALTER TABLE "order" ADD COLUMN decimal_amount DECIMAL(18,2)')
+        db.execute('DELETE FROM "order"')
+        for index, (member, amount, weight, decimal_amount) in enumerate(
+            [
+                ("A", 1.25, 0.5, "450.25"),
+                ("A", 2.75, 1.5, "150.25"),
+                ("B", 8.0, 2.0, "400.25"),
+                ("B", None, 99.0, None),
+            ]
+        ):
+            db.execute(
+                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    str(index),
+                    member,
+                    "web",
+                    "paid",
+                    "2026-08-15",
+                    amount,
+                    weight,
+                    decimal_amount,
+                ],
+            )
     models = case.root / "models/semantic/sales/models.py"
     models.write_text(
         models.read_text().replace(
             "granularity='second',", "granularity='second', is_default=True,"
         )
+        + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
+        + "decimal_amount = ms.measure_column(name='decimal_amount', entity=orders, column='decimal_amount', additivity=ms.additive_all())\n"
     )
     ms.load(workspace_dir=case.root)
+    amount = ms.ref.measure("sales.order.amount")
+    weight = ms.ref.measure("sales.order.weight")
+    decimal_amount = ms.ref.measure("sales.order.decimal_amount")
     members = case.session.members(ms.ref.entity("sales.customer"))
-    for agg, expected in (("sum", "1000.75"), ("min", "150.25"), ("max", "450.25")):
-        metric = mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg=agg, label="decimal"
+    for metric, expected in (
+        (mv.runtime_metric.aggregate(amount, agg="mean", label="mean"), 4.0),
+        (mv.runtime_metric.weighted_mean(amount, weight, label="weighted"), 20.75 / 4),
+    ):
+        observed = members.observe(
+            metric, via=ms.ref.relationship("sales.order_buyer"), by=(mv.member(),)
         )
+        fixed = observed.execute()
+        assert observed.rollup().execute().to_pandas()["value"].tolist() == [expected]
+        assert fixed.rollup().execute().to_pandas()["value"].tolist() == [expected]
+
+    for agg, expected in (("sum", "1000.75"), ("min", "150.25"), ("max", "450.25")):
+        metric = mv.runtime_metric.aggregate(decimal_amount, agg=agg, label="decimal")
         logical = members.observe(
             metric,
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -853,47 +881,6 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
         assert fixed.to_pandas().loc[0, "value"] == expected
         assert logical.rollup().execute().to_pandas().loc[0, "value"] == expected
         assert fixed.rollup().execute().to_pandas().loc[0, "value"] == expected
-
-
-def test_distribution_duplicates_nulls_and_interpolation(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import duckdb
-
-    case = analysis_dsl_case_factory("j1")
-    with duckdb.connect(str(case.database_path)) as db:
-        db.execute('DELETE FROM "order"')
-        for index, number in enumerate([1, 1, 2, 4, None]):
-            db.execute(
-                'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
-                [str(index), "A", "web", "paid", "2026-08-15", number],
-            )
-    path = case.root / "models/semantic/sales/models.py"
-    path.write_text(
-        path.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
-    )
-    ms.load(workspace_dir=case.root)
-    cases: tuple[tuple[AggKind, int | float], ...] = (
-        ("count_distinct", 3),
-        ("median", 1.5),
-        (("percentile", 0.75), 2.5),
-    )
-    for agg, expected in cases:
-        metric = mv.runtime_metric.aggregate(
-            ms.ref.measure("sales.order.amount"), agg=agg, label="distribution"
-        )
-        fixed = (
-            case.session.members(ms.ref.entity("sales.customer"))
-            .observe(
-                metric,
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(mv.member(),),
-            )
-            .execute()
-        )
-        assert fixed.to_pandas().loc[0, "value"] == expected
-        with pytest.raises(AnalysisError):
-            fixed.rollup()
 
 
 def test_fixed_numeric_merge_order_and_partition_oracle() -> None:

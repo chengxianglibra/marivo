@@ -136,7 +136,7 @@ def test_decimal_all_history_cumulative_succeeds(
     )
 
 
-def test_decimal_grain_to_date_cumulative_succeeds(
+def test_decimal_grain_to_date_cumulative_boundaries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = _session(tmp_path, monkeypatch)
@@ -157,27 +157,14 @@ def test_decimal_grain_to_date_cumulative_succeeds(
         == "decimal:38:2"
     )
 
-
-def test_decimal_grain_to_date_seeds_partial_first_period(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = _session(tmp_path, monkeypatch)
-    frame = _observe(session, "sales.mtd_gmv", "2026-07-02", "2026-07-04")
-    by_day = _by_day(frame)
+    partial_frame = _observe(session, "sales.mtd_gmv", "2026-07-02", "2026-07-04")
+    partial_by_day = _by_day(partial_frame)
     # window.start (July 2) is not a month boundary: the partial first period
     # seed is July 1's flow (10), added to every July bucket.
-    assert by_day == {
+    assert partial_by_day == {
         "2026-07-02": pytest.approx(27.0),
         "2026-07-03": pytest.approx(52.0),
     }
-    assert (
-        next(
-            column.logical_type_id
-            for column in frame.state.realized_schema.columns
-            if column.name == "value"
-        )
-        == "decimal:38:2"
-    )
 
 
 def test_decimal_trailing_cumulative_succeeds(

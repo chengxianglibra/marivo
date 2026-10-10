@@ -162,12 +162,13 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         )
 
 
-def test_frozen_run_witnesses_reject_damage_without_segmenting(
+def test_run_recovery_rejects_frozen_damage_and_owned_field_changes(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = prepare(case, "table")
-    result = graphs(inputs(session))["time.runs@v1"].execute()
+    timed = inputs(session)[2]
+    result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
     assert result._dataset is not None
     retained = result._dataset.verified()
     _, state = runs_execution._decode(retained.parts)
@@ -179,12 +180,13 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
     monkeypatch.setattr(runs_execution, "compute", forbidden)
     for fault in ("missing_interval", "duration", "schema"):
         rows = original.to_pylist()
+        assert rows
         if fault == "missing_interval":
             rows.clear()
         elif fault == "duration":
             from datetime import timedelta
 
-            rows[0]["duration"] = timedelta(days=1)
+            rows[0]["duration"] += timedelta(days=1)
         views = pa.Table.from_pylist(rows, schema=original.schema)
         if fault == "schema":
             views = views.set_column(
@@ -215,23 +217,15 @@ def test_frozen_run_witnesses_reject_damage_without_segmenting(
                 retained.primary, retained.contract, parts=parts, method_state=retained.method_state
             )
 
-
-def test_run_owned_fields_compare_logical_cells(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    session = prepare(case, "table")
-    timed = inputs(session)[2]
-    cases: list[tuple[mv.MaterializedTimeRunResult, int]] = []
-    for selection, expected_rows in (("subset", 1), ("empty", 0)):
-        result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
-        result = (
-            result.where(result.start.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc))).execute()
-            if selection == "subset"
-            else result.where(result.count.value.gt(1)).execute()
-        )
-        cases.append((result, expected_rows))
+    cases = (
+        (
+            result.where(
+                result.start.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc))
+            ).execute(),
+            1,
+        ),
+        (result.where(result.count.value.gt(1)).execute(), 0),
+    )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("validation resegmented original cells")

@@ -70,11 +70,15 @@ def test_ratio_complete_coordinate_tuple_and_fixed_original_components(
         ("A", "web", "paid"): 40.0,
         ("A", "mobile", "cancelled"): 0.0,
     }
-    for name in (case.names.channel, case.names.status):
-        coordinate = ms.ref.dimension(f"{case.names.domain}.{case.names.order}.{name}")
-        live = observed.group_by(coordinate).rollup().execute()
-        fixed = saved.group_by(coordinate).rollup().execute()
-        assert live.to_pandas().equals(fixed.to_pandas())
+    channel = ms.ref.dimension(f"{case.names.domain}.{case.names.order}.{case.names.channel}")
+    live = observed.group_by(channel).rollup().execute()
+    fixed = saved.group_by(channel).rollup().execute()
+    live_frame, fixed_frame = live.to_pandas(), fixed.to_pandas()
+    assert live_frame.equals(fixed_frame)
+    assert fixed_frame.set_index("group")["value"].to_dict() == {
+        "web": 40.0,
+        "mobile": 0.0,
+    }
     assert saved.aggregate(mv.mean()).execute().to_pandas().iloc[0]["value"] == 20
 
 

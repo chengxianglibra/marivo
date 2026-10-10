@@ -26,72 +26,72 @@ from marivo.semantic.metric_graph_lowering import (
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("shape", ("catalog", "ratio", "linear2"))
 def test_public_observation_resolves_once_and_retains_components(
-    analysis_dsl_case_factory: DslCaseFactory, shape: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     names = case.names
     members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
     revenue = ms.ref.metric(f"{names.domain}.{names.revenue}")
     count = ms.ref.metric(f"{names.domain}.{names.order_count}")
-    metric: MetricInputValue = revenue
-    components = 1
-    expected = 1000.0
-    if shape == "ratio":
-        metric = mv.runtime_metric.ratio(revenue, count, label="average")
-        components = 2
-        expected /= 3
-    elif shape.startswith("linear"):
-        components = int(shape.removeprefix("linear"))
-        metric = mv.runtime_metric.linear(add=(revenue,) * components, label=shape)
-        expected *= components
     window = mv.time_scope(start="2026-08-01", end="2026-09-01")
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    runs_before = len(case.session.runs().items)
-    with (
-        patch.object(
-            graph_observation,
-            "normalize_target_metric",
-            wraps=normalize_target_metric,
-        ) as catalog_normalize,
-        patch(
-            "marivo.semantic.metric_graph_lowering.normalize_target_metric_inputs",
-            wraps=normalize_target_metric_inputs,
-        ) as runtime_normalize,
-        patch(
-            "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
-            wraps=lower_catalog_metric,
-        ) as lower,
-    ):
-        observed = members.observe(
-            metric,
-            during=window,
-            via=buyer,
-            by=(mv.member(),),
-        )
-        assert catalog_normalize.call_count + runtime_normalize.call_count == 1
-        assert lower.call_count == (0 if shape == "catalog" else 2 if shape == "ratio" else 1)
-        again = members.observe(
-            metric,
-            during=window,
-            via=buyer,
-            by=(mv.member(),),
-        )
-        assert catalog_normalize.call_count + runtime_normalize.call_count == 2
-        assert again._node.root.signature.quantity == observed._node.root.signature.quantity
-
-    assert len(case.session.runs().items) == runs_before
-    occurrences = tuple(
-        node.parameters
-        for node in topology(observed._node.root)
-        if isinstance(node, MethodNode)
-        and isinstance(node.parameters, (ObserveMetric, ObserveCount))
+    cases: tuple[tuple[str, MetricInputValue, int, int, float], ...] = (
+        ("catalog", revenue, 1, 0, 1000.0),
+        ("ratio", mv.runtime_metric.ratio(revenue, count, label="average"), 2, 2, 1000 / 3),
+        (
+            "linear2",
+            mv.runtime_metric.linear(add=(revenue, revenue), label="linear2"),
+            2,
+            1,
+            2000.0,
+        ),
     )
-    assert len(occurrences) == components
-    assert len({item.quantity.contribution_id for item in occurrences}) == components
-    result = observed.rollup().execute().to_pandas()
-    assert result.iloc[0]["value"] == pytest.approx(expected)
+    for shape, metric, components, lower_count, expected in cases:
+        runs_before = len(case.session.runs().items)
+        with (
+            patch.object(
+                graph_observation,
+                "normalize_target_metric",
+                wraps=normalize_target_metric,
+            ) as catalog_normalize,
+            patch(
+                "marivo.semantic.metric_graph_lowering.normalize_target_metric_inputs",
+                wraps=normalize_target_metric_inputs,
+            ) as runtime_normalize,
+            patch(
+                "marivo.semantic.runtime_metric_lowering.lower_catalog_metric",
+                wraps=lower_catalog_metric,
+            ) as lower,
+        ):
+            observed = members.observe(
+                metric,
+                during=window,
+                via=buyer,
+                by=(mv.member(),),
+            )
+            assert catalog_normalize.call_count + runtime_normalize.call_count == 1
+            assert lower.call_count == lower_count
+            again = members.observe(
+                metric,
+                during=window,
+                via=buyer,
+                by=(mv.member(),),
+            )
+            assert catalog_normalize.call_count + runtime_normalize.call_count == 2
+            assert again._node.root.signature.quantity == observed._node.root.signature.quantity
+
+        assert len(case.session.runs().items) == runs_before
+        occurrences = tuple(
+            node.parameters
+            for node in topology(observed._node.root)
+            if isinstance(node, MethodNode)
+            and isinstance(node.parameters, (ObserveMetric, ObserveCount))
+        )
+        assert len(occurrences) == components
+        assert len({item.quantity.contribution_id for item in occurrences}) == components
+        result = observed.rollup().execute().to_pandas()
+        assert result.iloc[0]["value"] == pytest.approx(expected), shape
 
 
 def test_business_completeness_shares_resolution_and_keeps_typed_refusals(

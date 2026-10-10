@@ -789,19 +789,14 @@ def test_composite_penetration_overlap_and_empty(
         assert result.cell_reason.tolist() == ["empty_reference"]
 
 
-@pytest.mark.parametrize("signed", [False, True])
-def test_zero_and_signed_share_support(
-    analysis_dsl_case_factory: DslCaseFactory, signed: bool
-) -> None:
+def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import duckdb
 
     from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
-        db.execute('UPDATE "order" SET amount=? WHERE customer_id=?', [-30 if signed else 0, "C"])
-        if not signed:
-            db.execute('UPDATE "order" SET amount=0')
+        db.execute('UPDATE "order" SET amount=0')
     members = case.session.members(ms.ref.entity("sales.customer"))
     values = members.observe(
         ms.ref.metric("sales.revenue"),
@@ -812,18 +807,24 @@ def test_zero_and_signed_share_support(
     reference = values.rollup()
     shares = values.share_of(reference).execute()
     frame = shares.to_pandas().set_index("member")
-    if signed:
-        assert frame.value.to_dict() == {"A": 0.4, "B": 0.8, "C": -0.2, "D": 0.0}
-        limited = values.where(values.value.gt(0))
-        result = limited.share_of(reference).execute()
-        assert result.to_pandas().value.sum() == pytest.approx(1.2)
-        assert result._dataset.verified().parts[0].table["value"].to_pylist() == [150]
-        with pytest.raises(AnalysisError):
-            values.share_of(limited.rollup())
-    else:
-        assert frame.cell_tag.eq("undefined").all()
-        assert frame.cell_reason.eq("zero_denominator").all()
-        assert frame.value.isna().all()
+    assert frame.cell_tag.eq("undefined").all()
+    assert frame.cell_reason.eq("zero_denominator").all()
+    assert frame.value.isna().all()
+
+    with duckdb.connect(str(case.database_path)) as db:
+        db.execute(
+            """UPDATE "order" SET amount=CASE customer_id
+                WHEN 'A' THEN 60 WHEN 'B' THEN 120 WHEN 'C' THEN -30 ELSE 0 END"""
+        )
+    shares = values.share_of(reference).execute()
+    frame = shares.to_pandas().set_index("member")
+    assert frame.value.to_dict() == {"A": 0.4, "B": 0.8, "C": -0.2, "D": 0.0}
+    limited = values.where(values.value.gt(0))
+    result = limited.share_of(reference).execute()
+    assert result.to_pandas().value.sum() == pytest.approx(1.2)
+    assert result._dataset.verified().parts[0].table["value"].to_pylist() == [150]
+    with pytest.raises(AnalysisError):
+        values.share_of(limited.rollup())
 
 
 def test_zero_weight_does_not_hide_malformed_defined() -> None:
@@ -910,42 +911,42 @@ def test_shared_reference_source_reexecution_and_fixed_inputs(
         offline.rename(case.database_path)
 
 
-@pytest.mark.parametrize("missing", [False, True])
 def test_invalid_public_standardization_rejects_without_normalization(
-    analysis_dsl_case_factory: DslCaseFactory, missing: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     import duckdb
 
     from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
-    if not missing:
-        with duckdb.connect(str(case.database_path)) as db:
-            db.execute('UPDATE "order" SET amount=-30 WHERE customer_id=?', ["C"])
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
-    values = (
-        members.observe(
-            ms.ref.metric("sales.revenue"),
-            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
+    for missing in (True, False):
+        if not missing:
+            with duckdb.connect(str(case.database_path)) as db:
+                db.execute('UPDATE "order" SET amount=-30 WHERE customer_id=?', ["C"])
+        values = (
+            members.observe(
+                ms.ref.metric("sales.revenue"),
+                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .group_by(category)
+            .rollup()
         )
-        .group_by(category)
-        .rollup()
-    )
-    weights = values.share_of(values.rollup())
-    if missing:
-        weights = weights.where(weights.value.gt(0))
-    for current, composition, strata in (
-        (values, weights, category),
-        (values.execute(), weights.execute(), category.execute()),
-    ):
-        reference = mv.reference_weights(
-            composition, strata=(strata,), unit=ms.ref.entity("sales.order")
-        )
-        with pytest.raises(AnalysisError):
-            current.standardize(reference=reference).execute()
+        weights = values.share_of(values.rollup())
+        if missing:
+            weights = weights.where(weights.value.gt(0))
+        for current, composition, strata in (
+            (values, weights, category),
+            (values.execute(), weights.execute(), category.execute()),
+        ):
+            reference = mv.reference_weights(
+                composition, strata=(strata,), unit=ms.ref.entity("sales.order")
+            )
+            with pytest.raises(AnalysisError):
+                current.standardize(reference=reference).execute()
 
 
 def test_fixed_selected_original_can_use_retained_full_reference(

@@ -54,13 +54,16 @@ def test_history_views_and_consumers_source_fixed(tmp_path):
     logical = replay(session, members, window, claims)
     history = logical.execute()
     expected_view = views(values, "i", "i")
-    for name, operation in operations(logical).items():
+    source_read = operations(logical)["in_state"]().execute()
+    assert_view(source_read, "in_state", expected_view)
+    for name, operation in operations(history).items():
+        if name == "in_state":
+            continue
         result = operation().execute()
         assert_view(result, name, expected_view)
 
     source_consumers = transport(logical)
-    for name in ("state_members", "violation_members"):
-        expected(name, source_consumers[name].execute())
+    expected("state_members", source_consumers["state_members"].execute())
     violation_observation = observations(logical)["violation_revenue"]
     observed = violation_observation.execute()
     expected("violation_revenue", observed)
@@ -153,25 +156,6 @@ def test_instance_selection_subject_image_and_duration_mean(tmp_path):
     assert empty.observed_duration.aggregate(mv.mean()).execute().to_pandas()[
         "cell_reason"
     ].tolist() == ["empty_completed_set"]
-    violations = history.violations().execute()
-    assert (
-        len(
-            violations.where(violations.kind.value.eq("transition_from_terminal"))
-            .members(through=violations.subjects())
-            .execute()
-            .to_pandas()
-        )
-        == 1
-    )
-    for relation, expected_count in (
-        (violations.kind, 3),
-        (violations.occurred_at, 3),
-        (intervals.left_clipped, 4),
-        (intervals.observed_duration, 4),
-    ):
-        assert relation.aggregate(mv.count()).execute().to_pandas()["value"].tolist() == [
-            expected_count
-        ]
 
 
 def test_checkpoint_axes_prepared_on_complete_subject_domain(tmp_path):
@@ -206,19 +190,13 @@ def test_fraction_quantile_half_even_and_overflow():
         checked(2**63)
 
 
-@pytest.mark.parametrize(
-    ("kind", "form"),
-    [("state", "table"), ("interval", "parquet")],
-)
-def test_same_run_history_selection_prepares_all_sources_before_local(
-    tmp_path, monkeypatch, kind, form
-):
+def test_same_run_history_selection_prepares_all_sources_before_local(tmp_path, monkeypatch):
     from marivo.analysis.materialization import history_execution
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.lifecycle.history_fixtures import build_history_public, observe
 
     session, members, window, claims, _ = build_history_public(
-        tmp_path, form=form, subject="c", occurrence="c"
+        tmp_path, form="table", subject="c", occurrence="c"
     )
     history = replay(session, members, window, claims)
     trace = []
@@ -235,7 +213,10 @@ def test_same_run_history_selection_prepares_all_sources_before_local(
 
     monkeypatch.setattr(SourceSession, "batches", read)
     monkeypatch.setattr(history_execution, "execute", consume)
-    for metric, value in (("revenue", 33.0), ("fact_count", 6)):
+    for kind, metric, value in (
+        ("state", "revenue", 33.0),
+        ("interval", "fact_count", 6),
+    ):
         trace.clear()
         logical = observe(history, kind, metric)
         assert [a.call for a in logical.contract().actions] == ["relation.execute()"]

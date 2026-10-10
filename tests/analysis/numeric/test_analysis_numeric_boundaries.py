@@ -101,7 +101,9 @@ def test_native_float_nonzero_denominator_survives_cancellation(
 
 @pytest.mark.parametrize(
     "parquet,kind",
-    [(False, "first"), (True, "last"), (False, "mean"), (True, "min"), (False, "max")],
+    # Keep the Decimal intermediate-width boundary on both table and Parquet
+    # sources; fold-kind dispatch is covered by the typed temporal matrix.
+    [(False, "mean"), (True, "mean")],
 )
 def test_decimal_fold_retains_widened_sample_type(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool, kind: str
