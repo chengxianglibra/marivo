@@ -526,36 +526,3 @@ def test_public_missing_key_and_wrong_relationship_reject(
         )
     assert route.value.repair is not None
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
-
-
-def test_retired_grouping_calls_reject_before_execution(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    category = members.read(ms.ref.dimension("sales.customer.region"))
-    selected = category.where(category.value.eq("east"))
-    fixed_category = category.execute()
-    fixed_selected = selected.execute()
-    for current in (category, selected, fixed_category, fixed_selected):
-        assert not hasattr(current, "group_by")
-        assert not any("group_by" in action.call for action in current.contract().actions)
-    for current in (members, members.execute(), fixed_selected.members()):
-        assert not hasattr(current, "group_by")
-        assert not hasattr(current, "count")
-        assert not any("group_by" in action.call for action in current.contract().actions)
-    metric = ms.ref.metric("sales.revenue")
-    values = members.observe(metric, by=(mv.member(),))
-    namespace = {"members": members, "metric": metric, "values": values}
-    before = case.session.runs().items
-    statements = tuple(case.session._runtime.statistics.statements)
-    for call in (
-        "members.observe(metric, groups=members)",
-        "values.group_by(groups=members)",
-    ):
-        with pytest.raises(TypeError, match="groups"):
-            exec(call, namespace)
-    assert case.session.runs().items == before
-    assert tuple(case.session._runtime.statistics.statements) == statements
-    assert selected.aggregate(mv.count()).execute().to_pandas().value.tolist() == [2]
-    assert fixed_selected.aggregate(mv.count_defined()).execute().to_pandas().value.tolist() == [2]

@@ -3,12 +3,9 @@
 import subprocess
 import sys
 
-import pytest
-
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.slow
 def test_dataset_core_public_bindings_are_stable_across_private_imports() -> None:
     script = """
 import importlib
@@ -39,7 +36,6 @@ assert {'datasets', 'datasets.materialized_state', 'actions.execute'} <= set(hel
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.slow
 def test_observation_imports_do_not_replace_public_bindings() -> None:
     script = """
 import importlib
@@ -169,7 +165,6 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     assert not hasattr(md, "PreviewResult")
 
 
-@pytest.mark.slow
 def test_private_workers_defer_public_analysis_initialization() -> None:
     script = """
 import sys

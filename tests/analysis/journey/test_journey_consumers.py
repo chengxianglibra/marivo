@@ -23,12 +23,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "policy",
-    ["every", "first"],
-)
 def test_public_journey_multiplicity_and_unknown(
-    policy: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -101,61 +96,63 @@ order=ms.business_order(name='order',subject=subjects,sequences=(ms.event_sequen
         participant=ms.participant_role(event=ms.ref.event("sales.end"), name="subject"),
         key="end",
     )
+    every_journeys = session.events.match(
+        mv.sequence(start, end),
+        population=session.members(ms.ref.entity("sales.subjects")),
+        cohort_window=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+        completion_through=datetime(2026, 8, 2, tzinfo=timezone.utc),
+        matching=mv.every_start(completion_assignment="shared"),
+        business_order=ms.ref.business_order("sales.order"),
+    ).execute()
+    assert len(every_journeys.to_pandas()) == 4
+    with pytest.raises(AnalysisError, match="full first-per-subject"):
+        every_journeys.funnel()
+
     journeys = session.events.match(
         mv.sequence(start, end),
         population=session.members(ms.ref.entity("sales.subjects")),
         cohort_window=mv.time_scope(start="2026-08-01", end="2026-08-02"),
         completion_through=datetime(2026, 8, 2, tzinfo=timezone.utc),
-        matching=mv.every_start(completion_assignment="shared")
-        if policy == "every"
-        else mv.first_per_subject(),
+        matching=mv.first_per_subject(),
         business_order=ms.ref.business_order("sales.order"),
     ).execute()
-    assert len(journeys.to_pandas()) == (4 if policy == "every" else 3)
-    if policy == "every":
-        with pytest.raises(AnalysisError, match="full first-per-subject"):
-            journeys.funnel()
-    else:
-        assert journeys.funnel().execute().to_pandas()["reached_count"].tolist() == [3, 2]
-        claims = (
-            mv.BoundedCompletenessDeclarationV1(
-                inputs=(ms.ref.event("sales.start"), ms.ref.event("sales.end")),
-                complete_from=datetime(2026, 7, 26, tzinfo=timezone.utc),
-                complete_through=datetime(2026, 8, 3, tzinfo=timezone.utc),
-                rationale="Complete independent funnel fixture periods.",
-            ),
+    assert len(journeys.to_pandas()) == 3
+    assert journeys.funnel().execute().to_pandas()["reached_count"].tolist() == [3, 2]
+    claims = (
+        mv.BoundedCompletenessDeclarationV1(
+            inputs=(ms.ref.event("sales.start"), ms.ref.event("sales.end")),
+            complete_from=datetime(2026, 7, 26, tzinfo=timezone.utc),
+            complete_through=datetime(2026, 8, 3, tzinfo=timezone.utc),
+            rationale="Complete independent funnel fixture periods.",
+        ),
+    )
+
+    population = session.members(ms.ref.entity("sales.subjects"))
+
+    def complete_funnel(
+        beginning: datetime, axes: tuple[Ref[DimensionKind], ...] = ()
+    ) -> MaterializedFunnelResult:
+        logical = session.events.match(
+            mv.sequence(start, end),
+            population=population,
+            cohort_window=mv.time_scope(start=beginning, end=beginning + timedelta(days=1)),
+            completion_through=beginning + timedelta(days=2),
+            matching=mv.first_per_subject(),
+            business_order=ms.ref.business_order("sales.order"),
+            completeness=claims,
         )
+        return logical.funnel(axes=axes).execute() if axes else logical.execute().funnel().execute()
 
-        population = session.members(ms.ref.entity("sales.subjects"))
-
-        def complete_funnel(
-            beginning: datetime, axes: tuple[Ref[DimensionKind], ...] = ()
-        ) -> MaterializedFunnelResult:
-            logical = session.events.match(
-                mv.sequence(start, end),
-                population=population,
-                cohort_window=mv.time_scope(start=beginning, end=beginning + timedelta(days=1)),
-                completion_through=beginning + timedelta(days=2),
-                matching=mv.first_per_subject(),
-                business_order=ms.ref.business_order("sales.order"),
-                completeness=claims,
-            )
-            return (
-                logical.funnel(axes=axes).execute()
-                if axes
-                else logical.execute().funnel().execute()
-            )
-
-        current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc))
-        baseline = complete_funnel(datetime(2026, 7, 29, tzinfo=timezone.utc))
-        assert current.to_pandas().reached_count.tolist() == [3, 2]
-        assert baseline.to_pandas().reached_count.tolist() == [2, 1]
-        change = current.compare(baseline).absolute.execute()
-        assert change.to_pandas().loss_rate_delta.tolist()[-1] == pytest.approx(-1 / 6)
-        assert change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[
-            -1
-        ] == pytest.approx(-1 / 6)
-        comparison_script = """
+    current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc))
+    baseline = complete_funnel(datetime(2026, 7, 29, tzinfo=timezone.utc))
+    assert current.to_pandas().reached_count.tolist() == [3, 2]
+    assert baseline.to_pandas().reached_count.tolist() == [2, 1]
+    change = current.compare(baseline).execute()
+    assert change.to_pandas().loss_rate_delta.tolist()[-1] == pytest.approx(-1 / 6)
+    assert change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[
+        -1
+    ] == pytest.approx(-1 / 6)
+    comparison_script = """
 import os, sys
 import ibis
 import marivo.analysis as mv
@@ -174,43 +171,41 @@ assert abs(change.to_pandas().loss_rate_delta.tolist()[-1] + 1/6) < 1e-15
 assert abs(change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[-1] + 1/6) < 1e-15
 assert change.evidence_digest().finding_set_digest == sys.argv[4]
 """
-        subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                comparison_script,
-                str(tmp_path),
-                session.id,
-                change.state.artifact_ref.ref,
-                change.evidence_digest().finding_set_digest,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-        )
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            comparison_script,
+            str(tmp_path),
+            session.id,
+            change.state.artifact_ref.ref,
+            change.evidence_digest().finding_set_digest,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
 
-        axes = (ms.ref.dimension("sales.subjects.id"),)
-        grouped_current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
-        grouped_baseline = complete_funnel(datetime(2026, 7, 26, tzinfo=timezone.utc), axes)
-        grouped_change = grouped_current.compare(grouped_baseline).absolute.execute()
-        allocation = grouped_change.attribute(
-            target=mv.funnel_loss_rate(step=end), axes=axes
-        ).execute()
-        allocated = allocation.to_pandas()
-        expected_loss = {1: -1 / 3, 2: 1 / 3, 3: -1 / 3}
-        loss = allocated.loc[allocated.kind == "loss"]
-        observed_loss = dict(zip(loss[axes[0].path], loss.contribution, strict=True))
-        assert observed_loss == pytest.approx(expected_loss)
-        assert all(json.loads(mask) == [False] for mask in allocated.other_mask)
-        assert allocated.loc[allocated.kind == "denominator_mix", "contribution"].tolist() == [
-            0.0
-        ] * len(expected_loss)
-        assert allocated.contribution.sum() == pytest.approx(-1 / 3)
-        assert allocation.current.to_pandas().value.sum() == pytest.approx(1 / 3)
-        assert allocation.baseline.to_pandas().value.sum() == pytest.approx(2 / 3)
-        allocation_script = """
+    axes = (ms.ref.dimension("sales.subjects.id"),)
+    grouped_current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
+    grouped_baseline = complete_funnel(datetime(2026, 7, 26, tzinfo=timezone.utc), axes)
+    grouped_change = grouped_current.compare(grouped_baseline).execute()
+    allocation = grouped_change.attribute(target=mv.funnel_loss_rate(step=end), axes=axes).execute()
+    allocated = allocation.to_pandas()
+    expected_loss = {1: -1 / 3, 2: 1 / 3, 3: -1 / 3}
+    loss = allocated.loc[allocated.kind == "loss"]
+    observed_loss = dict(zip(loss[axes[0].path], loss.contribution, strict=True))
+    assert observed_loss == pytest.approx(expected_loss)
+    assert all(json.loads(mask) == [False] for mask in allocated.other_mask)
+    assert allocated.loc[allocated.kind == "denominator_mix", "contribution"].tolist() == [
+        0.0
+    ] * len(expected_loss)
+    assert allocated.contribution.sum() == pytest.approx(-1 / 3)
+    assert allocation.current.to_pandas().value.sum() == pytest.approx(1 / 3)
+    assert allocation.baseline.to_pandas().value.sum() == pytest.approx(2 / 3)
+    allocation_script = """
 import os, sys
 import ibis
 import marivo.analysis as mv
@@ -245,25 +240,25 @@ assert rows.loc[rows.kind == 'denominator_mix', 'contribution'].tolist() == [0.0
 assert abs(result.current.to_pandas().value.sum()-1/3) < 1e-15
 assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
 """
-        subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                allocation_script,
-                str(tmp_path),
-                session.id,
-                grouped_change.state.artifact_ref.ref,
-                allocation.state.artifact_ref.ref,
-                allocation.evidence_digest().finding_set_digest,
-                axes[0].path,
-                json.dumps(list(expected_loss.items())),
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-        )
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            allocation_script,
+            str(tmp_path),
+            session.id,
+            grouped_change.state.artifact_ref.ref,
+            allocation.state.artifact_ref.ref,
+            allocation.evidence_digest().finding_set_digest,
+            axes[0].path,
+            json.dumps(list(expected_loss.items())),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+    )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Retained Journey consumer accessed its source")
@@ -273,43 +268,26 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
     monkeypatch.setattr(ibis.duckdb, "connect", forbidden)
     elapsed = journeys.time_to_event(from_step=start, to_step=end).execute()
     observed = elapsed.observed_duration.execute()
-    assert observed.to_pandas()["cell_tag"].tolist() == (
-        ["defined", "defined", "unknown", "defined"]
-        if policy == "every"
-        else ["defined", "unknown", "defined"]
-    )
+    assert observed.to_pandas()["cell_tag"].tolist() == ["defined", "unknown", "defined"]
     completed = elapsed.completed().duration.execute()
     assert len(completed.members().execute().to_pandas()) == 2
-    assert elapsed.completed().duration.execute().to_pandas()["value"].tolist() == (
-        [timedelta(seconds=10), timedelta(seconds=9), timedelta(0)]
-        if policy == "every"
-        else [timedelta(seconds=10), timedelta(0)]
-    )
-    if policy == "every":
-        with pytest.raises(AnalysisError, match="first_per_subject"):
-            journeys.read(mv.dropped_before(step=end))
-    else:
-        assert journeys.read(mv.dropped_before(step=end)).execute().to_pandas()[
-            "cell_tag"
-        ].tolist() == ["defined", "unknown", "defined"]
+    assert elapsed.completed().duration.execute().to_pandas()["value"].tolist() == [
+        timedelta(seconds=10),
+        timedelta(0),
+    ]
+    assert journeys.read(mv.dropped_before(step=end)).execute().to_pandas()[
+        "cell_tag"
+    ].tolist() == ["defined", "unknown", "defined"]
     observed_ratio = observed.ratio(observed).execute().to_pandas()
-    assert observed_ratio["cell_tag"].tolist() == (
-        ["defined", "defined", "unknown", "undefined"]
-        if policy == "every"
-        else ["defined", "unknown", "undefined"]
-    )
+    assert observed_ratio["cell_tag"].tolist() == ["defined", "unknown", "undefined"]
     assert observed_ratio.loc[observed_ratio.cell_tag == "unknown", "cell_reason"].tolist() == [
         "coverage_censored"
     ]
     ratio = completed.ratio(completed).execute()
     rows = ratio.to_pandas()
-    expected_tags = (
-        ["defined", "defined", "undefined"] if policy == "every" else ["defined", "undefined"]
-    )
-    expected_values = [1.0, 1.0] if policy == "every" else [1.0]
-    expected_reasons = (
-        [None, None, "zero_denominator"] if policy == "every" else [None, "zero_denominator"]
-    )
+    expected_tags = ["defined", "undefined"]
+    expected_values = [1.0]
+    expected_reasons = [None, "zero_denominator"]
     assert rows["cell_tag"].tolist() == expected_tags
     assert rows["value"].tolist()[: len(expected_values)] == expected_values
     assert rows["cell_reason"].tolist() == expected_reasons

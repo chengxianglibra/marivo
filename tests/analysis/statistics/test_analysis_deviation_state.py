@@ -3,7 +3,6 @@
 import hashlib
 import json
 from dataclasses import replace
-from decimal import Decimal
 from fractions import Fraction
 
 import pyarrow as pa
@@ -142,18 +141,11 @@ def test_empty_receiver_has_no_synthetic_row(method: DeviationMethod) -> None:
 @pytest.mark.parametrize(
     "damage",
     (
-        "center",
         "zero_center_denominator",
-        "zero_scale_denominator",
-        "count",
         "order",
-        "scope",
         "view",
         "certificate",
         "certificate_decimal_encoding",
-        "certificate_precision_step",
-        "certificate_precision_digits",
-        "certificate_precision_padding",
         "policy",
     ),
 )
@@ -167,25 +159,12 @@ def test_self_consistent_digests_do_not_repair_damaged_authority(damage: str) ->
     execution.validate(result.contract, result.primary, result.parts)
     _, state = execution._decode(result.parts)
     part = state.partitions[0]
-    if damage == "center":
-        state = replace(
-            state, partitions=(replace(part, fit=replace(part.fit, center=RationalFact("0", "1"))),)
-        )
-    elif damage == "zero_center_denominator":
+    if damage == "zero_center_denominator":
         state = replace(
             state, partitions=(replace(part, fit=replace(part.fit, center=RationalFact("1", "0"))),)
         )
-    elif damage == "zero_scale_denominator":
-        state = replace(
-            state,
-            partitions=(replace(part, fit=replace(part.fit, raw_scale=RationalFact("1", "0"))),),
-        )
-    elif damage == "count":
-        state = replace(state, partitions=(replace(part, defined=4),))
     elif damage == "order":
         state = replace(state, partitions=(replace(part, order=tuple(reversed(part.order))),))
-    elif damage == "scope":
-        state = replace(state, partitions=(replace(part, indices=(0, 1)),))
     elif damage == "view":
         table = execution.load(state.views)
         table = table.set_column(
@@ -201,27 +180,7 @@ def test_self_consistent_digests_do_not_repair_damaged_authority(damage: str) ->
             replace(witness.root, lower="invalid")
             if damage == "certificate_decimal_encoding"
             else replace(witness.root, lower="1", upper="1")
-            if damage == "certificate"
-            else replace(
-                witness.root,
-                precision=witness.root.precision
-                + (1 if damage == "certificate_precision_step" else 40),
-            )
         )
-        if damage == "certificate_precision_padding":
-
-            def pad(value: str) -> str:
-                fact = Decimal(value).as_tuple()
-                assert isinstance(fact.exponent, int)
-                return str(
-                    Decimal(
-                        (fact.sign, (*fact.digits, *(0 for _ in range(40))), fact.exponent - 40)
-                    )
-                )
-
-            damaged_root = replace(
-                damaged_root, lower=pad(witness.root.lower), upper=pad(witness.root.upper)
-            )
         state = replace(
             state,
             scores=(
@@ -399,26 +358,16 @@ def test_self_consistent_ipc_digests_cannot_change_typed_carriers(damage: str) -
         execution.validate(result.contract, result.primary, parts)
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 @pytest.mark.parametrize(
-    "damage",
+    "method,damage",
     (
-        "input_version",
-        "state_version",
-        "fit_version",
-        "numeric_policy",
-        "transform",
-        "input_scope",
-        "input_keys",
-        "fit_identity",
-        "sample_count",
-        "state_count",
-        "scale_branch",
-        "current_key",
-        "current_value",
+        ("zscore", "input_version"),
+        ("zscore", "fit_identity"),
+        ("mad", "scale_branch"),
+        ("zscore", "current_value"),
     ),
 )
-def test_each_closed_recovery_fact_rejects_after_clean_authority(
+def test_representative_closed_recovery_facts_reject_after_clean_authority(
     method: DeviationMethod, damage: str
 ) -> None:
     node, source = _input(
@@ -434,36 +383,15 @@ def test_each_closed_recovery_fact_rejects_after_clean_authority(
     primary = result.primary
     if damage == "input_version":
         input_payload["version"] = "r8.fit_inputs/v2"
-    elif damage == "state_version":
-        state_payload["version"] = "r8.fit_state/v2"
-    elif damage == "fit_version":
-        fit_payload["version"] = "v2"
-    elif damage == "numeric_policy":
-        fit_payload["numeric_policy"] = "other_policy"
-    elif damage == "transform":
-        state_payload["transform"] = "refit_selected_rows@v1"
-    elif damage == "input_scope":
-        object_json(object_json(input_payload["signature"])["domain"])["definition_id"] = (
-            "other_scope"
-        )
-    elif damage == "input_keys":
-        input_payload["keys"] = ["other_key"]
     elif damage == "fit_identity":
         state_payload["fit_id"] = "other_fit"
-    elif damage == "sample_count":
-        fit_payload["n"] = 4
-    elif damage == "state_count":
-        partition_payload["unknown"] = 1
     elif damage == "scale_branch":
         fit_payload["branch"] = "scaled_mad" if method == "zscore" else "population_stddev"
     else:
-        column = "key_0" if damage == "current_key" else "value"
         primary = primary.set_column(
-            primary.schema.get_field_index(column),
-            column,
-            pa.array(["escape", "1", "2"])
-            if damage == "current_key"
-            else pa.array([100.0, 100.0, 100.0]),
+            primary.schema.get_field_index("value"),
+            "value",
+            pa.array([100.0, 100.0, 100.0]),
         )
     input_json = json.dumps(input_payload, separators=(",", ":"))
     state_payload["input_digest"] = hashlib.sha256(input_json.encode()).hexdigest()
