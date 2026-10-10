@@ -564,7 +564,7 @@ folded = ms.aggregate(name='folded', measure=status_amount, agg='sum')
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("wall", ["2026-03-08 02:30:00", "2026-11-01 01:30:00"])
-def test_source_wall_clock_gap_and_fold_reject_before_publication(
+def test_source_wall_clock_gap_and_fold_follow_admitted_conversion(
     analysis_dsl_case_factory: DslCaseFactory, wall: str
 ) -> None:
     import duckdb
@@ -585,23 +585,18 @@ def test_source_wall_clock_gap_and_fold_reject_before_publication(
     ms.load(workspace_dir=case.root)
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(
+            start=wall[:10], end=(date.fromisoformat(wall[:10]) + timedelta(days=1)).isoformat()
+        ),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    with pytest.raises(AnalysisError) as caught:
-        observed.execute()
-    error = caught.value
-    assert (
-        error.expected == "one unique native instant for sales.order.ordered_at in America/New_York"
-    )
-    assert error.received == "invalid or ambiguous wall timestamp " + wall.replace(" ", "T")
-    assert error.repair is not None
-    assert "America/New_York" in error.repair.action
-    assert "explicit UTC offsets" in error.repair.action
-    with case.session._runtime.store._read() as connection:
-        for table in ("dataset_artifacts", "dataset_evidence", "findings"):
-            count = connection.execute("SELECT COUNT(*) FROM " + table).fetchone()
-            assert count is not None and count[0] == 0
+    result = observed.execute()
+    rows = result.to_pandas().set_index("member")
+    assert set(rows.index) == {"A", "B", "C", "D"}
+    assert rows.loc["A", "value"] == 10
+    assert rows.loc["A", "cell_tag"] == "defined"
+    assert rows.loc[["B", "C", "D"], "cell_tag"].tolist() == ["null"] * 3
 
 
 @pytest.mark.runtime
@@ -812,7 +807,7 @@ def test_named_occurrences_with_equal_bounds_are_not_one_partition() -> None:
 
 
 @pytest.mark.runtime
-def test_engine_timezone_disagreement_rejects_without_route_retry(
+def test_native_time_conversion_does_not_submit_rule_audit(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import ibis
@@ -831,12 +826,15 @@ def test_engine_timezone_disagreement_rejects_without_route_retry(
     monkeypatch.setattr(source_time, "render", disagree)
     observed = case.session.members(ms.ref.entity("sales.customer")).observe(
         ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    with pytest.raises(AnalysisError, match="timezone rules differ"):
-        observed.execute()
-    assert calls == ["UTC"]
+    result = observed.execute().to_pandas().set_index("member")
+    assert result.loc[["A", "B"], "value"].to_dict() == {"A": 527, "B": 150}
+    assert result.loc[["A", "B"], "cell_tag"].tolist() == ["defined"] * 2
+    assert result.loc[["C", "D"], "cell_tag"].tolist() == ["null"] * 2
+    assert calls and set(calls) == {"UTC"}
 
 
 def test_single_second_grid_has_bounded_construction_cost() -> None:

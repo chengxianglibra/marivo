@@ -194,7 +194,7 @@ def proof(
         }[phase],
         "qualification_key": key_json(physical.key),
         "implementation_id": physical.implementation.qualification.implementation_id,
-        "implementation_contract_version": "v1",
+        "implementation_contract_version": "v" + str(physical.implementation.contract_version),
         "precision_contract": physical.implementation.precision,
         "state_version": "v1",
         "numeric_policy": "r8_numeric_v1",

@@ -257,7 +257,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
 
         for name in ("compile", "batches"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(session._runtime.store, "admit", forbidden)
+        monkeypatch.setattr(graph_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             members.observe(
                 ms.ref.metric("sales.total"),

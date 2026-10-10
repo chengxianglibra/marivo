@@ -8,6 +8,7 @@ import ibis.expr.types as ir
 
 from marivo.analysis.compiler.domain_preparation import _version
 from marivo.analysis.compiler.graph_lowering import (
+    IntegrityCheck,
     LoweredCheck,
     LoweredRelation,
     RelationLayout,
@@ -97,6 +98,15 @@ def lower_axes(
                     _version(raw, bound, current.__instant),
                 ],
             )
+            if index == len(axis.entities) - 1:
+                checks.append(
+                    IntegrityCheck(
+                        stage.output,
+                        f"an owner operand for {axis.dimension.ref.path} on every consumed complete occurrence",
+                        joined.filter(raw[entity.primary_key[0]].isnull()).select(*keys),
+                        current_ids,
+                    )
+                )
             fields = {name: current[name] for name in (*keys, "__instant")}
             if index < len(route):
                 fields.update(

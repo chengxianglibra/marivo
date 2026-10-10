@@ -9,6 +9,7 @@ from contextlib import closing, contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 from itertools import product
+from typing import Literal
 
 import ibis
 import pyarrow as pa
@@ -19,12 +20,19 @@ from marivo.analysis.compiler.graph_lowering import CoordinateColumn, RelationLa
 from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.domain_captures import DomainPreparationError, EventCapture
 from marivo.analysis.core.graph import Edge, FixedLeaf, SourceDefinition, SourceLeaf, method_node
-from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, Signature
+from marivo.analysis.core.model import (
+    Binding,
+    Coordinate,
+    CoordinateStatePart,
+    DomainSignature,
+    Signature,
+)
 from marivo.analysis.core.rules import OccurrencePrepare
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
 from marivo.analysis.materialization.graph_protocol import (
     digest,
@@ -648,10 +656,13 @@ def test_f13_source_prefix_before_actual_subject_image(
         assert restriction["candidate_rows"] == (0 if empty else 3)
         expected_candidates = pa.table(
             {
-                "key": ["occurrence0", "occurrence1", "occurrence2"],
-                "member": ["subject0", "subject0", "subject1"],
+                "contribution__key_0": ["occurrence0", "occurrence1", "occurrence2"],
+                "candidate__key_0": ["occurrence0", "occurrence1", "occurrence2"],
                 "amount": [1, 1, 1] if method == "count" else [10, 20, 30],
-                "time": pa.array([1000000, 2000000, 3000000], type=pa.timestamp("us", tz="UTC")),
+                "event_time": pa.array(
+                    [1000000, 2000000, 3000000], type=pa.timestamp("us", tz="UTC")
+                ),
+                "member_0": ["subject0", "subject0", "subject1"],
             }
         )
         assert restriction["candidate_arrow_bytes"] == (0 if empty else expected_candidates.nbytes)
@@ -1325,18 +1336,29 @@ def test_f13_captures_historical_coordinate_at_contribution_time(tmp_path, overl
                 )
 
         if overlap:
-            with pytest.raises(DomainPreparationError, match="input_binding"):
+            with pytest.raises(MaterializationError) as duplicate:
                 runtime._execute_graph(
                     root, routes, source_bindings=(*source_keys, key), source_factory=factory
                 )
+            assert duplicate.value.expected == "a complete schema-bound private graph exchange"
+            assert duplicate.value.received == "null or duplicate complete key"
+            assert duplicate.value.repair is not None
+            assert duplicate.value.run_ref == runtime.last_run_ref
+            assert runtime.store._graph_run(runtime.last_run_ref).lifecycle == "failed"
         else:
             artifact = runtime._execute_graph(
                 root, routes, source_bindings=(*source_keys, key), source_factory=factory
             )
             result = read_result(tmp_path, artifact.descriptor)
             state = next(part.table for part in result.parts if part.role == "coordinate_state")
-            grouped = {row["key_0"]: row["coordinate_state__groups"] for row in state.to_pylist()}
-            assert {item["coordinate"]: item["sum"] for item in grouped["subject0"]} == {
+            coordinate = next(
+                part for part in root.signature.parts if isinstance(part, CoordinateStatePart)
+            )
+            rows = state.to_pylist()
+            assert len(rows) == 3
+            assert {
+                row[coordinate.columns[0]]: row["sum"] for row in rows if row["key_0"] == "subject0"
+            } == {
                 "before": 10,
                 "after": 20,
             }
@@ -1695,6 +1717,7 @@ def test_review_normalized_version_path():
                 contribution=leaf.definition.ref,
                 path=(hop,),
                 event=event,
+                temporal=observation_temporal(event),
             )
             root = method_node(
                 old.inputs,
@@ -1749,7 +1772,8 @@ def test_review_normalized_version_path():
 
 
 @pytest.mark.runtime
-def test_review_version_ns_zone():
+@pytest.mark.parametrize("unit", ["us", "ns"])
+def test_versioned_observation_timezone_precision(unit: Literal["us", "ns"]) -> None:
     from contextlib import contextmanager
     from dataclasses import replace
     from pathlib import Path
@@ -1758,6 +1782,7 @@ def test_review_version_ns_zone():
     import ibis
     import pyarrow as pa
 
+    from marivo.analysis.compiler.errors import DatasetCompilationError
     from marivo.analysis.compiler.graph_lowering import (
         CoordinateColumn,
         RelationLayout,
@@ -1777,7 +1802,7 @@ def test_review_version_ns_zone():
     f = globals()
     with TemporaryDirectory(prefix="marivo-review-version-") as d:
         directory = Path(d).resolve()
-        with f["_case"](directory, form="parquet", unit="ns", zone="America/New_York") as (
+        with f["_case"](directory, form="parquet", unit=unit, zone="America/New_York") as (
             runtime,
             occurrence,
             keys,
@@ -1844,6 +1869,13 @@ def test_review_version_ns_zone():
                 ),
             )
             event = f["_dimension"](contract, "instant", time=True, zone="America/New_York")
+            if unit == "ns":
+                with pytest.raises(DatasetCompilationError) as precision:
+                    observation_temporal(event, "timestamp(9)")
+                assert precision.value.expected == "exact native timezone conversion precision"
+                assert precision.value.received == "submicrosecond conversion unsupported"
+                assert precision.value.repair is not None
+                return
             metric = replace(
                 observation.metric,
                 graph=graph,
@@ -1856,6 +1888,7 @@ def test_review_version_ns_zone():
                 contribution=leaf.definition.ref,
                 path=(hop,),
                 event=event,
+                temporal=observation_temporal(event, "timestamp(6)"),
                 end="1970-01-02T00:00:00+00:00",
             )
             root = method_node(
@@ -1872,7 +1905,7 @@ def test_review_version_ns_zone():
                         "occurrence": ["same", "same"],
                         "subject": ["subject0", "subject0"],
                         "amount": [10, 900],
-                        "instant": pa.array([1000000123, 100001000000000], type=pa.timestamp("ns")),
+                        "instant": pa.array([1000123, 100001000000], type=pa.timestamp("us")),
                         "start": pa.array([0, 100000], type=pa.timestamp("s", tz="UTC")),
                         "end": pa.array([100000, 200000], type=pa.timestamp("s", tz="UTC")),
                     }
@@ -1952,7 +1985,7 @@ def test_review_table_precision():
 
 
 @pytest.mark.runtime
-def test_review_version():
+def test_version_nonoverlap_outside_observation_scope_is_trusted():
     from contextlib import contextmanager
     from dataclasses import replace
     from pathlib import Path
@@ -2048,6 +2081,7 @@ def test_review_version():
                 contribution=leaf.definition.ref,
                 path=(hop,),
                 event=event,
+                temporal=observation_temporal(event),
             )
             root = method_node(
                 old.inputs,
@@ -2094,10 +2128,16 @@ def test_review_version():
                         ),
                     )
 
-            with pytest.raises(DomainPreparationError, match="non-overlapping"):
-                artifact = runtime._execute_graph(
-                    root, routes, source_bindings=(*keys, binding), source_factory=factory
-                )
+            artifact = runtime._execute_graph(
+                root, routes, source_bindings=(*keys, binding), source_factory=factory
+            )
+            result = read_result(directory, artifact.descriptor)
+            rows = cell_rows(result.primary)
+            assert {row["key_0"]: row["value"] for row in rows} == {
+                "subject0": 10,
+                "subject1": 0,
+            }
+            assert {row["cell_tag"] for row in rows} == {"defined"}
 
 
 @pytest.mark.runtime

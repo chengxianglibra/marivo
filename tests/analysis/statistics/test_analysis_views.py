@@ -365,7 +365,8 @@ def test_frozen_views_scope_sharing_quantity_and_k(
                     if method.startswith(("deviation.", "association."))
                     else "builtin_day:grid_us:UTC",
                     "numeric_policy": "r8_numeric_v1",
-                    "implementation_contract_version": "v1",
+                    "implementation_contract_version": "v"
+                    + str(physical.implementation.contract_version),
                     "state_version": "v1",
                     "source_sql": issued,
                     "driver_sql": submitted,

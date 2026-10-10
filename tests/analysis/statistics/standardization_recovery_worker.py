@@ -71,6 +71,8 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
         weights, categories = originals["weights"], originals["categories"]
         assert isinstance(weights, mv.MaterializedNumericRelation)
         assert isinstance(categories, mv.MaterializedCategoryRelation)
+        physical = state["physical"]
+        assert isinstance(physical, str)
         before = run_ids(session)
         outputs: dict[str, Json] = {}
         output_parts: dict[str, Json] = {}
@@ -81,8 +83,16 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             assert isinstance(
                 groups, (mv.MaterializedGroupedNumericRelation, mv.MaterializedRolledRatioRelation)
             ), (kind, type(groups).__name__)
+            current_weights = (
+                originals["float_weights"]
+                if physical.startswith("DECIMAL") and kind in ("weighted_mean", "ratio")
+                else weights
+            )
+            assert isinstance(current_weights, mv.MaterializedNumericRelation)
             reference = mv.reference_weights(
-                weights, strata=(categories,), unit=ms.ref.entity("sales.order")
+                current_weights,
+                strata=(categories,),
+                unit=ms.ref.entity("sales.order"),
             )
             operation = groups.standardize(reference=reference)
             if phase == "cold":
@@ -95,6 +105,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             expected = obj(state["expected"])[kind]
             assert isinstance(expected, (str, float))
             assert actual == [Decimal(expected) if isinstance(expected, str) else expected]
+            assert type(actual[0]) is (Decimal if isinstance(expected, str) else float)
             assert result._dataset is not None
             assert result._dataset.verified().contract.state_kind == "standardized"
             assert not any(

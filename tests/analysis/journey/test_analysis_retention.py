@@ -211,6 +211,7 @@ def test_profiles_source_fixed_cold(tmp_path, subject, occurrence, form, unit, z
     for phase in ("produce", "continue", "cold"):
         run = subprocess.run(
             [sys.executable, "-m", "tests.analysis.journey.retention_worker", phase, str(tmp_path)],
+            env=dict(os.environ, MARIVO_PROJECT_ROOT=str(tmp_path)),
             capture_output=True,
             text=True,
             timeout=180,

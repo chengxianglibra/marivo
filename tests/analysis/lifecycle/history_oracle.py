@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta
 from fractions import Fraction
 
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from tests.analysis.lifecycle.lifecycle_fixtures import END, START
 from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 
@@ -134,7 +135,7 @@ def views(values, subject="i", occurrence="i", known=END, empty=False):
 
 def assert_view(result, name, expected):
     verified = result._dataset.verified()
-    rows = verified.primary.to_pylist()
+    rows = cell_rows(verified.primary)
     keys = verified.contract.key_fields
     fields = {
         "in_state": ("value", "cell_tag"),

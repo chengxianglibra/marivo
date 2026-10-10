@@ -15,6 +15,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_local_execution
+from marivo.analysis.materialization.cell_arrow import number, required
+from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -31,7 +33,7 @@ class Continuation(Protocol):
 def check_original(value: mv.MaterializedNumericRelation, physical: str, kind: str) -> None:
     assert value._dataset is not None
     table = value._dataset.verified().primary
-    records = table.to_pylist()
+    records = sorted(cell_rows(table), key=lambda record: required(record["key_0"], str))
     assert [record["key_0"] for record in records] == ["A", "B", "C", "D"]
     if physical == "decimal":
         assert kind == "quantile"
@@ -128,13 +130,13 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             )
             assert isinstance(selected, mv.MaterializedSelectedNumericRelation)
             expected_members = ["A", "B", "C"]
-            assert selected.to_pandas().member.tolist() == expected_members
+            assert sorted(selected.to_pandas().member.tolist()) == expected_members
             selected_facts = dict(selected.contract()._facts)
             original_facts = dict(value.contract()._facts)
             for fact in ("method", "algorithm"):
                 assert fact in original_facts and selected_facts[fact] == original_facts[fact]
             members = execute(kind + ":members", selected.members())
-            assert members.to_pandas().member.tolist() == expected_members
+            assert sorted(members.to_pandas().member.tolist()) == expected_members
             total = Decimal("3.07") if physical == "decimal" else 3 if "distinct" in kind else 1000
             size = len(expected_members)
             reductions: tuple[tuple[str, mv.RowMethod, int | float | Decimal], ...] = (
@@ -153,13 +155,13 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             for name, method, expected in reductions:
                 result = execute(kind + ":" + name, selected.aggregate(method))
                 assert result._dataset is not None
-                rows = result._dataset.verified().primary.to_pylist()
+                rows = cell_rows(result._dataset.verified().primary)
                 assert len(rows) == 1 and rows[0]["cell_tag"] == "defined"
                 actual = rows[0]["value"]
                 if isinstance(expected, Decimal):
                     assert isinstance(actual, Decimal) and actual == expected
                 else:
-                    assert abs(float(actual) - expected) <= 1e-12
+                    assert abs(float(number(actual)) - expected) <= 1e-12
                 if physical == "decimal" and name in ("sum", "mean"):
                     assert isinstance(result, mv.MaterializedStatisticRelation)
                     verified = result._dataset.verified()
@@ -185,7 +187,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     assert isinstance(result, mv.MaterializedStatisticRelation)
                     assert result._dataset is not None
                     verified = result._dataset.verified()
-                    assert verified.primary.to_pylist() == [
+                    assert cell_rows(verified.primary) == [
                         {
                             "value": Decimal("0.00") if name == "sum" else None,
                             "cell_tag": "defined" if name == "sum" else "undefined",

@@ -198,12 +198,11 @@ def test_public_sql_owner_audit(
                 reference,
                 statement,
                 reason="R9.5 native terminal submission audit",
-                limit=1,
                 timeout_seconds=5,
                 project_root=tmp_path,
             )
             assert terminal.rows == ({"marker": 7},)
-            assert terminal.sql == statement and not terminal.is_truncated
+            assert terminal.sql == statement and terminal.returned_row_count == 1
             categories = {item.category for item in audit.submissions}
             assert {
                 "provider",

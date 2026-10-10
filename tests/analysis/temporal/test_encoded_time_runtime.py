@@ -355,6 +355,7 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
                 ms.ref.metric("sales.line_revenue"),
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=routes,
+                by=(mv.member(),),
             )
             .execute()
             .to_pandas()
@@ -370,7 +371,7 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
     pd.testing.assert_frame_equal(optimized, previous)
 
 
-def test_outside_window_relationship_violation_is_still_checked(
+def test_outside_window_relationship_mismatch_preserves_observation_scope(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -379,11 +380,54 @@ def test_outside_window_relationship_violation_is_still_checked(
         connection.execute("UPDATE \"order\" SET customer_id='missing' WHERE order_id='j1_july'")
     population = case.session.members(ms.ref.entity("sales.customer"))
 
+    def execute() -> pd.DataFrame:
+        return (
+            population.observe(
+                ms.ref.metric("sales.revenue"),
+                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .execute()
+            .to_pandas()
+            .sort_values("member")
+            .reset_index(drop=True)
+        )
+
+    optimized = execute()
+    assert optimized.set_index("member").value.dropna().to_dict() == {
+        "A": 450,
+        "B": 150,
+        "C": 400,
+    }
+    with monkeypatch.context() as baseline:
+        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
+        previous = execute()
+    pd.testing.assert_frame_equal(optimized, previous)
+
+
+def test_encoded_and_parsed_time_failures_preserve_error_fields_and_run_ownership(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    _encode_orders(case, "%Y%m%d")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(
+            'UPDATE "order" SET amount=9223372036854775807 '
+            "WHERE customer_id='A' AND ordered_at LIKE '202608%'"
+        )
+        connection.execute(
+            'INSERT INTO "order" VALUES '
+            "('overflow','A','web','paid','20260815',9223372036854775807)"
+        )
+    population = case.session.members(ms.ref.entity("sales.customer"))
+
     def execute() -> None:
         population.observe(
             ms.ref.metric("sales.revenue"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales.order_buyer"),
+            by=(mv.member(),),
         ).execute()
 
     with pytest.raises(AnalysisError) as optimized:
@@ -392,4 +436,15 @@ def test_outside_window_relationship_violation_is_still_checked(
         baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
         with pytest.raises(type(optimized.value)) as previous:
             execute()
-    assert str(optimized.value) == str(previous.value)
+    first, second = optimized.value, previous.value
+    assert (first.message, first.expected, first.received, first.location, first.repair) == (
+        second.message,
+        second.expected,
+        second.received,
+        second.location,
+        second.repair,
+    )
+    for error in (first, second):
+        assert error.run_ref is not None
+        assert case.session.get_run(error.run_ref).lifecycle == "failed"
+    assert first.run_ref != second.run_ref

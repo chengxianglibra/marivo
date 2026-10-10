@@ -96,9 +96,13 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             assert isinstance(selected, mv.MaterializedSelectedNumericRelation)
             frame = value.to_pandas().set_index("member")
             selected_frame = selected.to_pandas().set_index("member")
-            assert selected_frame.equals(frame.loc[["a", "b"]])
+            assert (
+                selected_frame.sort_index()
+                .reset_index()
+                .equals(frame.loc[["a", "b"]].sort_index().reset_index())
+            )
             members = execute(kind + ":members", selected.members())
-            assert members.to_pandas().member.tolist() == ["a", "b"]
+            assert sorted(members.to_pandas().member.tolist()) == ["a", "b"]
             numbers = [
                 obj(row)["value"]
                 for row in arr(obj(original["rows"])["data"])

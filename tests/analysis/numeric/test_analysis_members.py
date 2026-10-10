@@ -18,6 +18,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
@@ -304,8 +305,18 @@ def test_read_path_coverage_null_and_consumed_scope(members_session: Session) ->
     read = chosen.read(amount, at=september, via=route)
     assert read.execute().to_pandas()["value"].tolist() == [30]
     # Missing B is not a Null field and cannot be silently dropped.
-    with pytest.raises(AnalysisError, match="mapping_total"):
+    with pytest.raises(MaterializationError) as missing:
         members.read(amount, at=september, via=route).execute()
+    assert missing.value.expected == (
+        f"an owner operand for {prefix}.snapshot.amount on every consumed complete key"
+    )
+    assert (
+        missing.value.received
+        == "required field owner operand is missing for 1 consumed complete keys"
+    )
+    assert missing.value.repair is not None
+    assert missing.value.run_ref is not None
+    assert session.get_run(missing.value.run_ref).lifecycle == "failed"
     # Duplicate an unrelated owner identity; scoped A consumption stays valid.
     _replace_source(
         session,
@@ -683,8 +694,8 @@ def test_root_projection_reads_one_source_without_distinct(
     monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
     monkeypatch.setattr(SourceSession, "stage_calculated", forbidden)
     members.execute()
-    # The declared identity needs no independent business audit.
-    assert purposes == ["analysis.graph.stage"]
+    # The null-key check and terminal projection share the same source.
+    assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
     assert len(primary) == 1
     assert len(primary[0].op().find(ops.DatabaseTable)) == 1
     assert not primary[0].op().find(ops.Distinct)
@@ -692,7 +703,7 @@ def test_root_projection_reads_one_source_without_distinct(
 
 
 @pytest.mark.runtime
-def test_wrong_role_many_mapping_and_missing_coverage_reject_before_io(
+def test_wrong_role_and_many_mapping_reject_before_io(
     members_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = members_session
@@ -709,14 +720,16 @@ def test_wrong_role_many_mapping_and_missing_coverage_reject_before_io(
 
     with monkeypatch.context() as patch:
         patch.setattr(SourceSession, "bind", forbidden)
-        with pytest.raises(AnalysisError, match="single-valued"):
+        with pytest.raises(AnalysisError) as many:
             members.read(field, at=at, via=ms.ref.relationship(f"{prefix}.many_snapshot"))
+        assert many.value.expected == "a contiguous directed to-one path"
+        assert many.value.received == f"{prefix}.many_snapshot"
+        assert many.value.repair is not None
         with pytest.raises(AnalysisError, match="directed"):
             versioned.read(field, at=at, via=ms.ref.relationship(f"{prefix}.to_snapshot"))
-        with pytest.raises(AnalysisError, match="path"):
-            members.read(field, at=at)
-    # One explicit route and one Relationship Ref have the same scalar meaning.
-    path = (mv.path(ms.ref.relationship(f"{prefix}.to_snapshot")),)
+    # Omission infers the one legal route; explicit paths preserve its meaning.
+    path = mv.path(ms.ref.relationship(f"{prefix}.to_snapshot"))
+    assert members.read(field, at=at).execute().to_pandas()["value"].tolist() == [10, 20]
     assert members.read(field, at=at, via=path).execute().to_pandas()["value"].tolist() == [10, 20]
 
 
@@ -849,8 +862,13 @@ def test_grid_classification_requires_explicit_exact_observation_grid(
     assert frame.value.dropna().tolist() == [10]
     assert set(frame.group) == {"west", "east"}
     incomplete = category.where(category.value.eq("west"))
-    with pytest.raises(AnalysisError, match="mapping_total"):
+    with pytest.raises(MaterializationError) as incomplete_error:
         members.observe(metric, during=grid, by=(incomplete,)).execute()
+    assert incomplete_error.value.expected == "cell_policy"
+    assert incomplete_error.value.received == "2 violating rows"
+    assert incomplete_error.value.repair is not None
+    assert incomplete_error.value.run_ref is not None
+    assert members_session.get_run(incomplete_error.value.run_ref).lifecycle == "failed"
 
 
 @pytest.mark.runtime

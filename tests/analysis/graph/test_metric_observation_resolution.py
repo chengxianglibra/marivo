@@ -17,6 +17,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_observation
 from marivo.analysis.public_dsl import MetricInputValue
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic.errors import SemanticLoadError
 from marivo.semantic.metric_graph_lowering import (
     lower_catalog_metric,
     normalize_target_metric,
@@ -95,7 +96,7 @@ def test_public_observation_resolves_once_and_retains_components(
 
 
 @pytest.mark.runtime
-def test_business_completeness_shares_resolution_and_keeps_error_precedence(
+def test_business_completeness_shares_resolution_and_keeps_typed_refusals(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -121,14 +122,30 @@ def test_business_completeness_shares_resolution_and_keeps_error_precedence(
             by=(mv.member(),),
         )
         assert normalize.call_count == 1
-        with pytest.raises(AnalysisError, match="business-completeness"):
+        with pytest.raises(SemanticLoadError) as missing:
             each.observe(
                 ms.ref.metric("missing.metric"),
                 during=scope,
                 complete_during=(),
                 by=(mv.member(),),
             )
-        assert normalize.call_count == 1
+        assert missing.value.expected == "a loaded Metric"
+        assert missing.value.received == "Metric not loaded"
+        assert missing.value.repair is not None
+        assert normalize.call_count == 2
+        with pytest.raises(AnalysisError) as completeness:
+            each.observe(
+                ms.ref.metric(f"{names.domain}.{names.revenue}"),
+                during=scope,
+                complete_during=(),
+                by=(mv.member(),),
+            )
+        assert completeness.value.expected == (
+            "a single original sum on during=grid without dimension grouping or at"
+        )
+        assert completeness.value.received == "incompatible business-completeness observation"
+        assert completeness.value.repair is not None
+        assert normalize.call_count == 3
 
 
 @pytest.mark.runtime

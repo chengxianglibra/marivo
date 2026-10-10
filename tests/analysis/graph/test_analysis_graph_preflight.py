@@ -84,10 +84,81 @@ def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
 
 
 @pytest.mark.runtime
+@pytest.mark.parametrize("empty", (False, True))
+def test_coordinate_rollup_has_one_singleton_target(
+    analysis_dsl_case_factory: DslCaseFactory, empty: bool
+) -> None:
+    import marivo.analysis as mv
+    from marivo.analysis.core.graph import FixedLeaf
+    from marivo.analysis.core.rules import OriginalReduce
+    from marivo.analysis.materialization.graph_observation import observe_members
+    from marivo.analysis.materialization.graph_protocol import fixed_signature
+    from marivo.analysis.methods.physical import FixedShape
+    from marivo.analysis.refs import ArtifactRef
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        if empty:
+            connection.execute('DELETE FROM "order"')
+        else:
+            connection.execute(
+                "INSERT INTO \"order\" VALUES ('extra','A','mobile','paid','2026-08-15',100)"
+            )
+    graph = construct_members(
+        case.session._runtime,
+        case.catalog._state.registry,
+        ms.ref.entity("sales.customer"),
+    )
+    observed = observe_members(
+        graph,
+        ms.ref.metric("sales.revenue"),
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=ms.ref.relationship("sales.order_buyer"),
+        sidecar=case.catalog._state.sidecar,
+        report_timezone="UTC",
+        coordinates=(ms.ref.dimension("sales.order.channel"),),
+    )
+    saved = observed.execute()
+    fixed = FixedLeaf(
+        ArtifactRef(ref=saved.artifact_ref),
+        saved.descriptor.definition_fingerprint,
+        fixed_signature(saved.descriptor),
+        ScalarType("int64"),
+        FixedShape(NoTime()),
+    )
+    singleton = DomainSignature(observed.root.signature.domain.binding, "singleton", (), (), "all")
+    for node, params in (
+        (
+            observed.root,
+            OriginalReduce(
+                singleton, "source.contribution_partition@v1", "source.complete_coverage@v1"
+            ),
+        ),
+        (fixed, OriginalReduce(singleton)),
+    ):
+        root = method_node((Edge("quantity", node),), params, value_type=ScalarType("int64"))
+        result = (
+            replace(observed, root=root).execute()
+            if node is observed.root
+            else case.session._runtime._execute_graph(
+                root, (RouteChoice(root.identity, "artifact_python"),)
+            )
+        )
+        rows = cell_rows(read_result(case.root, result.descriptor).primary)
+        assert len(rows) == 1
+        assert rows[0]["value"] == (None if empty else 1100)
+        assert rows[0]["cell_tag"] == ("null" if empty else "defined")
+        assert rows[0]["cell_reason"] == ("empty_contribution" if empty else None)
+
+
+@pytest.mark.runtime
 @pytest.mark.parametrize("form", ("table", "parquet"))
 @pytest.mark.parametrize("numeric_type", ("int64", "float64"))
 def test_exact_member_builder_publishes_v7_from_authored_project(
-    analysis_dsl_case_factory: DslCaseFactory, tmp_path: Path, form: str, numeric_type: str
+    analysis_dsl_case_factory: DslCaseFactory,
+    tmp_path: Path,
+    form: str,
+    numeric_type: Literal["int64", "float64"],
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     fresh = tmp_path / "graph_project"
@@ -169,14 +240,13 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         "coordinate_state",
     )
     coordinate_rows = observation.parts[-1].table.to_pylist()
-    assert (
-        next(row for row in coordinate_rows if row["key_0"] == "D")["coordinate_state__groups"]
-        == []
-    )
-    assert (
-        sum(group["sum"] for row in coordinate_rows for group in row["coordinate_state__groups"])
-        == 1000
-    )
+    assert not any(row["key_0"] == "D" for row in coordinate_rows)
+    coordinate_total: int | float = 0
+    for row in coordinate_rows:
+        value = row["sum"]
+        assert isinstance(value, (int, float))
+        coordinate_total += value
+    assert coordinate_total == 1000
     from marivo.analysis.core.graph import FixedLeaf
     from marivo.analysis.core.rules import OriginalReduce
     from marivo.analysis.materialization.graph_protocol import fixed_signature
@@ -196,7 +266,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     total = replace(observed, root=rolled).execute()
     assert read_result(fresh, total.descriptor).primary["value"].to_pylist() == [1000]
     fixed = FixedLeaf(
-        ArtifactRef(saved_observation.artifact_ref),
+        ArtifactRef(ref=saved_observation.artifact_ref),
         saved_observation.descriptor.definition_fingerprint,
         fixed_signature(saved_observation.descriptor),
         ScalarType(numeric_type),
@@ -277,13 +347,18 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     assert filtered_rows == [
         {"key_0": "D", "value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     ]
+    from marivo.analysis.materialization.graph_relation import LiveBinding, Relation
+
+    receiver = Relation(runtime, graph.root, LiveBinding(graph, catalog._state.sidecar, "UTC"))
+    classification = receiver.read(region)
     grouped_observation = observe_members(
-        graph.group_by_value(region),
+        receiver.attach_category(classification)._live().graph,
         ms.ref.metric(f"{case.names.domain}.{case.names.revenue}"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=ms.ref.relationship(f"{case.names.domain}.{case.names.buyer}"),
         sidecar=catalog._state.sidecar,
         report_timezone="UTC",
+        target_keys=(classification.classification_coordinate(),),
     )
     group_result = read_result(fresh, grouped_observation.execute().descriptor)
     assert {row["key_0"]: row["value"] for row in cell_rows(group_result.primary)} == {
@@ -291,7 +366,11 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         "south": 400,
         "west": None,
     }
-    assert tuple(part.role for part in group_result.parts) == ("original_state", "coverage")
+    assert tuple(part.role for part in group_result.parts) == (
+        "original_state",
+        "coverage",
+        "coordinate_state",
+    )
     counted = observe_members(
         graph,
         ms.ref.metric(f"{case.names.domain}.{case.names.order_count}"),
@@ -315,7 +394,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         "value"
     ].to_pylist() == [3]
     count_leaf = FixedLeaf(
-        ArtifactRef(counted_artifact.artifact_ref),
+        ArtifactRef(ref=counted_artifact.artifact_ref),
         counted_artifact.descriptor.definition_fingerprint,
         fixed_signature(counted_artifact.descriptor),
         ScalarType("int64"),
@@ -412,7 +491,7 @@ def test_preflight_rejects_unqualified_source_before_open(
         original_registry,
         datasources={
             **original_registry.datasources,
-            "warehouse": replace(original, backend_type="postgres"),
+            "warehouse": replace(original, backend_type="unsupported"),
         },
     )
 
@@ -420,7 +499,7 @@ def test_preflight_rejects_unqualified_source_before_open(
         raise AssertionError("unsupported backend must reject before source open")
 
     monkeypatch.setattr(DatasourceConnectionService, "use_backend", forbidden)
-    with pytest.raises(DatasetConstructionError, match="DuckDB"):
+    with pytest.raises(DatasetConstructionError, match="qualified graph source provider"):
         preflight_entities(registry, case.root, (f"{case.names.domain}.{case.names.customer}",))
 
 

@@ -44,6 +44,7 @@ def test_native_comparison_independent_fixed_and_cold(
             value = members.observe(
                 ms.ref.metric("sales.total"),
                 during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
+                by=(mv.member(),),
             )
             assert isinstance(value, mv.LogicalNumericRelation)
             return value

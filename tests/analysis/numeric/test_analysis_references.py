@@ -9,6 +9,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import Defined, Null, Undefined, Unknown
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.methods.references import standardize, weight_sum
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
@@ -306,6 +307,7 @@ def test_original_metric_standardization_matrix(
 
     import duckdb
 
+    from marivo.analysis.datasets.errors import DatasetConstructionError
     from marivo.analysis.public_dsl import MetricInputValue
     from tests.analysis.materialization.domain_recovery_worker import snapshot
     from tests.analysis.statistics.standardization_recovery_worker import parts
@@ -316,10 +318,13 @@ def test_original_metric_standardization_matrix(
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
         db.execute(f'ALTER TABLE "order" ADD COLUMN weight {physical} DEFAULT 1')
+        db.execute('ALTER TABLE "order" ADD COLUMN reference_amount DOUBLE')
+        db.execute('UPDATE "order" SET reference_amount=amount')
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text().replace("granularity='second',", "granularity='second', is_default=True,")
         + "\nweight = ms.measure_column(name='weight', entity=orders, column='weight', additivity=ms.additive_all())\n"
+        + "reference_amount = ms.measure_column(name='reference_amount', entity=orders, column='reference_amount', additivity=ms.additive_all(), unit='CNY')\n"
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
@@ -353,6 +358,23 @@ def test_original_metric_standardization_matrix(
         .rollup()
     )
     weights = volume.share_of(volume.rollup())
+    float_weights = weights
+    if physical.startswith("DECIMAL"):
+        float_volume = (
+            members.observe(
+                mv.runtime_metric.aggregate(
+                    ms.ref.measure("sales.order.reference_amount"),
+                    agg="sum",
+                    label="reference volume",
+                ),
+                during=scope,
+                via=ms.ref.relationship("sales.order_buyer"),
+                by=(mv.member(),),
+            )
+            .group_by(categories)
+            .rollup()
+        )
+        float_weights = float_volume.share_of(float_volume.rollup())
     offline = physical != "BIGINT"
     originals: dict[str, Json] = {}
     original_parts: dict[str, Json] = {}
@@ -363,6 +385,13 @@ def test_original_metric_standardization_matrix(
     assert isinstance(retained_categories, mv.MaterializedCategoryRelation)
     for name, value in (("weights", retained_weights), ("categories", retained_categories)):
         originals[name], original_parts[name] = snapshot(value), parts(value)
+    retained_float_weights = (
+        float_weights.execute() if physical.startswith("DECIMAL") else retained_weights
+    )
+    originals["float_weights"], original_parts["float_weights"] = (
+        snapshot(retained_float_weights),
+        parts(retained_float_weights),
+    )
     for kind, metric in metrics.items():
         groups = (
             members.observe(
@@ -374,12 +403,31 @@ def test_original_metric_standardization_matrix(
             .group_by(categories)
             .rollup()
         )
+        native_float = physical.startswith("DECIMAL") and kind in ("weighted_mean", "ratio")
         reference = mv.reference_weights(
-            weights, strata=(categories,), unit=ms.ref.entity("sales.order")
+            float_weights if native_float else weights,
+            strata=(categories,),
+            unit=ms.ref.entity("sales.order"),
         )
+        if native_float:
+            incompatible = mv.reference_weights(
+                weights, strata=(categories,), unit=ms.ref.entity("sales.order")
+            )
+            with pytest.raises(DatasetConstructionError) as mismatch:
+                groups.standardize(reference=incompatible)
+            assert (
+                mismatch.value.expected
+                == "a proved fixed reference with complete compatible inputs"
+            )
+            assert mismatch.value.received is not None
+            assert "ScalarType(name='float64')/DecimalType" in mismatch.value.received
+            assert mismatch.value.repair is not None
         source = groups.standardize(reference=reference).execute()
         fixed_groups = groups.execute()
-        fixed_weights, fixed_categories = retained_weights, retained_categories
+        fixed_weights, fixed_categories = (
+            retained_float_weights if native_float else retained_weights,
+            retained_categories,
+        )
         fixed_reference = mv.reference_weights(
             fixed_weights, strata=(fixed_categories,), unit=ms.ref.entity("sales.order")
         )
@@ -406,15 +454,21 @@ def test_original_metric_standardization_matrix(
                 "ratio": Fraction(1),
                 "linear": 2 * total,
             }[kind]
-            exact_expected += stratum * weight
+            exact_expected += (
+                Fraction(float(stratum)) * Fraction(float(weight))
+                if native_float
+                else stratum * weight
+            )
         expected = (
             (Decimal(exact_expected.numerator) / Decimal(exact_expected.denominator)).quantize(
                 Decimal("0.000001")
             )
-            if physical.startswith("DECIMAL")
+            if physical.startswith("DECIMAL") and not native_float
             else float(exact_expected)
         )
-        assert source.to_pandas().value.tolist() == [expected]
+        actual = source.to_pandas().value.tolist()
+        assert actual == [expected]
+        assert type(actual[0]) is type(expected)
         sources[kind] = snapshot(source)
         source_parts[kind] = parts(source)
         originals["groups:" + kind] = snapshot(fixed_groups)
@@ -558,7 +612,7 @@ def test_public_exact_integer_reference_weights(
         assert standardized.to_pandas().value.tolist() == [float(Fraction(kept[5]))]
         retained = standardized._dataset.verified().parts
         stratum_values = next(part.table for part in retained if part.role == "stratum_values")
-        assert stratum_values["cell_tag"].to_pylist().count("null") == 2
+        assert cell_column(stratum_values, "cell_tag").to_pylist().count("null") == 2
 
 
 @pytest.mark.runtime
@@ -603,7 +657,7 @@ def test_reference_cold_continuations_and_corruption(
     for relation in saved:
         checked = relation._dataset.verified()
         descriptor = relation._dataset.artifact.descriptor
-        assert descriptor.method_state.contract_version == 1
+        assert descriptor.method_state.contract_version == 4
         with pytest.raises(IntegrityError, match="Re-execute the reference"):
             replace(descriptor.method_state, contract_version=2)
         assert checked.method_state is not None

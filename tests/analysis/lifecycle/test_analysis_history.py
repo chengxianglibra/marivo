@@ -324,7 +324,7 @@ def test_history_predicate_pairing_checks_actual_local_keys(
 
 
 @pytest.mark.runtime
-def test_history_missing_originating_proof_rejects_before_view_consumption(
+def test_history_declared_grain_does_not_require_originating_source_audit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from ibis.expr import operations as ops
@@ -349,25 +349,18 @@ def test_history_missing_originating_proof_rejects_before_view_consumption(
     )
     origin = distribution._node.root.inputs[1].node.identity
     original_check, original_view = graph_source_execution._check, history_views.execute
-    dropped = consumed = False
+    consumed = False
 
-    def lose_proof(
+    def check_declared_grain(
         source: SourceSession,
         lowered: LoweredPlan,
         requirement: IntegrityCheck | SemanticCheck | TemporalCheck,
         replacements: dict[ops.Node, ops.Node],
     ) -> CompletedCheck | None:
-        nonlocal dropped
-        proof = original_check(source, lowered, requirement, replacements)
-        if (
-            not dropped
-            and isinstance(requirement, SemanticCheck)
-            and requirement.requirement.node_id == origin
-        ):
-            assert proof is not None
-            dropped = True
-            return None
-        return proof
+        assert not (
+            isinstance(requirement, SemanticCheck) and requirement.requirement.node_id == origin
+        )
+        return original_check(source, lowered, requirement, replacements)
 
     def consume(
         node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str
@@ -379,13 +372,11 @@ def test_history_missing_originating_proof_rejects_before_view_consumption(
             consumed = True
         return original_view(node, inputs, binding)
 
-    monkeypatch.setattr(graph_source_execution, "_check", lose_proof)
+    monkeypatch.setattr(graph_source_execution, "_check", check_declared_grain)
     monkeypatch.setattr(history_views, "execute", consume)
-    with pytest.raises(AnalysisError, match="local consumer lacks its completed originating check"):
-        distribution.execute()
-    assert dropped and not consumed
-    with session._runtime.store._read() as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
+    result = distribution.execute()
+    assert consumed and len(result.to_pandas()) == 18
+    assert result.known_state_count.execute().to_pandas()["value"].sum() == 4
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -549,13 +540,26 @@ def test_history_consumers_source_fixed_cold(tmp_path, key, time):
         result = operation.execute()
         expected(name, result)
         source[name] = artifact(result)
-    for name, operation in observations(logical).items():
-        result = operation.execute()
-        expected(name, result)
-        source[name] = captured[name] = artifact(result)
-        merged = result.rollup().execute()
-        expected(name, merged)
-        fixed[name] = artifact(merged)
+    if time["occurrence_unit"] == "ns":
+        from marivo.analysis.compiler.errors import DatasetCompilationError
+
+        before_runs = session.runs().items
+        before_resources = session._runtime.store.resources(session.id)
+        with pytest.raises(DatasetCompilationError) as precision:
+            observations(logical)
+        assert precision.value.expected == "exact native timezone conversion precision"
+        assert precision.value.received == "submicrosecond conversion unsupported"
+        assert precision.value.repair is not None
+        assert session.runs().items == before_runs
+        assert session._runtime.store.resources(session.id) == before_resources
+    else:
+        for name, operation in observations(logical).items():
+            result = operation.execute()
+            expected(name, result)
+            source[name] = captured[name] = artifact(result)
+            merged = result.rollup().execute()
+            expected(name, merged)
+            fixed[name] = artifact(merged)
     for name, operation in {
         **transport(history),
         "mean": mean(history),

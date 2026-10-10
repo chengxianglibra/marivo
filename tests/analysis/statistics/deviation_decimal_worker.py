@@ -16,6 +16,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.deviation_execution import _decode, load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
@@ -35,15 +36,16 @@ def verify(
     assert result._dataset is not None
     checked = result._dataset.verified()
     inputs, state = _decode(checked.parts)
-    original = load(inputs.primary).sort_by([(inputs.keys[0], "ascending")])
-    views = load(state.views).sort_by([(inputs.keys[0], "ascending")])
+    ordering = [(key, "ascending") for key in inputs.keys]
+    original = load(inputs.primary).sort_by(ordering)
+    views = load(state.views).sort_by(ordering)
     values = tuple(Decimal((0, (digit,), -scale)) for digit in (1, 2, 7))
     assert original[inputs.keys[0]].to_pylist() == ["law_a", "law_b", "law_c", "law_null"]
     assert len(inputs.keys) == 2
     assert original[inputs.keys[1]].to_pylist() == [1, 2, 3, 4]
     assert original.schema.field(inputs.keys[0]).type == pa.string()
     assert original.schema.field(inputs.keys[1]).type == pa.int64()
-    assert original["cell_tag"].to_pylist() == ["defined"] * 3 + ["null"]
+    assert cell_column(original, "cell_tag").to_pylist() == ["defined"] * 3 + ["null"]
     assert original["value"].to_pylist() == [*values, None]
     assert original.schema.field("value").type == pa.decimal128(precision, scale)
     center, _, _, scores = expected(values, method)

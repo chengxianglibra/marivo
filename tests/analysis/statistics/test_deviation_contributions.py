@@ -31,6 +31,7 @@ def test_captured_contributions_followup_profiles(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(case, key_profile, form, unit, zone, calendar, followup=True)
+    source_unit = "ms" if form == "parquet" and unit == "s" else unit
     process = subprocess.run(
         [
             sys.executable,
@@ -38,7 +39,7 @@ def test_captured_contributions_followup_profiles(
             "tests.analysis.statistics.deviation_contribution_worker",
             str(case.root),
             key_profile,
-            unit,
+            source_unit,
             zone,
             domain,
             "calendar" if calendar else "day",

@@ -143,7 +143,8 @@ def dependencies(extra: str) -> dict[str, object]:
                 "SELECT value FROM measurements ORDER BY value",
                 reason="verify isolated local read path",
             )
-            assert result.rows == ({"value": 1}, {"value": 2}) and not result.is_truncated
+            assert result.rows == ({"value": 1}, {"value": 2})
+            assert result.returned_row_count == 2
             local_rows = result.rows
     return {
         "python": sys.version,

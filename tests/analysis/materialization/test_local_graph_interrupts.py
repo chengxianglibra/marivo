@@ -182,6 +182,7 @@ def test_local_graph_native_interrupt_preserves_publication(
         ) -> CompiledRead:
             if purpose == "analysis.graph.stage":
                 assert isinstance(expression, ir.Table)
+                emitted_types = expression.schema()
                 bound = qualified if isinstance(qualified, QualifiedSource) else qualified[0]
                 for _ in range(18):
                     expression = expression.cross_join(bound.binding.relation.view()).select(
@@ -192,6 +193,13 @@ def test_local_graph_native_interrupt_preserves_publication(
                     expression = expression.aggregate(
                         **{name: expression[name].max() for name in expression.columns}
                     )
+                expression = expression.mutate(
+                    **{
+                        name: expression[name].cast(dtype)
+                        for name, dtype in emitted_types.items()
+                        if expression[name].type() != dtype
+                    }
+                )
             result = compile_read(
                 source,
                 qualified,

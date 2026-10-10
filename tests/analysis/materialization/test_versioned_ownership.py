@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import graph_store
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -112,8 +113,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
 
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
-        for owner in sessions:
-            monkeypatch.setattr(owner._runtime.store, "admit", tripwire("store.admit"))
+        monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
         errors: list[Json] = []
         for mode, pairs in (("logical", logical), ("fixed", fixed)):
             for left, right in ((pairs[0], pairs[1]), (pairs[1], pairs[0])):

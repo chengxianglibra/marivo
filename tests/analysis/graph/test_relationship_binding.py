@@ -17,6 +17,7 @@ import marivo.semantic as ms
 from marivo.analysis.core.graph import MethodNode, topology
 from marivo.analysis.core.rules import ObserveMetric
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_snapshot import (
     MethodRecord,
     document_json,
@@ -48,7 +49,7 @@ def _extend(case: DslCase, *, roles: bool = False, order_product: bool = False) 
         connection.execute("INSERT INTO product VALUES ('P', 'book'), ('Q', 'game')")
         connection.execute("ALTER TABLE order_line ADD COLUMN product_id VARCHAR")
         connection.execute(
-            "INSERT INTO order_line VALUES ('a1','j1_a',100,'P'), ('a2','j1_a',200,'P'), ('a3','j1_a',150,'Q'), ('b1','j1_b',150,'Q'), ('c1','j1_c',400,'P'), ('outside','j1_july',77,'missing')"
+            "INSERT INTO order_line VALUES ('a1','j1_a',100,'P'), ('a2','j1_a',200,'P'), ('a3','j1_a',150,'Q'), ('b1','j1_b',150,'Q'), ('c1','j1_c',400,'P'), ('outside','j1_july',77,'P')"
         )
         if roles:
             connection.execute('ALTER TABLE "order" ADD COLUMN recipient_id VARCHAR')
@@ -256,6 +257,35 @@ def test_classification_scope_and_complete_components(
     grid = mv.time_grid(during=WINDOW, grain=mv.grain("week"))
     with pytest.raises(AnalysisError):
         members.observe(LINE_REVENUE, during=WINDOW, by=(lines.read(CATEGORY, at=grid.before_end),))
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("explicit", (False, True))
+def test_classification_read_requires_owner_for_its_complete_input_scope(
+    analysis_dsl_case_factory: DslCaseFactory, explicit: bool
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = _extend(case)
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
+    category = session.members(LINE).read(CATEGORY, via=LINE_PRODUCT)
+    assert isinstance(category, mv.LogicalCategoryRelation)
+    observed = session.members(CUSTOMER).observe(
+        LINE_REVENUE, during=WINDOW, by=(category if explicit else CATEGORY,)
+    )
+    with pytest.raises(MaterializationError) as missing:
+        observed.execute()
+    assert missing.value.expected == (
+        "an owner operand for sales.product.category on every consumed complete key"
+    )
+    assert (
+        missing.value.received
+        == "required field owner operand is missing for 1 consumed complete keys"
+    )
+    assert missing.value.repair is not None
+    assert missing.value.run_ref is not None
+    assert session.get_run(missing.value.run_ref).lifecycle == "failed"
+    assert session._runtime.store.resources(session.id) == ()
 
 
 @pytest.mark.runtime

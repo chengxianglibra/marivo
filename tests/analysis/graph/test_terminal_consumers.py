@@ -91,7 +91,6 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
                 ms.ref.datasource("warehouse"),
                 statement,
                 reason="verify terminal-owned native timeout on an expensive generated SELECT",
-                limit=1,
                 timeout_seconds=1,
                 project_root=tmp_path,
             )
@@ -209,20 +208,25 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
             purpose="r93.terminal.oracle",
             expected_schema=expression.schema().to_pyarrow(),
         ).sql
+        limited_statement = case.session.compile(
+            qualified,
+            expression.limit(1),
+            purpose="r93.terminal.limited.oracle",
+            expected_schema=expression.schema().to_pyarrow(),
+        ).sql
         monkeypatch.setattr(DatasourceConnectionService, "use_backend", traced)
         observations: list[dict[str, object]] = []
-        for limit, expected, truncated in ((1, ROWS[:1], True), (3, ROWS, False)):
+        for sql, expected in ((limited_statement, ROWS[:1]), (statement, ROWS)):
             result = md.raw_sql(
                 ms.ref.datasource("terminal"),
-                statement,
-                reason="verify terminal exact identity and truncation",
-                limit=limit,
+                sql,
+                reason="verify complete terminal query rows and exact SQL submission",
                 timeout_seconds=5,
                 project_root=tmp_path,
             )
             assert list(result.rows) == expected
-            assert result.is_truncated is truncated
-            assert result.returned_row_count == limit
+            assert result.sql == sql
+            assert result.returned_row_count == len(expected)
             assert result.timeout_seconds == 5
             assert not hasattr(result, "contract") and not hasattr(result, "execute")
             before = len(case.session.submissions)
@@ -231,9 +235,13 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
                 case.session.bind(result, source_identity="forbidden-terminal-reentry")  # type: ignore[arg-type]
             assert len(case.session.submissions) == before == 0
             observations.append(
-                {"limit": limit, "rows": list(result.rows), "is_truncated": result.is_truncated}
+                {
+                    "sql": sql,
+                    "rows": list(result.rows),
+                    "returned_row_count": result.returned_row_count,
+                }
             )
-        assert submitted.count(statement) == 2
+        assert submitted.count(limited_statement) == submitted.count(statement) == 1
         assert disconnected == [True, True]
         receipt = {
             "backend": backend,

@@ -8,7 +8,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.state_validation import state_matches
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
@@ -18,7 +17,7 @@ from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 @pytest.mark.parametrize("kind", ["ratio", "weighted"])
 @pytest.mark.parametrize("split", [False, True])
 @pytest.mark.parametrize("coordinates", [False, True])
-def test_float_denominator_interval_rejects_before_publication(
+def test_native_float_nonzero_denominator_survives_cancellation(
     analysis_dsl_case_factory: DslCaseFactory,
     parquet: bool,
     kind: str,
@@ -69,19 +68,31 @@ def test_float_denominator_interval_rejects_before_publication(
             *((ms.ref.dimension("sales.order.channel"),) if coordinates else ()),
         ),
     )
-    # Exact denominator is 16, but its required error budget exceeds 20000.
-    if not split:
-        with pytest.raises(AnalysisError, match="denominator error interval spans zero"):
-            logical.execute()
-    else:
-        fixed = logical.execute()
-        with pytest.raises(AnalysisError, match="denominator error interval spans zero"):
-            logical.rollup().execute()
-        with pytest.raises(AnalysisError, match="denominator error interval spans zero"):
-            fixed.rollup().execute()
-        if coordinates:
-            with pytest.raises(AnalysisError, match="denominator error interval spans zero"):
-                fixed.group_by(ms.ref.dimension("sales.order.channel")).rollup().execute()
+    # Native sums retain a nonzero denominator of 16 despite cancellation.
+    expected_total = 3.0 / 16.0 if kind == "ratio" else 1.0
+    fixed = logical.execute()
+    rows = fixed.to_pandas()
+    defined = (
+        rows.loc[rows.cell_tag == "defined"]
+        .set_index("group" if coordinates else "member")
+        .value.to_dict()
+    )
+    expected = (
+        {"A": 1.0 / 1e16, "B": -1.0 / 1e16, "C": 1.0 / 16.0}
+        if split and kind == "ratio"
+        else dict.fromkeys("ABC", 1.0)
+        if split
+        else {"A": expected_total}
+    )
+    assert defined == expected
+    assert all(isinstance(value, float) for value in defined.values())
+    results = [logical.rollup().execute(), fixed.rollup().execute()]
+    if coordinates:
+        results.append(fixed.group_by(ms.ref.dimension("sales.order.channel")).rollup().execute())
+    for result in results:
+        frame = result.to_pandas()
+        assert frame.value.tolist() == [expected_total]
+        assert frame.cell_tag.tolist() == ["defined"]
 
 
 @pytest.mark.runtime

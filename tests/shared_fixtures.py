@@ -38,7 +38,7 @@ _AUTHORING_EVIDENCE_V = "v2"
 
 
 def observation_temporal(
-    axis: TargetDimensionContract, physical_type: str = "timestamp(6)"
+    axis: TargetDimensionContract, physical_type: str = "timestamp('UTC', 6)"
 ) -> TemporalExecution:
     """Bind explicit UTC test inputs to the same closed observation authority."""
     from marivo.analysis.compiler.source_time import source_time

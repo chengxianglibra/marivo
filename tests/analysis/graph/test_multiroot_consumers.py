@@ -21,9 +21,9 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods import builtin
-from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import DecimalType, Qualified, ScalarType
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.temporal_fold import decode_samples
@@ -486,13 +486,15 @@ def test_independent_roots_and_temporal_fold(
             mv.path(ms.ref.relationship("sales.right_subject")),
         )
         if mode == "linear_fanout":
-            from marivo.analysis.datasets.errors import DatasetConstructionError
+            from marivo.analysis.errors import AnalysisError
 
             before = set(root.rglob("*.parquet"))
-            with pytest.raises(DatasetConstructionError) as refused_route:
+            with pytest.raises(AnalysisError) as refused_route:
                 members.observe(expression, via=routes, by=(mv.member(),))
-            assert refused_route.value.received == "Metric roots or relationship endpoints differ"
-            assert refused_route.value.location == "analysis.graph_observation"
+            assert refused_route.value.expected == "a contiguous directed to-one path"
+            assert refused_route.value.received == "sales.left_subject"
+            assert refused_route.value.location == "analysis.relationship_binding"
+            assert refused_route.value.repair is not None
             assert set(root.rglob("*.parquet")) == before
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             assert not source_trace.native_sql
@@ -558,13 +560,17 @@ def test_independent_roots_and_temporal_fold(
             or (ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse", "trino"))
         ):
             before = set(root.rglob("*.parquet"))
-            with pytest.raises(MethodRegistrationError) as refused:
+            from marivo.datasource.errors import DatasourceSourceCapabilityError
+
+            with pytest.raises(MaterializationError) as transport_refused:
                 values.execute()
-            assert refused.value.expected is not None
-            assert refused.value.received is not None
-            assert ("metric.ratio" if ratio else "metric.linear") in refused.value.expected
-            assert "DecimalType(precision=38, scale=6)" in refused.value.received
-            assert f"backend='{backend}'" in refused.value.received
+            assert isinstance(transport_refused.value.__cause__, DatasourceSourceCapabilityError)
+            cause = transport_refused.value.__cause__
+            assert cause.expected is not None and "exact decimal128(38, 6)" in cause.expected
+            assert cause.received == "float"
+            assert cause.repair is not None
+            assert transport_refused.value.run_ref is not None
+            assert session.get_run(transport_refused.value.run_ref).lifecycle == "failed"
             assert set(root.rglob("*.parquet")) == before
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             if ratio and (evidence := os.environ.get("MARIVO_R93_EVIDENCE_DIR")):
@@ -573,12 +579,14 @@ def test_independent_roots_and_temporal_fold(
                         {
                             "backend": backend,
                             "mode": mode,
-                            "expected": refused.value.expected,
-                            "received": refused.value.received,
-                            "repair": refused.value.repair.action if refused.value.repair else None,
+                            "expected": transport_refused.value.expected,
+                            "received": transport_refused.value.received,
+                            "repair": transport_refused.value.repair.action
+                            if transport_refused.value.repair
+                            else None,
                             "published_parquet": 0,
                             "resources": 0,
-                            "boundary": "Exact-key admission refusal only; required Decimal execution remains unverified",
+                            "boundary": "Native source cannot transport exact Decimal values; no Runtime qualification grant",
                         },
                         sort_keys=True,
                     )
@@ -678,7 +686,7 @@ def test_independent_roots_and_temporal_fold(
             "linear_decimal": Decimal("0.35"),
             "ratio": 6.0,
             "ratio_float": 5.0,
-            "ratio_decimal": Decimal("6"),
+            "ratio_decimal": 6.0,
             "weighted_mean": 50 / 3,
             "aggregate": 30,
             "slice": 5,
@@ -693,7 +701,7 @@ def test_independent_roots_and_temporal_fold(
             "spatial_min": 15,
             "spatial_max": 21,
         }
-        if mode == "weighted_mean":
+        if mode in ("weighted_mean", "ratio_decimal"):
             assert frame.loc["a", "value"] == pytest.approx(expected[mode], rel=1e-14)
         else:
             assert frame.loc["a", "value"] == expected[mode]

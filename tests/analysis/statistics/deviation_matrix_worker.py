@@ -16,6 +16,7 @@ import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.deviation_execution import _decode, load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
@@ -50,7 +51,7 @@ def verify(
     )
     wanted = (raw[-1],) if domain == "scalar" else raw
     assert original["value"].to_pylist() == list(wanted)
-    assert original["cell_tag"].to_pylist() == ["defined"] * len(wanted)
+    assert cell_column(original, "cell_tag").to_pylist() == ["defined"] * len(wanted)
     assert len(state.partitions) == 1 and state.partitions[0].fit.n == len(wanted)
     if domain == "entity":
         assert original[inputs.keys[0]].to_pylist() == (
@@ -64,7 +65,7 @@ def verify(
     center, _, _, scores = expected(wanted, method)
     assert views["score__value"].to_pylist() == (list(scores) if len(wanted) > 1 else [None])
     if len(wanted) == 1:
-        assert views["score__cell_reason"].to_pylist() == ["insufficient_samples"]
+        assert cell_column(views, "score__cell_reason").to_pylist() == ["insufficient_samples"]
     ref_type = views.schema.field("reference__value").type
     reference = (
         decimal_finish(center, ref_type.scale)

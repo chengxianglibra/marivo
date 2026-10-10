@@ -144,7 +144,8 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             _scalar_parts(result, 529, 61)
             submitted = purposes[before:]
             assert submitted.count("analysis.graph.stage") == 1
-            assert "analysis.graph.check" not in submitted
+            assert submitted.count("analysis.graph.check") == 1
+            assert submitted.index("analysis.graph.check") < submitted.index("analysis.graph.stage")
             assert "analysis.domain.prepare" not in submitted
             results.append(result)
         first, second = results
@@ -221,13 +222,17 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = (
-            work.session.members(ms.ref.entity("cost.facts")).read(
-                ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
-            )
-            if defect == "checks"
-            else _sum(work)
-        )
+        members = work.session.members(ms.ref.entity("cost.facts"))
+        if defect == "checks":
+            category = members.read(ms.ref.dimension("cost.facts.tenant"))
+            assert isinstance(category, mv.LogicalCategoryRelation)
+            logical = members.observe(
+                ms.ref.metric("cost.facts_total"),
+                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
+                by=(category,),
+            ).rollup()
+        else:
+            logical = _sum(work)
         before = _publications(work.session)
         original = native._read
         corrupted: list[str] = []
@@ -279,7 +284,7 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
 
 
 @pytest.mark.runtime
-def test_native_checks_and_computation_may_observe_different_live_values(
+def test_native_field_consumption_rejects_owner_removed_after_key_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
@@ -305,12 +310,22 @@ def test_native_checks_and_computation_may_observe_different_live_values(
 
         monkeypatch.setattr(SourceSession, "batches", read)
         _forbid_staging(monkeypatch)
-        result = logical.execute()
+        before = _publications(work.session)
+        with pytest.raises(MaterializationError) as missing:
+            logical.execute()
         assert changed == [True]
-        assert result._dataset is not None
-        assert None in result._dataset.verified().primary["value"].to_pylist()
+        assert missing.value.expected == (
+            "an owner operand for cost.subjects.sid on every consumed complete key"
+        )
+        assert (
+            missing.value.received
+            == "required field owner operand is missing for 5 consumed complete keys"
+        )
+        assert missing.value.repair is not None
+        assert _publications(work.session) == before
         assert purposes.count("analysis.graph.stage") == 1
-        assert work.session.get_run(result.state.producing_run_ref).lifecycle == "succeeded"
+        assert missing.value.run_ref is not None
+        assert work.session.get_run(missing.value.run_ref).lifecycle == "failed"
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 

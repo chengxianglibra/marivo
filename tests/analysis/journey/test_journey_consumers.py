@@ -332,8 +332,15 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
             before_missing = set(tmp_path.rglob("*.parquet"))
             with sqlite3.connect(path) as writer:
                 writer.execute("DELETE FROM validity_history WHERE id=1 AND beginning='2026-08-01'")
-            with pytest.raises(MaterializationError, match="mapping_total"):
+            with pytest.raises(MaterializationError) as missing:
                 complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
+            assert missing.value.expected == (
+                "an owner operand for sales.validity_history.region on every consumed complete occurrence"
+            )
+            assert missing.value.received == "2 violating rows"
+            assert missing.value.repair is not None
+            assert missing.value.run_ref is not None
+            assert session.get_run(missing.value.run_ref).lifecycle == "failed"
             assert set(tmp_path.rglob("*.parquet")) == before_missing
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             assert grouped_current.to_pandas()[axes[0].path].dropna().isin(["new", "Other"]).all()
@@ -354,8 +361,15 @@ assert abs(result.baseline.to_pandas().value.sum()-2/3) < 1e-15
             before_missing = set(tmp_path.rglob("*.parquet"))
             with sqlite3.connect(path) as writer:
                 writer.execute("DELETE FROM history WHERE id=1 AND day='2026-08-01'")
-            with pytest.raises(MaterializationError, match="mapping_total"):
+            with pytest.raises(MaterializationError) as missing:
                 complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
+            assert missing.value.expected == (
+                "an owner operand for sales.history.region on every consumed complete occurrence"
+            )
+            assert missing.value.received == "2 violating rows"
+            assert missing.value.repair is not None
+            assert missing.value.run_ref is not None
+            assert session.get_run(missing.value.run_ref).lifecycle == "failed"
             assert set(tmp_path.rglob("*.parquet")) == before_missing
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             assert grouped_current.to_pandas()[axes[0].path].dropna().isin(["new", "Other"]).all()

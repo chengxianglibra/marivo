@@ -89,16 +89,15 @@ def test_native_attribution_independent_fixed_and_cold(
                 if axis_kind == "joint":
                     axes += (ms.ref.dimension("sales.facts.region"),)
                 members = session.members(ms.ref.entity("sales.facts"))
-                by = (ms.ref.entity("sales.facts"), *axes)
                 current = members.observe(
                     ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
                     during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                    by=by,
+                    by=(mv.member(), *axes),
                 ).rollup()
                 baseline = members.observe(
                     ms.ref.metric("sales.total" if metric_kind == "sum" else "sales.average"),
                     during=mv.time_scope(start="2026-07-31", end="2026-08-01"),
-                    by=by,
+                    by=(mv.member(), *axes),
                 ).rollup()
                 change = current.compare(baseline)
                 difference = change.execute()

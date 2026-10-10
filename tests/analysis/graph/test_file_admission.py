@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization import graph_store
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
     NoTime,
@@ -121,7 +122,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
 
         monkeypatch.setattr(SourceSession, "compile", forbidden)
         monkeypatch.setattr(SourceSession, "batches", forbidden)
-        monkeypatch.setattr(session._runtime.store, "admit", forbidden)
+        monkeypatch.setattr(graph_store, "admit", forbidden)
         members = session.members(ms.ref.entity("sales.facts"))
         received: str | None = None
         if case_kind == "metadata":
@@ -196,7 +197,7 @@ def test_json_request_sources_are_refused_before_source_open(
 
         for name in ("__enter__", "bind", "compile", "batches"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(session._runtime.store, "admit", forbidden)
+        monkeypatch.setattr(graph_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             session.members(ms.ref.entity("sales.facts"))
         error = caught.value

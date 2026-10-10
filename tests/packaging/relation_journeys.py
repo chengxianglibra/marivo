@@ -21,6 +21,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_protocol
+from marivo.analysis.materialization.cell_arrow import logical_table, pack
 from marivo.analysis.public_dsl import _MaterializedValue
 from tests.packaging.graph_journeys import NAMES
 from tests.shared_fixtures import (
@@ -537,6 +538,11 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
     grid = values._node.root.signature.domain.time_grid
     assert grid is not None
     cells = tuple(cell.identity for cell in grid.cells)
+    logical = logical_table(supplied.primary)
+    reasons = (
+        ("unknown", ("controlled_consumer",)),
+        ("undefined", ("controlled_consumer",)),
+    )
     checks = {}
     for name, tags, payloads, expected in (
         ("decidable_unknown_true", ("defined",) * 3 + ("unknown",), (1, 1, 1, None), True),
@@ -549,7 +555,7 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
         ("undecidable_unknown", ("defined",) * 3 + ("unknown",), (1, 1, 0, None), None),
         ("undefined_hard_failure", ("defined",) * 3 + ("undefined",), (1, 1, 1, None), None),
     ):
-        rows = supplied.primary.to_pylist()
+        rows = logical.to_pylist()
         for row in rows:
             index = cells.index(row["key_1"])
             row.update(
@@ -557,8 +563,11 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
                 cell_tag=tags[index],
                 cell_reason=None if tags[index] == "defined" else "controlled_consumer",
             )
+        primary = pack(pa.Table.from_pylist(rows, schema=logical.schema), reasons)
         controlled = replace(
-            supplied, primary=pa.Table.from_pylist(rows, schema=supplied.primary.schema)
+            supplied,
+            primary=primary,
+            contract=replace(supplied.contract, schema=primary.schema, cell_reasons=reasons),
         )
         if expected is None:
             with pytest.raises(AnalysisError, match=r"undecidable|Cell tag undefined"):
@@ -582,8 +591,8 @@ def _produce(
     via = ms.ref.relationship("operations.reading_device")
     august = mv.time_scope(start="2026-08-01", end="2026-09-01")
     july = mv.time_scope(start="2026-07-01", end="2026-08-01")
-    current = targets.observe(metric, during=august, via=via)
-    baseline = targets.observe(metric, during=july, via=via)
+    current = targets.observe(metric, during=august, via=via, by=(mv.member(),))
+    baseline = targets.observe(metric, during=july, via=via, by=(mv.member(),))
     oracle = _oracle()
     saved: dict[str, Saved] = {}
     if scenario == "a02":
@@ -592,7 +601,10 @@ def _produce(
         selected = change.where(change.value.lt(0)).members()
         saved["members"] = selected.execute()
         next_values = selected.observe(
-            metric, during=mv.time_scope(start="2026-09-01", end="2026-10-01"), via=via
+            metric,
+            during=mv.time_scope(start="2026-09-01", end="2026-10-01"),
+            via=via,
+            by=(mv.member(),),
         ).execute()
         assert _mapping(next_values) == oracle["next_observation"]
         saved["next"] = next_values
@@ -608,10 +620,13 @@ def _produce(
             baseline.where(baseline.value.gt(80)),
             design=mv.TimeChange(pairing=mv.UnionKeys(missing="keep")),
         ).execute()
-        counts = targets.observe(count, during=august, via=via)
-        previous = targets.observe(count, during=july, via=via)
+        counts = targets.observe(count, during=august, via=via, by=(mv.member(),))
+        previous = targets.observe(count, during=july, via=via, by=(mv.member(),))
         earlier = targets.observe(
-            count, during=mv.time_scope(start="2026-06-01", end="2026-07-01"), via=via
+            count,
+            during=mv.time_scope(start="2026-06-01", end="2026-07-01"),
+            via=via,
+            by=(mv.member(),),
         )
         saved["nested"] = counts.compare(previous).compare(previous.compare(earlier)).execute()
         saved["ratio"] = current.ratio(counts).execute()
@@ -624,7 +639,9 @@ def _produce(
             count,
             label="web readings per all readings",
         )
-        saved["branch_ratio"] = targets.observe(branch, during=august, via=via).execute()
+        saved["branch_ratio"] = targets.observe(
+            branch, during=august, via=via, by=(mv.member(),)
+        ).execute()
         from marivo.datasource.adapters import SourceSession
 
         stage = SourceSession.stage_derived
@@ -645,7 +662,9 @@ def _produce(
             mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("month"))
             for start, end in (("2026-09-01", "2026-11-01"), ("2026-07-01", "2026-09-01"))
         ]
-        endpoints = [targets.observe(count, during=grid, via=via) for grid in grids]
+        endpoints = [
+            targets.observe(count, during=grid, via=via, by=(mv.member(),)) for grid in grids
+        ]
         saved["period"] = (
             endpoints[0]
             .compare(endpoints[1], design=mv.PeriodChange(alignment=mv.window_bucket()))
@@ -656,15 +675,21 @@ def _produce(
         )
         temporal_targets = targets
         saved["running"] = temporal_targets.observe(
-            ms.ref.metric("operations.running_energy"), at=temporal_grid.end, via=via
+            ms.ref.metric("operations.running_energy"),
+            at=temporal_grid.end,
+            via=via,
+            by=(mv.member(),),
         ).execute()
         saved["folded"] = temporal_targets.observe(
-            ms.ref.metric("operations.folded_energy"), during=temporal_grid, via=via
+            ms.ref.metric("operations.folded_energy"),
+            during=temporal_grid,
+            via=via,
+            by=(mv.member(),),
         ).execute()
         saved["current"], saved["baseline"] = current.execute(), baseline.execute()
     elif scenario == "a07":
         region = targets.read(ms.ref.dimension("operations.device.zone"))
-        counts = targets.observe(count, during=august, via=via)
+        counts = targets.observe(count, during=august, via=via, by=(mv.member(),))
         saved["counts"], saved["region"] = counts.execute(), region.execute()
         shares = current.share_of(current.rollup())
         ranking = shares.rank(order="descending", ties="min")
@@ -682,15 +707,15 @@ def _produce(
             )
         ).execute()
         axis = ms.ref.dimension("operations.reading.sensor")
-        left = targets.observe(metric, during=august, via=via, coordinates=(axis,)).rollup()
-        right = targets.observe(metric, during=july, via=via, coordinates=(axis,)).rollup()
+        left = targets.observe(metric, during=august, via=via, by=(mv.member(), axis)).rollup()
+        right = targets.observe(metric, during=july, via=via, by=(mv.member(), axis)).rollup()
         saved["difference"] = left.compare(right).execute()
         allocation = left.compare(right).attribute(axes=(axis,), top_k=1)
         saved["attribution"] = allocation.execute()
         saved["selected"] = allocation.where(allocation.contribution.value.gt(0)).execute()
         mean_energy = mv.runtime_metric.ratio(metric, count, label="energy per reading")
         mix_endpoints = [
-            targets.observe(mean_energy, during=scope, via=via, coordinates=(axis,)).rollup()
+            targets.observe(mean_energy, during=scope, via=via, by=(mv.member(), axis)).rollup()
             for scope in (august, july)
         ]
         saved["component_mix"] = (
@@ -719,13 +744,13 @@ def _produce(
         grid = mv.time_grid(
             during=mv.time_scope(start="2026-07-01", end="2026-10-01"), grain=mv.grain("month")
         )
-        values = targets.observe(count, during=grid, via=via)
+        values = targets.observe(count, during=grid, via=via, by=(mv.member(),))
         saved["targets"], saved["values"] = targets.execute(), values.execute()
         controlled_grid = mv.time_grid(
             during=mv.time_scope(start="2026-06-01", end="2026-10-01"), grain=mv.grain("month")
         )
         saved["controlled_values"] = targets.observe(
-            count, during=controlled_grid, via=via
+            count, during=controlled_grid, via=via, by=(mv.member(),)
         ).execute()
         saved["cohort"] = targets.cohort(values.value.gt(0), rule=mv.at_least(3)).execute()
         assert sorted(saved["cohort"].to_pandas().member) == oracle["cohort"]
@@ -914,6 +939,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                 ms.ref.metric("operations.energy_total"),
                 during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
                 via=ms.ref.relationship("operations.reading_device"),
+                by=(mv.member(),),
             ).execute()
             assert _mapping(fresh)["A"] == 67
             assert {name: _snapshot(value) for name, value in saved.items()} == snapshots

@@ -6,7 +6,11 @@ from typing import Literal
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.methods.builtin import implementations, specialize_numeric
+from marivo.analysis.methods.builtin import (
+    _grain_implementations,
+    implementations,
+    specialize_numeric,
+)
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -15,6 +19,34 @@ from marivo.analysis.methods.physical import (
     arrow_scalar_type,
 )
 from marivo.analysis.methods.semantics import MethodKey, MethodName
+
+
+@pytest.mark.parametrize(
+    "method",
+    (
+        "metric.mean",
+        "metric.weighted_mean",
+        "metric.ratio",
+        "metric.linear",
+        "state_rollup.mean",
+        "state_rollup.weighted_mean",
+        "state_rollup.ratio",
+        "state_rollup.linear",
+    ),
+)
+def test_native_arithmetic_and_flat_registry_versions_are_independently_pinned(
+    method: MethodName,
+) -> None:
+    numerical = [
+        item
+        for item in _grain_implementations(MethodKey(method))
+        if item.precision == "native_numeric"
+    ]
+    selected = [
+        item for item in implementations(MethodKey(method)) if item.precision == "native_numeric"
+    ]
+    assert numerical and {item.contract_version for item in numerical} == {5}
+    assert selected and {item.contract_version for item in selected} == {7}
 
 
 @pytest.mark.parametrize(
@@ -49,6 +81,8 @@ def test_numeric_specialization_boundaries(
     if accepted:
         assert result.key == key
         assert result.precision == precision
+        if precision == "native_numeric":
+            assert result.contract_version == 7
     else:
         assert result is candidate
     assert (

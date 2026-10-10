@@ -64,7 +64,8 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     result = mv.table(**columns).execute()
     result.show(n=0)
     shown = capsys.readouterr().out
-    assert f"score.fit: deviation.{method}; original fit retained" in shown
+    fit_owner = "[" + ", ".join(columns) + "]" if mode == "ranks" else "score"
+    assert f"{fit_owner}.fit: deviation.{method}; original fit retained" in shown
     assert "selection does not refit" in shown
     facts = analysis_dsl_rows("j2").orders
     oracle = expected(tuple(row[-1] for row in facts), method)[3]

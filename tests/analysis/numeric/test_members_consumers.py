@@ -10,6 +10,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -134,7 +135,36 @@ def test_complete_versioned_members(
         assert construction_calls == [] and len(session.runs().items) == before_runs
         assert missing_version.value.expected and missing_version.value.received
         assert missing_version.value.repair is not None and missing_version.value.repair.action
-        if kind in ("duplicate", "overlap", "null_id", "null_tenant"):
+        if kind in ("duplicate", "overlap"):
+            current = session.members(entity, at=august)
+            projected = current.execute()
+            frame = projected.to_pandas()
+            assert len(frame) == 4
+            assert set(zip(frame.member, frame.coord_0, strict=True)) == {
+                (9007199254740992, "a"),
+                (9007199254740993, "a"),
+                (9007199254740993, "b"),
+            }
+            assert (
+                list(zip(frame.member, frame.coord_0, strict=True)).count((9007199254740992, "a"))
+                == 2
+            )
+            assert session._runtime.store.resources(session.id) == ()
+            trace.save(
+                f"c03-members-{kind}-{backend}",
+                case.environment,
+                {"columns": data.columns, "values": data.values},
+                {
+                    "declared_identity_version_is_trusted": True,
+                    "member_projection_rows": 4,
+                    "duplicate_identity_rows_preserved": True,
+                    "resources": 0,
+                },
+                projected,
+                (case.session,),
+            )
+            return
+        if kind in ("null_id", "null_tenant"):
             from tests.analysis.materialization.publication_fixtures import publication_counts
 
             before_publication = publication_counts(session)
@@ -396,7 +426,7 @@ def test_no_time_key_does_not_specialize_to_float() -> None:
     "backend", ["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"]
 )
 @pytest.mark.parametrize("mode", ["complete", "missing", "multiple"])
-def test_scalar_path_requires_scoped_complete_keys(
+def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
     backend: str,
     mode: str,
     tmp_path: Path,
@@ -500,15 +530,22 @@ def test_scalar_path_requires_scoped_complete_keys(
         members = session.members(ms.ref.entity("sales.subjects"))
         field = ms.ref.measure("sales.attributes.amount")
         via = ms.ref.relationship("sales.attributes_path")
-        with pytest.raises(AnalysisError, match="explicit path"):
-            members.read(field)
+        inferred = members.read(field)
         read = members.read(field, via=via)
-        if mode != "complete":
+        assert inferred._node.root.signature.quantity == read._node.root.signature.quantity
+        if mode == "missing":
             before_files = set(tmp_path.rglob("*.parquet"))
-            with pytest.raises(
-                AnalysisError, match=r"coverage|single field value|single_value|identity"
-            ):
+            with pytest.raises(MaterializationError) as invalid_operand:
                 read.execute()
+            assert invalid_operand.value.expected == (
+                "an owner operand for sales.attributes.amount on every consumed complete key"
+            )
+            assert invalid_operand.value.received == (
+                "required field owner operand is missing for 1 consumed complete keys"
+            )
+            assert invalid_operand.value.repair is not None
+            assert invalid_operand.value.run_ref is not None
+            assert session.get_run(invalid_operand.value.run_ref).lifecycle == "failed"
             assert set(tmp_path.rglob("*.parquet")) == before_files
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
         category = members.read(ms.ref.dimension("sales.subjects.tenant"))
@@ -523,10 +560,20 @@ def test_scalar_path_requires_scoped_complete_keys(
         if mode != "missing":
             null = scoped.loc[scoped.cell_tag == "null"]
             assert list(zip(null.member, null.coord_0, strict=True)) == [(9007199254740993, "a")]
-        if mode == "complete":
+        if mode != "missing":
             complete = read.execute().to_pandas()
-            assert len(complete) == 3
-            assert complete.loc[complete.cell_tag == "defined", "value"].tolist() == [10, 30]
+            assert len(complete) == (4 if mode == "multiple" else 3)
+            assert sorted(complete.loc[complete.cell_tag == "defined", "value"].tolist()) == [
+                10,
+                30,
+            ] + ([99] if mode == "multiple" else [])
+            if mode == "multiple":
+                assert (
+                    list(zip(complete.member, complete.coord_0, strict=True)).count(
+                        (9007199254740993, "b")
+                    )
+                    == 2
+                )
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
 
         trace.save(
@@ -542,7 +589,8 @@ def test_scalar_path_requires_scoped_complete_keys(
                 "scoped_rows": 1 if mode == "missing" else 2,
                 "numeric": [30] if mode == "missing" else [10],
                 "null_pairs": [] if mode == "missing" else [[9007199254740993, "a"]],
-                "rejected_invalid_full_domain": mode != "complete",
+                "rejected_missing_owner": mode == "missing",
+                "declared_cardinality_is_trusted": mode == "multiple",
                 "resources": 0,
             },
             scoped_result,

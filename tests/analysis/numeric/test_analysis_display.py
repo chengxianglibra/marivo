@@ -470,7 +470,7 @@ def test_cold_display_continuations_and_corruption(
         checked = result._dataset.verified()
         descriptor = result._dataset.artifact.descriptor
         assert descriptor.method_state.kind in ("ranking", "table")
-        assert descriptor.method_state.contract_version == 1
+        assert descriptor.method_state.contract_version == 4
         with pytest.raises(AnalysisError):
             replace(descriptor.method_state, contract_version=2)
         for part in checked.parts:

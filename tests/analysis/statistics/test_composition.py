@@ -18,7 +18,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.rules import AssociationFit, DeviationFit, ForecastFit, TimeRuns
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import (
     deviation_execution,
     runs_execution,
@@ -41,7 +40,7 @@ from tests.support.json import Json
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("form", ("parquet",))
-def test_direct_score_runs_and_blocked_next_round(
+def test_direct_score_runs_and_next_business_round(
     analysis_dsl_case_factory: DslCaseFactory, form: str
 ) -> None:
     """Read frozen boundaries, then prepare a separately chosen business round."""
@@ -83,31 +82,28 @@ def test_direct_score_runs_and_blocked_next_round(
     previous = members.observe(
         metric,
         during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=(
-            mv.member(),
-            axis,
-        ),
-    )
+        by=(mv.member(), axis),
+    ).rollup()
     following = members.observe(
         metric,
         during=mv.time_scope(start="2026-08-04", end="2026-08-07"),
-        by=(
-            mv.member(),
-            axis,
-        ),
-    )
+        by=(mv.member(), axis),
+    ).rollup()
     comparison = following.compare(previous)
-    with pytest.raises(AnalysisError) as failure:
-        comparison.attribute(axes=(axis,), mode="joint").execute()
-    assert "key_set_equal" in str(failure.value)
-    assert "3 violating rows" in str(failure.value)
+    allocation = comparison.attribute(axes=(axis,), mode="joint").execute()
+    assert isinstance(allocation, mv.MaterializedAttributionResult)
+    contributions = allocation.contribution.to_pandas()
+    assert len(contributions) == 3
+    assert contributions.set_index("coord_0").value.to_dict() == {"a": 2, "b": -2, "c": 2}
+    assert set(contributions.cell_tag) == {"defined"}
+    assert contributions.value.sum() == 2
     assert session._runtime.store.resources(session.id) == ()
     directory = os.environ.get("MARIVO_R86_EVIDENCE_DIR")
     if directory:
         row = proof(direct, "time.runs@v1", "produce", form)
         row["scenarios"] = ["A11_next_round"]
-        row["outcome"] = "blocked"
-        row["blocking_error"] = str(failure.value)
+        row["outcome"] = "passed"
+        row["observed_business_delta"] = 2
         row["expected_business_delta"] = 2
         Path(directory).mkdir(parents=True, exist_ok=True)
         (Path(directory) / f"a11-next-{form}.json").write_text(

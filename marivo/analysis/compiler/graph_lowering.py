@@ -1814,25 +1814,24 @@ def _occurrence_combine(
                     }
                 )
         parts.append(source.expression.select(**selection).view())
-    table = parts[0]
-    for part in parts[1:]:
-        if params.union_targets:
-            from marivo.analysis.compiler.coordinate_state import complete_join
-
-            joined = complete_join(
-                table, part, tuple(table[k] for k in keys), tuple(part[k] for k in keys)
+    if params.union_targets and keys:
+        targets = (
+            parts[0].select(*keys).union(*(part.select(*keys) for part in parts[1:]), distinct=True)
+        )
+        table = targets
+        fields: dict[str, ir.Value] = {key: targets[key] for key in keys}
+        for part in parts:
+            table = table.left_join(part, [targets[key] == part[key] for key in keys])
+            fields.update(
+                (name, part[name].fill_null(0))
+                for name in part.columns
+                if name not in keys and not name.startswith("subject__")
             )
-            table = joined.select(
-                **{key: table[key].coalesce(part[key]) for key in keys},
-                **{
-                    name: table[name].fill_null(0)
-                    for name in table.columns
-                    if name not in keys and not name.startswith("subject__")
-                },
-                **{name: part[name].fill_null(0) for name in part.columns if name not in keys},
-            ).view()
-        else:
-            table = table.inner_join(part, keys)
+        table = table.select(**fields)
+    else:
+        table = parts[0]
+        for part in parts[1:]:
+            table = table.cross_join(part) if params.union_targets else table.inner_join(part, keys)
     layout = canonical_layout(stage.node.signature, has_value=True)
     coordinate = next(
         (p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart)), None

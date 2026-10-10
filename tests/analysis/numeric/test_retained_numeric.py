@@ -22,6 +22,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
+from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import number
 from marivo.analysis.materialization.deviation_execution import _decode as decode_fit
 from marivo.analysis.materialization.deviation_execution import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
@@ -70,6 +72,18 @@ def originals(
         assert isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
         values.append(value)
     return tuple(values)
+
+
+def keyed_originals(
+    relation: mv.MaterializedNumericRelation | mv.MaterializedSelectedNumericRelation,
+) -> dict[tuple[object, ...], Carrier]:
+    assert relation._dataset is not None
+    captured = relation._dataset.verified()
+    keys = captured.contract.key_fields
+    rows = captured.primary.to_pylist()
+    values = {tuple(row[key] for key in keys): number(row["value"]) for row in rows}
+    assert len(values) == len(rows)
+    return values
 
 
 def ranks(values: tuple[Fraction, ...]) -> tuple[Fraction, ...]:
@@ -670,7 +684,7 @@ def test_public_retained_runs_algorithm(
             zip(starts, expected_durations, strict=True)
         )
         if scenario == "unavailable-breaks":
-            assert values["cell_tag"].take(pa.array(ordered)).to_pylist() == [
+            assert cell_column(values, "cell_tag").take(pa.array(ordered)).to_pylist() == [
                 "defined",
                 "null",
                 "defined",
@@ -749,7 +763,6 @@ def test_public_retained_association_algorithm(
         if lagged
         else (retained_pair.a, retained_pair.b)
     )
-    x, y = originals(a), originals(b)
     with monkeypatch.context() as offline:
         offline.setattr(SourceSession, "__enter__", forbidden)
         offline.setattr(SemanticProject, "load", forbidden)
@@ -768,14 +781,34 @@ def test_public_retained_association_algorithm(
         dataset = result._dataset
         captured, state = decode_pairs(dataset.verified().parts)
         assert len(captured.inputs) == 2
-        assert tuple(load(captured.inputs[0].primary)["value"].to_pylist()) == x
-        assert tuple(load(captured.inputs[1].primary)["value"].to_pylist()) == y
+        expected_inputs = keyed_originals(a), keyed_originals(b)
+        for saved, expected_input in zip(captured.inputs, expected_inputs, strict=True):
+            rows = load(saved.primary).to_pylist()
+            assert len(rows) == len(expected_input)
+            assert {
+                tuple(row[key] for key in saved.keys): number(row["value"]) for row in rows
+            } == expected_input
+        first = captured.inputs[0]
+        keys = tuple(
+            tuple(row[key] for key in first.keys) for row in load(first.primary).to_pylist()
+        )
+        x, y = (tuple(expected_input[key] for key in keys) for expected_input in expected_inputs)
+        ordered = list(range(len(keys)))
+        if lagged:
+            grid = first.signature.domain.time_grid
+            assert grid is not None and len(first.keys) == 1
+            lookup = {key[0]: i for i, key in enumerate(keys)}
+            ordered = [lookup[cell.identity] for cell in grid.cells]
         assert sorted(candidate.lag for candidate in state.candidates) == (
             list(range(-3, 4)) if lagged else [0]
         )
         oracle: list[dict[str, object]] = []
         for candidate in state.candidates:
-            pairs = tuple((i, i + candidate.lag) for i in range(4) if 0 <= i + candidate.lag < 4)
+            pairs = tuple(
+                (ordered[i], ordered[i + candidate.lag])
+                for i in range(4)
+                if 0 <= i + candidate.lag < 4
+            )
             assert tuple(zip(candidate.left_indices, candidate.right_indices, strict=True)) == pairs
             assert (
                 candidate.input_count,
@@ -1266,12 +1299,19 @@ def test_public_retained_time_numeric_risk(
             assert result_runs._dataset is not None
             dataset, node = result_runs._dataset, result_runs._node.definition
             captured_runs, state_runs = decode_runs(dataset.verified().parts)
-            assert tuple(load(captured_runs.inputs[0])["value"].to_pylist()) == x
+            original = load(captured_runs.inputs[0])
+            grid = captured_runs.signature.domain.time_grid
+            assert grid is not None and len(captured_runs.keys) == 1
+            lookup = {
+                value: i for i, value in enumerate(original[captured_runs.keys[0]].to_pylist())
+            }
+            ordered = [lookup[cell.identity] for cell in grid.cells]
+            assert tuple(original["value"][i].as_py() for i in ordered) == x
             assert state_runs.classifications == tuple(
-                "true" if value > 0 else "false" for value in x
+                "true" if value > 0 else "false" for value in original["value"].to_pylist()
             )
             views = load(state_runs.views)
-            assert views["input_rows"].to_pylist() == [positive]
+            assert views["input_rows"].to_pylist() == [[ordered[i] for i in positive]]
             family = "time"
             oracle: dict[str, object] = {
                 "positive_ordinals": positive,

@@ -30,6 +30,7 @@ from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import SourceData, source_case
@@ -814,17 +815,20 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         )
         catalog = ms.load(workspace_dir=tmp_path)
         calendar = ms.ref.period_calendar("sales.fiscal")
-        connections = catalog._project._connection_service()
-        source_session = connections.source_session
+        source_session = DatasourceConnectionService.source_session
         certification_owners: list[SourceSession] = []
 
-        def capture_certification_owner(name: str, datasource: DatasourceIR) -> SourceSession:
-            owner = source_session(name, datasource)
+        def capture_certification_owner(
+            connections: DatasourceConnectionService, name: str, datasource: DatasourceIR
+        ) -> SourceSession:
+            owner = source_session(connections, name, datasource)
             if owner not in certification_owners:
                 certification_owners.append(owner)
             return owner
 
-        monkeypatch.setattr(connections, "source_session", capture_certification_owner)
+        monkeypatch.setattr(
+            DatasourceConnectionService, "source_session", capture_certification_owner
+        )
         catalog.preview(calendar, scope=md.unpruned(max_rows=5, timeout_seconds=30))
         assert any(
             submission.purpose == "semantic.certified_preview"

@@ -21,6 +21,7 @@ from marivo._temporal import TimeScope
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.rules import DeviationFit
 from marivo.analysis.materialization import deviation_execution as scoring
+from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
@@ -58,9 +59,9 @@ def accept_chain(
     selected = positive.observed.members()
     assert isinstance(selected, mv.LogicalAnalysisDomain)
     observed = (
-        selected.observe(metric, during=grid)
+        selected.observe(metric, during=grid, by=(mv.member(),))
         if domain == "entity_time"
-        else selected.observe(metric, during=window)
+        else selected.observe(metric, during=window, by=(mv.member(),))
     )
     assert isinstance(observed, mv.LogicalNumericRelation)
     trace: list[str] = []
@@ -82,7 +83,11 @@ def accept_chain(
         if isinstance(node.parameters, DeviationFit):
             original, state = scoring._decode(result.parts)
             rows, views = scoring.load(original.primary), scoring.load(state.views)
-            valid = [i for i, tag in enumerate(rows["cell_tag"].to_pylist()) if tag == "defined"]
+            valid = [
+                i
+                for i, tag in enumerate(cell_column(rows, "cell_tag").to_pylist())
+                if tag == "defined"
+            ]
             fit_values = (*raw, *((raw[0] * 0,) * 6)) if domain == "entity_time" else raw
             assert len(valid) == len(fit_values) and rows.num_rows == len(fit_values)
             assert sorted(rows["value"][i].as_py() for i in valid) == sorted(fit_values)
@@ -132,6 +137,8 @@ def accept_chain(
         assert followup._dataset is not None
         checked = followup._dataset.verified()
         retained_grid = followup._node.root.signature.domain.time_grid
+        if domain == "entity_time":
+            assert retained_grid is not None and retained_grid.boundary_timezone == zone
         selected_indices = (
             (1, 2)
             if domain == "entity_time" and method == "zscore"
@@ -184,7 +191,7 @@ def accept_chain(
         p.key for p in plan.physical_requirements if p.key.method.name == f"deviation.{method}"
     )
     if domain == "entity_time":
-        assert actual.shape.time == TimeShape("instant", unit, zone)
+        assert actual.shape.time == TimeShape("instant", unit, "UTC")
     return {
         "method": method,
         "contribution_type": PROFILES[index],

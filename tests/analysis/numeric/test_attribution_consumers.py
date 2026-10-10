@@ -12,7 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.domain_captures import DomainPreparationError
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.materialization.graph_snapshot import document_json, graph_document
 from marivo.datasource.adapters import SourceSession
@@ -118,14 +118,22 @@ def test_source_and_retained(
         change = current.compare(baseline)
         if axis_kind == "null":
             before = set((tmp_path / ".marivo").rglob("*.parquet"))
-            with pytest.raises(DomainPreparationError, match="coordinate is not a Defined string"):
+            with pytest.raises(MaterializationError) as invalid_axis:
                 change.attribute(axes=axes).execute()
+            assert invalid_axis.value.expected == "cell_policy"
+            assert invalid_axis.value.received == "5 violating rows"
+            assert invalid_axis.value.repair is not None
+            assert invalid_axis.value.run_ref is not None
+            assert session.get_run(invalid_axis.value.run_ref).lifecycle == "failed"
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             return
         fixed_change = change.execute()
         source = change.attribute(axes=axes).execute()
         source_trace.record(source)
-        source_frame = source.contribution.to_pandas()
+        business_keys = [f"coord_{i}" for i in range(len(axes))]
+        source_frame = (
+            source.contribution.to_pandas().sort_values(business_keys).reset_index(drop=True)
+        )
         assert fixed_change.to_pandas().value.tolist() == ([-2] if metric_kind == "sum" else [-1])
         for view, expected in (
             (
@@ -159,7 +167,12 @@ def test_source_and_retained(
         submissions_before = len(source_trace.native_sql)
         monkeypatch.setattr(SourceSession, "batches", forbid)
         fixed = fixed_change.attribute(axes=axes).execute()
-        assert fixed.contribution.to_pandas().equals(source_frame)
+        assert (
+            fixed.contribution.to_pandas()
+            .sort_values(business_keys)
+            .reset_index(drop=True)
+            .equals(source_frame)
+        )
 
         top = fixed_change.attribute(axes=axes, top_k=1).execute()
         top_frame = top.contribution.to_pandas()

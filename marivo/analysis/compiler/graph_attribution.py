@@ -151,7 +151,7 @@ def retain_partition(
     targets = (
         table.select(*keys).distinct()
         if keys
-        else table.aggregate(__target=ibis.literal(0, type="int64"))
+        else ibis.literal(0, type="int64").name("__target").as_table()
     )
     if not keys:
         grouped = grouped.mutate(__target=ibis.literal(0, type="int64"))
