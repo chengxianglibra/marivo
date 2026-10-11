@@ -28,7 +28,7 @@ marivo.help("analysis.dsl.one_to_one")
 compare 从冻结的目标与观察时间推导唯一设计：只变时间时比较时期，只变目标时在共同
 Group/Singleton 坐标上比较群体；两者同时变化或均不变会拒绝。网格比较显式使用
 `align=mv.exact(time=mv.ordinal())` 或带同一时间键的 outer。输出时间位置是
-int64 对齐键 1..N，不挂载 time_grid；两侧原时间坐标保留为对应投影。exact
+带时间键种类前缀的 string 对齐键，不挂载 time_grid；两侧原时间坐标保留为对应投影。exact
 要求对齐键集合相等，outer keep 允许任一侧网格更长。
 `mv.exact()` 固定 checked；`mv.outer()` 默认保留缺侧，`missing="empty_value"`
 显式使用准入 Metric 的空集 finish，但构造时拒绝时间键缺侧：窗口外未观察
@@ -41,7 +41,7 @@ Undefined(zero_baseline)；溢出或非有限数值使整个 Run 失败。
 ## 比较不等长时期
 
 沿用流程页的 `customers` 和 `buyer`。两侧每个分组都必须保留完整原网格；筛选
-不能重新编号桶。下面输出 1、2、3，第三个对齐键的两视图均为
+不能重新编号桶。下面输出 `ordinal:1`、`ordinal:2`、`ordinal:3`，第三个对齐键的两视图均为
 Undefined(missing_side)，`.show()` 同时展示两侧原时间坐标。
 
 {/* example: period-coverage */}
@@ -60,6 +60,7 @@ current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.membe
 baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
 periods = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
 periods.show()
+weekdays = current.compare(baseline, align=mv.outer(time=mv.weekday())).execute()
 selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
 ```
 
@@ -67,6 +68,30 @@ selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
 时间上卷、runs、forecast 和显式 lag correlate。先在原端点完成这些操作再比较。
 普通筛选、行统计、有效成员续接和准入的 exact absolute 归因仍按各自契约工作。
 带 `time=mv.ordinal()` 的 one_to_one ratio 使用同一输出形态，要求精确覆盖。
+
+闭合时间键族还包括 `mv.weekday()`、`mv.holiday(current=..., baseline=...)` 和
+`mv.holiday_then_weekday(current=..., baseline=...)`。weekday 按 ISO 星期几及其在原网格中的序次配对；
+holiday 按相对 occurrence 首日的有符号民用日偏移配对；hybrid 在 occurrence 内按偏移，
+在前后按从边界向外计数的同星期序次配对。这三种映射要求单日日粒度网格。
+节假日输入来自 `session.catalog.temporal_sets.get(...).occurrence(key)`，必须具有整日边界，
+且边界时区与对应网格一致。四种映射均输出规范字符串，例如 `ordinal:1`、`weekday:1:1`、
+`holiday:0` 和 `holiday_then_weekday:holiday:0`。键像不等时仍按 exact/outer 覆盖政策处理，
+映射及 occurrence 快照身份在 fixed 与 cold 续接中保持冻结。
+
+若模型已认证 UTC 中的 `sales.holidays` 及其 `august`、`july` occurrence，
+可用它们构造上述日粒度端点的节假日描述符。
+
+{/* example: holiday-period-correspondence */}
+
+```python
+holidays = session.catalog.temporal_sets.get("sales.holidays")
+current_holiday = holidays.occurrence("august")
+baseline_holiday = holidays.occurrence("july")
+holiday_key = mv.holiday(current=current_holiday, baseline=baseline_holiday)
+hybrid_key = mv.holiday_then_weekday(current=current_holiday, baseline=baseline_holiday)
+holiday_result = current.compare(baseline, align=mv.outer(time=holiday_key)).execute()
+hybrid_result = current.compare(baseline, align=mv.outer(time=hybrid_key)).execute()
+```
 
 ## 继续逻辑选择
 

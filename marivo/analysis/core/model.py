@@ -16,6 +16,7 @@ from marivo.analysis.core.domain_captures import (
     StateModelCapture,
 )
 from marivo.analysis.core.history_types import HistoryRequest
+from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -451,8 +452,9 @@ class EndpointPart:
 class TimeKeys:
     """Frozen injective bucket-to-aligned-key tables in original grid order."""
 
-    current: tuple[tuple[str, int], ...]
-    baseline: tuple[tuple[str, int], ...]
+    current: tuple[tuple[str, str], ...]
+    baseline: tuple[tuple[str, str], ...]
+    mapping: TimeKeyMapping
 
     def __post_init__(self) -> None:
         for table in (self.current, self.baseline):
@@ -464,17 +466,17 @@ class TimeKeys:
                     or len(entry) != 2
                     or type(entry[0]) is not str
                     or not entry[0]
-                    or type(entry[1]) is not int
-                    or entry[1] < 1
+                    or type(entry[1]) is not str
+                    or not entry[1]
                     for entry in table
                 )
                 or len({bucket for bucket, _ in table}) != len(table)
                 or len({aligned for _, aligned in table}) != len(table)
             ):
                 reject(
-                    "nonempty injective frozen bucket tables with positive integer keys",
+                    "nonempty injective frozen bucket tables with canonical string keys",
                     repr(table),
-                    "Retain the complete original grids and evaluate mv.ordinal() before execution.",
+                    "Retain the complete original grids and evaluate the selected time-key mapping before execution.",
                     "core.time_keys",
                 )
 
@@ -1422,7 +1424,7 @@ def validate_part(part: Part) -> None:
         return
     if isinstance(part, CorrespondencePart):
         if (
-            part.version not in ("v1", "v2", "v3")
+            part.version not in ("v1", "v2", "v4")
             or part.policy not in ("exact", "keep", "metric_empty")
             or (len(part.empty_rules) != (2 if part.policy == "metric_empty" else 0))
             or any(rule not in ("zero", "null", "zero_denominator") for rule in part.empty_rules)
@@ -1435,14 +1437,14 @@ def validate_part(part: Part) -> None:
                     or not 0 <= part.time_index < len(part.current_key)
                     or part.current_key[part.time_index].role != "anchor"
                     or part.baseline_key[part.time_index].role != "anchor"
-                    or part.version != "v3"
+                    or part.version != "v4"
                     or type(part.time_keys) is not TimeKeys
                 )
             )
             or any(type(key) is not Coordinate for key in (*part.current_key, *part.baseline_key))
         ):
             reject(
-                "complete typed endpoint coordinates and v3 frozen time keys",
+                "complete typed endpoint coordinates and v4 frozen time keys",
                 repr(part),
                 "Retain both ordered endpoint keys.",
                 "core.part.correspondence",

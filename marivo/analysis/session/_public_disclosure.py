@@ -779,7 +779,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 ParameterInput(
                     name,
                     parameter_guidance(dsl.one_to_one)[name],
-                    (),
+                    ("ordinal", "weekday", "holiday", "holiday_then_weekday")
+                    if name == "time"
+                    else (),
                 )
                 for name in ("left", "right", "via", "time")
             ),
@@ -1012,6 +1014,9 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "exact",
                         "outer",
                         "ordinal",
+                        "weekday",
+                        "holiday",
+                        "holiday_then_weekday",
                         "LogicalComparisonResult",
                         "MaterializedComparisonResult",
                     )

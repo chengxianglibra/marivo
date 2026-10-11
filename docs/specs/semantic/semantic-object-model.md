@@ -1170,10 +1170,10 @@ Semantic definitions are not themselves coverage receipts or Runtime passes.
 Public domain construction and execution use the unified typed graph and
 registered consumers; frozen declarations alone grant no runtime capability.
 
-Analysis comparison alignment is authored with `mv.exact()`, `mv.outer()` and, for
-complete original grids, `mv.ordinal()`. Ordinal correspondence yields aligned
-keys 1..N with both original time projections and does not assert calendar
-equivalence. Exact requires equal aligned-key sets; outer keep admits unequal
-grids, while Metric empty finish rejects time outside the other observed window. Compare fixes checked correspondence and publishes both
-absolute and relative Cells; Metric empty finish is requested explicitly through
-`mv.outer(missing="empty_value")` and requires retained complete original state.
+Analysis owns the closed time-key alignment family and its output coordinates;
+see the [comparison contract](../analysis/timezone-and-calendar-design.md#period-correspondence).
+Semantic TemporalSet occurrences already carry the exact Ref, key, bounds,
+timezone and snapshot digest needed by analysis. Compare fixes checked
+correspondence and publishes both absolute and relative Cells. Metric empty finish
+is requested explicitly through `mv.outer(missing="empty_value")` and requires
+retained complete original state.

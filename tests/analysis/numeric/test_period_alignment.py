@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pyarrow as pa
 import pytest
 
@@ -57,9 +59,9 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     results.append(current.execute().compare(baseline.execute(), align=alignment).execute())
     for result in results:
         frame = result.to_pandas()
-        assert set(frame.coord_0) == {1, 2, 3}
+        assert set(frame.coord_0) == {"ordinal:1", "ordinal:2", "ordinal:3"}
         assert len(frame) == 12
-        missing = frame[frame.coord_0 == 3]
+        missing = frame[frame.coord_0 == "ordinal:3"]
         for field in ("absolute", "relative"):
             assert set(missing[field + "_cell_tag"]) == {"undefined"}
             assert set(missing[field + "_cell_reason"]) == {"missing_side"}
@@ -67,7 +69,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         exchange = result._dataset.verified()
         assert exchange.contract.signature.domain.time_grid is None
         assert exchange.contract.signature.domain.instance_key[1].role == "aligned"
-        assert exchange.primary.schema.field("key_1").type == pa.int64()
+        assert exchange.primary.schema.field("key_1").type == pa.string()
         mapping = next(p.table for p in exchange.parts if p.role == "correspondence")
         declaration = next(
             p for p in exchange.contract.signature.parts if isinstance(p, CorrespondencePart)
@@ -82,9 +84,9 @@ def test_period_outer_keeps_time_missing_and_original_keys(
             original = {aligned: bucket for bucket, aligned in table}
             assert mapping.schema.field(f"correspondence__{side}_key_1").type == pa.string()
             for row in mapping.to_pylist():
-                assert row[f"correspondence__{side}_present"] == (row["key_1"] <= length)
+                assert row[f"correspondence__{side}_present"] == (row["key_1"] in original)
                 assert row[f"correspondence__{side}_key_1"] == original.get(row["key_1"])
-                if row["key_1"] > length:
+                if row["key_1"] not in original:
                     assert row[f"correspondence__{side}_key_0"] is None
         result.show()
         text = capsys.readouterr().out
@@ -289,8 +291,19 @@ def test_equal_period_empty_finish_allows_missing_non_time_groups(
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize(
+    "kind,timestamp",
+    [
+        ("ordinal", False),
+        ("holiday_then_weekday", False),
+        ("holiday", True),
+        ("holiday_then_weekday", True),
+    ],
+)
 def test_period_independent_offline_fixed_and_cold(
     analysis_dsl_case_factory: DslCaseFactory,
+    kind: Literal["ordinal", "holiday", "holiday_then_weekday"],
+    timestamp: bool,
 ) -> None:
     import os
     import subprocess
@@ -304,9 +317,15 @@ def test_period_independent_offline_fixed_and_cold(
     members = case.session.members(ms.ref.entity("sales.customer"))
     _, current = period(members, 8, 2)
     _, baseline = period(members, 7, 3)
-    source = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
+    from tests.analysis.numeric.test_time_alignment import time_key
+
+    source = current.compare(
+        baseline, align=mv.outer(time=time_key(kind, timestamp=timestamp))
+    ).execute()
     state: dict[str, Json] = {
         "session": case.session.id,
+        "kind": kind,
+        "timestamp": timestamp,
         "inputs": {
             "current": snapshot(current.execute()),
             "baseline": snapshot(baseline.execute()),
@@ -393,10 +412,15 @@ def test_frozen_time_tables_are_injective_and_match_each_original_grid(
     from marivo.analysis.core.graph import MethodNode, method_node
     from marivo.analysis.core.model import TimeKeys
     from marivo.analysis.core.rules import CellCompare
+    from marivo.analysis.core.time_alignment import OrdinalTimeMapping
 
-    for table in ((("a", 1), ("b", 1)), (("a", 1), ("a", 2)), (("a", -1),)):
+    for table in (
+        (("a", "ordinal:1"), ("b", "ordinal:1")),
+        (("a", "ordinal:1"), ("a", "ordinal:2")),
+        (("a", ""),),
+    ):
         with pytest.raises(AnalysisError, match="injective"):
-            TimeKeys(table, (("c", 1),))
+            TimeKeys(table, (("c", "ordinal:1"),), OrdinalTimeMapping())
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
     _, current = period(members, 8, 2)
@@ -407,13 +431,17 @@ def test_frozen_time_tables_are_injective_and_match_each_original_grid(
     original = node.parameters.time_keys
     assert original is not None
     for changed in (
-        TimeKeys(original.current[:-1], original.baseline),
-        TimeKeys((("forged", 1), original.current[1]), original.baseline),
+        TimeKeys(original.current[:-1], original.baseline, original.mapping),
         TimeKeys(
-            tuple((bucket, ordinal + 1) for bucket, ordinal in original.current), original.baseline
+            (("forged", "ordinal:1"), original.current[1]), original.baseline, original.mapping
+        ),
+        TimeKeys(
+            tuple((bucket, f"ordinal:{i}") for i, (bucket, _) in enumerate(original.current, 2)),
+            original.baseline,
+            original.mapping,
         ),
     ):
-        with pytest.raises(AnalysisError, match="complete frozen ordinal"):
+        with pytest.raises(AnalysisError, match="complete frozen time-key"):
             method_node(
                 node.inputs, replace(node.parameters, time_keys=changed), value_type=node.value_type
             )

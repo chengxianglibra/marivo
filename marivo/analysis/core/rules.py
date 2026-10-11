@@ -69,6 +69,7 @@ from marivo.analysis.core.model import (
     require_part,
 )
 from marivo.analysis.core.predicates import ValuePredicate, leaves
+from marivo.analysis.core.time_alignment import evaluate_time_keys
 from marivo.analysis.core.time_authority import TemporalExecution
 from marivo.analysis.core.time_grid import BoundTimeGrid, CumulativeBinding, GridVersionSelection
 from marivo.analysis.domains.completeness import CompletenessDeclaration
@@ -2088,9 +2089,9 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             grids[0] is None
             or grids[1] is None
             or params.time_keys.current
-            != tuple((cell.identity, i) for i, cell in enumerate(grids[0].cells, 1))
+            != evaluate_time_keys(grids[0], params.time_keys.mapping, "current")
             or params.time_keys.baseline
-            != tuple((cell.identity, i) for i, cell in enumerate(grids[1].cells, 1))
+            != evaluate_time_keys(grids[1], params.time_keys.mapping, "baseline")
             or params.time_index is None
             or type(params.time_index) is not int
             or not 0 <= params.time_index < len(left.domain.instance_key)
@@ -2100,7 +2101,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             != (params.time_index,)
         ):
             reject(
-                "complete frozen ordinal tables for each original grid",
+                "complete frozen time-key tables for each original grid",
                 "invalid period map",
                 "Retain both original grids.",
                 "core.cell.period",
@@ -2116,9 +2117,9 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
                 else "empty finish only for observed time keys",
                 "time key outside the other observation window is unobserved, "
                 "distinct from no data inside an observed window",
-                "Adjust the windows to equal bucket counts; one_to_one ratios require exact coverage."
+                "Adjust the windows to equal aligned-key sets; one_to_one ratios require exact coverage."
                 if params.method == "ratio"
-                else "Use mv.outer(missing='keep', time=mv.ordinal()) or adjust the windows to equal bucket counts.",
+                else "Use mv.outer(missing='keep') with this time descriptor or adjust the windows to equal aligned-key sets.",
                 "core.cell.period",
             )
         equivalent_keys = tuple(
@@ -2310,7 +2311,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             binding,
             left.domain.instance_key,
             right.domain.instance_key,
-            "v3"
+            "v4"
             if params.time_keys is not None
             else "v2"
             if params.method == "difference"

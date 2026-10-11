@@ -65,7 +65,7 @@ quotient.contract().show()
 键配对固定 checked，未知键集合相等性会检查；适用声明和冻结构造证据仍有效。
 compare 的缺侧可用 `align=mv.outer()` 显式保留。
 
-时期比较显式使用 `time=mv.ordinal()`。exact 要求对齐键集合相等，outer keep
+时期比较通过 `align.time` 显式选择 ordinal、weekday、holiday 或 holiday_then_weekday，均输出规范 string 键。星期和节假日映射要求日粒度网格，节假日 occurrence 必须具有与对应网格时区一致的整日边界。exact 要求对齐键集合相等，outer keep
 允许任一侧网格更长。`empty_value` 不能修复另一窗口外未观察的时间键：应改用
 keep 或调整窗口。对齐输出保留两侧原时间投影，但不挂载 time_grid；时间分组、
 runs、forecast 和显式 lag correlate 应在原端点上完成，再比较。普通筛选与行统计

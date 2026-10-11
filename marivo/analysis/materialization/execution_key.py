@@ -26,6 +26,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.core import history_types
 from marivo.analysis.core import model as core_model
+from marivo.analysis.core import time_alignment as time_alignment_model
 from marivo.analysis.core.domain_captures import (
     EntryAxisCapture,
     EventCapture,
@@ -138,6 +139,11 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.EndpointPart: "endpoint_part",
     core_model.CorrespondencePart: "correspondence_part",
     core_model.TimeKeys: "time_keys",
+    time_alignment_model.OccurrenceTimeCapture: "occurrence_time_capture",
+    time_alignment_model.OrdinalTimeMapping: "ordinal_time_mapping",
+    time_alignment_model.WeekdayTimeMapping: "weekday_time_mapping",
+    time_alignment_model.HolidayTimeMapping: "holiday_time_mapping",
+    time_alignment_model.HolidayThenWeekdayTimeMapping: "holiday_then_weekday_time_mapping",
     core_model.OriginalStatePart: "original_state_part",
     core_model.CoordinateStatePart: "coordinate_state_part",
     core_model.RowStatePart: "row_state_part",

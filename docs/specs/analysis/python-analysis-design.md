@@ -396,7 +396,7 @@ distinct/quantile values retain no set/sketch or distribution rollup authority.
 
 Comparisons require compatible quantities, temporal design and complete typed
 correspondence. Period comparison and time-mapped one_to_one ratios use aligned
-int64 keys 1..N without an output time_grid, retaining both original-time
+string keys with time-key kind prefixes without an output time_grid, retaining both original-time
 projections. Apply real-time operations to original endpoints before comparing;
 [Period correspondence](timezone-and-calendar-design.md#period-correspondence)
 owns coverage and continuation admission. Predicates carry every referenced input, evaluate all children

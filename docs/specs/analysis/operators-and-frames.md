@@ -289,7 +289,7 @@ this table does not activate additional reducers or numerical carriers.
 
 | Method identity | RequiredParts and consumption | Output / permitted K |
 | --- | --- | --- |
-| map_correspond (exact, outer, one-to-one, ordinal variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
+| map_correspond (exact, outer, one-to-one, closed time-key variants) | Complete ordered typed keys; design and target binding; one-to-one relation/time evidence or complete bucket map as applicable | Exact matched/missing-side map and original endpoints; correspondence is not original-state rollup |
 | cell.compare | One ordered endpoint pair, exact/outer correspondence and both type admissions | One root without quantity; two independent Cells and error bounds; one atomic Artifact |
 | comparison.read | ComparisonPart and field absolute/relative | Typed projection of the same root/Artifact; original endpoint authority is retained |
 | cell.difference | Correspondence, ordered endpoint Cells and recursively frozen quantity templates; matched values Defined/finite | current−baseline; endpoints, presence and policies retained; S/F, members only with Subject map, attribute only under its separate rule |
@@ -344,9 +344,10 @@ absolute/relative and their separate cell_tag/cell_reason columns.
 Frozen target and observation-time captures determine one design: only time
 changes give time comparison (period for two grids); only targets change give
 cohort comparison on common Group/Singleton coordinates. Identical captures or
-changes to both conditions reject. Period requires explicit
-`align=mv.exact(time=mv.ordinal())` or outer with that time key. Other comparisons
-forbid align.time. Period output uses int64 aligned keys 1..N with no time_grid;
+changes to both conditions reject. Period requires
+an explicit ordinal, weekday, holiday or holiday_then_weekday descriptor
+on `align.time`. Other comparisons
+forbid align.time. Period output uses string aligned keys with time-key kind prefixes and no time_grid;
 both original time coordinates remain in correspondence projections. Exact requires
 equal aligned-key sets; outer keep unions complete composite keys even when either
 grid is longer. Empty finish rejects time keys outside the other observation window.

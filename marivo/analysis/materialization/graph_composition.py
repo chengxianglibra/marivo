@@ -44,6 +44,7 @@ from marivo.analysis.core.rules import (
     RowState,
     TimeProduct,
 )
+from marivo.analysis.core.time_alignment import TimeKeyMapping, evaluate_time_keys
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_members import MemberGraph
 from marivo.analysis.materialization.graph_protocol import digest
@@ -148,6 +149,7 @@ def _invalid_composition(received: str) -> DatasetConstructionError:
 def period_mapping(
     current: MethodNode,
     baseline: MethodNode,
+    mapping: TimeKeyMapping,
 ) -> tuple[int, TimeKeys]:
     """Bind the original complete bucket vectors before reading either endpoint."""
     left, right = current.signature.domain, baseline.signature.domain
@@ -162,8 +164,9 @@ def period_mapping(
             "Period comparison requires one corresponding complete time coordinate"
         )
     return indexes[0], TimeKeys(
-        tuple((cell.identity, i) for i, cell in enumerate(first.cells, 1)),
-        tuple((cell.identity, i) for i, cell in enumerate(second.cells, 1)),
+        evaluate_time_keys(first, mapping, "current"),
+        evaluate_time_keys(second, mapping, "baseline"),
+        mapping,
     )
 
 
@@ -471,7 +474,7 @@ def infer_comparison_design(
     )
     if time != (design == "period"):
         raise _invalid_composition(
-            "period comparison requires align=mv.exact(time=mv.ordinal()) or mv.outer(time=mv.ordinal())"
+            "period comparison requires an explicit time descriptor through mv.exact(time=...) or mv.outer(time=...); see marivo.help('analysis.inputs.time')"
             if design == "period"
             else "time mapping requires two distinct complete time grids; omit align.time"
         )
@@ -521,6 +524,7 @@ def combine_observations(
     relationship: TargetRelationshipContract | None = None,
     verification: Literal["check", "assume"] = "check",
     union_targets: bool = False,
+    time: TimeKeyMapping | None = None,
 ) -> MemberGraph:
     """Share identical frozen nodes, preserving independent ordered endpoints."""
 
@@ -575,6 +579,11 @@ def combine_observations(
             or left_member.fingerprint != right_member.fingerprint
         ):
             raise invalid("endpoints do not share the same frozen member node")
+    if design == "period" and time is None:
+        raise invalid("period composition requires the selected frozen time-key descriptor")
+    time_mapping = (
+        period_mapping(first, second, time) if design == "period" and time is not None else None
+    )
     definition = digest(method + first.fingerprint + second.fingerprint)
     if method == "ratio":
         if (
@@ -615,8 +624,8 @@ def combine_observations(
                 "ratio" if method == "relation_ratio" else design,
                 pairing,
                 comparison_empty_rules(first, second) if pairing == "metric_empty" else (),
-                time_index=period_mapping(first, second)[0] if design == "period" else None,
-                time_keys=period_mapping(first, second)[1] if design == "period" else None,
+                time_index=time_mapping[0] if time_mapping is not None else None,
+                time_keys=time_mapping[1] if time_mapping is not None else None,
                 relationship=relationship,
                 verification=verification,
             ),

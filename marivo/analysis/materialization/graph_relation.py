@@ -54,6 +54,7 @@ from marivo.analysis.core.rules import (
     TimeProduct,
     classification_key_prefix,
 )
+from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import StatisticalErrorCode, StatisticalRelationError
@@ -1144,9 +1145,10 @@ class Relation:
         *,
         design: Literal["time", "cohort", "period"],
         pairing: Literal["exact", "keep", "metric_empty"],
+        time: TimeKeyMapping | None,
     ) -> Relation:
         """Construct one dual result over the existing frozen correspondence."""
-        absolute = self.combine(other, "difference", design=design, pairing=pairing)
+        absolute = self.combine(other, "difference", design=design, pairing=pairing, time=time)
         node = absolute.root
         assert isinstance(node, MethodNode) and isinstance(node.parameters, CellDerive)
         params = node.parameters
@@ -1211,6 +1213,7 @@ class Relation:
         pairing: Literal["exact", "keep", "metric_empty"] = "exact",
         relationship: TargetRelationshipContract | None = None,
         verification: Literal["check", "assume"] = "check",
+        time: TimeKeyMapping | None = None,
     ) -> Relation:
         if (
             self.runtime.session_ref != other.runtime.session_ref
@@ -1236,6 +1239,7 @@ class Relation:
                 pairing=pairing,
                 relationship=relationship,
                 verification=verification,
+                time=time,
             )
             return Relation(self.runtime, graph.root, replace(self.binding, graph=graph))
         if isinstance(self.binding, LiveBinding) or isinstance(other.binding, LiveBinding):
@@ -1271,6 +1275,13 @@ class Relation:
                 or not isinstance(right, ObservedQuantity)
             ):
                 raise _reject("endpoints lack one exact frozen member binding")
+        if design == "period" and time is None:
+            raise _reject("period composition requires the selected frozen time-key descriptor")
+        time_mapping = (
+            period_mapping(current, baseline, time)
+            if design == "period" and time is not None
+            else None
+        )
         definition = digest(method + self.root.fingerprint + other.root.fingerprint)
         if method in ("difference", "relative_change", "relation_ratio"):
             from marivo.semantic.unit_algebra import ratio_unit
@@ -1299,8 +1310,8 @@ class Relation:
                     "ratio" if method == "relation_ratio" else design,
                     pairing,
                     comparison_empty_rules(current, baseline) if pairing == "metric_empty" else (),
-                    time_index=period_mapping(current, baseline)[0] if design == "period" else None,
-                    time_keys=period_mapping(current, baseline)[1] if design == "period" else None,
+                    time_index=time_mapping[0] if time_mapping is not None else None,
+                    time_keys=time_mapping[1] if time_mapping is not None else None,
                     relationship=relationship,
                     verification=verification,
                 ),

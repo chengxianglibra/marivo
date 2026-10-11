@@ -1,6 +1,6 @@
 # Timezones and Calendars
 
-Status: current temporal contract, 2026-10-09. Exact physical routes require
+Status: current temporal contract, 2026-10-11. Exact physical routes require
 independent method qualification; this document defines time meaning.
 
 The Session's persisted report timezone owns built-in temporal interpretation.
@@ -221,7 +221,7 @@ actual source precision. Civil dates preserve their calendar interpretation.
 Report, window, grid and calendar authorities remain separate frozen parameters
 or domain facts and participate in fingerprints and execution identity. The
 report timezone never replaces the physical source shape, and no generic
-fallback bypasses exact qualification. Graph snapshots use `graph_dag/v9`; older
+fallback bypasses exact qualification. Graph snapshots use `graph_dag/v10`; older
 versions require source re-execution. Fixed and cold recovery use frozen facts
 without reader probes, source connections or host timezone resolution.
 
@@ -233,23 +233,54 @@ authority without reopening the source. Shared authority values live in
 
 ## Period correspondence
 
-Period comparison requires explicit `time=mv.ordinal()` on `mv.exact()` or
-`mv.outer()`. Each side retains its complete ordered original grid, calendar,
-timezone, observation authority and boundary/evaluation bindings in the frozen
-endpoint. `CorrespondencePart` v3 owns immutable `time_keys.current` and
-`time_keys.baseline` tables, each mapping every original bucket identity to its
-ordinal **1..N**. Construction and rule derivation validate completeness,
-injectivity and exact evaluation against that side's frozen grid; execution and
-recovery consume these frozen tables.
+Period comparison requires an explicit closed time-key descriptor on `mv.exact()`
+or `mv.outer()`. The same descriptors are available through time-mapped
+`mv.one_to_one(...)` ratios. Each side retains its complete ordered original grid,
+calendar, timezone, observation authority and boundary/evaluation bindings.
+`CorrespondencePart` v4 owns the mapping capture and immutable
+`time_keys.current` / `time_keys.baseline` tables. Construction and frozen-definition
+integrity validation use one pure evaluator to check complete coverage, injectivity
+and exact evaluation against each frozen grid. Execution and lowering consume the
+frozen tables without reloading a Catalog or certification.
 
-The root, both views and a time-mapped `one_to_one` ratio use the existing ordered
-non-time keys with an `int64` time position of role `aligned`. The output has no
-`time_grid`. Correspondence projections retain both complete original keys with
-their original types; a missing side's entire original key is null. `.show()`
-displays the aligned key and both original time coordinates. An aligned key is
-correspondence evidence, without weekday, fiscal or elapsed-time meaning.
+| Constructor | Canonical aligned string key | Meaning |
+| --- | --- | --- |
+| `mv.ordinal()` | `ordinal:1` | Position in each complete original grid, starting at 1 |
+| `mv.weekday()` | `weekday:1:1` | ISO weekday 1..7 and that weekday's occurrence within the original grid, starting at 1 |
+| `mv.holiday(current=..., baseline=...)` | `holiday:-2` | Signed civil-day offset from the side's occurrence start date; first day is 0 |
+| `mv.holiday_then_weekday(current=..., baseline=...)` | `holiday_then_weekday:holiday:0`, `holiday_then_weekday:before:1:1`, `holiday_then_weekday:after:1:1` | Offset inside the occurrence; outside, direction, ISO weekday and outward occurrence count |
 
-`exact` and `one_to_one(time=mv.ordinal(), ...)` require equal aligned-key sets
+Numbers have canonical decimal spelling, without leading zeros, a plus sign or
+negative zero. Deterministic key ordering is not calendar order. Ordinal remains
+position correspondence and does not establish weekday, fiscal or elapsed-time
+equivalence. The other three descriptors require single-day grids, including a
+certified calendar's day level. Bucket dates come from `original_start` in each
+frozen grid's boundary timezone, including partial cells admitted by the original
+grid contract. DST days count as one civil day regardless of elapsed hours.
+
+Holiday inputs must be certified `TemporalSetEntry.occurrence(key)` TimeScopes.
+They retain the exact Ref, key, original bounds, boundary timezone and snapshot
+digest in the definition fingerprint. Date bounds and aware timestamp bounds at
+local midnight are accepted; non-whole-day occurrences reject without truncation.
+Timestamp captures preserve their instants in the certification's canonical UTC
+representation on construction and decode, keeping definition fingerprints stable
+across frozen and cold restoration.
+Each occurrence's boundary timezone must equal its side's grid timezone. The
+occurrences need not come from one TemporalSet or lie wholly inside the windows.
+Hybrid uses the half-open occurrence dates: inside, offset from its first day;
+before/after, the closest same weekday outside that boundary has count 1 and each
+further week increases it. Dates outside the observation grid still contribute to
+this distance, so clipping a window cannot reset the outward count. No descriptor
+truncates, pads or fills absent keys. WorkSchedule alignment is outside this family.
+
+The root, both views and a time-mapped one_to_one ratio use the existing ordered
+non-time keys with a `string` time position of role `aligned`, for all four
+descriptors. The output has no `time_grid`. Correspondence projections retain both
+complete original keys with their original types; a missing side's entire original
+key is null. `.show()` displays the aligned key and both original time coordinates.
+These keys carry correspondence evidence rather than a new observed time axis.
+
+`exact` and time-mapped `one_to_one(...)` require equal aligned-key sets
 and checked complete composite-key coverage. `outer(missing="keep")` uses the
 composite-key union even when either grid is longer; a missing side yields
 `Undefined("missing_side")` independently in both views. `empty_value` rejects

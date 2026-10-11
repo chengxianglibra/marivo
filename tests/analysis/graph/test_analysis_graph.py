@@ -663,17 +663,17 @@ def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> No
             "source",
             "82816f07666e8eb1cf366830b6266f48fd14253bf0bd41ee95a48a64dd0b2a12",
             "d1ed60a0a26f1417da8df85d9a013eb4c6e41c880f511d8623d007bd8c84532a",
-            "617d84393dfdc951e0907af6b071598ce73488d5ed393c8cc57cb01ba780b2dc",
+            "e6c14dfa8bb55820474a65ca047ee712472ba4221161ddfd68c58b1e2c7ca4bf",
         ),
         (
             "fixed",
             "8cf118f0b71fdfd4d14f5278f0cfe660f6e22acef6daf93ca300ecc8b4e9c609",
             "7c98a8ad6bfaf046afce13cbc2cf749592f9cfbab8baa8ce489f010bfd2da1c8",
-            "0d04e5d505c18abbcec6a420bb1d8166608e54de855c9af7e6e056830f920d00",
+            "9f50768f7c6078da09e79781bbad4d5d6a116bea900489554aa5c089d1a1095d",
         ),
     ],
 )
-def test_persisted_identity_pins_v9_snapshot_without_semantic_changes(
+def test_persisted_identity_pins_v10_snapshot_without_semantic_changes(
     kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
 ) -> None:
     from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest

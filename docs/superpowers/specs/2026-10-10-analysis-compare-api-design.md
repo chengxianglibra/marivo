@@ -2,12 +2,13 @@
 
 Date: 2026-10-10
 
-Status: W0、W1 已实施并提交；W2 已于 2026-10-11 实施并通过验收（ClickHouse Runtime 环境跳过），见实施记录；W3 待另行授权。
+Status: W0、W1 已实施并提交；W2 已于 2026-10-11 实施并通过验收（ClickHouse Runtime 环境跳过），见实施记录；W3 已于 2026-10-11 实施，并完成后续覆盖检查与 timestamp 冷恢复修复；最新相关 slow 及完整日常门禁通过，完整 slow 的先前结果与 ClickHouse Runtime 环境缺口见 W3 实施记录。
 
 Design baseline: `main@e3650922d3`. W1 implementation baseline: `main@da65e5b15e`（修订前工作区干净，包含 W0）。
 
 W1 实施计划：[Analysis compare API W1](../plans/2026-10-10-analysis-compare-api-w1-implementation.md)。
 W2 实施记录：[时间键参与覆盖政策](2026-10-11-analysis-compare-api-w2-implementation-record.md)，基线 `main@ba5f9da2bf`。
+W3 实施记录：[统一时间键族](2026-10-11-analysis-compare-api-w3-implementation-record.md)，基线 `main@3e9a70d5fd`。
 
 把 `compare` 与 `ratio` 的公共参数按[分析代数](../../specs/analysis/algebra-theory.md)
 第 6.7.3 与 8.2 节的结构重新划分：比较设计 c 由端点定义推导；对应关系 a 是一个值，
@@ -392,7 +393,7 @@ W1 沿用现有对应政策和数值算子含义；公共输入映射如下：
   两视图在 source-offline 的独立进程中可读取和续接。
   完整性校验覆盖两侧 Cell 布局、精确类型、完整键、共享对应及各视图的端点/状态投影。
 
-W1 的原授权范围到此停止。W2 已于 2026-10-11 另行授权，实施与验收见 W2 记录；W3 仍待授权。
+W1 的原授权范围到此停止。W2 已于 2026-10-11 另行授权，实施与验收见 W2 记录；W3 已于 2026-10-11 另行授权，实施与验收见 W3 记录。
 
 ### 5.2 W2 时间键参与覆盖
 
@@ -535,11 +536,10 @@ analysis 规范（`timezone-and-calendar-design.md` Period correspondence 节）
 
 4. 共同规则：
    - `weekday`、`holiday`、`holiday_then_weekday` 要求日粒度网格，其他粒度拒绝。
-   - `holiday` 与 `holiday_then_weekday` 的 `current=` / `baseline=` 各接受一个 occurrence，
-     其 `TemporalSet` 快照摘要进入定义指纹。`occurrence(key)` 当前返回的 `TimeScope` 是否携带
-     快照摘要尚未核实；若没有，W3 补充。
-   - 所有 τ 都按 4.4 在构造时求值，编码为 5.2 的两侧对齐表。因此 W3 不改变执行、lowering、
-     恢复与覆盖政策，只新增 τ 构造与求值。
+   - `holiday` 与 `holiday_then_weekday` 的 `current=` / `baseline=` 各接受一个 `kind="temporal_occurrence"` 的 TimeScope；Ref、key、原始边界、时区及 snapshot digest 全部冻结并进入定义指纹。只接受 date 或本侧边界时区中两端均为午夜的 aware timestamp；边界时区须与对应网格一致。
+   - 所有 τ（包括 ordinal）输出规范 string：`ordinal:1`、`weekday:1:1`、`holiday:-2`、`holiday_then_weekday:holiday:0` 或 `holiday_then_weekday:before:1:1` / `after:1:1`。数字不含前导零、正号或负零；确定性键排序不表示时间轴。
+   - 桶日期以原网格的 `original_start` 和冻结边界时区求值；DST 按民用日计算。hybrid 外部按 occurrence 边界向外计数，最近同星期为 1，网格外日期仍计入距离。occurrence 不要求属于同一 TemporalSet，也不要求完整落入窗口。
+   - 所有 τ 在构造及冻结定义完整性校验时用同一纯求值器求值，执行与 lowering 消费冻结两侧表；aligned carrier 统一为 string。CorrespondencePart v4、graph_dag/v10，ComparisonPart v2 与 Store 9 保持；旧图要求源重新执行，无迁移或双读。W2 覆盖政策保持。
    - 两侧窗口长度或节假日天数不同造成的时间键缺侧，统一由 W2 的覆盖政策处理，τ 内部不截断、不补齐。
 5. 工作日序号（依赖 `WorkSchedule`）不在统一族内，有需求时另行提案。
 
@@ -619,7 +619,7 @@ W2（已于 2026-10-11 授权，仅实施本节与 5.2）：
 5. 更新 `timezone-and-calendar-design.md` 与站点文档。
 6. 验收同 W1；period 比较涉及 Runtime 的部分用 `make runtime-test TESTS='...'` 跑受影响的文件。
 
-W3：在 W2 合入后单独出实施计划。
+W3：在已提交的 W2 `main@3e9a70d5fd` 上实施四成员 τ 族。按本轮决定，四种 τ（包括 ordinal）均输出带种类前缀的规范 string；holiday occurrence 要求整日边界且边界时区与对应网格相同。CorrespondencePart v4、graph_dag/v10；ComparisonPart 保持 v2。
 
 ## 11. 已决事项
 
@@ -631,7 +631,7 @@ W3：在 W2 合入后单独出实施计划。
 - 新 compare 根/视图指纹改变，checked ratio 的底层规则保持；W1 图版本 v7 → v8，W2 v8 → v9，无旧版本双读或迁移。
 - 同端点 cohort 自比较拒绝（3.2）。
 - 时间桶对齐由 analysis 比较契约唯一拥有，τ 族闭合为四个成员（8.2）。
-- W1 的等长/current 桶输出已由 W2 替换：输出 int64 aligned 键 1..N，无 time_grid，保留两侧原时间投影。W3 后续另行实施。
+- W1 的等长/current 桶输出已由 W2 替换：输出 int64 aligned 键 1..N，无 time_grid，保留两侧原时间投影。W3 将其统一为带 τ 种类前缀的 string；覆盖政策保持。
 - 非 Defined 操作数按单元格传播，两侧都非 Defined 时优先级 Unknown > Undefined > Null，作为 W0 先于 W1 交付（5.3）。
 
 ## 12. 待决问题

@@ -166,6 +166,14 @@ if TYPE_CHECKING:
     assert_type(mv.exact(time=mv.ordinal()), mv.ExactAlignment)
     assert_type(mv.outer(), mv.OuterAlignment)
     assert_type(mv.ordinal(), mv.OrdinalTimeKey)
+    assert_type(mv.weekday(), mv.WeekdayTimeKey)
+    occurrence = mv.time_scope(start="2026-01-01", end="2026-01-02")
+    assert_type(mv.holiday(current=occurrence, baseline=occurrence), mv.HolidayTimeKey)
+    assert_type(
+        mv.holiday_then_weekday(current=occurrence, baseline=occurrence),
+        mv.HolidayThenWeekdayTimeKey,
+    )
+    assert_type(mv.outer(time=mv.weekday()), mv.OuterAlignment)
 
 if TYPE_CHECKING:
     ranking = observed.rank(order="descending", ties="dense", partition_by=(category,))

@@ -29,8 +29,8 @@ marivo.help("analysis.dsl.one_to_one")
 Compare infers one changed condition from frozen target/time captures: only time
 changes compare periods; only targets change compare cohorts on common Group/Singleton
 coordinates. Identical captures or changing both conditions reject. Grid comparison
-requires explicit `align=mv.exact(time=mv.ordinal())` or outer with that time key.
-The time position contains int64 aligned keys 1..N without a time_grid; both original
+requires an explicit time descriptor through `mv.exact(time=...)` or `mv.outer(time=...)`.
+The time position contains string aligned keys with time-key kind prefixes without a time_grid; both original
 times remain correspondence projections. Exact requires equal aligned-key sets;
 outer keep permits either grid to be longer. `mv.exact()` fixes checked correspondence;
 `mv.outer()` keeps missing sides by default, with explicit `missing="empty_value"` for
@@ -43,7 +43,7 @@ makes only relative Undefined(zero_baseline); overflow/nonfinite values fail the
 ## Compare unequal periods
 
 Use the workflow's `customers` and `buyer`. Each group must retain its complete
-original grid; filtering cannot renumber buckets. This example outputs 1, 2 and 3;
+original grid; filtering cannot renumber buckets. This example outputs `ordinal:1`, `ordinal:2` and `ordinal:3`;
 the third aligned key has Undefined(missing_side) in both views. `.show()` includes
 both original time coordinates.
 
@@ -63,6 +63,7 @@ current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.membe
 baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
 periods = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
 periods.show()
+weekdays = current.compare(baseline, align=mv.outer(time=mv.weekday())).execute()
 selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
 ```
 
@@ -72,6 +73,33 @@ lag correlation. Apply those operations to original endpoints before comparing.
 Ordinary selection, current-row statistics, valid membership continuation and
 admitted exact absolute attribution follow their own contracts. A one_to_one ratio
 with `time=mv.ordinal()` uses the same output shape with exact coverage.
+
+The closed time-key family also includes `mv.weekday()`,
+`mv.holiday(current=..., baseline=...)` and `mv.holiday_then_weekday(current=..., baseline=...)`.
+Weekday pairs ISO weekdays and their occurrence within each original grid. Holiday
+pairs signed civil-day offsets; the hybrid pairs offsets inside the occurrence
+and outward weekday counts before/after it. These three mappings require single-day
+grids. Holiday inputs come from `session.catalog.temporal_sets.get(...).occurrence(key)`;
+they must have whole-day bounds in their respective grid boundary timezones.
+All four mappings output canonical strings, including `ordinal:1`, `weekday:1:1`,
+`holiday:0` and `holiday_then_weekday:holiday:0`. Unequal key images use the same
+exact/outer coverage policies. The mapping and occurrence snapshot identities
+remain frozen through fixed and cold continuation.
+
+For the preceding daily endpoints, a model with certified `sales.holidays` occurrences
+`august` and `july` in UTC supplies both holiday descriptors.
+
+{/* example: holiday-period-correspondence */}
+
+```python
+holidays = session.catalog.temporal_sets.get("sales.holidays")
+current_holiday = holidays.occurrence("august")
+baseline_holiday = holidays.occurrence("july")
+holiday_key = mv.holiday(current=current_holiday, baseline=baseline_holiday)
+hybrid_key = mv.holiday_then_weekday(current=current_holiday, baseline=baseline_holiday)
+holiday_result = current.compare(baseline, align=mv.outer(time=holiday_key)).execute()
+hybrid_result = current.compare(baseline, align=mv.outer(time=hybrid_key)).execute()
+```
 
 ## Continue a logical selection
 

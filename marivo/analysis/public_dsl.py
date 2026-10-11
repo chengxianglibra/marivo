@@ -21,11 +21,18 @@ from marivo.analysis._cohort import (
     CohortRule,
 )
 from marivo.analysis._comparison import ExactAlignment as ExactAlignment
+from marivo.analysis._comparison import HolidayThenWeekdayTimeKey as HolidayThenWeekdayTimeKey
+from marivo.analysis._comparison import HolidayTimeKey as HolidayTimeKey
 from marivo.analysis._comparison import OrdinalTimeKey as OrdinalTimeKey
 from marivo.analysis._comparison import OuterAlignment as OuterAlignment
+from marivo.analysis._comparison import WeekdayTimeKey as WeekdayTimeKey
+from marivo.analysis._comparison import _freeze_time, _time_kind, _TimeKey, _validate_time
 from marivo.analysis._comparison import exact as exact
+from marivo.analysis._comparison import holiday as holiday
+from marivo.analysis._comparison import holiday_then_weekday as holiday_then_weekday
 from marivo.analysis._comparison import ordinal as ordinal
 from marivo.analysis._comparison import outer as outer
+from marivo.analysis._comparison import weekday as weekday
 from marivo.analysis._subject import SubjectBinding, subject_binding
 from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
@@ -1513,10 +1520,21 @@ class _Value:
         if _kind(self._node) in ("ratio_observe", "ratio_rollup"):
             facts.append(("weighting", "original numerator and denominator components"))
         if any(c.role == "aligned" for c in signature.domain.instance_key):
+            from marivo.analysis.core.rules import CellDerive
+
+            time_kinds = sorted(
+                {
+                    node.parameters.time_keys.mapping.kind
+                    for node in retained_nodes(self._node.definition)
+                    if isinstance(node, MethodNode)
+                    and isinstance(node.parameters, CellDerive)
+                    and node.parameters.time_keys is not None
+                }
+            )
             facts.append(
                 (
                     "aligned_time",
-                    "ordinal keys 1..N; original times are correspondence projections; "
+                    f"{', '.join(time_kinds)} string keys; original times are correspondence projections; "
                     "apply time grouping, runs, forecast or lag correlation to original "
                     "endpoints before comparison",
                 )
@@ -2321,12 +2339,11 @@ class _NumericComparison(_Value):
         Returns: A LogicalComparisonResult with absolute and relative views.
         Example: ``changes = current.compare(baseline); delta = changes.absolute``.
         Constraints: Exactly one target/time condition must differ. Decimal scales and
-        Duration units match. Period grids require explicit ordinal mapping and complete original
-        grids. Output time keys are int64 ordinals 1..N with both original times retained as
-        correspondence projections. Exact requires equal key sets; outer keep admits unequal
+        Duration units match. Period comparison maps complete original grids to string
+        aligned keys through an explicit time descriptor; both original times remain projections. Exact requires equal key sets; outer keep admits unequal
         windows, while empty_value rejects time keys outside the other observation window.
         Apply real-time operations to original endpoints before comparing.
-        Both formulas read original operands; zero baseline affects only relative.
+        Both use original operands; zero baseline affects only relative.
         Relative is (current-baseline)/abs(baseline): -100 to -50 gives +0.5.
         """
         from marivo.analysis.materialization.graph_composition import infer_comparison_design
@@ -2356,6 +2373,7 @@ class _NumericComparison(_Value):
             self._node.compare(
                 baseline._node,
                 design=design,
+                time=_freeze_time(align.time) if align.time is not None else None,
                 pairing="exact"
                 if isinstance(align, ExactAlignment)
                 else "keep"
@@ -2376,9 +2394,9 @@ class _NumericComparison(_Value):
             align: Checked exact keys or a bound one-to-one correspondence.
         Returns: A LogicalNumericRelation with ordinary quotient semantics.
         Example: ``quotient = revenue.ratio(orders, align=mv.exact())``.
-        Constraints: Time roles match unless one_to_one binds ordinal grids.
-        A time-mapped one_to_one requires equal complete key sets and outputs aligned int64
-        ordinals 1..N with original-time projections; apply real-time operations before ratio.
+        Constraints: Time roles match unless one_to_one binds complete grids.
+        Time-mapped one_to_one uses exact coverage and aligned string keys with original-time
+        projections; apply real-time operations before ratio.
         Outer alignment is unavailable; zero denominators remain Undefined.
         Duration Unknown reasons propagate; no original rollup or attribution is acquired.
         """
@@ -2403,13 +2421,14 @@ class _NumericComparison(_Value):
                 "relation_ratio",
                 design="period" if align._time is not None else "time",
                 relationship=align._relationship,
+                time=_freeze_time(align._time) if align._time is not None else None,
             )
         else:
             if align.time is not None:
                 raise _reject(
                     "exact keys without time mapping",
-                    "ordinal exact ratio",
-                    "Use one_to_one(..., time=mv.ordinal()) for cross-grid ratios.",
+                    f"{_time_kind(align.time)} exact ratio",
+                    "Use one_to_one with these exact ordered endpoints, their declared one-to-one relationship and this time descriptor.",
                 )
             node = self._node.combine(other._node, "relation_ratio")
         return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self, other))
@@ -7760,7 +7779,7 @@ class OneToOneCorrespondence:
     _left: Relation
     _right: Relation
     _relationship: TargetRelationshipContract
-    _time: OrdinalTimeKey | None
+    _time: _TimeKey | None
 
     def __init__(
         self,
@@ -7768,7 +7787,7 @@ class OneToOneCorrespondence:
         left: Relation,
         right: Relation,
         relationship: TargetRelationshipContract,
-        time: OrdinalTimeKey | None,
+        time: _TimeKey | None,
     ) -> None:
         if token is not _TOKEN:
             raise _reject(
@@ -7793,7 +7812,7 @@ class OneToOneCorrespondence:
         Constraints: Does not read business rows or execute a Run.
         """
         print(
-            f"OneToOneCorrespondence: {self._left.root.identity} -> {self._right.root.identity}; via={self._relationship.ref.path}; time={'ordinal' if self._time else 'exact'}"
+            f"OneToOneCorrespondence: {self._left.root.identity} -> {self._right.root.identity}; via={self._relationship.ref.path}; time={_time_kind(self._time)}"
         )
 
 
@@ -7802,7 +7821,11 @@ def one_to_one(
     left: NumericRelation,
     right: NumericRelation,
     via: Ref[RelationshipKind],
-    time: OrdinalTimeKey | None = None,
+    time: OrdinalTimeKey
+    | WeekdayTimeKey
+    | HolidayTimeKey
+    | HolidayThenWeekdayTimeKey
+    | None = None,
 ) -> OneToOneCorrespondence:
     """Bind a declared one-to-one relationship to exact ordered numeric endpoints.
 
@@ -7810,11 +7833,11 @@ def one_to_one(
         left: Numerator relation from the same Session and mode as right.
         right: Denominator relation with the complete retained relationship keys.
         via: Explicit declared one-to-one Relationship Ref.
-        time: Optional ordinal mapping for complete grids with equal aligned key sets.
+        time: Optional closed time-key mapping for complete grids with equal aligned key sets.
     Returns: An immutable OneToOneCorrespondence for these exact nodes only.
     Example: ``left.ratio(right, align=mv.one_to_one(left=left, right=right, via=relationship))``.
     Constraints: Rejects many-to-one, outer alignment, mixed source/fixed modes and unretained relationship keys.
-    Time mapping outputs int64 aligned keys 1..N and original-time projections, without a time grid.
+    Time mapping outputs string aligned keys with kind prefixes and original-time projections, without a time grid.
     """
     from marivo.analysis.core.graph import MethodNode, Node
     from marivo.analysis.core.rules import (
@@ -7828,13 +7851,13 @@ def one_to_one(
         or not isinstance(right, _NumericComparison)
         or not isinstance(via, Ref)
         or via.kind != SemanticKind.RELATIONSHIP
-        or (time is not None and (type(time) is not OrdinalTimeKey))
     ):
         raise _reject(
-            "numeric endpoints, a Relationship Ref and optional OrdinalTimeKey",
+            "numeric endpoints, a Relationship Ref and optional closed time key",
             "invalid correspondence arguments",
             "Use one_to_one with the exact typed endpoints and declared one-to-one relationship.",
         )
+    _validate_time(time)
     if (
         type(left._node.binding) is not type(right._node.binding)
         or left._runtime.session_ref != right._runtime.session_ref
@@ -7885,6 +7908,7 @@ def one_to_one(
         "relation_ratio",
         design="period" if time is not None else "time",
         relationship=relationship,
+        time=_freeze_time(time) if time is not None else None,
     )
     return OneToOneCorrespondence(_TOKEN, left._node, right._node, relationship, time)
 

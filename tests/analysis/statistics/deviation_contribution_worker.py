@@ -25,7 +25,7 @@ from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
-from marivo.analysis.methods.physical import QualificationKey, TimeShape
+from marivo.analysis.methods.physical import NoTime, QualificationKey
 from marivo.datasource.adapters import SourceBatchStream
 from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected
 from tests.analysis.statistics.deviation_time_worker import publish_calendar
@@ -191,7 +191,12 @@ def accept_chain(
         p.key for p in plan.physical_requirements if p.key.method.name == f"deviation.{method}"
     )
     if domain == "entity_time":
-        assert actual.shape.time == TimeShape("instant", unit, "UTC")
+        assert actual.shape.time == NoTime()
+        assert changed._node.root.signature.domain.time_grid is None
+        assert any(
+            coordinate.role == "aligned"
+            for coordinate in changed._node.root.signature.domain.instance_key
+        )
     return {
         "method": method,
         "contribution_type": PROFILES[index],

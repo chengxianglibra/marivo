@@ -21,11 +21,17 @@ if TYPE_CHECKING:
     from marivo.analysis._cohort import at_least as at_least
     from marivo.analysis._cohort import empty_opportunity as empty_opportunity
     from marivo.analysis._comparison import ExactAlignment as ExactAlignment
+    from marivo.analysis._comparison import HolidayThenWeekdayTimeKey as HolidayThenWeekdayTimeKey
+    from marivo.analysis._comparison import HolidayTimeKey as HolidayTimeKey
     from marivo.analysis._comparison import OrdinalTimeKey as OrdinalTimeKey
     from marivo.analysis._comparison import OuterAlignment as OuterAlignment
+    from marivo.analysis._comparison import WeekdayTimeKey as WeekdayTimeKey
     from marivo.analysis._comparison import exact as exact
+    from marivo.analysis._comparison import holiday as holiday
+    from marivo.analysis._comparison import holiday_then_weekday as holiday_then_weekday
     from marivo.analysis._comparison import ordinal as ordinal
     from marivo.analysis._comparison import outer as outer
+    from marivo.analysis._comparison import weekday as weekday
     from marivo.analysis._subject import SubjectBinding as SubjectBinding
     from marivo.analysis.anchors import AnyAnchor as AnyAnchor
     from marivo.analysis.anchors import CalendarWindow as CalendarWindow

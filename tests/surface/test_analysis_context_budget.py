@@ -252,7 +252,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
             + "\n"
         )
         return  # Explicit baseline collection, not optimization acceptance.
-    baseline = json.loads(BASELINE.read_text())["metrics"]
+    baseline = json.loads(BASELINE.read_text())["budget_reference"]
     assert set(measured) == set(baseline)
     for name, metrics in measured.items():
         assert metrics["characters"] <= baseline[name]["characters"] * 1.10, (name, metrics)

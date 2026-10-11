@@ -102,15 +102,17 @@ boundaries. Trailing days and weeks retain fixed86400/604800-second duration.
 Retained cumulative coverage uses instants for timestamp axes, so a DST civil day
 may have 23 or 25 hours without becoming incomplete by a 24-hour assumption.
 
-Native `ordinal()` is the closed public time-key descriptor, supplied through
-`exact(time=ordinal())`, `outer(time=ordinal())`, or bound `one_to_one(time=ordinal())`.
-Both complete original grids map to independent int64 aligned keys 1..N. Exact
-requires equal aligned-key sets; outer keep admits unequal grids. Empty finish
-rejects unobserved time keys outside the other window. Output has no time_grid;
-both original times remain frozen correspondence projections. Real-time operations
-run on original endpoints before comparison, including after selection when aligned
+The closed analysis time-key family is `ordinal()`, `weekday()`,
+`holiday(current=..., baseline=...)` and `holiday_then_weekday(current=..., baseline=...)`,
+supplied through `exact(time=...)`, `outer(time=...)` or bound `one_to_one(time=...)`.
+Both complete original grids map to canonical string aligned keys with kind
+prefixes. Exact requires equal aligned-key sets; outer keep admits unequal key
+images. Empty finish rejects unobserved time keys. Output has no time_grid; both
+original times remain frozen correspondence projections. Real-time operations run
+on original endpoints before comparison, including after selection when aligned
 coordinates survive. The [Period correspondence owner](analysis/timezone-and-calendar-design.md#period-correspondence)
-defines coverage, frozen tables and continuation admission.
+defines the four mappings, daily/whole-day/timezone admission, coverage, frozen
+captures and continuation admission.
 A catalog's correspondence or work-schedule object is not itself an analysis
 alignment algorithm. Do not infer an additional comparison policy from a semantic
 object's existence. Association, Forecast, Deviation and TimeRun methods have separate

@@ -525,13 +525,28 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
 
 
 @pytest.mark.parametrize("parquet", [True])
-@pytest.mark.parametrize("time", [False, True])
+@pytest.mark.parametrize("time", ["none", "ordinal", "weekday", "holiday", "holiday_then_weekday"])
 def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, time: bool
+    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, time: str
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
     case = analysis_dsl_case_factory("j2")
+    from tests.analysis.numeric.test_time_alignment import occurrences
+
+    occurrence = occurrences()[1]
+    key = (
+        mv.ordinal()
+        if time == "ordinal"
+        else mv.weekday()
+        if time == "weekday"
+        else mv.holiday(current=occurrence, baseline=occurrence)
+        if time == "holiday"
+        else mv.holiday_then_weekday(current=occurrence, baseline=occurrence)
+        if time == "holiday_then_weekday"
+        else None
+    )
+
     model = case.root / "models" / "semantic" / "sales" / "models.py"
     model.write_text(
         model.read_text()
@@ -557,7 +572,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
             grain=mv.grain("day"),
             timezone="UTC",
         )
-        if time
+        if time != "none"
         else mv.time_scope(start="2026-07-01", end="2026-08-01")
     )
     left = case.session.members(ms.ref.entity("sales.customer")).observe(
@@ -569,23 +584,21 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         via=(mv.path(buyer, relationship),),
         by=(mv.member(),),
     )
-    pairing = mv.one_to_one(
-        left=left, right=right, via=relationship, time=mv.ordinal() if time else None
-    )
+    pairing = mv.one_to_one(left=left, right=right, via=relationship, time=key)
     with pytest.raises(AnalysisError, match="one-to-one"):
         mv.one_to_one(left=left, right=right, via=buyer)
     with pytest.raises(AnalysisError, match="reused"):
         right.ratio(left, align=pairing)
     for first, second in ((left, right), (left.execute(), right.execute())):
-        pairing = mv.one_to_one(
-            left=first, right=second, via=relationship, time=mv.ordinal() if time else None
-        )
+        pairing = mv.one_to_one(left=first, right=second, via=relationship, time=key)
         logical_ratio = first.ratio(second, align=pairing)
         saved = logical_ratio.execute()
         result = saved.to_pandas()
         assert result["value"].dropna().tolist() == [1.0, 1.0, 1.0]
-        if time:
-            assert set(result.coord_0) == {1, 2, 3}
+        if time != "none":
+            assert isinstance(scope, mv.TimeGrid)
+            assert len(set(result.coord_0)) == 3
+            assert all(value.startswith(time + ":") for value in result.coord_0)
             assert saved._node.root.signature.domain.time_grid is None
             assert saved._node.root.signature.domain.instance_key[1].role == "aligned"
             for view in (logical_ratio, saved):
@@ -602,7 +615,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
                         selected.correlate(view, lag_range=range(1))
                 row_count = view.where(view.value.is_defined()).aggregate(mv.count()).execute()
                 assert row_count.to_pandas().value.tolist() == [3]
-    if time:
+    if time != "none":
         short = case.session.members(ms.ref.entity("sales.account")).observe(
             metric,
             during=mv.time_grid(
@@ -614,7 +627,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
             by=(mv.member(),),
         )
         with pytest.raises(AnalysisError, match="equal aligned"):
-            mv.one_to_one(left=left, right=short, via=relationship, time=mv.ordinal())
+            mv.one_to_one(left=left, right=short, via=relationship, time=key)
 
 
 @pytest.mark.slow

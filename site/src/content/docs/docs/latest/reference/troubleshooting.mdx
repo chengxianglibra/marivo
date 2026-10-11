@@ -72,7 +72,7 @@ no matching proof or missing-value policy. Pairing is fixed checked: unknown key
 declarations/frozen construction proofs remain authoritative. Compare can retain
 missing sides explicitly with `align=mv.outer()`.
 
-For period comparisons, use `time=mv.ordinal()`. Exact requires equal aligned-key
+For period comparisons, choose ordinal, weekday, holiday or holiday_then_weekday explicitly through `align.time`. All output canonical string keys. Weekday and holiday mappings require daily grids; holiday occurrences must have whole-day bounds in the corresponding grid timezone. Exact requires equal aligned-key
 sets; outer keep allows either grid to be longer. `empty_value` cannot repair an
 unobserved time key outside the other window: use keep or adjust the windows.
 Aligned outputs retain original-time projections but have no time_grid. Group time,

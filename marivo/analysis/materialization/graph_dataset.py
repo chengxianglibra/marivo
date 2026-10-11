@@ -1,4 +1,4 @@
-"""Public result projections owned by an exact checked Store 8 Artifact."""
+"""Public result projections owned by an exact checked Store 9 Artifact."""
 
 from __future__ import annotations
 
@@ -765,6 +765,7 @@ class GraphDataset:
             (p for p in checked.contract.signature.parts if isinstance(p, CorrespondencePart)), None
         )
         if correspondence is not None and correspondence.time_index is not None:
+            assert correspondence.time_keys is not None
             index = correspondence.time_index
             labels[columns[index]] = "aligned"
             original = next(p.table for p in checked.parts if p.role == "correspondence")
@@ -791,7 +792,7 @@ class GraphDataset:
             boundaries += (
                 (
                     "time_axis",
-                    "aligned ordinal keys (1..N); both original time coordinates retained",
+                    f"aligned {correspondence.time_keys.mapping.kind} string keys; both original time coordinates retained",
                 ),
             )
         cell_columns: dict[str, tuple[str, str]] = {}

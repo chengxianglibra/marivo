@@ -14,13 +14,19 @@ from tests.shared_fixtures import DslCaseFactory
 @pytest.mark.parametrize(
     "target, expected",
     (
-        ("analysis.dsl.NumericComparison.compare", "1..N"),
+        ("analysis.dsl.NumericComparison.compare", "string"),
         ("analysis.dsl.NumericComparison.ratio", "aligned"),
         ("analysis.dsl.one_to_one", "without a time grid"),
         ("analysis.dsl.NumericComparison.forecast", "original endpoint"),
         ("analysis.dsl.NumericComparison.runs", "original endpoint"),
         ("analysis.dsl.NumericComparison.correlate", "explicit lag_range"),
-        ("analysis.ordinal", "1..N"),
+        ("analysis.ordinal", "string"),
+        ("analysis.weekday", "boundary timezone"),
+        ("analysis.holiday", "Whole-day certified occurrences"),
+        ("analysis.holiday_then_weekday", "Whole-day certified occurrences"),
+        ("analysis.WeekdayTimeKey", "weekday"),
+        ("analysis.HolidayTimeKey", "analysis.holiday"),
+        ("analysis.HolidayThenWeekdayTimeKey", "analysis.holiday_then_weekday"),
         ("analysis.outer", "unobserved"),
     ),
 )
@@ -43,7 +49,7 @@ def test_aligned_contract_and_selected_rows_teach_original_endpoint_repair(
     comparison = current.compare(baseline, align=mv.exact(time=mv.ordinal()))
     for result in (comparison, comparison.execute()):
         result.contract().show()
-        assert "aligned_time=ordinal keys 1..N" in capsys.readouterr().out
+        assert "aligned_time=ordinal string keys" in capsys.readouterr().out
         for view, expected_count in ((result.absolute, 12), (result.relative, 0)):
             selected = view.where(view.value.is_defined())
             for receiver in (view, selected):

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import pyarrow as pa
 import pytest
@@ -11,6 +12,7 @@ import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.test_period_alignment import single_sql_difference
+from tests.analysis.numeric.test_time_alignment import time_key
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -18,8 +20,10 @@ from tests.support.source_trace import SourceTrace
 @pytest.mark.parametrize(
     "backend", source_params(("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 )
+@pytest.mark.parametrize("kind", ["ordinal", "holiday_then_weekday"])
 def test_period_alignment_native_carriers(
     backend: str,
+    kind: Literal["ordinal", "holiday_then_weekday"],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -62,24 +66,37 @@ def test_period_alignment_native_carriers(
             return result
 
         current, baseline = observe(8, 2), observe(7, 3)
-        comparison = current.compare(baseline, align=mv.outer(time=mv.ordinal()))
+        comparison = current.compare(baseline, align=mv.outer(time=time_key(kind)))
         result = comparison.execute()
         single = single_sql_difference(comparison)
         assert single.to_pandas().equals(result.absolute.to_pandas())
         frame = result.to_pandas()
-        assert len(frame) == 6 and set(frame.coord_2) == {1, 2, 3}
-        missing = frame[frame.coord_2 == 3]
+        expected = (
+            {"ordinal:1", "ordinal:2", "ordinal:3"}
+            if kind == "ordinal"
+            else {
+                "holiday_then_weekday:before:6:1",
+                "holiday_then_weekday:before:3:1",
+                "holiday_then_weekday:holiday:0",
+                "holiday_then_weekday:holiday:1",
+            }
+        )
+        assert len(frame) == 2 * len(expected) and set(frame.coord_2) == expected
+        missing = frame[frame.absolute_cell_reason == "missing_side"]
         for field in ("absolute", "relative"):
             assert set(missing[field + "_cell_reason"]) == {"missing_side"}
         assert result._dataset is not None
         exchange = result._dataset.verified()
-        assert exchange.primary.schema.field("key_3").type == pa.int64()
+        assert exchange.primary.schema.field("key_3").type == pa.string()
         correspondence = next(p.table for p in exchange.parts if p.role == "correspondence")
         assert correspondence.schema.field("correspondence__baseline_key_3").type == pa.string()
         assert (
-            correspondence.filter(pa.compute.equal(correspondence["key_3"], 3))[
-                "correspondence__current_key_3"
-            ].null_count
+            correspondence.filter(
+                pa.compute.equal(
+                    correspondence["key_3"],
+                    "ordinal:3" if kind == "ordinal" else "holiday_then_weekday:holiday:1",
+                )
+            )["correspondence__current_key_3"].null_count
             == 2
         )
         source_trace.record(single)

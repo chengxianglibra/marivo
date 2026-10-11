@@ -138,7 +138,7 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | Current protocol | Authority |
 | --- | --- |
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
-| graph_dag/v9, `graph-dag-v9:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
+| graph_dag/v10, `graph-dag-v10:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
 
 | run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
 | artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
@@ -186,7 +186,7 @@ remaining coordinates and concrete component carriers. Receipts freeze the layou
 and owner; restoration does not query Semantic or infer endpoint correspondence.
 Descriptor v6, part receipt v2 and state/part contract 4 reject prior formats with
 structured source re-execution guidance, preserving existing files. Store 9,
-graph DAG v7 and continuation v5 remain independent; there is no migration or dual read.
+graph DAG v10 and continuation v5 remain independent; there is no migration or dual read.
 
 Optional correspondence endpoints use -1 solely for an absent endpoint, outside
 the four Cell states. Only a frozen optional binding permits that sentinel;

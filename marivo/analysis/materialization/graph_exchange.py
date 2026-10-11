@@ -1133,7 +1133,7 @@ def _verify_difference_parts(
                 )
                 forward = {aligned: bucket for bucket, aligned in table}
                 token = key[index]
-                if type(token) is not int or token not in forward:
+                if type(token) is not str or token not in forward:
                     raise _invalid("output bucket absent from its frozen original grid")
                 expected_key = (*key[:index], forward[token], *key[index + 1 :])
             if (

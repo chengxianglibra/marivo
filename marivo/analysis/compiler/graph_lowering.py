@@ -718,7 +718,7 @@ def _mapped_period_input(
     table = params.time_keys.current if side == "current" else params.time_keys.baseline
     translated = ibis.cases(
         *((value == bucket, aligned) for bucket, aligned in table),
-        else_=ibis.null().cast("int64"),
+        else_=ibis.null().cast("string"),
     )
     return replace(source, expression=source.expression.mutate(**{key: translated}))
 
@@ -787,7 +787,7 @@ def _difference(
         table = params.time_keys.current if side == "current" else params.time_keys.baseline
         return ibis.cases(
             *((value == bucket, aligned) for bucket, aligned in table),
-            else_=ibis.null().cast("int64"),
+            else_=ibis.null().cast("string"),
         )
 
     subject = next((p for p in stage.node.signature.parts if isinstance(p, SubjectPart)), None)
@@ -1024,7 +1024,7 @@ def _difference(
                     **{
                         key: ibis.cases(
                             *((full[key] == old, new) for old, new in table),
-                            else_=ibis.null().cast("int64"),
+                            else_=ibis.null().cast("string"),
                         )
                     }
                 )
@@ -4285,6 +4285,20 @@ def lower(
                 checks[checks.index(existing)] = replace(
                     existing, consumers=(*existing.consumers, requirement)
                 )
+            continue
+        if (
+            isinstance(owner, MethodNode)
+            and requirement.obligation.fact not in owner.derivation.pre
+            and any(
+                isinstance(check, CheckRequirement)
+                and check.obligation == requirement.obligation
+                and check.node_id in {node.identity for node in topology(owner)}
+                for check in checks
+            )
+        ):
+            # A deferred originating check must finish locally before inherited
+            # consumers can reuse its proof, even when its operands are source relations.
+            checks.append(requirement)
             continue
         if admitted.classification.kind == "artifact":
             checks.append(requirement)

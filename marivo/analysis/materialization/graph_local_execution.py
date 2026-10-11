@@ -1638,7 +1638,7 @@ def _difference_stage(
                 }
             )
     key_schema = tuple(
-        pa.field(key, pa.int64()) if i == params.time_index else current.primary.schema.field(key)
+        pa.field(key, pa.string()) if i == params.time_index else current.primary.schema.field(key)
         for i, key in enumerate(keys)
     )
     primary_schema = pa.schema(

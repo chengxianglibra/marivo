@@ -15,7 +15,18 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
-from marivo.analysis._comparison import OrdinalTimeKey, exact, ordinal, outer
+from marivo.analysis._comparison import (
+    HolidayThenWeekdayTimeKey,
+    HolidayTimeKey,
+    OrdinalTimeKey,
+    WeekdayTimeKey,
+    exact,
+    holiday,
+    holiday_then_weekday,
+    ordinal,
+    outer,
+    weekday,
+)
 from marivo.analysis.forecast_models import (
     ForecastHorizon,
     ForecastModel,
@@ -37,7 +48,13 @@ def provider() -> DisclosureProvider:
             "exact",
             "exact",
             exact,
-            (P("time", "Optional original-grid ordinal mapping."),),
+            (
+                P(
+                    "time",
+                    "Optional closed original-grid time-key mapping.",
+                    ("ordinal", "weekday", "holiday", "holiday_then_weekday"),
+                ),
+            ),
             "exact()",
             "ExactAlignment",
             "Checked complete keys; no trust/verification option.",
@@ -48,7 +65,11 @@ def provider() -> DisclosureProvider:
             outer,
             (
                 P("missing", "Keep by default, or explicit original empty_value finish."),
-                P("time", "Optional original-grid ordinal mapping."),
+                P(
+                    "time",
+                    "Optional closed original-grid time-key mapping.",
+                    ("ordinal", "weekday", "holiday", "holiday_then_weekday"),
+                ),
             ),
             "outer()",
             "OuterAlignment",
@@ -61,7 +82,56 @@ def provider() -> DisclosureProvider:
             (),
             "ordinal()",
             "OrdinalTimeKey",
-            "Map each complete original grid to aligned ordinal keys 1..N; retain both original time coordinates.",
+            "Map each complete original grid to aligned string keys ordinal:1..ordinal:N; retain both original time coordinates.",
+        ),
+        (
+            "weekday",
+            "weekday",
+            weekday,
+            (),
+            "weekday()",
+            "WeekdayTimeKey",
+            "Single-day grids in their frozen boundary timezone: ISO weekday and same-weekday occurrence within each complete original grid; aligned string keys.",
+        ),
+        (
+            "holiday",
+            "holiday",
+            holiday,
+            (
+                P(
+                    "current",
+                    "Certified whole-day current occurrence TimeScope from catalog.temporal_sets.get(...).occurrence(key).",
+                    ("catalog.temporal_sets",),
+                ),
+                P(
+                    "baseline",
+                    "Certified whole-day baseline occurrence TimeScope from catalog.temporal_sets.get(...).occurrence(key).",
+                    ("catalog.temporal_sets",),
+                ),
+            ),
+            "holiday(current=current_occurrence, baseline=baseline_occurrence)",
+            "HolidayTimeKey",
+            "Whole-day certified occurrences and single-day grids in each occurrence's boundary timezone; signed civil-day offsets; exact snapshot identities stay frozen.",
+        ),
+        (
+            "holiday_then_weekday",
+            "holiday_then_weekday",
+            holiday_then_weekday,
+            (
+                P(
+                    "current",
+                    "Certified whole-day current occurrence TimeScope from catalog.temporal_sets.get(...).occurrence(key).",
+                    ("catalog.temporal_sets",),
+                ),
+                P(
+                    "baseline",
+                    "Certified whole-day baseline occurrence TimeScope from catalog.temporal_sets.get(...).occurrence(key).",
+                    ("catalog.temporal_sets",),
+                ),
+            ),
+            "holiday_then_weekday(current=current_occurrence, baseline=baseline_occurrence)",
+            "HolidayThenWeekdayTimeKey",
+            "Whole-day certified occurrences and single-day grids in each occurrence's boundary timezone; offsets inside, before/after ISO weekdays counted outward from the occurrence outside.",
         ),
         (
             "periods",
@@ -112,7 +182,7 @@ def provider() -> DisclosureProvider:
                 value,
                 summary=constraint,
                 discovery_group="inputs.time"
-                if name == "ordinal"
+                if name in ("ordinal", "weekday", "holiday", "holiday_then_weekday")
                 else "inputs.forecast"
                 if name == "periods"
                 else "forecast_models",
@@ -121,12 +191,23 @@ def provider() -> DisclosureProvider:
                 constraints=(constraint,),
                 effects=CONSTRUCTION_EFFECT,
                 failures=CONSTRUCTION_FAILURES,
-                example=ExampleInput("result = " + code, (name,), "result", output),
+                example=ExampleInput(
+                    "result = " + code,
+                    (name, "current_occurrence", "baseline_occurrence")
+                    if name in ("holiday", "holiday_then_weekday")
+                    else (name,),
+                    "result",
+                    output,
+                    name in ("holiday", "holiday_then_weekday"),
+                ),
             )
         )
         exports.append(ExportInput(name, value, target))
     for type_value, producer in (
         (OrdinalTimeKey, "ordinal"),
+        (WeekdayTimeKey, "weekday"),
+        (HolidayTimeKey, "holiday"),
+        (HolidayThenWeekdayTimeKey, "holiday_then_weekday"),
         (ForecastHorizon, "periods"),
         (ForecastModel, "forecast_models.naive"),
     ):
