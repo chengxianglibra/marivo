@@ -444,9 +444,9 @@ def test_malformed_and_noncanonical_encodings(damage: str) -> None:
     elif damage == "role":
         body = body.replace('"current"', '"invalid-role"')
     elif damage == "version":
-        body = body.replace("graph_dag/v8", "graph_dag/v999")
+        body = body.replace("graph_dag/v9", "graph_dag/v999")
     elif damage == "previous_version":
-        body = body.replace("graph_dag/v8", "graph_dag/v7")
+        body = body.replace("graph_dag/v9", "graph_dag/v8")
     elif damage == "expanded":
         body = " " * (4 * 1024 * 1024 + 1)
     text = _compress(body)
@@ -564,6 +564,8 @@ def test_duplicate_identity_cannot_hide_equal_but_differently_typed_literals() -
         "graph-dag-v4:",
         "graph-dag-v5:",
         "graph-dag-v6:",
+        "graph-dag-v7:",
+        "graph-dag-v8:",
     ),
 )
 def test_obsolete_graph_dag_is_preserved_and_requires_reexecution(old_prefix: str) -> None:

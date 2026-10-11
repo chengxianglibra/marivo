@@ -221,7 +221,7 @@ actual source precision. Civil dates preserve their calendar interpretation.
 Report, window, grid and calendar authorities remain separate frozen parameters
 or domain facts and participate in fingerprints and execution identity. The
 report timezone never replaces the physical source shape, and no generic
-fallback bypasses exact qualification. Graph snapshots use `graph_dag/v8`; older
+fallback bypasses exact qualification. Graph snapshots use `graph_dag/v9`; older
 versions require source re-execution. Fixed and cold recovery use frozen facts
 without reader probes, source connections or host timezone resolution.
 
@@ -233,26 +233,44 @@ authority without reopening the source. Shared authority values live in
 
 ## Period correspondence
 
-`compare(..., align=mv.exact(time=mv.ordinal()))` pairs the complete ordered buckets
-inside each equal non-time coordinate by their retained ordinal within the
-original two bound grids. Both sides must retain their exact ordered grid,
-calendar/timezone authority, boundary instants or DATE keys, evaluation key and
-observation-window bindings. The two complete bucket counts must agree. An
-ordinal is correspondence evidence, not a replacement for either original time
-coordinate and not a claim of equal weekdays/fiscal meaning.
+Period comparison requires explicit `time=mv.ordinal()` on `mv.exact()` or
+`mv.outer()`. Each side retains its complete ordered original grid, calendar,
+timezone, observation authority and boundary/evaluation bindings in the frozen
+endpoint. `CorrespondencePart` v3 owns immutable `time_keys.current` and
+`time_keys.baseline` tables, each mapping every original bucket identity to its
+ordinal **1..N**. Construction and rule derivation validate completeness,
+injectivity and exact evaluation against that side's frozen grid; execution and
+recovery consume these frozen tables.
 
-Filter/limit/rank cannot re-number surviving buckets. If complete original bucket
-maps survive, selection is validated against that original correspondence;
-otherwise pairing rejects. Outer alignment may union non-time coordinates only after
-this complete bucket rule succeeds; it cannot truncate, pad or infer missing
-time buckets. A one-to-one ordinary ratio using `one_to_one(time=mv.ordinal(), ...)` consumes the
-same exact time correspondence bound to its ordered input nodes.
+The root, both views and a time-mapped `one_to_one` ratio use the existing ordered
+non-time keys with an `int64` time position of role `aligned`. The output has no
+`time_grid`. Correspondence projections retain both complete original keys with
+their original types; a missing side's entire original key is null. `.show()`
+displays the aligned key and both original time coordinates. An aligned key is
+correspondence evidence, without weekday, fiscal or elapsed-time meaning.
 
-Each comparison design keeps its originating observation/grid authority through
-grouping and Singleton reduction. Unequal complete bucket counts reject;
-equal-length periods may pair without asserting equal civil meaning. Fixed
-continuation uses retained instants and durations without calendar/Catalog reload.
-This contract grants no elapsed/calendar coercion or blanket backend support.
+`exact` and `one_to_one(time=mv.ordinal(), ...)` require equal aligned-key sets
+and checked complete composite-key coverage. `outer(missing="keep")` uses the
+composite-key union even when either grid is longer; a missing side yields
+`Undefined("missing_side")` independently in both views. `empty_value` rejects
+time-key absence at construction: a bucket outside the other observation window
+was unobserved, whereas no contributions inside an observed window use the
+Metric's empty rule. Use keep or adjust the windows. Ordinary non-time-key absence
+continues to use admitted Metric empty finish with retained complete state.
+
+Every non-time group must retain all its original buckets. Filter/limit/rank
+cannot renumber a partial grid. Aligned results reject `group_by(TimeGrid/Grain)`,
+time rollup, runs, forecast and explicit lag correlation, including selections or
+row-statistic results that retain the aligned coordinate. Apply these operations
+to original endpoints before comparison. Ordinary selection, current-row
+statistics, valid Subject membership and independently admitted exact absolute
+attribution remain available; correlation without lag uses its common-domain
+contract. There is no public side-selecting time projection operation.
+
+Fixed and cold continuations retain both endpoint coordinates, state and authority
+without source or Catalog reload. `ComparisonPart` v2 owns the independent Cell
+finishes. This contract grants no elapsed/calendar coercion or blanket backend
+support.
 
 ## Occurrence and relative-window time
 
@@ -369,11 +387,13 @@ actual cell boundaries, ordered cell identity/ordinal, partial flag, report and
 boundary timezones, grain, certified-calendar snapshot digest, exact coverage
 and source/capture authority. Each series has a complete original composite
 coordinate->cell mapping. Metadata containing a grid object without the mapping
-cannot admit a new time method. Numeric observation and aligned Difference
-transport this mapping only with their proven original full-domain correspondence;
+cannot admit a new time method. Numeric observations and non-period Difference
+results carrying an original anchor grid transport this mapping only with their
+proven original full-domain correspondence;
 score projections keep the same grid/keys. Ordinary row deletion revokes that
 proof, even if it retained a contiguous subset. Runs rejects incomplete edge
 cells and missing/duplicate physical rows; legal unavailable cells remain explicit.
+Ordinal period results carry aligned coordinates without a grid and reject runs.
 
 Adjacent means consecutive captured grid cells whose actual end equals the next
 start, within one full non-time tuple. Builtin civil-day DST changes produce

@@ -27,9 +27,9 @@ class OrdinalTimeKey:
         Args: None.
         Returns: None; prints a bounded description.
         Example: ``mv.ordinal().show()``.
-        Constraints: Requires complete equal-length grids in W1.
+        Constraints: Requires complete original grids; each side starts at position 1.
         """
-        print("OrdinalTimeKey: original bucket positions; complete equal-length grids required.")
+        print("OrdinalTimeKey: original bucket positions 1..N; coverage is owned by the alignment.")
 
 
 def _validate_time(time: OrdinalTimeKey | None) -> None:
@@ -83,7 +83,7 @@ class OuterAlignment:
         time: Optional original-grid ordinal mapping.
     Returns: An immutable outer alignment.
     Example: ``current.compare(baseline, align=mv.outer())``.
-    Constraints: Empty finish requires original complete coverage; grids must be equal-length.
+    Constraints: Empty finish requires original complete coverage and cannot fill unobserved time keys.
     """
 
     missing: Literal["keep", "empty_value"] = "keep"
@@ -136,7 +136,7 @@ def outer(
         time: Optional ordinal time-key descriptor.
     Returns: An immutable OuterAlignment.
     Example: ``current.compare(baseline, align=mv.outer())``.
-    Constraints: Only compare accepts outer; W1 requires complete equal-length time grids.
+    Constraints: Only compare accepts outer; keep permits unequal complete time grids, while empty_value rejects time keys outside the other window.
     """
     return OuterAlignment(missing=missing, time=time)
 
@@ -147,6 +147,6 @@ def ordinal() -> OrdinalTimeKey:
     Args: None.
     Returns: An immutable OrdinalTimeKey.
     Example: ``mv.exact(time=mv.ordinal())``.
-    Constraints: Does not imply weekday, holiday or financial-calendar equivalence.
+    Constraints: Uses aligned keys 1..N and retains both original bucket coordinates; does not imply weekday, holiday or financial-calendar equivalence.
     """
     return OrdinalTimeKey()

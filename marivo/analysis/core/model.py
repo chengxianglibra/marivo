@@ -82,7 +82,7 @@ class Binding:
             _nonempty(getattr(self, name), f"core.binding.{name}")
 
 
-CoordinateRole: TypeAlias = Literal["identity", "version", "group", "anchor", "instance"]
+CoordinateRole: TypeAlias = Literal["identity", "version", "group", "anchor", "aligned", "instance"]
 
 
 def coordinate_binding_id(entity: Ref[EntityKind], field: str, bindings: tuple[str, ...]) -> str:
@@ -120,7 +120,7 @@ class Coordinate:
                 "Preserve the exact frozen coordinate role bindings.",
                 "core.coordinate.binding_id",
             )
-        if self.role not in ("identity", "version", "group", "anchor", "instance"):
+        if self.role not in ("identity", "version", "group", "anchor", "aligned", "instance"):
             reject(
                 "a closed coordinate role",
                 str(self.role),
@@ -448,6 +448,38 @@ class EndpointPart:
 
 
 @dataclass(frozen=True, slots=True)
+class TimeKeys:
+    """Frozen injective bucket-to-aligned-key tables in original grid order."""
+
+    current: tuple[tuple[str, int], ...]
+    baseline: tuple[tuple[str, int], ...]
+
+    def __post_init__(self) -> None:
+        for table in (self.current, self.baseline):
+            if (
+                type(table) is not tuple
+                or not table
+                or any(
+                    type(entry) is not tuple
+                    or len(entry) != 2
+                    or type(entry[0]) is not str
+                    or not entry[0]
+                    or type(entry[1]) is not int
+                    or entry[1] < 1
+                    for entry in table
+                )
+                or len({bucket for bucket, _ in table}) != len(table)
+                or len({aligned for _, aligned in table}) != len(table)
+            ):
+                reject(
+                    "nonempty injective frozen bucket tables with positive integer keys",
+                    repr(table),
+                    "Retain the complete original grids and evaluate mv.ordinal() before execution.",
+                    "core.time_keys",
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class CorrespondencePart:
     """Retained ordered endpoint coordinates, independent of endpoint Cell tags."""
 
@@ -458,7 +490,7 @@ class CorrespondencePart:
     policy: Literal["exact", "keep", "metric_empty"] = "exact"
     empty_rules: tuple[Literal["null", "zero", "zero_denominator"], ...] = ()
     time_index: int | None = None
-    bucket_mapping: tuple[tuple[str, str], ...] = ()
+    time_keys: TimeKeys | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -934,7 +966,7 @@ class ComparisonPart:
     relative: DerivedQuantity
     absolute_type: str
     relative_type: str
-    version: Literal["v1"] = "v1"
+    version: Literal["v2"] = "v2"
 
 
 Part: TypeAlias = (
@@ -1113,7 +1145,7 @@ def validate_part(part: Part) -> None:
         validate_quantity(part.absolute)
         validate_quantity(part.relative)
         if (
-            part.version != "v1"
+            part.version != "v2"
             or part.absolute.method_version != "cell.difference@v1"
             or part.relative.method_version != "cell.relative_change@v1"
             or part.absolute.input_ids != part.relative.input_ids
@@ -1390,12 +1422,12 @@ def validate_part(part: Part) -> None:
         return
     if isinstance(part, CorrespondencePart):
         if (
-            part.version not in ("v1", "v2")
+            part.version not in ("v1", "v2", "v3")
             or part.policy not in ("exact", "keep", "metric_empty")
             or (len(part.empty_rules) != (2 if part.policy == "metric_empty" else 0))
             or any(rule not in ("zero", "null", "zero_denominator") for rule in part.empty_rules)
             or len(part.current_key) != len(part.baseline_key)
-            or (part.time_index is None and bool(part.bucket_mapping))
+            or (part.time_index is None and part.time_keys is not None)
             or (
                 part.time_index is not None
                 and (
@@ -1403,16 +1435,14 @@ def validate_part(part: Part) -> None:
                     or not 0 <= part.time_index < len(part.current_key)
                     or part.current_key[part.time_index].role != "anchor"
                     or part.baseline_key[part.time_index].role != "anchor"
-                    or not part.bucket_mapping
-                    or any(not left or not right for left, right in part.bucket_mapping)
-                    or len({left for left, _ in part.bucket_mapping}) != len(part.bucket_mapping)
-                    or len({right for _, right in part.bucket_mapping}) != len(part.bucket_mapping)
+                    or part.version != "v3"
+                    or type(part.time_keys) is not TimeKeys
                 )
             )
             or any(type(key) is not Coordinate for key in (*part.current_key, *part.baseline_key))
         ):
             reject(
-                "v2 complete typed endpoint coordinates",
+                "complete typed endpoint coordinates and v3 frozen time keys",
                 repr(part),
                 "Retain both ordered endpoint keys.",
                 "core.part.correspondence",

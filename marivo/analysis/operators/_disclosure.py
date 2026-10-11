@@ -52,7 +52,7 @@ def provider() -> DisclosureProvider:
             ),
             "outer()",
             "OuterAlignment",
-            "Compare only; complete equal-length time grids in W1.",
+            "Compare only; keep permits unequal complete grids; empty_value rejects unobserved time keys.",
         ),
         (
             "ordinal",
@@ -61,7 +61,7 @@ def provider() -> DisclosureProvider:
             (),
             "ordinal()",
             "OrdinalTimeKey",
-            "Pair complete equally sized bucket sequences by ordinal.",
+            "Map each complete original grid to aligned ordinal keys 1..N; retain both original time coordinates.",
         ),
         (
             "periods",

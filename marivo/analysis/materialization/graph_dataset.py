@@ -15,6 +15,7 @@ from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     AttributionPart,
     ComparisonPart,
+    CorrespondencePart,
     CoveragePart,
     DerivedQuantity,
     DisplayPart,
@@ -760,6 +761,39 @@ class GraphDataset:
         params = self.artifact.validated.root.parameters
         columns = list(public.column_names)
         labels = dict(zip(columns, columns, strict=True))
+        correspondence = next(
+            (p for p in checked.contract.signature.parts if isinstance(p, CorrespondencePart)), None
+        )
+        if correspondence is not None and correspondence.time_index is not None:
+            index = correspondence.time_index
+            labels[columns[index]] = "aligned"
+            original = next(p.table for p in checked.parts if p.role == "correspondence")
+            mapping = {
+                tuple(row[k] for k in checked.contract.key_fields): row
+                for row in original.to_pylist()
+            }
+            public_keys = tuple(columns[: len(checked.contract.key_fields)])
+            order = [
+                tuple(row[k] for k in public_keys) for row in public.select(public_keys).to_pylist()
+            ]
+            for side in ("current", "baseline"):
+                field = f"correspondence__{side}_key_{index}"
+                name = side + "_time"
+                public = public.append_column(
+                    name,
+                    pa.array(
+                        [mapping[key][field] for key in order],
+                        type=original.schema.field(field).type,
+                    ),
+                )
+                columns.append(name)
+                labels[name] = name
+            boundaries += (
+                (
+                    "time_axis",
+                    "aligned ordinal keys (1..N); both original time coordinates retained",
+                ),
+            )
         cell_columns: dict[str, tuple[str, str]] = {}
         for column in columns:
             if column in ("absolute", "relative"):

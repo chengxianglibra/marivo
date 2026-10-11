@@ -369,17 +369,16 @@ def test_view_atomic_failure_keeps_prior_artifact(tmp_path):
     expected = fixed.to_pandas()
 
     for point in ("before_commit", "cancel", "deadline"):
-        deadline_token = None
+        inherited_deadline = CURRENT.get()
 
         def inject(actual, injection_point=point):
-            nonlocal deadline_token
             if actual == (
                 "insert_findings" if injection_point in ("cancel", "deadline") else injection_point
             ):
                 if injection_point == "cancel":
                     raise KeyboardInterrupt("injected view cancellation")
                 if injection_point == "deadline":
-                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                    CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
                 else:
                     raise RuntimeError("injected view transaction failure")
 
@@ -389,8 +388,7 @@ def test_view_atomic_failure_keeps_prior_artifact(tmp_path):
                 logical.execute()
         finally:
             session._runtime._hook = None
-            if deadline_token is not None:
-                CURRENT.reset(deadline_token)
+            assert CURRENT.get() is inherited_deadline
         assert session.artifact(reference).to_pandas().equals(expected)
         with session._runtime.store._read() as connection:
             assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1

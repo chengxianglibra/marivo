@@ -1428,11 +1428,14 @@ def _difference_stage(
         return rows
 
     current_rows, baseline_rows = index_rows(current.primary), index_rows(baseline.primary)
-    original_baseline_keys: dict[tuple[object, ...], tuple[object, ...]] = {}
+    original_keys: tuple[dict[tuple[object, ...], tuple[object, ...]], ...] = ({}, {})
     if params.time_index is not None:
         time_index = params.time_index
+        assert params.time_keys is not None
+        translated_sides: list[dict[tuple[object, ...], dict[str, object]]] = []
         for index, rows in enumerate((current_rows, baseline_rows)):
-            expected = {pair[index] for pair in params.bucket_mapping}
+            mapping = dict((params.time_keys.current, params.time_keys.baseline)[index])
+            expected = set(mapping)
             groups: dict[tuple[object, ...], set[object]] = {}
             for key in rows:
                 non_time = (*key[:time_index], *key[time_index + 1 :])
@@ -1441,18 +1444,18 @@ def _difference_stage(
                 raise _invalid(
                     "complete original period buckets required; filtered rows cannot be renumbered"
                 )
-        mapping = {right: left for left, right in params.bucket_mapping}
-        translated: dict[tuple[object, ...], dict[str, object]] = {}
-        for key, mapped_row in baseline_rows.items():
-            token = key[time_index]
-            if not isinstance(token, str) or token not in mapping:
-                raise _invalid("baseline bucket is absent from the frozen complete grid")
-            paired_key = (*key[:time_index], mapping[token], *key[time_index + 1 :])
-            if paired_key in translated:
-                raise _invalid("fixed Difference mapped endpoint keys are not injective")
-            translated[paired_key] = mapped_row
-            original_baseline_keys[paired_key] = key
-        baseline_rows = translated
+            translated: dict[tuple[object, ...], dict[str, object]] = {}
+            for key, mapped_row in rows.items():
+                token = key[time_index]
+                if not isinstance(token, str) or token not in mapping:
+                    raise _invalid("endpoint bucket is absent from the frozen complete grid")
+                paired_key = (*key[:time_index], mapping[token], *key[time_index + 1 :])
+                if paired_key in translated:
+                    raise _invalid("fixed Difference mapped endpoint keys are not injective")
+                translated[paired_key] = mapped_row
+                original_keys[index][paired_key] = key
+            translated_sides.append(translated)
+        current_rows, baseline_rows = translated_sides
     if (
         any(check.obligation.fact.kind == "key_set_equal" for check in checks)
         and current_rows.keys() != baseline_rows.keys()
@@ -1489,11 +1492,13 @@ def _difference_stage(
             raise _invalid("required exact-key operand is missing during consumption")
         both = first is not None and second is not None
         error_a, error_b = (
-            _fixed_operand_bound(current, first, operand_components[0].get(key, {})),
+            _fixed_operand_bound(
+                current, first, operand_components[0].get(original_keys[0].get(key, key), {})
+            ),
             _fixed_operand_bound(
                 baseline,
                 second,
-                operand_components[1].get(original_baseline_keys.get(key, key), {}),
+                operand_components[1].get(original_keys[1].get(key, key), {}),
             ),
         )
         endpoints: list[dict[str, object]] = []
@@ -1632,7 +1637,10 @@ def _difference_stage(
                     },
                 }
             )
-    key_schema = tuple(current.primary.schema.field(key) for key in keys)
+    key_schema = tuple(
+        pa.field(key, pa.int64()) if i == params.time_index else current.primary.schema.field(key)
+        for i, key in enumerate(keys)
+    )
     primary_schema = pa.schema(
         (
             *key_schema,
@@ -1694,48 +1702,71 @@ def _difference_stage(
             f"correspondence__{side}_error_bound",
             pa.array([row[index] for row in error_rows], type=pa.float64()),
         )
-    for side in ("current", "baseline"):
+    for side_index, side in enumerate(("current", "baseline")):
         for index, key_name in enumerate(keys):
             correspondence = correspondence.append_column(
                 f"correspondence__{side}_key_{index}",
                 pa.array(
                     [
-                        (
-                            original_baseline_keys.get(key, key)[index]
-                            if side == "baseline"
-                            else key[index]
-                        )
+                        original_keys[side_index].get(key, key)[index]
                         if key in (current_rows if side == "current" else baseline_rows)
                         else None
                         for key in union_keys
                     ],
-                    type=primary.schema.field(key_name).type,
+                    type=values[side_index].primary.schema.field(key_name).type,
                 ),
             )
     from marivo.analysis.materialization.graph_attribution import retain_endpoint_states
 
-    parts = retain_endpoint_states(
-        method.stage.node.signature, parts, values, original_baseline_keys
-    )
+    parts = retain_endpoint_states(method.stage.node.signature, parts, values, original_keys)
     parts = (*parts, ExchangePart("correspondence", correspondence))
-    if any(isinstance(p, SubjectPart) for p in method.stage.node.signature.parts):
-        if params.bucket_mapping:
-            retained_subject = next(
-                (part.table for part in current.parts if part.role == "subject"), None
+    subject_declaration = next(
+        (p for p in method.stage.node.signature.parts if isinstance(p, SubjectPart)), None
+    )
+    if subject_declaration is not None:
+        if params.time_keys is not None:
+            subject_tables = tuple(
+                next(part.table for part in source.parts if part.role == "subject")
+                for source in values
             )
-            if retained_subject is None:
-                raise _invalid("period Difference lacks its actual current Subject part")
-            subject_rows = _index_rows(retained_subject, keys)
-            if len(subject_rows) != retained_subject.num_rows or any(
-                key not in subject_rows for key in union_keys
-            ):
-                raise _invalid("period Difference Subject keys do not cover the current output")
+            subject_indexes = tuple(_index_rows(table, keys) for table in subject_tables)
+            subject_fields = tuple(
+                f"subject__key_{i}" for i in range(len(subject_declaration.subject_key))
+            )
+            subject_rows: list[dict[str, object]] = []
+            for key in union_keys:
+                matches = tuple(
+                    subject_indexes[i].get(original_keys[i].get(key, key))
+                    for i in range(2)
+                    if key in (current_rows, baseline_rows)[i]
+                )
+                if not matches or any(row is None for row in matches):
+                    raise _invalid("period Difference lacks a total endpoint Subject map")
+                subject_values = tuple(
+                    tuple(row[name] for name in subject_fields)
+                    for row in matches
+                    if row is not None
+                )
+                if len(set(subject_values)) != 1:
+                    raise _invalid("paired endpoints disagree on their Subject identity")
+                subject_rows.append(
+                    {
+                        **dict(zip(keys, key, strict=True)),
+                        **dict(zip(subject_fields, subject_values[0], strict=True)),
+                    }
+                )
             subject = pa.Table.from_pylist(
-                [subject_rows[key] for key in union_keys], schema=retained_subject.schema
+                subject_rows,
+                schema=pa.schema(
+                    (
+                        *key_schema,
+                        *(subject_tables[0].schema.field(name) for name in subject_fields),
+                    )
+                ),
             )
         else:
             subject = cell_project(primary, keys)
-            for index, key_name in enumerate(keys):
+            for index, key_name in enumerate(keys[: len(subject_declaration.subject_key)]):
                 subject = subject.append_column(f"subject__key_{index}", primary[key_name])
         parts = (ExchangePart("subject", subject), *parts)
     completed: list[CompletedCheck] = []

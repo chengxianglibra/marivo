@@ -2,11 +2,12 @@
 
 Date: 2026-10-10
 
-Status: W0 已实施并提交；W1 已实施并通过本地验收，当前工作区未提交；W2、W3 后续另行授权实施。
+Status: W0、W1 已实施并提交；W2 已于 2026-10-11 实施并通过验收（ClickHouse Runtime 环境跳过），见实施记录；W3 待另行授权。
 
 Design baseline: `main@e3650922d3`. W1 implementation baseline: `main@da65e5b15e`（修订前工作区干净，包含 W0）。
 
 W1 实施计划：[Analysis compare API W1](../plans/2026-10-10-analysis-compare-api-w1-implementation.md)。
+W2 实施记录：[时间键参与覆盖政策](2026-10-11-analysis-compare-api-w2-implementation-record.md)，基线 `main@ba5f9da2bf`。
 
 把 `compare` 与 `ratio` 的公共参数按[分析代数](../../specs/analysis/algebra-theory.md)
 第 6.7.3 与 8.2 节的结构重新划分：比较设计 c 由端点定义推导；对应关系 a 是一个值，
@@ -391,13 +392,13 @@ W1 沿用现有对应政策和数值算子含义；公共输入映射如下：
   两视图在 source-offline 的独立进程中可读取和续接。
   完整性校验覆盖两侧 Cell 布局、精确类型、完整键、共享对应及各视图的端点/状态投影。
 
-W1 单独完成后可进入发布准备。本任务完成 W1 后停止；W2 的实施需后续明确授权。
+W1 的原授权范围到此停止。W2 已于 2026-10-11 另行授权，实施与验收见 W2 记录；W3 仍待授权。
 
 ### 5.2 W2 时间键参与覆盖
 
 #### 输出时间坐标
 
-当前编码以 current 桶作为输出时间坐标，把 baseline 桶经 `bucket_mapping` 翻译到 current 桶
+W1 编码以 current 桶作为输出时间坐标，把 baseline 桶经 `bucket_mapping` 翻译到 current 桶
 （`graph_local_execution.py:1441`、`graph_exchange.py:1066`、`compiler/graph_lowering.py:704` 起）。
 这只在 τ 为双射时成立。时间键缺侧可能出现在任一侧，后续星期对齐中两侧同时出现
 （10 月有 5 个周四而 9 月只有 4 个，同时 9 月有 5 个周二而 10 月只有 4 个），
@@ -418,7 +419,7 @@ time 与 cohort 比较不受 W2 的时间坐标变化影响。沿用旧版本需
 
 #### 编码
 
-`CellCompare` / `CellDerive` 及其 `ComparisonPart` / `CorrespondencePart` 中的冻结
+W1 的 `CellCompare` / `CellDerive` 及 `CorrespondencePart` 中的冻结
 `bucket_mapping: tuple[(current_bucket, baseline_bucket)]`
 替换为每侧一份冻结对齐表：
 
@@ -430,9 +431,9 @@ time_keys.baseline: tuple[(bucket_identity, aligned_key)]   # 覆盖 baseline �
 - 每侧对齐表必须覆盖该侧完整网格且单射，替代 `core/model.py:1357` 起的双射校验。
 - `exact`：两侧对齐键集合相等；`outer`：允许不等；`empty_value` 按 4.5 判定时间键缺侧并拒绝。
 - `time_index` 保留，指向输出键中的对齐键位置。
-- 对齐键在 W2 中是非负整数；W3 的 τ 引入复合键时，对齐键编码为带 τ 种类前缀的规范字符串，
+- 对齐键在 W2 中按原网格顺序取整数 1..N；W3 的 τ 引入复合键时，对齐键编码为带 τ 种类前缀的规范字符串，
   使输出坐标保持单一值类型。
-- 涉及时间映射的 parts 版本递增；图快照 schema 由 W1 的 `marivo.analysis.graph_dag/v8` 升为 `v9`，
+- 时间映射由 `CorrespondencePart` v3 拥有，双视图 `ComparisonPart` 升为 v2；图快照 schema 由 W1 的 `marivo.analysis.graph_dag/v8` 升为 `v9`，
   沿用“旧版本需要源重新执行”的既有规则（`timezone-and-calendar-design.md`）。
 
 #### 消费方
@@ -605,7 +606,7 @@ W1：
 6. 更新理论、规范（含 semantic 847 行）与站点 latest 中英文档。
 7. 先跑窄范围测试，再跑定向 slow、受影响 Runtime 与 `make check-agent`；具体入口及完成条件见 [W1 实施计划](../plans/2026-10-10-analysis-compare-api-w1-implementation.md)。
 
-W2（W1 完成后另行授权）：
+W2（已于 2026-10-11 授权，仅实施本节与 5.2）：
 
 1. 前置核实：
    - 列出全部读取 period Comparison 两视图及 one_to_one ratio 的 `anchor` 时间坐标消费方，确定逐个拒绝或改读原坐标。
@@ -630,9 +631,9 @@ W3：在 W2 合入后单独出实施计划。
 - 新 compare 根/视图指纹改变，checked ratio 的底层规则保持；W1 图版本 v7 → v8，W2 v8 → v9，无旧版本双读或迁移。
 - 同端点 cohort 自比较拒绝（3.2）。
 - 时间桶对齐由 analysis 比较契约唯一拥有，τ 族闭合为四个成员（8.2）。
-- 本任务仅 W1；保留等长网格与 current 桶输出，W2/W3 后续另行实施。
+- W1 的等长/current 桶输出已由 W2 替换：输出 int64 aligned 键 1..N，无 time_grid，保留两侧原时间投影。W3 后续另行实施。
 - 非 Defined 操作数按单元格传播，两侧都非 Defined 时优先级 Unknown > Undefined > Null，作为 W0 先于 W1 交付（5.3）。
 
 ## 12. 待决问题
 
-- W2 的输出形态改变对下游消费方的实际影响，以 W2 第 1 步的清单为准；若有消费方必须保留 `anchor` 时间坐标，需在该步决定方案。
+- W2 消费方清单及逐项处理见实施记录。已决：aligned 输入拒绝真实时间轴操作，调用方先在原端点操作；不增加公共选侧时间投影接口。

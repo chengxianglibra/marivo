@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from functools import reduce
 from operator import and_, or_
-from typing import NoReturn, TypeAlias
+from typing import Literal, NoReturn, TypeAlias
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -707,14 +707,18 @@ def _operand_bound(source: LoweredRelation, table: ir.Table) -> ir.Value:
     return zero
 
 
-def _mapped_period_input(source: LoweredRelation, params: CellDerive) -> LoweredRelation:
+def _mapped_period_input(
+    source: LoweredRelation, params: CellDerive, side: Literal["current", "baseline"]
+) -> LoweredRelation:
     if params.time_index is None:
         return source
     key = source.layout.keys[params.time_index].column
     value = source.expression[key]
+    assert params.time_keys is not None
+    table = params.time_keys.current if side == "current" else params.time_keys.baseline
     translated = ibis.cases(
-        *((value == right, left) for left, right in params.bucket_mapping),
-        else_=ibis.null().cast("string"),
+        *((value == bucket, aligned) for bucket, aligned in table),
+        else_=ibis.null().cast("int64"),
     )
     return replace(source, expression=source.expression.mutate(**{key: translated}))
 
@@ -750,7 +754,10 @@ def _difference(
             non_time = tuple(
                 item.column for i, item in enumerate(source.layout.keys) if i != params.time_index
             )
-            expected = tuple(pair[index] for pair in params.bucket_mapping)
+            assert params.time_keys is not None
+            expected = tuple(
+                bucket for bucket, _ in (params.time_keys.current, params.time_keys.baseline)[index]
+            )
             counts = (
                 source.expression.group_by(*non_time) if non_time else source.expression
             ).aggregate(
@@ -772,8 +779,27 @@ def _difference(
                 )
             )
     lhs, rhs = left.expression.view(), right.expression.view()
+
+    def pair_key(value: ir.Value, index: int, side: Literal["current", "baseline"]) -> ir.Value:
+        if index != params.time_index:
+            return value
+        assert params.time_keys is not None
+        table = params.time_keys.current if side == "current" else params.time_keys.baseline
+        return ibis.cases(
+            *((value == bucket, aligned) for bucket, aligned in table),
+            else_=ibis.null().cast("int64"),
+        )
+
+    subject = next((p for p in stage.node.signature.parts if isinstance(p, SubjectPart)), None)
     current = lhs.select(
         **{f"current_key_{i}": lhs[key] for i, key in enumerate(keys)},
+        **{f"current_pair_{i}": pair_key(lhs[key], i, "current") for i, key in enumerate(keys)},
+        **{
+            f"current_subject_{i}": lhs[f"subject__key_{i}"]
+            for i in range(len(subject.subject_key))
+        }
+        if subject
+        else {},
         current_value=lhs[a.value],
         current_tag=lhs[a.tag],
         current_reason=lhs[a.reason],
@@ -783,6 +809,13 @@ def _difference(
     )
     baseline = rhs.select(
         **{f"baseline_key_{i}": rhs[key] for i, key in enumerate(keys)},
+        **{f"baseline_pair_{i}": pair_key(rhs[key], i, "baseline") for i, key in enumerate(keys)},
+        **{
+            f"baseline_subject_{i}": rhs[f"subject__key_{i}"]
+            for i in range(len(subject.subject_key))
+        }
+        if subject
+        else {},
         baseline_value=rhs[b.value],
         baseline_tag=rhs[b.tag],
         baseline_reason=rhs[b.reason],
@@ -790,30 +823,22 @@ def _difference(
         baseline_error_bound=_operand_bound(right, rhs),
         **endpoint_fields(stage.node.signature, "baseline", rhs),
     )
-    translated_keys = {
-        i: ibis.cases(
-            *(
-                (baseline[f"baseline_key_{i}"] == right, left)
-                for left, right in params.bucket_mapping
-            ),
-            else_=ibis.null().cast("string"),
-        )
-        if i == params.time_index
-        else baseline[f"baseline_key_{i}"]
-        for i in range(len(keys))
-    }
     from marivo.analysis.compiler.coordinate_state import complete_join, entries
 
     paired = (
         current.inner_join(
-            baseline, [current[f"current_key_{i}"] == translated_keys[i] for i in range(len(keys))]
+            baseline,
+            [
+                current[f"current_pair_{i}"] == baseline[f"baseline_pair_{i}"]
+                for i in range(len(keys))
+            ],
         )
         if params.pairing == "exact"
         else complete_join(
             current,
             baseline,
-            tuple(current[f"current_key_{i}"] for i in range(len(keys))),
-            tuple(translated_keys[i] for i in range(len(keys))),
+            tuple(current[f"current_pair_{i}"] for i in range(len(keys))),
+            tuple(baseline[f"baseline_pair_{i}"] for i in range(len(keys))),
         )
     )
     present_a, present_b = (
@@ -821,6 +846,18 @@ def _difference(
         paired.baseline_present.fill_null(False),
     )
     both = present_a & present_b
+    if subject is not None and params.time_keys is not None:
+        for i in range(len(subject.subject_key)):
+            checks.append(
+                IntegrityCheck(
+                    stage.output,
+                    "paired endpoints agree on Subject identity",
+                    paired.filter(
+                        both & (paired[f"current_subject_{i}"] != paired[f"baseline_subject_{i}"])
+                    ),
+                    _source_ids(left.source_ids, right.source_ids),
+                )
+            )
     first, second = paired.current_value, paired.baseline_value
     tag_a, tag_b = paired.current_tag, paired.baseline_tag
     reason_a, reason_b = paired.current_reason, paired.baseline_reason
@@ -914,16 +951,8 @@ def _difference(
     target = canonical_layout(stage.node.signature, has_value=True)
     identity = {
         key: ibis.coalesce(
-            paired[f"current_key_{i}"],
-            ibis.cases(
-                *(
-                    (paired[f"baseline_key_{i}"] == right, left)
-                    for left, right in params.bucket_mapping
-                ),
-                else_=ibis.null().cast("string"),
-            )
-            if i == params.time_index
-            else paired[f"baseline_key_{i}"],
+            paired[f"current_pair_{i}"],
+            paired[f"baseline_pair_{i}"],
         )
         for i, key in enumerate(keys)
     }
@@ -971,8 +1000,13 @@ def _difference(
             for i in range(len(keys))
         },
         **(
-            {f"subject__key_{i}": identity[key] for i, key in enumerate(keys)}
-            if any(isinstance(p, SubjectPart) for p in stage.node.signature.parts)
+            {
+                f"subject__key_{i}": ibis.coalesce(
+                    paired[f"current_subject_{i}"], paired[f"baseline_subject_{i}"]
+                )
+                for i in range(len(subject.subject_key))
+            }
+            if subject is not None
             else {}
         ),
     )
@@ -982,13 +1016,15 @@ def _difference(
         )
         if coordinate is not None:
             full = entries(source, coordinate)
-            if side == "baseline" and params.time_index is not None:
+            if params.time_index is not None:
                 key = f"key_{params.time_index}"
+                assert params.time_keys is not None
+                table = params.time_keys.current if side == "current" else params.time_keys.baseline
                 full = full.mutate(
                     **{
                         key: ibis.cases(
-                            *((full[key] == old, new) for new, old in params.bucket_mapping),
-                            else_=ibis.null().cast(full[key].type()),
+                            *((full[key] == old, new) for old, new in table),
+                            else_=ibis.null().cast("int64"),
                         )
                     }
                 )
@@ -4351,12 +4387,18 @@ def lower(
                     None,
                 )
                 paired_right = (
-                    _mapped_period_input(inputs[1], pairing_owner.parameters)
+                    _mapped_period_input(inputs[1], pairing_owner.parameters, "baseline")
                     if pairing_owner is not None
                     and isinstance(pairing_owner.parameters, CellDerive)
                     else inputs[1]
                 )
-                violations = _pair_violations(inputs[0], paired_right)
+                paired_left = (
+                    _mapped_period_input(inputs[0], pairing_owner.parameters, "current")
+                    if pairing_owner is not None
+                    and isinstance(pairing_owner.parameters, CellDerive)
+                    else inputs[0]
+                )
+                violations = _pair_violations(paired_left, paired_right)
                 for other in inputs[2:]:
                     violations = violations.union(
                         _pair_violations(inputs[0], other), distinct=False
@@ -4391,10 +4433,13 @@ def lower(
                         other = (
                             numeric_inputs[1] if current is numeric_inputs[0] else numeric_inputs[0]
                         )
-                        if current is numeric_inputs[1]:
-                            current = _mapped_period_input(current, owner.parameters)
-                        else:
-                            other = _mapped_period_input(other, owner.parameters)
+                        side: Literal["current", "baseline"] = (
+                            "baseline" if current is numeric_inputs[1] else "current"
+                        )
+                        current = _mapped_period_input(current, owner.parameters, side)
+                        other = _mapped_period_input(
+                            other, owner.parameters, "current" if side == "baseline" else "baseline"
+                        )
                         current_keys = tuple(k.column for k in current.layout.keys)
                         matching = (
                             current.expression.semi_join(

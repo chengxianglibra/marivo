@@ -360,17 +360,16 @@ def test_publication_failure_preserves_prior_history(tmp_path):
     expected = records(fixed)
 
     for point in ("before_commit", "cancel", "deadline"):
-        deadline_token = None
+        inherited_deadline = CURRENT.get()
 
         def inject(actual, injection_point=point):
-            nonlocal deadline_token
             if actual == (
                 "insert_findings" if injection_point in ("cancel", "deadline") else injection_point
             ):
                 if injection_point == "cancel":
                     raise KeyboardInterrupt("injected History cancellation")
                 if injection_point == "deadline":
-                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                    CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
                 else:
                     raise RuntimeError("injected History transaction failure")
 
@@ -380,8 +379,7 @@ def test_publication_failure_preserves_prior_history(tmp_path):
                 logical.execute()
         finally:
             session._runtime._hook = None
-            if deadline_token is not None:
-                CURRENT.reset(deadline_token)
+            assert CURRENT.get() is inherited_deadline
         assert records(session.artifact(fixed.state.artifact_ref)) == expected
         with session._runtime.store._read() as connection:
             assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1

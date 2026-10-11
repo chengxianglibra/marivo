@@ -504,7 +504,7 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
     design = mv.exact(time=mv.ordinal())
-    with pytest.raises(AnalysisError, match="equal-length"):
+    with pytest.raises(AnalysisError, match="equal aligned"):
         current.compare(observe(7, 9, 2), align=design)
     for left, right in ((current, baseline), (current.execute(), baseline.execute())):
         saved = left.compare(right, align=design).absolute.execute()
@@ -525,8 +525,9 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
 
 
 @pytest.mark.parametrize("parquet", [True])
+@pytest.mark.parametrize("time", [False, True])
 def test_one_to_one_binds_exact_ordered_nodes_and_retained_relationship(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory, parquet: bool, time: bool
 ) -> None:
     from marivo.analysis.errors import AnalysisError
 
@@ -550,7 +551,15 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
     ms.load(workspace_dir=case.root)
     metric, buyer = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales.order_buyer")
     relationship = ms.ref.relationship("sales.customer_account")
-    scope = mv.time_scope(start="2026-07-01", end="2026-08-01")
+    scope = (
+        mv.time_grid(
+            during=mv.time_scope(start="2026-07-09", end="2026-07-12"),
+            grain=mv.grain("day"),
+            timezone="UTC",
+        )
+        if time
+        else mv.time_scope(start="2026-07-01", end="2026-08-01")
+    )
     left = case.session.members(ms.ref.entity("sales.customer")).observe(
         metric, during=scope, via=buyer, by=(mv.member(),)
     )
@@ -560,15 +569,52 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         via=(mv.path(buyer, relationship),),
         by=(mv.member(),),
     )
-    pairing = mv.one_to_one(left=left, right=right, via=relationship)
+    pairing = mv.one_to_one(
+        left=left, right=right, via=relationship, time=mv.ordinal() if time else None
+    )
     with pytest.raises(AnalysisError, match="one-to-one"):
         mv.one_to_one(left=left, right=right, via=buyer)
     with pytest.raises(AnalysisError, match="reused"):
         right.ratio(left, align=pairing)
     for first, second in ((left, right), (left.execute(), right.execute())):
-        pairing = mv.one_to_one(left=first, right=second, via=relationship)
-        result = first.ratio(second, align=pairing).execute().to_pandas()
+        pairing = mv.one_to_one(
+            left=first, right=second, via=relationship, time=mv.ordinal() if time else None
+        )
+        logical_ratio = first.ratio(second, align=pairing)
+        saved = logical_ratio.execute()
+        result = saved.to_pandas()
         assert result["value"].dropna().tolist() == [1.0, 1.0, 1.0]
+        if time:
+            assert set(result.coord_0) == {1, 2, 3}
+            assert saved._node.root.signature.domain.time_grid is None
+            assert saved._node.root.signature.domain.instance_key[1].role == "aligned"
+            for view in (logical_ratio, saved):
+                for selected in (view, view.where(view.value.is_defined())):
+                    with pytest.raises(AnalysisError, match="aligned"):
+                        selected.group_by(scope)
+                    with pytest.raises(AnalysisError, match="aligned"):
+                        selected.group_by(mv.grain("month"))
+                    with pytest.raises(AnalysisError, match="aligned"):
+                        selected.runs(where=selected.value.gt(0))
+                    with pytest.raises(AnalysisError, match="aligned"):
+                        selected.forecast(horizon=mv.periods(1))
+                    with pytest.raises(AnalysisError, match="aligned"):
+                        selected.correlate(view, lag_range=range(1))
+                row_count = view.where(view.value.is_defined()).aggregate(mv.count()).execute()
+                assert row_count.to_pandas().value.tolist() == [3]
+    if time:
+        short = case.session.members(ms.ref.entity("sales.account")).observe(
+            metric,
+            during=mv.time_grid(
+                during=mv.time_scope(start="2026-07-09", end="2026-07-11"),
+                grain=mv.grain("day"),
+                timezone="UTC",
+            ),
+            via=(mv.path(buyer, relationship),),
+            by=(mv.member(),),
+        )
+        with pytest.raises(AnalysisError, match="equal aligned"):
+            mv.one_to_one(left=left, right=short, via=relationship, time=mv.ordinal())
 
 
 @pytest.mark.slow

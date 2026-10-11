@@ -308,17 +308,16 @@ def test_retention_publication_failure_is_atomic(tmp_path):
     previous = logical.execute()
 
     for point in ("before_commit", "cancel", "deadline"):
-        deadline_token = None
+        inherited_deadline = CURRENT.get()
 
         def inject(actual, injection_point=point):
-            nonlocal deadline_token
             if actual == (
                 "before_commit" if injection_point in ("cancel", "deadline") else injection_point
             ):
                 if injection_point == "cancel":
                     raise KeyboardInterrupt("injected retention cancellation")
                 if injection_point == "deadline":
-                    deadline_token = CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
+                    CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
                 else:
                     raise RuntimeError("injected retention publication failure")
 
@@ -328,8 +327,7 @@ def test_retention_publication_failure_is_atomic(tmp_path):
                 logical.execute()
         finally:
             session._runtime._hook = None
-            if deadline_token is not None:
-                CURRENT.reset(deadline_token)
+            assert CURRENT.get() is inherited_deadline
         assert (
             session.artifact(previous.state.artifact_ref).to_pandas().equals(previous.to_pandas())
         )

@@ -24,6 +24,7 @@ from marivo.analysis.core.model import (
     DomainSignature,
     ObservedQuantity,
     OriginalStatePart,
+    TimeKeys,
 )
 from marivo.analysis.core.rules import (
     AssociationScore,
@@ -145,13 +146,14 @@ def _invalid_composition(received: str) -> DatasetConstructionError:
 
 
 def period_mapping(
-    current: MethodNode, baseline: MethodNode
-) -> tuple[int, tuple[tuple[str, str], ...]]:
+    current: MethodNode,
+    baseline: MethodNode,
+) -> tuple[int, TimeKeys]:
     """Bind the original complete bucket vectors before reading either endpoint."""
     left, right = current.signature.domain, baseline.signature.domain
     first, second = left.time_grid, right.time_grid
-    if first is None or second is None or len(first.cells) != len(second.cells):
-        raise _invalid_composition("Period comparison requires complete equal-length frozen grids")
+    if first is None or second is None:
+        raise _invalid_composition("Period comparison requires complete frozen grids")
     indexes = tuple(i for i, key in enumerate(left.instance_key) if key.role == "anchor")
     if len(indexes) != 1 or indexes != tuple(
         i for i, key in enumerate(right.instance_key) if key.role == "anchor"
@@ -159,8 +161,9 @@ def period_mapping(
         raise _invalid_composition(
             "Period comparison requires one corresponding complete time coordinate"
         )
-    return indexes[0], tuple(
-        (a.identity, b.identity) for a, b in zip(first.cells, second.cells, strict=True)
+    return indexes[0], TimeKeys(
+        tuple((cell.identity, i) for i, cell in enumerate(first.cells, 1)),
+        tuple((cell.identity, i) for i, cell in enumerate(second.cells, 1)),
     )
 
 
@@ -613,7 +616,7 @@ def combine_observations(
                 pairing,
                 comparison_empty_rules(first, second) if pairing == "metric_empty" else (),
                 time_index=period_mapping(first, second)[0] if design == "period" else None,
-                bucket_mapping=period_mapping(first, second)[1] if design == "period" else (),
+                time_keys=period_mapping(first, second)[1] if design == "period" else None,
                 relationship=relationship,
                 verification=verification,
             ),

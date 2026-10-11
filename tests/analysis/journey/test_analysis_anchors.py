@@ -476,8 +476,6 @@ def test_journey_relative_ratio_and_cross_source_linear(tmp_path):
 
 
 def test_local_consumption_failure_closes_prepared_resources(tmp_path, monkeypatch):
-    from contextvars import Token
-
     from marivo.analysis.materialization import anchor_execution
     from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
@@ -485,12 +483,12 @@ def test_local_consumption_failure_closes_prepared_resources(tmp_path, monkeypat
     previous = members.execute()
     observe = anchor_execution.observe
     for fault in ("cancel", "deadline"):
-        tokens: list[Token[ExecuteDeadline | None]] = []
+        inherited_deadline = CURRENT.get()
 
-        def fail(*args, _fault=fault, _tokens=tokens, **kwargs):
+        def fail(*args, _fault=fault, **kwargs):
             if _fault == "cancel":
                 raise KeyboardInterrupt("cancelled after source preparation")
-            _tokens.append(CURRENT.set(ExecuteDeadline(0, clock=lambda: 601)))
+            CURRENT.set(ExecuteDeadline(0, clock=lambda: 601))
             return observe(*args, **kwargs)
 
         with monkeypatch.context() as scoped:
@@ -501,8 +499,8 @@ def test_local_consumption_failure_closes_prepared_resources(tmp_path, monkeypat
                         0
                     ].execute()
             finally:
-                for token in tokens:
-                    CURRENT.reset(token)
+                # The execution budget restores its entry state; an inner injection token is stale.
+                assert CURRENT.get() is inherited_deadline
         session.artifact(previous.state.artifact_ref).to_pandas()
         with session._runtime.store._read() as connection:
             assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == 1

@@ -1512,13 +1512,24 @@ class _Value:
                     )
         if _kind(self._node) in ("ratio_observe", "ratio_rollup"):
             facts.append(("weighting", "original numerator and denominator components"))
+        if any(c.role == "aligned" for c in signature.domain.instance_key):
+            facts.append(
+                (
+                    "aligned_time",
+                    "ordinal keys 1..N; original times are correspondence projections; "
+                    "apply time grouping, runs, forecast or lag correlation to original "
+                    "endpoints before comparison",
+                )
+            )
         if quantity is not None:
             facts.extend(
                 (
                     (
                         "output_grain",
                         ", ".join(
-                            c.field for c in signature.domain.instance_key if c.role != "anchor"
+                            c.field
+                            for c in signature.domain.instance_key
+                            if c.role not in ("anchor", "aligned")
                         )
                         or "overall",
                     ),
@@ -1873,6 +1884,8 @@ class _Value:
         node = self._node
         references: list[Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid | Coordinate] = []
         for key in keys:
+            if isinstance(key, (TimeGrid, Grain)):
+                node._require_anchor_time()
             if isinstance(key, MemberAxis):
                 raise _reject(
                     "a retained Entity, Dimension, classification or time axis",
@@ -2121,6 +2134,7 @@ class _NumericComparison(_Value):
         Returns: A LogicalAssociationResult with coefficient and selected owned views.
         Example: ``result = revenue.correlate(orders, method="spearman")``.
         Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Pair observations by the complete original key tuple, retaining each Entity, field and coordinate role in pairing_key; association output keys identify candidates. Positive lag pairs the left t with right t+k. No causal or significance claim.
+        Aligned time coordinates reject explicit lag_range; correlate without lag uses the common-domain contract.
         """
         if any(not isinstance(v, _NumericComparison) for v in others):
             raise _reject(
@@ -2148,6 +2162,7 @@ class _NumericComparison(_Value):
         Returns: A LogicalForecastResult with prediction, lower and upper owned views.
         Example: ``future = daily.forecast(horizon=mv.periods(4), model=mv.drift())``.
         Constraints: Complete Defined finite history and approved future grid; no imputation, model selection or interval addition. Numerical admission does not establish actual interval coverage.
+        Aligned time coordinates reject forecast; forecast the original endpoint before comparison.
         """
         if not isinstance(horizon, ForecastHorizon) or not isinstance(model, ForecastModel):
             raise _reject(
@@ -2176,6 +2191,7 @@ class _NumericComparison(_Value):
         Returns: A LogicalTimeRunResult with start, end, count and duration views.
         Example: ``segments = daily.runs(where=daily.value.gt(20))``.
         Constraints: Requires a complete non-partial grid; unavailable dependencies break runs.
+        Aligned time coordinates reject runs; classify the original endpoint before comparison.
         """
         predicate, dependencies = self._bound_predicate(where)
         return LogicalTimeRunResult(
@@ -2305,7 +2321,11 @@ class _NumericComparison(_Value):
         Returns: A LogicalComparisonResult with absolute and relative views.
         Example: ``changes = current.compare(baseline); delta = changes.absolute``.
         Constraints: Exactly one target/time condition must differ. Decimal scales and
-        Duration units match. Period grids require explicit ordinal mapping and equal length.
+        Duration units match. Period grids require explicit ordinal mapping and complete original
+        grids. Output time keys are int64 ordinals 1..N with both original times retained as
+        correspondence projections. Exact requires equal key sets; outer keep admits unequal
+        windows, while empty_value rejects time keys outside the other observation window.
+        Apply real-time operations to original endpoints before comparing.
         Both formulas read original operands; zero baseline affects only relative.
         Relative is (current-baseline)/abs(baseline): -100 to -50 gives +0.5.
         """
@@ -2357,6 +2377,8 @@ class _NumericComparison(_Value):
         Returns: A LogicalNumericRelation with ordinary quotient semantics.
         Example: ``quotient = revenue.ratio(orders, align=mv.exact())``.
         Constraints: Time roles match unless one_to_one binds ordinal grids.
+        A time-mapped one_to_one requires equal complete key sets and outputs aligned int64
+        ordinals 1..N with original-time projections; apply real-time operations before ratio.
         Outer alignment is unavailable; zero denominators remain Undefined.
         Duration Unknown reasons propagate; no original rollup or attribution is acquired.
         """
@@ -2410,6 +2432,7 @@ class _OriginalContinuation(_NumericComparison):
         Returns: A grouped original numeric or ratio relation.
         Example: ``result = relation.group_by(dimension).rollup().execute()``.
         Constraints: Removed axes cannot be recovered and grouping never reloads attributes.
+        Aligned time coordinates reject TimeGrid/Grain grouping; group original endpoints first.
         """
         grouped, rows = self._group_nodes(dimensions)
         quantity = self._node.root.signature.quantity
@@ -3394,6 +3417,7 @@ class LogicalNumericRelation(_NumericComparison):
         Returns: A GroupedNumericRelation bound to this exact relation.
         Example: ``result = relation.group_by(dimension)``.
         Constraints: Classifications use complete keys; fixed inputs require fixed categories.
+        Aligned time coordinates reject TimeGrid/Grain grouping; group original endpoints first.
         """
         grouped, rows = self._group_nodes(dimensions)
         return GroupedNumericRelation(
@@ -4150,7 +4174,15 @@ class _StatisticContinuation(_NumericComparison):
         Example: ``result = statistic.group_by(dimension).rollup().execute()``.
         Constraints: Merges this statistic's state; does not aggregate finished values.
         Execute source Duration statistics before selecting merge axes.
+        Aligned time coordinates reject TimeGrid/Grain grouping; group original endpoints first.
         """
+        if any(isinstance(key, (TimeGrid, Grain)) for key in keys):
+            self._node._require_anchor_time()
+            raise _reject(
+                "retained Entity/Dimension axes or corresponding classifications",
+                "TimeGrid/Grain statistic grouping",
+                "Select retained non-time axes; group the original endpoint before reduction.",
+            )
         if any(isinstance(key, MemberAxis) for key in keys):
             raise _reject(
                 "a retained Entity, Dimension or classification axis",
@@ -7778,10 +7810,11 @@ def one_to_one(
         left: Numerator relation from the same Session and mode as right.
         right: Denominator relation with the complete retained relationship keys.
         via: Explicit declared one-to-one Relationship Ref.
-        time: Optional ordinal mapping for complete equal-length grids.
+        time: Optional ordinal mapping for complete grids with equal aligned key sets.
     Returns: An immutable OneToOneCorrespondence for these exact nodes only.
     Example: ``left.ratio(right, align=mv.one_to_one(left=left, right=right, via=relationship))``.
     Constraints: Rejects many-to-one, outer alignment, mixed source/fixed modes and unretained relationship keys.
+    Time mapping outputs int64 aligned keys 1..N and original-time projections, without a time grid.
     """
     from marivo.analysis.core.graph import MethodNode, Node
     from marivo.analysis.core.rules import (

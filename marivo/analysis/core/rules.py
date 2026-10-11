@@ -61,6 +61,7 @@ from marivo.analysis.core.model import (
     SubjectPart,
     TableFitColumn,
     TableFitsPart,
+    TimeKeys,
     Undefined,
     available_facts,
     part_role,
@@ -341,7 +342,7 @@ class CellDerive:
     pairing: Literal["exact", "keep", "metric_empty"] = "exact"
     empty_rules: tuple[Literal["null", "zero", "zero_denominator"], ...] = ()
     time_index: int | None = None
-    bucket_mapping: tuple[tuple[str, str], ...] = ()
+    time_keys: TimeKeys | None = None
     relationship: TargetRelationshipContract | None = None
     verification: Literal["check", "assume"] = "check"
 
@@ -2073,24 +2074,51 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
     left, right = inputs
     assert left.quantity is not None and right.quantity is not None
     equivalent_keys = left.domain.instance_key == right.domain.instance_key
-    if params.bucket_mapping:
-        from dataclasses import replace
-
+    if (params.time_index is None) != (params.time_keys is None):
+        reject(
+            "time index and frozen tables together",
+            repr(params),
+            "Rebuild the alignment.",
+            "core.cell.period",
+        )
+    output_domain = left.domain
+    if params.time_keys is not None:
         grids = (left.domain.time_grid, right.domain.time_grid)
         if (
             grids[0] is None
             or grids[1] is None
-            or len(grids[0].cells) != len(grids[1].cells)
-            or params.bucket_mapping
-            != tuple(
-                (a.identity, b.identity)
-                for a, b in zip(grids[0].cells, grids[1].cells, strict=True)
-            )
+            or params.time_keys.current
+            != tuple((cell.identity, i) for i, cell in enumerate(grids[0].cells, 1))
+            or params.time_keys.baseline
+            != tuple((cell.identity, i) for i, cell in enumerate(grids[1].cells, 1))
+            or params.time_index is None
+            or type(params.time_index) is not int
+            or not 0 <= params.time_index < len(left.domain.instance_key)
+            or tuple(i for i, key in enumerate(left.domain.instance_key) if key.role == "anchor")
+            != (params.time_index,)
+            or tuple(i for i, key in enumerate(right.domain.instance_key) if key.role == "anchor")
+            != (params.time_index,)
         ):
             reject(
-                "complete equal-length frozen bucket correspondence",
+                "complete frozen ordinal tables for each original grid",
                 "invalid period map",
                 "Retain both original grids.",
+                "core.cell.period",
+            )
+        images = tuple(
+            {aligned for _, aligned in table}
+            for table in (params.time_keys.current, params.time_keys.baseline)
+        )
+        if params.pairing != "keep" and images[0] != images[1]:
+            reject(
+                "equal aligned time-key sets"
+                if params.pairing == "exact"
+                else "empty finish only for observed time keys",
+                "time key outside the other observation window is unobserved, "
+                "distinct from no data inside an observed window",
+                "Adjust the windows to equal bucket counts; one_to_one ratios require exact coverage."
+                if params.method == "ratio"
+                else "Use mv.outer(missing='keep', time=mv.ordinal()) or adjust the windows to equal bucket counts.",
                 "core.cell.period",
             )
         equivalent_keys = tuple(
@@ -2099,6 +2127,20 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         ) == tuple(
             replace(key, field="time") if key.role == "anchor" else key
             for key in right.domain.instance_key
+        )
+        aligned_field = "aligned:" + sha256(repr(params.time_keys).encode()).hexdigest()
+        output_domain = replace(
+            left.domain,
+            instance_key=tuple(
+                replace(key, field=aligned_field, role="aligned") if key.role == "anchor" else key
+                for key in left.domain.instance_key
+            ),
+            target_key=tuple(
+                replace(key, field=aligned_field, role="aligned") if key.role == "anchor" else key
+                for key in left.domain.target_key
+            ),
+            time_grid=None,
+            version_selection=None,
         )
     if params.relationship is not None:
         relationship = params.relationship
@@ -2218,7 +2260,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         and (
             p in right.parts
             or (
-                bool(params.bucket_mapping)
+                params.time_keys is not None
                 and any(
                     isinstance(q, SubjectPart)
                     and replace(q, source_key=p.source_key) == p
@@ -2236,6 +2278,8 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         )
         and p.binding == left.domain.binding == right.domain.binding
     )
+    if params.time_keys is not None:
+        subjects = tuple(replace(p, source_key=output_domain.instance_key) for p in subjects)
     parts: tuple[Part, ...] = (
         *subjects,
         EndpointPart(
@@ -2266,17 +2310,21 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
             binding,
             left.domain.instance_key,
             right.domain.instance_key,
-            "v2" if params.method == "difference" else "v1",
+            "v3"
+            if params.time_keys is not None
+            else "v2"
+            if params.method == "difference"
+            else "v1",
             params.pairing,
             params.empty_rules,
             params.time_index,
-            params.bucket_mapping,
+            params.time_keys,
         ),
     )
     return _result(
         "cell_derive@v1",
         inputs,
-        left.domain,
+        output_domain,
         output,
         parts,
         pre=(pair, numeric),
@@ -2286,7 +2334,7 @@ def _cell_derive(inputs: tuple[Signature, ...], params: CellDerive) -> RuleDeriv
         obligations=obligations,
         eval_id=f"cell_derive.{params.method}@v1",
         established=pairing_evidence,
-        preserve_key_domain=params.pairing == "exact",
+        preserve_key_domain=params.pairing == "exact" and params.time_keys is None,
     )
 
 

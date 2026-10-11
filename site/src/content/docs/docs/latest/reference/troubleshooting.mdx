@@ -72,6 +72,13 @@ no matching proof or missing-value policy. Pairing is fixed checked: unknown key
 declarations/frozen construction proofs remain authoritative. Compare can retain
 missing sides explicitly with `align=mv.outer()`.
 
+For period comparisons, use `time=mv.ordinal()`. Exact requires equal aligned-key
+sets; outer keep allows either grid to be longer. `empty_value` cannot repair an
+unobserved time key outside the other window: use keep or adjust the windows.
+Aligned outputs retain original-time projections but have no time_grid. Group time,
+run intervals, forecast and correlate with explicit lag on original endpoints before
+comparing. Ordinary selection and current-row statistics follow their own contracts.
+
 ## Repair recovery and output
 
 Keep the exact Session ID, Artifact ref and project-local state. Old generations

@@ -1046,6 +1046,9 @@ def _verify_difference_parts(
     correspondence = next((part.table for part in parts if part.role == "correspondence"), None)
     if correspondence is None:
         raise _invalid("missing complete endpoint correspondence")
+    definition = next(
+        part for part in contract.signature.parts if isinstance(part, CorrespondencePart)
+    )
     mapping_fields = (
         *((key, primary.schema.field(key).type) for key in keys),
         ("correspondence__current_present", pa.bool_()),
@@ -1055,7 +1058,10 @@ def _verify_difference_parts(
             for side in ("current", "baseline", "result")
         ),
         *(
-            (f"correspondence__{side}_key_{i}", primary.schema.field(key).type)
+            (
+                f"correspondence__{side}_key_{i}",
+                pa.string() if i == definition.time_index else primary.schema.field(key).type,
+            )
             for side in ("current", "baseline")
             for i, key in enumerate(keys)
         ),
@@ -1070,9 +1076,6 @@ def _verify_difference_parts(
     for row in cell_rows(numeric_primary(primary)):
         key = tuple(row[name] for name in contract.key_fields)
         mapping = mapped[key]
-        definition = next(
-            part for part in contract.signature.parts if isinstance(part, CorrespondencePart)
-        )
         presence = tuple(
             mapping[f"correspondence__{side}_present"] for side in ("current", "baseline")
         )
@@ -1120,11 +1123,17 @@ def _verify_difference_parts(
             )
         for side, present in zip(("current", "baseline"), presence, strict=True):
             expected_key = key if present else (None,) * len(key)
-            if present and side == "baseline" and definition.time_index is not None:
+            if present and definition.time_index is not None:
                 index = definition.time_index
-                forward = dict(definition.bucket_mapping)
+                assert definition.time_keys is not None
+                table = (
+                    definition.time_keys.current
+                    if side == "current"
+                    else definition.time_keys.baseline
+                )
+                forward = {aligned: bucket for bucket, aligned in table}
                 token = key[index]
-                if not isinstance(token, str) or token not in forward:
+                if type(token) is not int or token not in forward:
                     raise _invalid("output bucket absent from its frozen original grid")
                 expected_key = (*key[:index], forward[token], *key[index + 1 :])
             if (

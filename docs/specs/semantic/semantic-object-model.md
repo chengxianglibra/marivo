@@ -843,9 +843,8 @@ A derived ratio/weighted/linear metric over cumulative components can be
 compared only when every outer component is cumulative and all components share
 a compatible `all_history`, `trailing`, or `grain_to_date` anchor. Trailing anchors
 compare by canonical fixed duration (`7 day` equals `1 week`); grain-to-date anchors
-must share one reset grain. Comparable-period results retain paired coordinates only
-and may align by window ordinal, DOW position, holiday position, or holiday-then-DOW
-position. Mixed anchors and cumulative/non-cumulative mixes are rejected. This compare
+must share one reset grain. Comparable-period alignment and output coordinates
+belong to the [analysis comparison contract](../analysis/timezone-and-calendar-design.md#period-correspondence). Mixed anchors and cumulative/non-cumulative mixes are rejected. This compare
 allowance does not extend to `attribute`, `decompose`, or `forecast`.
 
 ## Metric unit (UCUM)
@@ -1172,7 +1171,9 @@ Public domain construction and execution use the unified typed graph and
 registered consumers; frozen declarations alone grant no runtime capability.
 
 Analysis comparison alignment is authored with `mv.exact()`, `mv.outer()` and, for
-complete equal-length grids, `mv.ordinal()`. Ordinal correspondence does not assert
-calendar equivalence. Compare fixes checked correspondence and publishes both
+complete original grids, `mv.ordinal()`. Ordinal correspondence yields aligned
+keys 1..N with both original time projections and does not assert calendar
+equivalence. Exact requires equal aligned-key sets; outer keep admits unequal
+grids, while Metric empty finish rejects time outside the other observed window. Compare fixes checked correspondence and publishes both
 absolute and relative Cells; Metric empty finish is requested explicitly through
 `mv.outer(missing="empty_value")` and requires retained complete original state.

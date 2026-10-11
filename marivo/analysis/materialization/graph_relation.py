@@ -339,10 +339,21 @@ class Relation:
             )
         return GraphDataset(self.runtime, artifact)
 
+    def _require_anchor_time(self) -> None:
+        if any(c.role == "aligned" for c in self.root.signature.domain.instance_key):
+            raise DatasetConstructionError(
+                expected="an original anchor time axis for real-time operations",
+                received="aligned comparison keys with two original time projections",
+                repair="Perform time grouping, rollup, runs, forecast or lag correlation on the original endpoints before comparing them.",
+                location="analysis.aligned_time",
+            )
+
     def _check_runs_input(
         self, operation: Literal["runs", "correlate", "forecast"] = "runs"
     ) -> None:
         from marivo.analysis.methods.deviation_physical import parse_type
+
+        self._require_anchor_time()
 
         try:
             parse_type(self.root.value_type.name)
@@ -538,6 +549,9 @@ class Relation:
         from marivo.analysis.methods.deviation_physical import parse_type
 
         inputs = (self, *others)
+        if lag_range is not None:
+            for relation in inputs:
+                relation._require_anchor_time()
         identity = self.root.fingerprint
 
         def error(
@@ -1157,7 +1171,7 @@ class Relation:
                     params.pairing,
                     params.empty_rules,
                     params.time_index,
-                    params.bucket_mapping,
+                    params.time_keys,
                     params.relationship,
                     "check",
                     node.value_type.name,
@@ -1286,9 +1300,7 @@ class Relation:
                     pairing,
                     comparison_empty_rules(current, baseline) if pairing == "metric_empty" else (),
                     time_index=period_mapping(current, baseline)[0] if design == "period" else None,
-                    bucket_mapping=period_mapping(current, baseline)[1]
-                    if design == "period"
-                    else (),
+                    time_keys=period_mapping(current, baseline)[1] if design == "period" else None,
                     relationship=relationship,
                     verification=verification,
                 ),

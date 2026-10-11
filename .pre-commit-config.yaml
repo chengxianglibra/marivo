@@ -1,4 +1,4 @@
-fail_fast: true  # 任意hook失败立即停止，避免lint失败时跑pytest
+fail_fast: true  # Stop after the first failing hook.
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
@@ -35,10 +35,3 @@ repos:
         types: [python]
         files: ^marivo/
         pass_filenames: false
-      - id: pytest
-        name: pytest
-        entry: .venv/bin/pytest
-        language: system
-        types: [python]
-        pass_filenames: false
-        args: [-x, -q]

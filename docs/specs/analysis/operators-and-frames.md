@@ -346,8 +346,13 @@ changes give time comparison (period for two grids); only targets change give
 cohort comparison on common Group/Singleton coordinates. Identical captures or
 changes to both conditions reject. Period requires explicit
 `align=mv.exact(time=mv.ordinal())` or outer with that time key. Other comparisons
-forbid align.time. W1 grids are complete and equal-length and retain current's
-original bucket coordinates; outer may union only non-time coordinates.
+forbid align.time. Period output uses int64 aligned keys 1..N with no time_grid;
+both original time coordinates remain in correspondence projections. Exact requires
+equal aligned-key sets; outer keep unions complete composite keys even when either
+grid is longer. Empty finish rejects time keys outside the other observation window.
+Apply time grouping/rollup, runs, forecast and explicit lag correlation to original
+endpoints before comparing; selections retain this restriction while aligned keys
+survive. See [Period correspondence](timezone-and-calendar-design.md#period-correspondence).
 
 Present non-Defined operands propagate per Cell under every pairing (value
 policy `propagate`). When either operand is Null, Undefined or Unknown, the

@@ -395,7 +395,11 @@ occurrences. Averaging finished means/ratios is not original rollup. Direct
 distinct/quantile values retain no set/sketch or distribution rollup authority.
 
 Comparisons require compatible quantities, temporal design and complete typed
-correspondence. Predicates carry every referenced input, evaluate all children
+correspondence. Period comparison and time-mapped one_to_one ratios use aligned
+int64 keys 1..N without an output time_grid, retaining both original-time
+projections. Apply real-time operations to original endpoints before comparing;
+[Period correspondence](timezone-and-calendar-design.md#period-correspondence)
+owns coverage and continuation admission. Predicates carry every referenced input, evaluate all children
 and use method-specific Cell policies. References remain frozen. Ranking and
 tables are display operations; attribution is an algebraic allocation with
 complete endpoint/partition proof and independent reconciliation.

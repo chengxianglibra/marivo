@@ -29,13 +29,49 @@ marivo.help("analysis.dsl.one_to_one")
 Compare infers one changed condition from frozen target/time captures: only time
 changes compare periods; only targets change compare cohorts on common Group/Singleton
 coordinates. Identical captures or changing both conditions reject. Grid comparison
-requires explicit `align=mv.exact(time=mv.ordinal())`; W1 requires complete equal-length
-grids and retains current's original buckets. `mv.exact()` fixes checked correspondence;
+requires explicit `align=mv.exact(time=mv.ordinal())` or outer with that time key.
+The time position contains int64 aligned keys 1..N without a time_grid; both original
+times remain correspondence projections. Exact requires equal aligned-key sets;
+outer keep permits either grid to be longer. `mv.exact()` fixes checked correspondence;
 `mv.outer()` keeps missing sides by default, with explicit `missing="empty_value"` for
-admitted Metric empty finish. Both views read one Artifact without a new Run. Choose a
+admitted Metric empty finish. Construction rejects missing time keys: an unobserved
+window differs from no data inside an observed window. Use keep or adjust the windows. Both views read one Artifact without a new Run. Choose a
 view before numeric continuations. Absolute is current-baseline; relative is
 (current-baseline)/abs(baseline), dimensionless: -100 to -50 gives +0.5. Zero baseline
 makes only relative Undefined(zero_baseline); overflow/nonfinite values fail the Run.
+
+## Compare unequal periods
+
+Use the workflow's `customers` and `buyer`. Each group must retain its complete
+original grid; filtering cannot renumber buckets. This example outputs 1, 2 and 3;
+the third aligned key has Undefined(missing_side) in both views. `.show()` includes
+both original time coordinates.
+
+{/* example: period-coverage */}
+
+```python
+current_grid = mv.time_grid(
+    during=mv.time_scope(start="2026-08-01", end="2026-08-04"),
+    grain=mv.grain("day"), timezone="UTC",
+)
+baseline_grid = mv.time_grid(
+    during=mv.time_scope(start="2026-07-01", end="2026-07-03"),
+    grain=mv.grain("day"), timezone="UTC",
+)
+metric = ms.ref.metric("sales.order_count")
+current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.member(),))
+baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
+periods = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
+periods.show()
+selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
+```
+
+Aligned results, including selections or row statistics retaining an aligned
+coordinate, reject TimeGrid/Grain grouping, time rollup, runs, forecast and explicit
+lag correlation. Apply those operations to original endpoints before comparing.
+Ordinary selection, current-row statistics, valid membership continuation and
+admitted exact absolute attribution follow their own contracts. A one_to_one ratio
+with `time=mv.ordinal()` uses the same output shape with exact coverage.
 
 ## Continue a logical selection
 

@@ -292,7 +292,7 @@ def retain_endpoint_states(
     signature: Signature,
     parts: tuple[ExchangePart, ...],
     values: tuple[ExchangeResult, ...],
-    baseline_keys: dict[tuple[object, ...], tuple[object, ...]],
+    original_keys: tuple[dict[tuple[object, ...], tuple[object, ...]], ...],
 ) -> tuple[ExchangePart, ...]:
     output = []
     for p in parts:
@@ -329,7 +329,7 @@ def retain_endpoint_states(
         }
         identities = [tuple(r[k] for k in keys) for r in table.to_pylist()]
         identities = [
-            baseline_keys.get(k, k) if declaration.side == "baseline" else k for k in identities
+            original_keys[0 if declaration.side == "current" else 1].get(k, k) for k in identities
         ]
         for c in declaration.original_state.components:
             original = next(p.table for p in source.parts if p.role == "original_state")
@@ -359,7 +359,15 @@ def retain_endpoint_states(
                 for row in full.to_pylist()
                 if tuple(row[k] for k in keys) in mapping
             ]
-            remapped = pa.Table.from_pylist(selected, schema=full.schema)
+            remapped = pa.Table.from_pylist(
+                selected,
+                schema=pa.schema(
+                    pa.field(field.name, table.schema.field(field.name).type)
+                    if field.name in keys
+                    else field
+                    for field in full.schema
+                ),
+            )
             child = ExchangePart(
                 p.role + "_coordinates",
                 retain_coordinates(signature, p.role + "_coordinates", remapped, table),

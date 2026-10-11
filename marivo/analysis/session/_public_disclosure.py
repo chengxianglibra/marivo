@@ -784,9 +784,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 for name in ("left", "right", "via", "time")
             ),
             output="OneToOneCorrespondence",
-            constraints=(
-                "Requires complete retained relationship identity keys; no many-to-one, Union or node reuse.",
-            ),
+            constraints=(_doc_section(dsl.one_to_one, "Constraints"),),
             effects="Construct a bound correspondence without business reads or Run.",
             failures=("AnalysisError: follow the exact binding or retained-parts repair.",),
             example=ExampleInput(
