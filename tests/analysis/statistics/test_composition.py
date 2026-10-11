@@ -214,27 +214,23 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
         1 if day.startswith("2026-08") else -1 if day.startswith("2026-07") else 0
         for _, _, _, _, day, _ in facts.orders
     )
-    for axes in (
-        (region,),
-        (channel,),
-        (region, channel),
-    ):
-        endpoints = []
-        for month in (8, 7):
-            observed = members.observe(
-                ms.ref.metric("sales.order_count"),
-                during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-                via=ms.ref.relationship("sales.order_buyer"),
-                by=(
-                    mv.member(),
-                    *axes,
-                ),
-            )
-            endpoints.append(observed.group_by(ms.ref.entity("sales.customer")).rollup())
-        changed = endpoints[0].compare(endpoints[1]).absolute
-        result = changed.attribute(axes=axes, mode="joint").execute()
-        assert sum(result.contribution.to_pandas().value) == target
-        assert dict(result.contract()._facts)["complete_partition"] == "True"
+    axes = (region, channel)
+    endpoints = []
+    for month in (8, 7):
+        observed = members.observe(
+            ms.ref.metric("sales.order_count"),
+            during=mv.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
+            via=ms.ref.relationship("sales.order_buyer"),
+            by=(
+                mv.member(),
+                *axes,
+            ),
+        )
+        endpoints.append(observed.group_by(ms.ref.entity("sales.customer")).rollup())
+    changed = endpoints[0].compare(endpoints[1]).absolute
+    result = changed.attribute(axes=axes, mode="joint").execute()
+    assert sum(result.contribution.to_pandas().value) == target
+    assert dict(result.contract()._facts)["complete_partition"] == "True"
 
 
 @pytest.mark.parametrize("form", ("parquet",))

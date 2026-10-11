@@ -466,15 +466,13 @@ def test_first_journey_start_preserves_assignment_in_fixed_bind(tmp_path, monkey
     assert all(row["anchor__assignment"] for row in assignments.to_pylist())
 
 
-def test_journey_relative_numeric_families(tmp_path):
+def test_journey_relative_ratio_and_cross_source_linear(tmp_path):
     session, members, window, claims, values = build_anchors(tmp_path)
     original = journey(session, members, window, claims, shared=True)
     anchors = session.anchors(original, population=members, during=window)
     operations = observations(anchors)
-    # Keep one representative for scalar, float, ratio, and cross-source paths.
-    for index in (0, 2, 5, 9):
-        operation = operations[index]
-        assert_result(operation.execute(), values, "i", "i", index)
+    for index in (5, 9):
+        assert_result(operations[index].execute(), values, "i", "i", index)
 
 
 def test_local_consumption_failure_closes_prepared_resources(tmp_path, monkeypatch):

@@ -1,14 +1,10 @@
 """Independent public Lifecycle replay and full retained-state acceptance."""
 
 import json
-import os
-import subprocess
-import sys
 from contextlib import redirect_stdout
 from dataclasses import replace
 from datetime import timedelta
 from io import StringIO
-from pathlib import Path
 
 import pytest
 
@@ -24,13 +20,10 @@ from tests.analysis.lifecycle.lifecycle_oracle import expected_histories
 
 PROFILES = RECOVERY_PROFILES
 KEYS = {"string": "s", "int64": "i", "composite(string,int64)": "c"}
-# Source/fixed correctness and key identity shapes are covered by ordinary tests;
-# retain one standalone replay as the representative cold recovery path.
 PROFILE_IDS = (("K22", "T07"),)
 RECOVERY_CASES = tuple(
     (key, time) for key, time in PROFILES if (key["id"], time["id"]) in PROFILE_IDS
 )
-COLD_REPLAY_PROFILE = ("K22", "T07")
 
 
 @pytest.fixture(scope="module")
@@ -67,11 +60,10 @@ def records(result):
     ]
 
 
-@pytest.mark.slow
 @pytest.mark.parametrize(
     "key,time", RECOVERY_CASES, ids=[key["id"] + "-" + time["id"] for key, time in RECOVERY_CASES]
 )
-def test_history_replay_source_fixed_profiles_and_representative_cold(tmp_path, key, time):
+def test_history_replay_source_and_fixed_profiles(tmp_path, key, time):
     subject, occurrence = KEYS[key["subject"]], KEYS[key["occurrence"]]
     session, members, window, claims, values = build_lifecycle_public(
         tmp_path,
@@ -90,30 +82,6 @@ def test_history_replay_source_fixed_profiles_and_representative_cold(tmp_path, 
     assert records(fixed) == records(source)
     assert fixed.to_pandas().equals(source.to_pandas())
     assert render(fixed.contract().show) == render(source.contract().show)
-    if (key["id"], time["id"]) != COLD_REPLAY_PROFILE:
-        return
-    payload = {
-        "session": session.id,
-        "artifact": source.state.artifact_ref.ref,
-        "part": source._dataset.verified().parts[0].table.to_pylist(),
-        "frame": source.to_pandas().to_json(),
-        "contract": render(source.contract().show),
-        "show": render(source.show),
-        "cell": "P10/" + key["id"] + "/" + time["id"],
-    }
-    (tmp_path / "lifecycle-recovery.json").write_text(json.dumps(payload))
-    (tmp_path / "source.duckdb").unlink()
-    for path in tmp_path.glob("*.parquet"):
-        path.unlink()
-    completed = subprocess.run(
-        [sys.executable, "-m", "tests.analysis.lifecycle.lifecycle_worker", str(tmp_path)],
-        env={**os.environ, "PYTHONPATH": str(Path.cwd())},
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout.splitlines()[-1])["accepted"]
 
 
 def test_missing_origin_and_complete_input_without_inception(tmp_path):

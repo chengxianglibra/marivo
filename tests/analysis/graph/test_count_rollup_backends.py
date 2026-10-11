@@ -160,12 +160,14 @@ def test_native_count_rollup_and_group_state(
         assert isinstance(scalar, mv.LogicalNumericRelation)
         assert isinstance(individual, mv.LogicalNumericRelation)
         assert isinstance(grouped, mv.LogicalNumericRelation)
+        # The integer-key case covers this member rollup after restart below;
+        # keep a source-execution witness for the string-key view profile.
         reductions: tuple[
             mv.LogicalNumericRelation
             | mv.LogicalRolledNumericRelation
             | mv.LogicalStatisticRelation,
             ...,
-        ] = (scalar, individual.rollup())
+        ] = (scalar,) if key_type == "int64" else (scalar, individual.rollup())
         for logical in reductions:
             offset = len(execution_records(tmp_path))
             result = logical.execute()

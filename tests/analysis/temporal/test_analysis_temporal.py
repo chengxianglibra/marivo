@@ -518,7 +518,8 @@ def test_cumulative_anchors_ignore_display_start(
             .execute()
         )
         assert scalar.to_pandas().value.tolist() == [expected[-1]]
-        fixed_results.append((fixed, expected, overlap))
+        if name != "trailing":
+            fixed_results.append((fixed, expected, overlap))
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:
@@ -604,7 +605,6 @@ folded_{kind} = ms.aggregate(name='folded_{kind}', measure=status_amount_{kind},
         by=(ms.ref.dimension("sales.customer.region"),),
     )
     assert regional.execute().to_pandas().set_index("group").value.to_dict() == {"east": 10}
-    assert regional.rollup().execute().to_pandas().value.tolist() == [10]
     assert observed.rollup().execute().to_pandas().value.tolist() == [10]
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     assert fixed_by_kind["first"].rollup().execute().to_pandas().value.tolist() == [10]

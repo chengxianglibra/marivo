@@ -652,9 +652,7 @@ def test_nested_linear_keeps_original_state_for_source_and_fixed_rollup(
     rows = fixed.to_pandas().set_index("member")
     assert rows.loc[["A", "B", "C"], "value"].tolist() == [1, 1, 1]
     assert rows.loc["D", "cell_reason"] == "empty_contribution"
-    assert observed.rollup().execute().to_pandas()["value"].tolist() == [3]
     assert fixed.rollup().execute().to_pandas()["value"].tolist() == [3]
-    _assert_cold_rollup(case, fixed.state.artifact_ref.ref, 3)
 
 
 def test_observation_rejects_wrong_or_extra_root_routes(

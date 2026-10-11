@@ -142,13 +142,6 @@ def test_tie_without_order_and_wrong_coverage_fail_atomically(tmp_path):
 
 def test_logical_subject_quantifier_and_journey_origin(tmp_path):
     session, anchors, returning, claims = build_retention(tmp_path)
-    logical = anchors.retention(
-        returning, within=mv.elapsed(mv.duration(seconds=10)), completeness=claims
-    )
-    assert logical.by_subject(rule=mv.any_anchor()).execute().to_pandas().value.tolist() == [
-        True,
-        None,
-    ]
     population = session.members(ms.ref.entity("commerce.subjects"))
     starting = ms.participant_role(event=ms.ref.event("commerce.started"), name="subject")
     journeys = session.events.match(

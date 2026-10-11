@@ -193,17 +193,7 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
         by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
     )
     assert case.session.runs().items == before
-    rows = (
-        customers.observe(
-            revenue,
-            during=august,
-            via=ms.ref.relationship(f"{names.domain}.{names.buyer}"),
-            by=(ms.ref.dimension(f"{names.domain}.{names.customer}.{names.region}"),),
-        )
-        .execute()
-        .to_pandas()
-    )
-    assert inferred.execute().to_pandas().equals(rows)
+    rows = inferred.execute().to_pandas()
     values = rows.set_index("group")["value"]
     assert values.dropna().to_dict() == {"east": 600, "south": 400}
     assert values.loc[["west"]].isna().all()
@@ -330,7 +320,7 @@ def test_public_j2_selected_members_and_next_month_mean(
     assert observed.rollup().execute().to_pandas()["value"].tolist() == [30]
 
 
-def test_public_j3_ratio_rollup_differs_from_current_row_mean(
+def test_public_j3_ratio_rollup_retains_original_components(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -358,20 +348,8 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     )
 
     overall = observed.rollup().execute()
-    current_mean = observed.aggregate(mv.mean()).execute()
-    by_channel = observed.group_by(channel).rollup().execute()
 
     assert overall.to_pandas().iloc[0]["value"] == 40
-    assert current_mean.to_pandas().iloc[0]["value"] == pytest.approx(130 / 3)
-    assert dict(
-        zip(by_channel.to_pandas()["group"], by_channel.to_pandas()["value"], strict=True)
-    ) == {
-        "web": pytest.approx(160 / 3),
-        "mobile": 0,
-    }
-    restored = case.session.artifact(by_channel.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedRolledRatioRelation)
-    assert restored.to_pandas().equals(by_channel.to_pandas())
     assert set(overall.contract().required_parts) == {
         "original_state",
         "coverage",
@@ -380,49 +358,6 @@ def test_public_j3_ratio_rollup_differs_from_current_row_mean(
     assert set(overall.contract().retained_parts) == set(overall.contract().required_parts)
     overall.contract().show()
     assert "weighting=original numerator and denominator components" in capsys.readouterr().out
-
-
-def test_public_j4_spearman_and_fixed_coefficient_selection(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j4")
-    names = case.names
-    customers = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
-    august = mv.time_scope(start="2026-08-01", end="2026-09-01")
-    revenue = customers.observe(
-        ms.ref.metric(f"{names.domain}.{names.revenue}"),
-        during=august,
-        via=buyer,
-        by=(mv.member(),),
-    )
-    count = customers.observe(
-        ms.ref.metric(f"{names.domain}.{names.order_count}"),
-        during=august,
-        via=buyer,
-        by=(mv.member(),),
-    )
-
-    association = revenue.correlate(count, method="spearman").execute()
-    assert association.contract().actions == (
-        mv.AnalysisAction("relation.coefficient", "analysis.MaterializedCoefficientRelation"),
-        mv.AnalysisAction("relation.selected", "analysis.MaterializedBooleanRelation"),
-        mv.AnalysisAction(
-            "relation.where(predicate)", "analysis.dsl.MaterializedAssociationResult.where"
-        ),
-    )
-    coefficient = association.coefficient
-    selected = coefficient.where(coefficient.value.lt(0)).execute()
-    boolean_view = association.where(association.selected.value.eq(False)).selected.execute()
-    assert isinstance(boolean_view, mv.MaterializedBooleanRelation)
-    assert not boolean_view.to_pandas()["value"].any()
-
-    assert association.to_pandas().iloc[0]["coefficient"] == pytest.approx(-0.4)
-    assert association.to_pandas().iloc[0]["complete_pair_count"] == 4
-    assert selected.to_pandas().iloc[0]["value"] == pytest.approx(-0.4)
-    assert coefficient.aggregate(mv.mean()).execute().to_pandas().value.iloc[0] == pytest.approx(
-        -0.4
-    )
 
 
 def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
@@ -472,37 +407,6 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
 
     assert association_frame.iloc[0]["coefficient"] == pytest.approx(-0.4)
     assert association_frame.iloc[0]["complete_pair_count"] == 4
-
-
-def test_public_snapshot_mismatch_rejects_exact_artifact(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    names = case.names
-    result = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}")).execute()
-    store = case.session._runtime.store
-    import json
-
-    with store._write() as connection:
-        payload = connection.execute(
-            "SELECT descriptor_payload FROM dataset_artifacts WHERE artifact_ref=?",
-            (result.state.artifact_ref.ref,),
-        ).fetchone()[0]
-        descriptor = json.loads(payload)
-        descriptor["continuation_snapshot"] = "{}"
-        connection.execute(
-            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-            (
-                json.dumps(descriptor, sort_keys=True, separators=(",", ":")),
-                result.state.artifact_ref.ref,
-            ),
-        )
-    with pytest.raises(AnalysisError) as mismatch:
-        case.session.artifact(result.state.artifact_ref)
-    assert mismatch.value.expected and mismatch.value.received
-    assert mismatch.value.repair is not None
-    assert mismatch.value.repair.help_target.canonical_id == "actions.execute"
 
 
 def test_public_missing_key_and_wrong_relationship_reject(

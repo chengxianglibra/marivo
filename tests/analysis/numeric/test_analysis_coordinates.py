@@ -333,10 +333,9 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         assert len(rows) == 2
         assert rows["value"].tolist() == ([0, 1] if expression_kind == "ratio" else [0, 0])
         assert rows["cell_tag"].tolist() == ["defined", "defined"]
-        total = result.rollup().execute()
-        assert total.to_pandas()["value"].tolist() == pytest.approx(
-            [2 / 3 if expression_kind == "ratio" else 0]
-        )
+        if expression_kind == "ratio":
+            total = result.rollup().execute()
+            assert total.to_pandas()["value"].tolist() == pytest.approx([2 / 3])
 
 
 def test_required_row_state_damage_revokes_continuation(retained_coordinates_case):

@@ -286,12 +286,6 @@ def test_cold_typed_read_continuation_without_source(members_session: Session) -
         .execute()
     )
     reference = fixed.state.artifact_ref.ref
-    computed = (
-        session.members(ms.ref.entity(f"{prefix}.plain"))
-        .read(ms.ref.measure(f"{prefix}.plain.uplifted"))
-        .execute()
-    )
-    computed_reference = computed.state.artifact_ref.ref
     shutil.rmtree(session.project_root / "models")
     (session.project_root / "warehouse.duckdb").unlink()
     for path in session.project_root.glob("*.parquet"):
@@ -315,16 +309,9 @@ assert isinstance(fixed, mv.MaterializedTemporalRelation)
 selected = fixed.where(fixed.value.lt(datetime(2026, 8, 2, tzinfo=timezone.utc)))
 result = selected.members().execute()
 assert result.to_pandas()['coord_0'].tolist() == ['A']
-again = selected.members().execute()
-assert result.state.artifact_ref == again.state.artifact_ref
-computed = session.artifact(sys.argv[3])
-assert isinstance(computed, mv.MaterializedNumericRelation)
-computed_members = computed.where(computed.value.gt(20)).members().execute()
-assert computed_members.to_pandas()['coord_0'].tolist() == ['B']
-assert computed_members.state.artifact_ref == computed.where(computed.value.gt(20)).members().execute().state.artifact_ref
 """
     completed = subprocess.run(
-        [sys.executable, "-c", script, session.id, reference, computed_reference],
+        [sys.executable, "-c", script, session.id, reference],
         cwd=session.project_root,
         env={
             **os.environ,

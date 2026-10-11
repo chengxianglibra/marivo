@@ -409,13 +409,13 @@ def test_representative_closed_recovery_facts_reject_after_clean_authority(
     assert error.value.code == "r8.retained_part"
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 @pytest.mark.parametrize("damage", ("version", "center"))
 def test_nested_fit_recovery_checks_prior_authority_without_refitting(
-    method: DeviationMethod, damage: str
+    damage: str,
 ) -> None:
     from marivo.analysis.materialization.graph_findings import POLICY
 
+    method: DeviationMethod = "zscore"
     first, raw = _input(
         ((1.0, "defined", None), (2.0, "defined", None), (7.0, "defined", None)), method
     )

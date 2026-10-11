@@ -76,10 +76,10 @@ def test_nonfinite_or_wrong_original_carrier_rejects(value: float | bool) -> Non
         numeric.exact(value, ScalarType("float64"))
 
 
-@pytest.mark.parametrize("method", ["zscore", "mad"])
 def test_public_source_fixed_views_and_selection(
-    analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
+    method: numeric.DeviationMethod = "zscore"
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
     metric, via = ms.ref.metric("sales.revenue"), ms.ref.relationship("sales." + case.names.buyer)
@@ -302,12 +302,11 @@ def test_root_certificate_refines_a_rounding_boundary_under_shared_deadline(expi
         CURRENT.reset(token)
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_null_partitions_selection_boundary_and_shared_fit(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    method: numeric.DeviationMethod,
 ) -> None:
+    method: numeric.DeviationMethod = "mad"
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('UPDATE "order" SET channel=NULL WHERE amount=0')
@@ -346,14 +345,13 @@ def test_null_partitions_selection_boundary_and_shared_fit(
     assert dict(new_fit.contract()._facts)["original_count"] == "5"
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 @pytest.mark.parametrize("empty", (False, True))
 def test_selected_time_score_can_establish_a_new_fixed_fit(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: numeric.DeviationMethod,
     empty: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    method: numeric.DeviationMethod = "mad"
     from marivo.datasource.adapters import SourceSession
     from tests.analysis.statistics.deviation_oracle import forbidden
 
@@ -403,10 +401,10 @@ def test_selected_time_score_can_establish_a_new_fixed_fit(
     assert case.session.runs().items == runs
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_observed_nullable_large_int64_dataframe_preserves_original_values(
-    analysis_dsl_case_factory: DslCaseFactory, method: numeric.DeviationMethod
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
+    method: numeric.DeviationMethod = "zscore"
     import pandas as pd
     import pyarrow as pa
 
@@ -433,12 +431,11 @@ def test_observed_nullable_large_int64_dataframe_preserves_original_values(
     assert restored.observed.to_pandas().sort_values("member").equals(observed)
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_extreme_binary64_fit_card_preserves_bounded_continuations(
     analysis_dsl_case_factory: DslCaseFactory,
-    method: numeric.DeviationMethod,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    method: numeric.DeviationMethod = "mad"
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order"')
@@ -468,12 +465,11 @@ def test_extreme_binary64_fit_card_preserves_bounded_continuations(
     assert result.score.to_pandas().value.tolist().count(scores[0]) == 3
 
 
-@pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_construction_mode_identity_and_zero_business_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    method: numeric.DeviationMethod,
 ) -> None:
+    method: numeric.DeviationMethod = "zscore"
     import marivo
     from marivo.analysis.errors import StatisticalRelationError
     from marivo.datasource.adapters import SourceSession

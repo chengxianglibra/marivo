@@ -77,16 +77,29 @@ calendar = ms.period_calendar(name='retail', date=day, boundary_timezone='Asia/S
 """
 
 
-@pytest.fixture
-def catalog(semantic_project_factory: Factory) -> ms.SemanticCatalog:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Owner')\n",
-            "sales/models.py": textwrap.dedent(_MODEL),
-            "commerce/_domain.py": "import marivo.semantic as ms\nms.domain(name='commerce', owner='Owner')\n",
-            "commerce/calendar.py": textwrap.dedent(_CALENDAR),
-        }
+@pytest.fixture(scope="module")
+def catalog(tmp_path_factory: pytest.TempPathFactory) -> ms.SemanticCatalog:
+    workspace = tmp_path_factory.mktemp("semantic-definition")
+    semantic_root = workspace / "models" / "semantic"
+    files = {
+        "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Owner')\n",
+        "sales/models.py": textwrap.dedent(_MODEL),
+        "commerce/_domain.py": "import marivo.semantic as ms\nms.domain(name='commerce', owner='Owner')\n",
+        "commerce/calendar.py": textwrap.dedent(_CALENDAR),
+    }
+    for relative_path, content in files.items():
+        path = semantic_root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    datasource_path = workspace / "models" / "datasources" / "warehouse.py"
+    datasource_path.parent.mkdir(parents=True, exist_ok=True)
+    datasource_path.write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
     )
+    (workspace / "marivo.toml").write_text('[project]\nname = "test"\n')
+
+    project = SemanticProject(workspace_dir=workspace)
+    project.load()
     assert not project.errors(), project.errors()
     return ms.SemanticCatalog(project)
 
@@ -287,36 +300,32 @@ def test_loaded_reads_do_not_execute(
                 )
 
 
-@pytest.mark.parametrize(
-    ("name", "status"),
-    [
-        ("total", "not_applicable"),
-        ("custom", "not_applicable"),
-        ("repeated", "not_applicable"),
-        ("gross_profit", "not_applicable"),
-        ("nested_profit", "not_applicable"),
-        ("ratio", "component_defined"),
-        ("all_time", "component_defined"),
-        ("mtd", "component_defined"),
-        ("state_linear", "component_defined"),
-        ("ratio_linear", "component_defined"),
-        ("cumulative_linear", "component_defined"),
-        ("percentile_linear", "component_defined"),
-    ],
-)
-def test_temporal_composition_classification(
-    catalog: ms.SemanticCatalog, name: str, status: str
-) -> None:
-    definition = catalog.metrics.get(f"sales.{name}").details().definition
-    assert definition.to_dict()["temporal"] == {
-        "declared": {"status": "not_declared"},
-        "override": {"status": "not_declared"},
-        "effective": {"status": status},
+def test_temporal_composition_classification(catalog: ms.SemanticCatalog) -> None:
+    statuses = {
+        "total": "not_applicable",
+        "custom": "not_applicable",
+        "repeated": "not_applicable",
+        "gross_profit": "not_applicable",
+        "nested_profit": "not_applicable",
+        "ratio": "component_defined",
+        "all_time": "component_defined",
+        "mtd": "component_defined",
+        "state_linear": "component_defined",
+        "ratio_linear": "component_defined",
+        "cumulative_linear": "component_defined",
+        "percentile_linear": "component_defined",
     }
-    assert definition.temporal.source == status
-    assert definition.temporal.effective is None
-    assert status in definition.render()
-    assert definition.catalog_definition_fingerprint == catalog.definition_fingerprint
+    for name, status in statuses.items():
+        definition = catalog.metrics.get(f"sales.{name}").details().definition
+        assert definition.to_dict()["temporal"] == {
+            "declared": {"status": "not_declared"},
+            "override": {"status": "not_declared"},
+            "effective": {"status": status},
+        }
+        assert definition.temporal.source == status
+        assert definition.temporal.effective is None
+        assert status in definition.render()
+        assert definition.catalog_definition_fingerprint == catalog.definition_fingerprint
 
 
 def test_temporal_description_preserves_component_rules(catalog: ms.SemanticCatalog) -> None:
@@ -347,17 +356,19 @@ def test_temporal_description_preserves_component_rules(catalog: ms.SemanticCata
         }
 
 
-@pytest.mark.parametrize("metric", ["sales.nested_profit", "sales.ratio", "sales.all_time"])
-def test_missing_temporal_dependency_fails_closed(catalog: ms.SemanticCatalog, metric: str) -> None:
+def test_missing_temporal_dependency_fails_closed(catalog: ms.SemanticCatalog) -> None:
     from marivo.semantic._definition_projection import temporal_rules
 
-    metrics = dict(catalog._reg.metrics)
-    del metrics["sales.total"]
-    registry = replace(catalog._reg, metrics=metrics)
-    with pytest.raises(ms.SemanticDefinitionReadError, match="cannot be described safely") as exc:
-        temporal_rules(registry.metrics[metric], registry)
-    assert exc.value.received == "missing temporal component metric:sales.total"
-    assert exc.value.expected and exc.value.location and exc.value.repair
+    for metric in ("sales.nested_profit", "sales.ratio", "sales.all_time"):
+        metrics = dict(catalog._reg.metrics)
+        del metrics["sales.total"]
+        registry = replace(catalog._reg, metrics=metrics)
+        with pytest.raises(
+            ms.SemanticDefinitionReadError, match="cannot be described safely"
+        ) as exc:
+            temporal_rules(registry.metrics[metric], registry)
+        assert exc.value.received == "missing temporal component metric:sales.total"
+        assert exc.value.expected and exc.value.location and exc.value.repair
 
 
 def test_temporal_classification_checks_leaf_rules(catalog: ms.SemanticCatalog) -> None:
@@ -419,36 +430,38 @@ def test_temporal_read_preserves_calculation_graph(catalog: ms.SemanticCatalog) 
     assert catalog.definition_fingerprint == fingerprint
 
 
-@pytest.mark.parametrize("shape", ["depth", "width"])
-def test_temporal_classification_is_bounded(catalog: ms.SemanticCatalog, shape: str) -> None:
+def test_temporal_classification_is_bounded(catalog: ms.SemanticCatalog) -> None:
     from marivo.semantic._definition_projection import temporal_rules
     from marivo.semantic.ir import LinearComposition, LinearTerm, RatioComposition
     from marivo.semantic.metric_graph import MAX_EXPRESSION_DEPTH, MAX_EXPRESSION_OCCURRENCES
 
-    metrics = dict(catalog._reg.metrics)
-    root = metrics["sales.ratio"]
-    if shape == "depth":
-        for index in range(MAX_EXPRESSION_DEPTH):
+    for shape in ("depth", "width"):
+        metrics = dict(catalog._reg.metrics)
+        root = metrics["sales.ratio"]
+        if shape == "depth":
+            for index in range(MAX_EXPRESSION_DEPTH):
+                root = replace(
+                    root,
+                    semantic_id=f"sales.nested_{index}",
+                    composition=RatioComposition(
+                        numerator=root.semantic_id, denominator="sales.total"
+                    ),
+                )
+                metrics[root.semantic_id] = root
+        else:
             root = replace(
                 root,
-                semantic_id=f"sales.nested_{index}",
-                composition=RatioComposition(numerator=root.semantic_id, denominator="sales.total"),
+                composition=LinearComposition(
+                    terms=tuple(
+                        LinearTerm(sign="+", metric="sales.total")
+                        for _ in range(MAX_EXPRESSION_OCCURRENCES)
+                    )
+                ),
             )
-            metrics[root.semantic_id] = root
-    else:
-        root = replace(
-            root,
-            composition=LinearComposition(
-                terms=tuple(
-                    LinearTerm(sign="+", metric="sales.total")
-                    for _ in range(MAX_EXPRESSION_OCCURRENCES)
-                )
-            ),
-        )
-    registry = replace(catalog._reg, metrics=metrics)
-    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
-        temporal_rules(root, registry)
-    assert "depth or occurrence limits" in exc.value.received
+        registry = replace(catalog._reg, metrics=metrics)
+        with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+            temporal_rules(root, registry)
+        assert "depth or occurrence limits" in exc.value.received
 
 
 def test_definition_help(catalog: ms.SemanticCatalog, capsys: pytest.CaptureFixture[str]) -> None:
@@ -499,20 +512,15 @@ def test_nonfinite_filter_fails_with_safe_typed_error(catalog: ms.SemanticCatalo
     assert "reload" in exc.value.repair.action.lower()
 
 
-@pytest.mark.parametrize(
-    "value",
-    [float("nan"), float("inf"), float("-inf"), ("east", float("nan"))],
-)
-def test_nonfinite_filter_is_rejected_during_authoring(
-    value: str | int | float | bool | tuple[str | int | float | bool, ...],
-) -> None:
+def test_nonfinite_filter_is_rejected_during_authoring() -> None:
     from marivo.semantic.errors import SemanticDecoratorError
 
-    with pytest.raises(SemanticDecoratorError) as exc:
-        ms.where(region=value)
-    assert exc.value.kind == "invalid_filter"
-    assert exc.value.expected and exc.value.received
-    assert exc.value.repair is not None and exc.value.repair.kind == "reauthor"
+    for value in (float("nan"), float("inf"), float("-inf"), ("east", float("nan"))):
+        with pytest.raises(SemanticDecoratorError) as exc:
+            ms.where(region=value)
+        assert exc.value.kind == "invalid_filter"
+        assert exc.value.expected and exc.value.received
+        assert exc.value.repair is not None and exc.value.repair.kind == "reauthor"
 
 
 def test_expression_operator_tokens_are_syntax_faithful() -> None:
@@ -569,9 +577,8 @@ def test_details_full_render_propagates_definition_budget(
     assert "pass max_output_bytes=None for full output" in bounded
 
 
-@pytest.mark.parametrize(
-    ("expression", "kind"),
-    [
+def test_supported_expression_matrix(semantic_project_factory: Factory) -> None:
+    cases = [
         ('t["amount"]', "column"),
         ("+t.amount", "unary"),
         ("-t.amount", "unary"),
@@ -585,28 +592,35 @@ def test_details_full_render_propagates_definition_budget(
         ("(t.amount > 0) ^ (t.other == 9)", "binary"),
         ('t.amount.cast("int64")', "cast"),
         ("(t.amount > 0).ifelse(t.amount, None)", "ifelse"),
-    ],
-)
-def test_supported_expression_matrix(
-    semantic_project_factory: Factory, expression: str, kind: str
-) -> None:
+    ]
+    definitions = "\n\n".join(
+        f"@ms.dimension(name='value_{index}', entity=rows)\n"
+        f"def value_{index}(t):\n    return {expression}"
+        for index, (expression, _) in enumerate(cases)
+    )
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Owner')\n",
-            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nrows=ms.entity(name='rows', datasource=ms.ref.datasource('warehouse'), source=md.table('rows'))\n@ms.dimension(entity=rows)\ndef value(t):\n    return "
-            + expression
-            + "\n",
+            "sales/models.py": (
+                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                "rows=ms.entity(name='rows', datasource=ms.ref.datasource('warehouse'), "
+                "source=md.table('rows'))\n" + definitions + "\n"
+            ),
         }
     )
-    definition = ms.SemanticCatalog(project).dimensions.get("sales.rows.value").details().definition
-    assert definition.node.kind == "expression" and definition.node.status == "supported"
-    assert definition.node.expression.kind == kind
-    payload = definition.to_dict()["node"]
-    assert isinstance(payload, dict)
-    display = payload["display"]
-    assert isinstance(display, dict)
-    assert display["form"] == "normalized_ibis"
-    assert isinstance(display["text"], str)
+    catalog = ms.SemanticCatalog(project)
+    for index, (expression, kind) in enumerate(cases):
+        definition = catalog.dimensions.get(f"sales.rows.value_{index}").details().definition
+        assert definition.node.kind == "expression" and definition.node.status == "supported", (
+            expression
+        )
+        assert definition.node.expression.kind == kind, expression
+        payload = definition.to_dict()["node"]
+        assert isinstance(payload, dict), expression
+        display = payload["display"]
+        assert isinstance(display, dict), expression
+        assert display["form"] == "normalized_ibis", expression
+        assert isinstance(display["text"], str), expression
 
 
 def test_projection_does_not_change_fingerprint(
@@ -657,25 +671,26 @@ def test_unknown_loaded_composition_is_a_read_error(catalog: ms.SemanticCatalog)
     assert exc.value.received == "unknown metric composition"
 
 
-@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
 def test_nonfinite_expression_literal_fails_with_typed_error(
-    catalog: ms.SemanticCatalog, value: float
+    catalog: ms.SemanticCatalog,
 ) -> None:
     definition = catalog.dimensions.get("sales.rows.literal_values").details().definition
     assert definition.node.kind == "expression" and definition.node.status == "supported"
     expression = definition.node.expression
     assert expression.kind == "ifelse" and expression.when_true.kind == "literal"
-    bad = replace(
-        definition,
-        node=replace(
-            definition.node,
-            expression=replace(
-                expression, when_true=replace(expression.when_true, value_type="float", value=value)
+    for value in (float("nan"), float("inf"), float("-inf")):
+        bad = replace(
+            definition,
+            node=replace(
+                definition.node,
+                expression=replace(
+                    expression,
+                    when_true=replace(expression.when_true, value_type="float", value=value),
+                ),
             ),
-        ),
-    )
-    with pytest.raises(ms.SemanticDefinitionReadError) as exc:
-        bad.to_dict()
-    assert exc.value.semantic_refs == (definition.ref.key,)
-    assert exc.value.repair is not None
-    assert exc.value.repair.kind == "reauthor"
+        )
+        with pytest.raises(ms.SemanticDefinitionReadError) as exc:
+            bad.to_dict()
+        assert exc.value.semantic_refs == (definition.ref.key,)
+        assert exc.value.repair is not None
+        assert exc.value.repair.kind == "reauthor"

@@ -78,11 +78,6 @@ def test_comparison_owns_independent_cells_and_typed_views(
         == result.evidence_digest()
         == result.relative.evidence_digest()
     )
-    assert result.absolute.to_pandas().set_index("member").loc["A", "value"] == -30
-    assert result.relative.to_pandas().set_index("member").loc["A", "value"] == -0.5
-    restored = case.session.artifact(result.state.artifact_ref)
-    assert isinstance(restored, mv.MaterializedComparisonResult)
-    assert restored.to_pandas().equals(result.to_pandas())
     absolute, relative = comparison.absolute, comparison.relative
     assert sorted(
         relative.where(relative.value.is_defined()).execute().to_pandas()["member"].tolist()

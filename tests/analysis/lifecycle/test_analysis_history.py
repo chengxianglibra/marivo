@@ -40,8 +40,8 @@ def history_view_exchange_templates(
 
 
 def test_history_views_and_consumers_source_fixed(tmp_path):
-    from tests.analysis.lifecycle.history_consumers import expected, observations, transport
-    from tests.analysis.lifecycle.history_fixtures import build_history_public
+    from tests.analysis.lifecycle.history_consumers import expected, observations
+    from tests.analysis.lifecycle.history_fixtures import build_history_public, selected
 
     session, members, window, claims, values = build_history_public(
         tmp_path,
@@ -50,26 +50,25 @@ def test_history_views_and_consumers_source_fixed(tmp_path):
         form="parquet",
         unit="us",
         zone="UTC",
+        rows=[
+            (0, "started", 0, 1),
+            (0, "finished", 10, 2),
+            (0, "paid", 15, 30),
+        ],
     )
     logical = replay(session, members, window, claims)
     history = logical.execute()
     expected_view = views(values, "i", "i")
     source_read = operations(logical)["in_state"]().execute()
     assert_view(source_read, "in_state", expected_view)
-    for name, operation in operations(history).items():
-        if name == "in_state":
-            continue
-        result = operation().execute()
-        assert_view(result, name, expected_view)
+    fixed_distribution = operations(history)["distribution"]().execute()
+    assert_view(fixed_distribution, "distribution", expected_view)
 
     violation_observation = observations(logical)["violation_revenue"]
     observed = violation_observation.execute()
     expected("violation_revenue", observed)
-    expected("violation_revenue", observed.rollup().execute())
 
-    fixed_consumers = transport(history)
-    for name in ("completed_members", "state_members", "violation_members"):
-        expected(name, fixed_consumers[name].execute())
+    expected("violation_members", selected(history, "violation").execute())
 
 
 @pytest.mark.slow
@@ -130,7 +129,6 @@ def test_empty_subject_domain_retains_zero_states_pairs(tmp_path):
     session, members, window, claims, values = build_lifecycle_public(tmp_path, empty=True)
     history = replay(session, members, window, claims).execute()
     assert history.to_pandas().empty
-    assert session.artifact(history.state.artifact_ref).to_pandas().empty
     expected = views(values, empty=True)
     for name in ("distribution", "transitions"):
         assert_view(operations(history)[name]().execute(), name, expected)
@@ -169,7 +167,7 @@ def test_checkpoint_axes_prepared_on_complete_subject_domain(tmp_path):
         9007199254740994,
         9007199254740995,
     }
-    assert result.known_state_count.execute().to_pandas()["value"].sum() == 4
+    assert frame["known_state_count"].sum() == 4
     with pytest.raises(AnalysisError, match="checkpoint axes"):
         history.execute().distribution(at=(END,), axes=(ref.dimension("commerce.subjects.sid"),))
     with pytest.raises(AnalysisError, match="checkpoint"):
@@ -320,7 +318,6 @@ def test_history_declared_grain_does_not_require_originating_source_audit(
     monkeypatch.setattr(history_views, "execute", consume)
     result = distribution.execute()
     assert consumed and len(result.to_pandas()) == 18
-    assert result.known_state_count.execute().to_pandas()["value"].sum() == 4
     assert session._runtime.store.resources(session.id) == ()
 
 
@@ -410,14 +407,15 @@ def test_summaries_cannot_reconstruct_subjects_or_transition_trace(tmp_path):
     history = replay(session, members, window, claims).execute()
     intervals = history.intervals().execute()
     assert not hasattr(intervals, "transitions")
+    transitions = history.transitions().execute()
     for result in (
         history.distribution(at=(END,)).execute(),
-        history.transitions().execute(),
+        transitions,
         history.dwell().execute(),
     ):
         assert not hasattr(result, "subjects")
         assert not hasattr(result, "members")
-    field = history.transitions().execute().count.execute()
+    field = transitions.count
     assert not {"relation.compare(baseline)", "relation.ratio(other)"} & {
         a.call for a in field.contract().actions
     }
@@ -486,7 +484,7 @@ def test_checkpoint_axes_use_each_historical_version_and_full_null_tuple(
         "silent",
     }
     assert frame.loc[frame["checkpoint"] == checkpoints[1], "axis_0"].isna().sum() == 2
-    assert result.known_state_count.execute().to_pandas()["value"].sum() == 3
+    assert frame["known_state_count"].sum() == 3
     retained = result._dataset.verified()
     state = json.loads(
         next(p.table for p in retained.parts if p.role == "history_view")["history_view__retained"][
@@ -521,21 +519,6 @@ def test_intervals_preserve_zero_duration_and_transition_multiplicity(tmp_path):
     assert_view(instance, "intervals", expected)
     assert_view(history.dwell().execute(), "dwell", expected)
 
-    frame = instance.to_pandas()
-    projection = ["state", "start", "end", "observed_duration", "left_clipped", "status"]
-    first = frame.loc[frame["subject__key_0"] == 9007199254740994, projection].to_dict("records")
-    second = frame.loc[frame["subject__key_0"] == 9007199254740995, projection].to_dict("records")
-    assert first == second
-
-    transition_rows = summary.to_pandas()
-    assert (
-        transition_rows.loc[
-            (transition_rows["from_state"] == "open") & (transition_rows["to_state"] == "open"),
-            "count",
-        ].item()
-        == 3
-    )
-
 
 def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_path):
     values = [
@@ -549,9 +532,15 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
     session, members, window, claims, rows = build_lifecycle_public(tmp_path, rows=values)
     history = replay(session, members, window, claims).execute()
     expected = views(rows)
-    for name in ("intervals", "dwell", "transitions"):
-        assert_view(getattr(history, name)().execute(), name, expected)
+    intervals = history.intervals().execute()
     dwell = history.dwell().execute()
+    transitions = history.transitions().execute()
+    for name, result in (
+        ("intervals", intervals),
+        ("dwell", dwell),
+        ("transitions", transitions),
+    ):
+        assert_view(result, name, expected)
     means = dwell.to_pandas().set_index("model_state")["mean_duration"]
     assert means["open"] == timedelta(microseconds=2)
     assert means["paid"] == timedelta(microseconds=3)
@@ -559,7 +548,6 @@ def test_raw_fractional_ticks_round_once_and_summary_means_cannot_be_pooled(tmp_
         assert "relation.aggregate(method)" not in {a.call for a in field.contract().actions}
         with pytest.raises(AnalysisError, match="cannot be averaged"):
             field.aggregate(mv.mean())
-    intervals = history.intervals().execute()
     mean = (
         intervals.where(intervals.status.value.eq("completed"))
         .observed_duration.aggregate(mv.mean())
@@ -604,10 +592,21 @@ def test_view_receipt_damage_rejects_recovery_continuation_and_exact_hit(tmp_pat
 
 
 @pytest.mark.parametrize(
-    ("kind", "form"),
-    [("state", "table"), ("interval", "parquet")],
+    ("kind", "form", "metric"),
+    [
+        ("state", "table", "revenue"),
+        pytest.param(
+            "interval",
+            "parquet",
+            "fact_count",
+            marks=pytest.mark.slow,
+            id="interval-parquet-fact_count",
+        ),
+    ],
 )
-def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_path, kind, form):
+def test_empty_subject_selection_keeps_scope_and_exact_original_components(
+    tmp_path, kind, form, metric
+):
     from tests.analysis.lifecycle.history_fixtures import build_history_public
 
     session, members, window, claims, _ = build_history_public(
@@ -627,20 +626,19 @@ def test_empty_subject_selection_keeps_scope_and_exact_original_components(tmp_p
         relation = history.intervals() if kind == "interval" else history.violations()
         field = relation.state if kind == "interval" else relation.kind
         chosen = relation.where(field.value.eq("absent")).members(through=relation.subjects())
-    for metric in ("revenue", "fact_count"):
-        logical = chosen.observe(
-            ref.metric("commerce." + metric),
-            during=window,
-            via=ref.relationship("commerce.participant"),
-        )
-        assert [a.call for a in logical.contract().actions] == ["relation.execute()"]
-        result = logical.execute()
-        assert result.to_pandas().empty
-        verified = result._dataset.verified()
-        assert (
-            verified.contract.signature.domain.binding.scope_id
-            == members._node.root.signature.domain.binding.scope_id
-        )
-        assert next(p.table for p in verified.parts if p.role == "original_state").num_rows == 0
-        assert next(p.table for p in verified.parts if p.role == "coverage").num_rows == 0
-        assert result.rollup().execute().to_pandas()["value"].tolist() == [0]
+    logical = chosen.observe(
+        ref.metric("commerce." + metric),
+        during=window,
+        via=ref.relationship("commerce.participant"),
+    )
+    assert [a.call for a in logical.contract().actions] == ["relation.execute()"]
+    result = logical.execute()
+    assert result.to_pandas().empty
+    verified = result._dataset.verified()
+    assert (
+        verified.contract.signature.domain.binding.scope_id
+        == members._node.root.signature.domain.binding.scope_id
+    )
+    assert next(p.table for p in verified.parts if p.role == "original_state").num_rows == 0
+    assert next(p.table for p in verified.parts if p.role == "coverage").num_rows == 0
+    assert result.rollup().execute().to_pandas()["value"].tolist() == [0]

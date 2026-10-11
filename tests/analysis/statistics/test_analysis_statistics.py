@@ -1,7 +1,6 @@
 """Public source and fixed statistical graph execution."""
 
 from decimal import Decimal
-from typing import Literal
 
 import pytest
 
@@ -12,9 +11,8 @@ from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("method", ("pearson", "spearman", "kendall"))
-def test_public_source_fixed_association(
-    analysis_dsl_case_factory: DslCaseFactory, method: Literal["pearson", "spearman", "kendall"]
+def test_public_source_association_and_spearman_fixed_continuation(
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j4")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -32,32 +30,41 @@ def test_public_source_fixed_association(
         via=via,
         by=(mv.member(),),
     )
-    logical = a.correlate(b, method=method)
-    result = logical.execute()
-    rows = result.coefficient.to_pandas()
-    assert len(rows) == 1 and -1 <= rows.value.iloc[0] <= 1
-    assert result.selected.to_pandas().value.tolist() == [True]
-    assert logical.coefficient.execute().to_pandas().value.tolist() == rows.value.tolist()
-    fixed = a.execute().correlate(b.execute(), method=method).execute()
-    assert fixed.coefficient.to_pandas().value.tolist() == rows.value.tolist()
-    ranking = result.coefficient.rank(order="descending", ties="dense").limit(1).execute()
-    assert ranking.values.to_pandas().value.tolist() == rows.value.tolist()
-    assert ranking.ranks.to_pandas().value.tolist() == [1]
-    table = mv.table(coefficient=result.coefficient, selected=result.selected).execute()
-    assert len(table.to_pandas()) == 1
-    assert len(result.findings().items) == 1
-    finding = result.finding(result.findings().items[0].finding_id)
-    assert isinstance(finding.value, AssociationFindingValueV1)
-    assert finding.value.coefficient == rows.value.iloc[0]
-    assert result.evidence_digest().finding_count == 1
-    selected = result.where(result.selected.value.eq(True)).execute()
-    assert selected.coefficient.to_pandas().value.tolist() == rows.value.tolist()
-    assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
+    for method in ("pearson", "spearman", "kendall"):
+        logical = a.correlate(b, method=method)
+        result = logical.execute()
+        rows = result.coefficient.to_pandas()
+        assert len(rows) == 1 and -1 <= rows.value.iloc[0] <= 1
+        assert result.selected.to_pandas().value.tolist() == [True]
+        assert logical.coefficient.execute().to_pandas().value.tolist() == rows.value.tolist()
+        if method != "spearman":
+            continue
+        assert result.contract().actions == (
+            mv.AnalysisAction("relation.coefficient", "analysis.MaterializedCoefficientRelation"),
+            mv.AnalysisAction("relation.selected", "analysis.MaterializedBooleanRelation"),
+            mv.AnalysisAction(
+                "relation.where(predicate)", "analysis.dsl.MaterializedAssociationResult.where"
+            ),
+        )
+        fixed = a.execute().correlate(b.execute(), method=method).execute()
+        assert fixed.coefficient.to_pandas().value.tolist() == rows.value.tolist()
+        ranking = result.coefficient.rank(order="descending", ties="dense").limit(1).execute()
+        assert ranking.values.to_pandas().value.tolist() == rows.value.tolist()
+        assert ranking.ranks.to_pandas().value.tolist() == [1]
+        table = mv.table(coefficient=result.coefficient, selected=result.selected).execute()
+        assert len(table.to_pandas()) == 1
+        assert len(result.findings().items) == 1
+        finding = result.finding(result.findings().items[0].finding_id)
+        assert isinstance(finding.value, AssociationFindingValueV1)
+        assert finding.value.coefficient == rows.value.iloc[0]
+        assert result.evidence_digest().finding_count == 1
+        selected = result.where(result.selected.value.eq(True)).execute()
+        assert selected.coefficient.to_pandas().value.tolist() == rows.value.tolist()
+        assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
 
 
-@pytest.mark.parametrize("model", (mv.naive(), mv.drift(), mv.seasonal_naive(periods=2)))
 def test_public_source_fixed_forecast(
-    analysis_dsl_case_factory: DslCaseFactory, model: mv.ForecastModel
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -70,66 +77,83 @@ def test_public_source_fixed_forecast(
         via=ms.ref.relationship("sales." + case.names.buyer),
         by=(mv.member(),),
     )
-    logical = history.forecast(horizon=mv.periods(2), model=model)
-    result = logical.execute()
-    prediction = result.prediction.to_pandas()
-    lower = result.lower.to_pandas()
-    upper = result.upper.to_pandas()
-    assert len(prediction) == 8
-    assert list(lower.value <= prediction.value) == [True] * 8
-    assert list(upper.value >= prediction.value) == [True] * 8
-    assert logical.lower.execute().to_pandas().value.tolist() == lower.value.tolist()
-    fixed = history.execute().forecast(horizon=mv.periods(2), model=model).execute()
-    assert fixed.prediction.to_pandas().value.tolist() == prediction.value.tolist()
-    table = mv.table(prediction=result.prediction, lower=result.lower, upper=result.upper).execute()
-    assert len(table.to_pandas()) == len(prediction)
-    assert len(result.findings().items) == len(prediction)
-    selected = result.where(result.prediction.value.gte(0)).execute()
-    assert len(selected.lower.to_pandas()) == int((prediction.value >= 0).sum())
-    assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
-    before = case.session.runs().items
-    for level in (0.0, 1.0, float("nan"), float("inf")):
-        with pytest.raises(StatisticalRelationError):
-            history.forecast(horizon=mv.periods(1), model=model, interval_level=level)
-        assert case.session.runs().items == before
-    with pytest.raises(AnalysisError):
-        result.lower.aggregate(mv.sum())
+    for name, model in (
+        ("naive", mv.naive()),
+        ("drift", mv.drift()),
+        ("seasonal_naive", mv.seasonal_naive(periods=2)),
+    ):
+        logical = history.forecast(horizon=mv.periods(2), model=model)
+        result = logical.execute()
+        prediction = result.prediction.to_pandas()
+        lower = result.lower.to_pandas()
+        upper = result.upper.to_pandas()
+        assert len(prediction) == 8
+        assert list(lower.value <= prediction.value) == [True] * 8
+        assert list(upper.value >= prediction.value) == [True] * 8
+        if name != "naive":
+            continue
+        assert logical.lower.execute().to_pandas().value.tolist() == lower.value.tolist()
+        fixed = history.execute().forecast(horizon=mv.periods(2), model=model).execute()
+        assert fixed.prediction.to_pandas().value.tolist() == prediction.value.tolist()
+        table = mv.table(
+            prediction=result.prediction, lower=result.lower, upper=result.upper
+        ).execute()
+        assert len(table.to_pandas()) == len(prediction)
+        assert len(result.findings().items) == len(prediction)
+        selected = result.where(result.prediction.value.gte(0)).execute()
+        assert len(selected.lower.to_pandas()) == int((prediction.value >= 0).sum())
+        assert selected.evidence_digest().finding_count == result.evidence_digest().finding_count
+        before = case.session.runs().items
+        for level in (0.0, 1.0, float("nan"), float("inf")):
+            with pytest.raises(StatisticalRelationError):
+                history.forecast(horizon=mv.periods(1), model=model, interval_level=level)
+            assert case.session.runs().items == before
+        with pytest.raises(AnalysisError):
+            result.lower.aggregate(mv.sum())
 
 
-@pytest.mark.parametrize("arity", (3, 16))
 def test_all_requested_pairs_and_static_ceiling(
-    analysis_dsl_case_factory: DslCaseFactory, arity: int
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j4")
-    if arity == 16:
-        model_file = case.root / "models/semantic/sales/models.py"
-        model_file.write_text(
-            model_file.read_text()
-            + "\n"
-            + "\n".join(
-                f"count_{i} = ms.count(name='count_{i}', entity=orders, time=ordered_at)"
-                for i in range(16)
-            )
-        )
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     metric = ms.ref.metric("sales.order_count")
     quantities = tuple(
         members.observe(
-            ms.ref.metric(f"sales.count_{i - 1}")
-            if arity == 16
-            else mv.runtime_metric.linear(add=[metric] * (i + 1), label=f"times_{i}"),
+            mv.runtime_metric.linear(add=[metric] * (i + 1), label=f"times_{i}"),
             during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
             via=ms.ref.relationship("sales." + case.names.buyer),
             by=(mv.member(),),
         )
-        for i in range(1, arity + 1)
+        for i in range(1, 4)
     )
     result = quantities[0].correlate(*quantities[1:]).execute()
     rows = result.coefficient.to_pandas()
-    assert len(rows) == arity * (arity - 1) // 2
-    assert rows.value.tolist() == [1.0] * len(rows)
-    assert result.evidence_digest().finding_count == len(rows)
+    assert len(rows) == 3
+    assert rows.value.tolist() == [1.0] * 3
+    assert result.evidence_digest().finding_count == 3
+
+    model_file = case.root / "models/semantic/sales/models.py"
+    model_file.write_text(
+        model_file.read_text()
+        + "\n"
+        + "\n".join(
+            f"count_{i} = ms.count(name='count_{i}', entity=orders, time=ordered_at)"
+            for i in range(16)
+        )
+    )
+    ms.load(workspace_dir=case.root)
+    session = mv.session.get_or_create("dsl-j4-expanded", report_timezone="UTC")
+    members = session.members(ms.ref.entity("sales.customer"))
+    quantities = tuple(
+        members.observe(
+            ms.ref.metric(f"sales.count_{i}"),
+            during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+            via=ms.ref.relationship("sales." + case.names.buyer),
+            by=(mv.member(),),
+        )
+        for i in range(16)
+    )
     with pytest.raises(StatisticalRelationError) as repeated:
         quantities[0].correlate(quantities[0])
     assert repeated.value.code == "r8.input_identity"

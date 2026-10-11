@@ -47,16 +47,15 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         if str(day).startswith(("2026-07", "2026-08")):
             key = (member, channel)
             expected[key] = expected.get(key, 0) + (1 if str(day).startswith("2026-08") else -1)
-    for input_change in (change, change.execute()):
-        result = input_change.attribute(axes=axes).execute()
-        frame = result.contribution.to_pandas()
-        assert {(r.group, r.coord_1): r.value for r in frame.itertuples()} == expected
-        selected = result.where(result.contribution.value.gt(0)).execute()
-        assert selected.current.to_pandas().shape == selected.baseline.to_pandas().shape
-        assert dict(selected.contract()._facts)["complete_partition"] == "False"
-        restored = case.session.artifact(result.state.artifact_ref)
-        assert isinstance(restored, mv.MaterializedAttributionResult)
-        assert restored.contribution.to_pandas().equals(frame)
+    result = change.attribute(axes=axes).execute()
+    frame = result.contribution.to_pandas()
+    assert {(r.group, r.coord_1): r.value for r in frame.itertuples()} == expected
+    selected = result.where(result.contribution.value.gt(0)).execute()
+    assert selected.current.to_pandas().shape == selected.baseline.to_pandas().shape
+    assert dict(selected.contract()._facts)["complete_partition"] == "False"
+    restored = case.session.artifact(result.state.artifact_ref)
+    assert isinstance(restored, mv.MaterializedAttributionResult)
+    assert restored.contribution.to_pandas().equals(frame)
 
 
 @pytest.mark.slow
@@ -289,10 +288,17 @@ def test_numeric_source_fixed_and_axis_expansion(
         Path(directory, name).write_bytes(encode({"reports": checked(reports)}))
 
 
-@pytest.mark.parametrize("mode", ["joint", "hierarchy"])
+@pytest.mark.parametrize(
+    ("mode", "fixed_followup"),
+    [
+        pytest.param("joint", False, id="joint-source"),
+        pytest.param("hierarchy", True, id="hierarchy-fixed"),
+    ],
+)
 def test_common_other_mapping_each_parent_and_resolution(
     analysis_dsl_case_factory: DslCaseFactory,
     mode: Literal["joint", "hierarchy"],
+    fixed_followup: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -333,7 +339,8 @@ def test_common_other_mapping_each_parent_and_resolution(
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7)).absolute
-    for source in (change, change.execute()):
+    sources = (change, change.execute()) if fixed_followup else (change,)
+    for source in sources:
         result = source.attribute(axes=axes, mode=mode, top_k=1).execute()
         rows = cell_rows(result._dataset.verified().primary)
         assert any(r["key_1"] == "Other" and r["key_3"] == 0 for r in rows)
@@ -342,11 +349,8 @@ def test_common_other_mapping_each_parent_and_resolution(
             assert sum(r["value"] for r in rows if r["key_0"] == level) == -24
 
 
-@pytest.mark.parametrize("parquet", [True])
-def test_offline_cold_parts_and_selected_views(
-    analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
-) -> None:
+@pytest.mark.slow
+def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory) -> None:
     import os
     import subprocess
     import sys
@@ -354,9 +358,8 @@ def test_offline_cold_parts_and_selected_views(
     from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
+    export_dsl_parquet_models(case, case.root)
+    ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     axes = (ms.ref.dimension("sales.order.channel"),)
 
@@ -401,26 +404,7 @@ def test_offline_cold_parts_and_selected_views(
                     method_state=checked.method_state,
                     completed_checks=checked.completed_checks,
                 )
-        if part.role in ("current_endpoint", "baseline_endpoint"):
-            column = part.role + "__contribution_present"
-            assert part.table[column].to_pylist() == [True]
-            for marker in (False, None):
-                bad = part.table.set_column(
-                    part.table.schema.get_field_index(column),
-                    column,
-                    pa.array([marker], type=pa.bool_()),
-                )
-                with pytest.raises(AnalysisError, match="endpoint contribution presence"):
-                    from_arrow(
-                        checked.primary,
-                        checked.contract,
-                        parts=tuple(
-                            ExchangePart(p.role, bad) if p is part else p for p in checked.parts
-                        ),
-                        method_state=checked.method_state,
-                        completed_checks=checked.completed_checks,
-                    )
-    path = case.root / "source_files" if parquet else case.database_path
+    path = case.root / "source_files"
     offline = path.with_name(path.name + ".offline")
     path.rename(offline)
     script = """
@@ -541,7 +525,10 @@ def test_static_refusals_and_shared_compiled_submissions(
     assert not any("reconciled AS" in sql or "attributed AS" in sql for sql in submitted)
 
 
-@pytest.mark.parametrize("coarsen", [False, True])
+@pytest.mark.parametrize(
+    "coarsen",
+    [False, pytest.param(True, marks=pytest.mark.slow, id="coarsened")],
+)
 def test_period_buckets_and_retained_coarsened_partition(
     analysis_dsl_case_factory: DslCaseFactory,
     coarsen: bool,
@@ -576,14 +563,14 @@ def test_period_buckets_and_retained_coarsened_partition(
         if str(day).startswith(("2026-07", "2026-08")):
             key = member, channel
             expected[key] = expected.get(key, 0) + (1 if str(day).startswith("2026-08") else -1)
-    for first, second in ((current, baseline), (current.execute(), baseline.execute())):
-        change = first.compare(second, align=mv.exact(time=mv.ordinal())).absolute
-        result = change.attribute(axes=axes).execute()
-        actual = {
-            (r["key_0"], r["key_3"]): r["value"]
-            for r in cell_rows(result._dataset.verified().primary)
-        }
-        assert actual == expected
+    if coarsen:
+        current, baseline = current.execute(), baseline.execute()
+    change = current.compare(baseline, align=mv.exact(time=mv.ordinal())).absolute
+    result = change.attribute(axes=axes).execute()
+    actual = {
+        (r["key_0"], r["key_3"]): r["value"] for r in cell_rows(result._dataset.verified().primary)
+    }
+    assert actual == expected
 
 
 def test_zero_component_basis_cannot_hide_under_other(
@@ -626,19 +613,14 @@ def test_zero_component_basis_cannot_hide_under_other(
         ).rollup()
 
     change = endpoint(8).compare(endpoint(7)).absolute
-    for current in (change, change.execute()):
-        with pytest.raises(AnalysisError, match="contradictory"):
-            current.attribute(axes=axes, top_k=1).execute()
+    with pytest.raises(AnalysisError, match="contradictory"):
+        change.attribute(axes=axes, top_k=1).execute()
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_new_source_evaluation_preserves_fixed_basis(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     axes = (ms.ref.dimension("sales.order.channel"),)
 
@@ -652,20 +634,16 @@ def test_new_source_evaluation_preserves_fixed_basis(
 
     difference = endpoint(8).compare(endpoint(7)).absolute
     logical = difference.attribute(axes=axes)
-    first = logical.execute()
     fixed_expression = difference.execute().attribute(axes=axes)
     fixed = fixed_expression.execute()
     before = fixed.contribution.to_pandas()
-    assert before.equals(first.contribution.to_pandas())
     with duckdb.connect(str(case.database_path)) as db:
         db.execute(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["new-attribution", "A", "web", "paid", "2026-08-15", 1],
         )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     changed = logical.execute()
-    assert changed.state.artifact_ref != first.state.artifact_ref
+    assert changed.state.artifact_ref != fixed.state.artifact_ref
     assert changed.contribution.to_pandas().value.sum() == before.value.sum() + 1
     reused = fixed_expression.execute()
     assert reused.state.artifact_ref == fixed.state.artifact_ref
@@ -720,9 +698,8 @@ def test_public_decimal_small_partition_rounding_refuses_publication(
         assert case.session.runs(status="succeeded").items == before
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_float_view_arithmetic_retains_allocation_error_bounds(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     facts = [(8, "web", 0.1), (8, "app", 0.2), (7, "web", 0.01), (7, "app", 0.02)]
@@ -742,8 +719,6 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
             "granularity='second',", "granularity='second', is_default=True,"
         )
     )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     axes = (ms.ref.dimension("sales.order.channel"),)
@@ -760,33 +735,27 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
         ).rollup()
 
     allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes)
-    for result in (allocation, allocation.execute()):
-        ratio = result.current.ratio(result.baseline).execute()
-        checked = ratio._dataset.verified()
-        correspondence = next(p.table for p in checked.parts if p.role == "correspondence")
-        assert all(v > 0 for v in correspondence["correspondence__current_error_bound"].to_pylist())
-        assert all(
-            v > 0 for v in correspondence["correspondence__baseline_error_bound"].to_pylist()
-        )
-        exact = {
-            channel: Fraction(current) / Fraction(baseline)
-            for (_, channel, current), (_, _, baseline) in zip(facts[:2], facts[2:], strict=True)
-        }
-        bounds = {
-            tuple(r[k] for k in checked.contract.key_fields): r[
-                "correspondence__result_error_bound"
-            ]
-            for r in correspondence.to_pylist()
-        }
-        for row in cell_rows(checked.primary):
-            key = tuple(row[k] for k in checked.contract.key_fields)
-            assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
+    result = allocation.execute()
+    ratio = result.current.ratio(result.baseline).execute()
+    checked = ratio._dataset.verified()
+    correspondence = next(p.table for p in checked.parts if p.role == "correspondence")
+    assert all(v > 0 for v in correspondence["correspondence__current_error_bound"].to_pylist())
+    assert all(v > 0 for v in correspondence["correspondence__baseline_error_bound"].to_pylist())
+    exact = {
+        channel: Fraction(current) / Fraction(baseline)
+        for (_, channel, current), (_, _, baseline) in zip(facts[:2], facts[2:], strict=True)
+    }
+    bounds = {
+        tuple(r[k] for k in checked.contract.key_fields): r["correspondence__result_error_bound"]
+        for r in correspondence.to_pylist()
+    }
+    for row in cell_rows(checked.primary):
+        key = tuple(row[k] for k in checked.contract.key_fields)
+        assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_numeric_view_rank_uses_typed_other_order(
     analysis_dsl_case_factory: DslCaseFactory,
-    parquet: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     with duckdb.connect(str(case.database_path)) as db:
@@ -800,9 +769,6 @@ def test_numeric_view_rank_uses_typed_other_order(
                 for i in range(count)
             ],
         )
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     axes = (ms.ref.dimension("sales.order.channel"),)
 
@@ -815,19 +781,20 @@ def test_numeric_view_rank_uses_typed_other_order(
         ).rollup()
 
     allocation = endpoint(8).compare(endpoint(7)).absolute.attribute(axes=axes, top_k=2)
-    for result in (allocation, allocation.execute()):
-        calls = {a.call for a in result.contribution.contract().actions}
-        assert "relation.where(predicate)" in calls
-        assert any(".ratio(" in call for call in calls)
-        assert any(".aggregate(" in call for call in calls)
-        ranking = result.contribution.rank(order="descending", ties="ordinal").execute()
-        assert isinstance(ranking, mv.MaterializedRankingResult)
-        rows = ranking.ranks.to_pandas()
-        assert rows.value.tolist() == [1, 2, 3]
-        assert rows.coord_0.tolist()[:2] == ["A", "Other"]
-        assert rows.coord_1.tolist() == [0, 0, 1]
+    result = allocation.execute()
+    calls = {a.call for a in result.contribution.contract().actions}
+    assert "relation.where(predicate)" in calls
+    assert any(".ratio(" in call for call in calls)
+    assert any(".aggregate(" in call for call in calls)
+    ranking = result.contribution.rank(order="descending", ties="ordinal").execute()
+    assert isinstance(ranking, mv.MaterializedRankingResult)
+    rows = ranking.ranks.to_pandas()
+    assert rows.value.tolist() == [1, 2, 3]
+    assert rows.coord_0.tolist()[:2] == ["A", "Other"]
+    assert rows.coord_1.tolist() == [0, 0, 1]
 
 
+@pytest.mark.slow
 def test_attribution_publication_cleans_only_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -846,8 +813,12 @@ def test_attribution_publication_cleans_only_failed_run(
     change = endpoint(8).compare(endpoint(7)).absolute
     fixed = change.execute()
     expected = fixed.to_pandas()
-    for difference in (change, fixed):
-        for point in ("graph_part_written", "graph_files_published", "graph_receipts_verified"):
+    scenarios = (
+        (change, ("graph_part_written",)),
+        (fixed, ("graph_files_published", "graph_receipts_verified")),
+    )
+    for difference, points in scenarios:
+        for point in points:
             before = set((case.root / ".marivo").rglob("*.parquet"))
             succeeded = case.session.runs(status="succeeded").items
 

@@ -691,7 +691,10 @@ def test_production_behavior_does_not_branch_on_implementation_id() -> None:
     assert tuple(str(r.semantics.key) for r in REGISTRY.registrations) == tuple(_BASELINE)
     root = Path(__file__).parents[3] / "marivo" / "analysis"
     for path in root.rglob("*.py"):
-        tree = ast.parse(path.read_text())
+        source = path.read_text()
+        if "implementation_id" not in source:
+            continue
+        tree = ast.parse(source)
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)

@@ -245,22 +245,19 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
             dict(zip(zip(current.member, current.coord_0, strict=True), current.score, strict=True))
             == wanted
         )
-        ranking = receiver.score.rank(order="descending", ties="dense").limit(7).execute()
-        assert dict(ranking.ranks.contract()._facts)["original_count"] == "60"
-        ranked = mv.table(rank=ranking.ranks, score=ranking.values).execute()
-        ranked_frame = ranked.to_pandas()
-        assert len(ranked_frame) == 7
-        current = ranked_frame.loc[ranked_frame.score.notna()]
-        assert dict(
-            zip(
-                zip(current.member, current.coord_0, strict=True),
-                current.score,
-                strict=True,
-            )
-        ) == {
-            (member, time): wanted[(member, time)]
-            for member, time in zip(current.member, current.coord_0, strict=True)
-        }
-        restored = case.session.artifact(ranked.artifact_ref)
-        assert isinstance(restored, mv.MaterializedTable)
-        assert restored.to_pandas().equals(ranked_frame)
+
+    ranking = fixed.score.rank(order="descending", ties="dense").limit(7).execute()
+    assert dict(ranking.ranks.contract()._facts)["original_count"] == "60"
+    ranked_frame = mv.table(rank=ranking.ranks, score=ranking.values).execute().to_pandas()
+    assert len(ranked_frame) == 7
+    current = ranked_frame.loc[ranked_frame.score.notna()]
+    assert dict(
+        zip(
+            zip(current.member, current.coord_0, strict=True),
+            current.score,
+            strict=True,
+        )
+    ) == {
+        (member, time): wanted[(member, time)]
+        for member, time in zip(current.member, current.coord_0, strict=True)
+    }

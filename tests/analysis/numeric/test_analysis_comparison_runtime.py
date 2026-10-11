@@ -560,14 +560,15 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         via=(mv.path(buyer, relationship),),
         by=(mv.member(),),
     )
+    pairing = mv.one_to_one(left=left, right=right, via=relationship)
+    with pytest.raises(AnalysisError, match="one-to-one"):
+        mv.one_to_one(left=left, right=right, via=buyer)
+    with pytest.raises(AnalysisError, match="reused"):
+        right.ratio(left, align=pairing)
     for first, second in ((left, right), (left.execute(), right.execute())):
         pairing = mv.one_to_one(left=first, right=second, via=relationship)
         result = first.ratio(second, align=pairing).execute().to_pandas()
         assert result["value"].dropna().tolist() == [1.0, 1.0, 1.0]
-        with pytest.raises(AnalysisError, match="one-to-one"):
-            mv.one_to_one(left=first, right=second, via=buyer)
-        with pytest.raises(AnalysisError, match="reused"):
-            second.ratio(first, align=pairing)
 
 
 @pytest.mark.slow
@@ -997,16 +998,14 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
     floating = positive.ratio(positive)
     for descriptor in (mv.sum(), mv.mean(), mv.min(), mv.max()):
         statistic = floating.aggregate(descriptor)
-        for operand in (statistic, statistic.execute()):
-            result = operand.ratio(operand).execute()
-            assert result.to_pandas()["value"].tolist() == [1.0]
-            assert result._dataset is not None
-            correspondence = next(
-                part.table
-                for part in result._dataset.verified().parts
-                if part.role == "correspondence"
-            )
-            assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
+        fixed = statistic.execute()
+        result = fixed.ratio(fixed).execute()
+        assert result.to_pandas()["value"].tolist() == [1.0]
+        assert result._dataset is not None
+        correspondence = next(
+            part.table for part in result._dataset.verified().parts if part.role == "correspondence"
+        )
+        assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
 
 
 @pytest.mark.parametrize("parquet", [True])

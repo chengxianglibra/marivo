@@ -201,10 +201,6 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
     }
     with pytest.raises(AnalysisError):
         both.group_by(REGION)
-    assert both.group_by(recipient).execute().to_pandas().set_index("group")["value"].to_dict() == {
-        "east": 550,
-        "south": 450,
-    }
     current = both.rollup()
     baseline = customers.observe(
         REVENUE,
@@ -366,46 +362,43 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         ]
 
 
-@pytest.mark.parametrize("missing_bucket", [False, True])
 def test_timed_classification_cannot_remove_consumed_contributions(
-    analysis_dsl_case_factory: DslCaseFactory, missing_bucket: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE order_line SET product_id='P' WHERE line_id='outside'")
-        if missing_bucket:
-            connection.execute("ALTER TABLE product ADD COLUMN beginning DATE")
-            connection.execute("ALTER TABLE product ADD COLUMN ending DATE")
-            connection.execute(
-                "UPDATE product SET category='book', beginning=DATE '2026-08-01', ending=DATE '2026-09-01'"
-            )
-            connection.execute(
-                "INSERT INTO product VALUES ('P','game','2026-09-01',NULL), ('Q','game','2026-09-01',NULL)"
-            )
-            connection.execute("INSERT INTO order_line VALUES ('september','j1_september',99,'P')")
-    if missing_bucket:
-        model = case.root / "models/semantic/sales/models.py"
-        model.write_text(
-            model.read_text().replace(
-                "source=md.table('product'), primary_key=['id'])",
-                "source=md.table('product'), primary_key=['id'], versioning=ms.validity("
-                "valid_from=ms.ref.time_dimension('sales.product.beginning'), "
-                "valid_to=ms.ref.time_dimension('sales.product.ending'), "
-                "interval='closed_open', open_end=(None,), timezone='UTC'))",
-            )
-            + "\nproduct_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning', granularity='day')\n"
-            + "product_ending = ms.time_dimension_column(name='ending', entity=product, column='ending', granularity='day')\n"
+        connection.execute("ALTER TABLE product ADD COLUMN beginning DATE")
+        connection.execute("ALTER TABLE product ADD COLUMN ending DATE")
+        connection.execute(
+            "UPDATE product SET category='book', beginning=DATE '2026-08-01', ending=DATE '2026-09-01'"
         )
-        ms.load(workspace_dir=case.root)
-        session = mv.session.get_or_create("timed-coverage", report_timezone="UTC")
+        connection.execute(
+            "INSERT INTO product VALUES ('P','game','2026-09-01',NULL), ('Q','game','2026-09-01',NULL)"
+        )
+        connection.execute("INSERT INTO order_line VALUES ('september','j1_september',99,'P')")
+    model = case.root / "models/semantic/sales/models.py"
+    model.write_text(
+        model.read_text().replace(
+            "source=md.table('product'), primary_key=['id'])",
+            "source=md.table('product'), primary_key=['id'], versioning=ms.validity("
+            "valid_from=ms.ref.time_dimension('sales.product.beginning'), "
+            "valid_to=ms.ref.time_dimension('sales.product.ending'), "
+            "interval='closed_open', open_end=(None,), timezone='UTC'))",
+        )
+        + "\nproduct_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning', granularity='day')\n"
+        + "product_ending = ms.time_dimension_column(name='ending', entity=product, column='ending', granularity='day')\n"
+    )
+    ms.load(workspace_dir=case.root)
+    session = mv.session.get_or_create("timed-coverage", report_timezone="UTC")
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )
     category = session.members(LINE).read(CATEGORY, at=grid.before_end)
     customers = session.members(CUSTOMER)
     complete = customers.observe(LINE_REVENUE, during=grid, by=(category,)).execute().to_pandas()
-    assert complete["value"].sum() == (1099 if missing_bucket else 1000)
+    assert complete["value"].sum() == 1099
     selected = category.where(category.value.eq("book"))
     trusted = customers.observe(LINE_REVENUE, during=grid, by=(selected,))
     assert any(

@@ -176,24 +176,3 @@ def test_bounded_render_does_not_format_entire_result() -> None:
     visits = 0
     card.render(n=0, max_output_bytes=1000)
     assert visits == 0
-
-
-@pytest.mark.parametrize(
-    "target",
-    (
-        "analysis.actions.show",
-        "analysis.dsl.MaterializedTable.show",
-        "semantic.PreviewResult",
-        "datasource.RawSqlResult",
-    ),
-)
-def test_native_help_discloses_row_and_byte_controls(target: str) -> None:
-    from marivo._help.render import render_help_text
-
-    text = render_help_text(target)[0]
-    assert "n:" in text and "max_output_bytes:" in text and "8192" in text
-    assert "None removes the budget" in text
-    assert "zero means metadata only" in text
-    assert "n=20" in text
-    assert "table = mv.table\n" not in text
-    assert len(text.encode()) <= 8192

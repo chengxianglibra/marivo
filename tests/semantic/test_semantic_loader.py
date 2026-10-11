@@ -272,43 +272,16 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
 # ---------------------------------------------------------------------------
 
 
-def test_exports_py_excluded(semantic_project_factory) -> None:
-    """_exports.py should not be loaded by the loader."""
-    exports_content = textwrap.dedent("""\
-        # This should never be executed
-        raise RuntimeError("_exports.py was loaded!")
-    """)
+def test_excluded_files_are_not_loaded(semantic_project_factory) -> None:
+    """Export, dot-prefixed, and test files all stay outside loader discovery."""
+    excluded_content = 'raise RuntimeError("excluded file was loaded!")\n'
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/_exports.py": exports_content,
-        }
-    )
-    assert project.is_ready()
-
-
-def test_dot_prefixed_files_excluded(semantic_project_factory) -> None:
-    dot_content = textwrap.dedent("""\
-        raise RuntimeError("dotfile was loaded!")
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/.hidden.py": dot_content,
-        }
-    )
-    assert project.is_ready()
-
-
-def test_test_files_excluded(semantic_project_factory) -> None:
-    test_content = textwrap.dedent("""\
-        raise RuntimeError("test file was loaded!")
-    """)
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/test_orders.py": test_content,
-            "sales/orders_test.py": test_content,
+            "sales/_exports.py": excluded_content,
+            "sales/.hidden.py": excluded_content,
+            "sales/test_orders.py": excluded_content,
+            "sales/orders_test.py": excluded_content,
         }
     )
     assert project.is_ready()

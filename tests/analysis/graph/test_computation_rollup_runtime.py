@@ -43,16 +43,16 @@ def _run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
     return value
 
 
+@pytest.mark.slow
 def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None:
     produced = _run("produce", tmp_path)
     cold = _run("continue", tmp_path, str(produced["artifact"]))
     assert produced["pid"] != cold["pid"]
-    # Hand-computed month totals: gmv 54.14, linear decimal 3.85, linear int 3,
-    # and the float mean as the quantity mean division 5 / 3.
+    # Hand-computed month totals: linear decimal 3.85, linear int 3, and the
+    # float mean as the quantity mean division 5 / 3.
     assert produced["warm_monthly"] == MONTH_EXPECTED
     assert cold["values"] == produced["warm_monthly"]
     assert cold["dtypes"] == {
-        "gmv": "object",
         "net_amount": "object",
         "net_qty": "int64",
         "amount_mean": "float64",

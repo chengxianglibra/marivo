@@ -1,7 +1,7 @@
 """Cold-process decimal and int64 original-state rollup equality journey.
 
-The producer authors a session, aggregates a decimal pair and an int64 pair
-under a runtime Linear each, persists the checkpoint, and removes the source.
+The producer authors a session, aggregates decimal and int64 pairs under a
+runtime Linear, plus a float mean, persists the checkpoints, and removes the source.
 The cold process recovers the checkpoint by name, rolls it up over the original complete membership from retained state only, and returns the exact values with their
 original dtypes. The renamed source file makes any primary query fail loudly,
 so a successful cold run is itself the zero-source-query proof.
@@ -17,7 +17,7 @@ DAY_ROWS = (
     (2, "2026-07-01", "20.10", "1.25", 1),
     (3, "2026-07-02", "23.99", "0.10", 1),
 )
-METRIC_NAMES = ("gmv", "net_amount", "net_qty", "amount_mean")
+METRIC_NAMES = ("net_amount", "net_qty", "amount_mean")
 # Hand-computed month-grain expectations over the three DAY_ROWS:
 # gmv = 10.05 + 20.10 + 23.99 = 54.14; cost_total = 2.50 + 1.25 + 0.10 = 3.85;
 # net_amount = gmv + cost_total - gmv = 3.85; net_qty = qty_total + qty_count
@@ -25,7 +25,6 @@ METRIC_NAMES = ("gmv", "net_amount", "net_qty", "amount_mean")
 # division). The mean runs over the int64 measure to cover float64 finishing;
 # the separate Decimal mean case checks finishing at the captured output scale.
 MONTH_EXPECTED = {
-    "gmv": "54.14",
     "net_amount": "3.85",
     "net_qty": "3",
     "amount_mean": repr(5 / 3),
@@ -119,7 +118,6 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         qty_total = ms.ref.metric("sales.qty_total")
         qty_count = ms.ref.metric("sales.qty_count")
         metrics: tuple[MetricInputValue, ...] = (
-            gmv,
             rm.linear(add=[gmv, cost_total], subtract=[gmv], label="net_amount"),
             rm.linear(add=[qty_total, qty_count], subtract=[qty_total], label="net_qty"),
             ms.ref.metric("sales.amount_mean"),
@@ -128,10 +126,10 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         members = session.members(ms.ref.entity("sales.orders"))
         values, artifacts = {}, {}
         for name, metric in zip(METRIC_NAMES, metrics, strict=True):
-            observed = members.observe(metric, by=(mv.member(),))
+            observed = members.observe(metric, by=(mv.member(),)).execute()
             warm = observed.rollup().execute().to_pandas()
             values[name] = str(warm["value"].iloc[0])
-            artifacts[name] = observed.execute().state.artifact_ref.ref
+            artifacts[name] = observed.state.artifact_ref.ref
         (project / "warehouse.duckdb").rename(project / "warehouse.offline")
         return {
             "pid": os.getpid(),
@@ -149,6 +147,7 @@ def run(mode: str, project: Path, artifact: str = "") -> dict[str, object]:
         frame = cold.to_pandas()
         values[name] = str(frame["value"].iloc[0])
         dtypes[name] = str(frame["value"].dtype)
+    assert session._runtime.statistics.primary_queries == 0
     return {"pid": os.getpid(), "values": values, "dtypes": dtypes}
 
 

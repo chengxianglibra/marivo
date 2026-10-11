@@ -177,6 +177,7 @@ def _native_temporal_recovery(
         )
 
 
+@pytest.mark.slow
 def test_native_temporal_int64_subject_independent_fixed_and_cold(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

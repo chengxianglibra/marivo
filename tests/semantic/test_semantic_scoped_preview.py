@@ -18,33 +18,10 @@ from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
 
 
-class _QuerySpy:
-    def __init__(self) -> None:
-        self.user_data_queries = 0
-        self.sql: list[str] = []
-
-
-@pytest.fixture
-def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
-    from ibis.backends.duckdb import Backend
-
-    spy = _QuerySpy()
-    original_execute = Backend.execute
-
-    def counted_execute(self: Backend, expr: object, *args: object, **kwargs: object) -> object:
-        spy.user_data_queries += 1
-        spy.sql.append(str(self.compile(expr)))
-        return original_execute(self, expr, *args, **kwargs)
-
-    monkeypatch.setattr(Backend, "execute", counted_execute)
-    return spy
-
-
 @pytest.fixture
 def scoped_catalog(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    query_spy: _QuerySpy,
     semantic_project_factory,
 ):
     database_path = tmp_path / "warehouse.duckdb"
@@ -95,8 +72,6 @@ def scoped_catalog(
         }
     )
     monkeypatch.chdir(tmp_path)
-    query_spy.user_data_queries = 0
-    query_spy.sql.clear()
     return SemanticCatalog(project), tmp_path
 
 
@@ -396,60 +371,32 @@ def test_json_source_bindings_are_exact_entity_ref_mappings(
     assert captured == {"params": {"start": 2}}
 
 
-@pytest.mark.parametrize(
-    ("artifact_ref", "missing_kind", "max_rows"),
-    (
-        (ms.ref.period_calendar("sales.fiscal"), "period_calendar_artifact_missing", 4),
-        (ms.ref.temporal_set("sales.named_campaigns"), "temporal_set_artifact_missing", 2),
-        (ms.ref.work_schedule("sales.schedule"), "work_schedule_artifact_missing", 4),
-    ),
-)
-def test_explicit_scope_certifies_all_temporal_artifacts(
+def test_temporal_artifact_certification_and_failed_previews(
     tmp_path: Path,
     semantic_project_factory,
-    artifact_ref,
-    missing_kind: str,
-    max_rows: int,
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    before = catalog.readiness(refs=[artifact_ref])
-    assert missing_kind in {issue.kind for issue in before.blockers}
-
-    preview = catalog.preview(artifact_ref, scope=default_scope(max_rows=max_rows), limit=1)
-
-    assert preview.returned_row_count == 1
-    assert catalog.require(artifact_ref).details().snapshot_status == "current"
-    assert missing_kind not in {
-        issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
-    }
-
-
-def test_truncated_certification_does_not_publish_artifact(
-    tmp_path: Path, semantic_project_factory
 ) -> None:
     catalog = certified_project(
         tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
     )
     calendar_ref = ms.ref.period_calendar("sales.fiscal")
-
     with pytest.raises(SemanticRuntimeError, match="exhaustive explicit scope"):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=3), limit=1)
-
     assert catalog.period_calendars.get(calendar_ref).details().snapshot_status == "missing"
 
-
-def test_invalid_display_limit_does_not_replace_current_artifact(
-    tmp_path: Path, semantic_project_factory
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    calendar_ref = ms.ref.period_calendar("sales.fiscal")
-    catalog.preview(calendar_ref, scope=default_scope(max_rows=4))
+    for artifact_ref, missing_kind, max_rows in (
+        (calendar_ref, "period_calendar_artifact_missing", 4),
+        (ms.ref.temporal_set("sales.named_campaigns"), "temporal_set_artifact_missing", 2),
+        (ms.ref.work_schedule("sales.schedule"), "work_schedule_artifact_missing", 4),
+    ):
+        before = catalog.readiness(refs=[artifact_ref])
+        assert missing_kind in {issue.kind for issue in before.blockers}
+        preview = catalog.preview(artifact_ref, scope=default_scope(max_rows=max_rows), limit=1)
+        assert preview.returned_row_count == 1
+        assert catalog.require(artifact_ref).details().snapshot_status == "current"
+        assert missing_kind not in {
+            issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
+        }
 
     with pytest.raises(PreviewLimitError):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=4), limit=0)
-
     assert catalog.period_calendars.get(calendar_ref).details().snapshot_status == "current"

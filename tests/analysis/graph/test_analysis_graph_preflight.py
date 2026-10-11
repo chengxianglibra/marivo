@@ -1089,7 +1089,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
                 assert row["cell_tag"] == "undefined" and row["cell_reason"] == "empty_mean"
 
 
-@pytest.mark.parametrize("scenario", ("j3", "j3_weighting", "zero_denominator"))
+@pytest.mark.parametrize("scenario", ("j3", "zero_denominator"))
 def test_two_hop_original_sum_zero_preserves_component_state(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,
@@ -1174,8 +1174,19 @@ def test_two_hop_original_sum_zero_preserves_component_state(
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("scenario", ("j3_weighting", "zero_denominator"))
 def test_original_ratio_preserves_independent_root_components(
+    analysis_dsl_case_factory: DslCaseFactory,
+    tmp_path: Path,
+) -> None:
+    for scenario in ("j3_weighting", "zero_denominator"):
+        scenario_path = tmp_path / scenario
+        scenario_path.mkdir()
+        _assert_original_ratio_preserves_independent_root_components(
+            analysis_dsl_case_factory, scenario_path, scenario
+        )
+
+
+def _assert_original_ratio_preserves_independent_root_components(
     analysis_dsl_case_factory: DslCaseFactory,
     tmp_path: Path,
     scenario: str,

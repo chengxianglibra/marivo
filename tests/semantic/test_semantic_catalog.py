@@ -450,9 +450,9 @@ def test_relationship_details_fields():
 # --- CatalogEntry concrete-type contract ---
 
 
-@pytest.mark.parametrize(
-    ("typed_id", "expected_type", "expected_name"),
-    [
+def test_catalog_require_returns_concrete_catalog_entry(semantic_project_factory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    cases: tuple[tuple[str, type[CatalogEntry], str], ...] = (
         ("domain.sales", DomainEntry, "sales"),
         ("datasource.warehouse", DatasourceEntry, "warehouse"),
         ("entity.sales.orders", EntityEntry, "orders"),
@@ -463,26 +463,18 @@ def test_relationship_details_fields():
             "created_at",
         ),
         ("metric.sales.revenue", MetricEntry, "revenue"),
-    ],
-)
-def test_catalog_require_returns_concrete_catalog_entry(
-    semantic_project_factory,
-    typed_id: str,
-    expected_type: type[CatalogEntry],
-    expected_name: str,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
+    )
+    for typed_id, expected_type, expected_name in cases:
+        ref = _ref_from_typed_id_path(typed_id)
+        obj = catalog.require(ref)
 
-    ref = _ref_from_typed_id_path(typed_id)
-    obj = catalog.require(ref)
-
-    assert type(obj) is expected_type
-    assert obj.ref == ref
-    assert obj.ref.path == typed_id.partition(".")[2]
-    assert obj.ref.name == expected_name
-    assert obj.key == typed_id.replace(".", ":", 1)
-    assert obj.name == expected_name
-    assert obj.ref.kind.value == typed_id.partition(".")[0]
+        assert type(obj) is expected_type
+        assert obj.ref == ref
+        assert obj.ref.path == typed_id.partition(".")[2]
+        assert obj.ref.name == expected_name
+        assert obj.key == typed_id.replace(".", ":", 1)
+        assert obj.name == expected_name
+        assert obj.ref.kind.value == typed_id.partition(".")[0]
 
 
 def test_catalog_object_equality_is_concrete_type_and_typed_id(
@@ -507,7 +499,7 @@ def test_catalog_object_equality_is_concrete_type_and_typed_id(
 # --- CatalogEntry agent result protocol ---
 
 
-def test_catalog_result_protocol_and_collection_accessors(semantic_project_factory):
+def test_catalog_result_protocol_and_collection_accessors(semantic_project_factory, capsys):
     from tests.support.result_protocol import assert_conforms
 
     catalog = _make_catalog(semantic_project_factory)
@@ -520,10 +512,7 @@ def test_catalog_result_protocol_and_collection_accessors(semantic_project_facto
     assert collection.items[0].name == "revenue"
     assert collection.refs == (ms.ref.metric("sales.revenue"),)
     assert type(collection.refs[0]) is Ref
-
-
-def test_catalog_collection_render_and_show(semantic_project_factory, capsys):
-    collection = _make_catalog(semantic_project_factory).metrics
+    capsys.readouterr()
     rendered = collection.render()
 
     assert isinstance(rendered, str)
@@ -736,29 +725,21 @@ def test_catalog_domains_access_and_render_are_silent_and_bounded(semantic_proje
 # --- Typed collections: dimensions and time dimensions ---
 
 
-@pytest.mark.parametrize(
-    ("collection_name", "expected_id", "entry_type"),
-    [
+def test_catalog_collection_render_uses_card_listing(semantic_project_factory):
+    catalog = _make_catalog(semantic_project_factory)
+    cases = (
         ("dimensions", "dimension:sales.orders.region", "DimensionEntry"),
         ("time_dimensions", "time_dimension:sales.orders.created_at", "TimeDimensionEntry"),
         ("entities", "entity:sales.orders", "EntityEntry"),
-    ],
-)
-def test_catalog_collection_render_uses_card_listing(
-    semantic_project_factory,
-    collection_name,
-    expected_id,
-    entry_type,
-):
-    catalog = _make_catalog(semantic_project_factory)
+    )
+    for collection_name, expected_id, entry_type in cases:
+        rendered = getattr(catalog, collection_name).render()
 
-    rendered = getattr(catalog, collection_name).render()
-
-    assert entry_type in rendered
-    assert expected_id in rendered
-    assert "- .refs" in rendered
-    assert f"selection: catalog.{collection_name}.get(<displayed ref>)" in rendered
-    assert rendered.count("selection:") == 1
+        assert entry_type in rendered
+        assert expected_id in rendered
+        assert "- .refs" in rendered
+        assert f"selection: catalog.{collection_name}.get(<displayed ref>)" in rendered
+        assert rendered.count("selection:") == 1
 
 
 def test_catalog_measures_render_uses_card_listing(
@@ -810,28 +791,17 @@ def test_catalog_require_returns_semantic_object_for_entity(semantic_project_fac
     assert obj.details().domain == "sales"
 
 
-@pytest.mark.parametrize(
-    "raw",
-    ["sales.orders", "sales.revenue", "sales.orders.region"],
-)
-def test_catalog_require_rejects_bare_semantic_ids(semantic_project_factory, raw):
+def test_catalog_require_rejects_untyped_string_inputs(semantic_project_factory):
     catalog = _make_catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(raw)  # type: ignore[arg-type]
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "exact Ref" in str(exc_info.value)
-
-
-@pytest.mark.parametrize(
-    "raw",
-    ["sales", "warehouse"],
-)
-def test_catalog_require_rejects_short_names_with_factory_hint(semantic_project_factory, raw):
-    catalog = _make_catalog(semantic_project_factory)
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.require(raw)  # type: ignore[arg-type]
-    assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "ms.ref.<kind>(path)" in str(exc_info.value)
+    cases = (
+        *((raw, "exact Ref") for raw in ("sales.orders", "sales.revenue", "sales.orders.region")),
+        *((raw, "ms.ref.<kind>(path)") for raw in ("sales", "warehouse")),
+    )
+    for raw, hint in cases:
+        with pytest.raises(SemanticRuntimeError) as exc_info:
+            catalog.require(raw)  # type: ignore[arg-type]
+        assert exc_info.value.kind == ErrorKind.INVALID_REF
+        assert hint in str(exc_info.value)
 
 
 def test_catalog_require_kind_mismatch_raises_not_found(semantic_project_factory):
@@ -1453,7 +1423,7 @@ def test_ms_load_catalog_can_browse(tmp_path):
     assert "sales.revenue" in {obj.ref.path for obj in catalog.metrics.items}
 
 
-def test_ms_load_with_domains_filters_domains(tmp_path):
+def test_ms_load_with_domains_filters_domains_and_accepts_string(tmp_path):
     """ms.load(domains=...) filters to the specified domain directories."""
     _write_multi_domain_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path, domains=["sales"])
@@ -1461,14 +1431,10 @@ def test_ms_load_with_domains_filters_domains(tmp_path):
     assert "sales" in refs
     assert "ops" not in refs
 
-
-def test_ms_load_with_domains_string(tmp_path):
-    """ms.load(domains='sales') accepts a single domain name as a string."""
-    _write_multi_domain_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path, domains="sales")
-    refs = {obj.ref.path for obj in catalog.domains.items}
-    assert "sales" in refs
-    assert "ops" not in refs
+    string_catalog = ms.load(workspace_dir=tmp_path, domains="sales")
+    string_refs = {obj.ref.path for obj in string_catalog.domains.items}
+    assert "sales" in string_refs
+    assert "ops" not in string_refs
 
 
 def test_catalog_lifecycle_properties_delegate_to_project(semantic_project_factory):
@@ -1615,42 +1581,45 @@ def _preview_catalog_and_snapshot(semantic_project_factory, tmp_path, monkeypatc
     return catalog, snapshot
 
 
-def test_catalog_preview_field_preserves_context_columns(
+def test_catalog_preview_field_metric_and_context_boundaries(
     semantic_project_factory, tmp_path, monkeypatch
 ):
     catalog, snapshot = _preview_catalog_and_snapshot(
         semantic_project_factory, tmp_path, monkeypatch
     )
-    preview = catalog.preview(
+    field_preview = catalog.preview(
         catalog.require(ms.ref.dimension("sales.orders.region")).ref,
         scope=snapshot.scope,
         context_columns=("order_id",),
         limit=2,
     )
 
-    assert preview.ref == "sales.orders.region"
-    assert preview.columns[:2] == ("order_id", "region")
+    assert field_preview.ref == "sales.orders.region"
+    assert field_preview.columns[:2] == ("order_id", "region")
 
-
-def test_catalog_preview_metric_preserves_approximate_warning(
-    semantic_project_factory, tmp_path, monkeypatch
-):
-    catalog, snapshot = _preview_catalog_and_snapshot(
-        semantic_project_factory, tmp_path, monkeypatch
-    )
-    preview = catalog.preview(
+    metric_preview = catalog.preview(
         catalog.require(ms.ref.metric("sales.revenue")).ref,
         scope=snapshot.scope,
         limit=2,
     )
 
-    assert preview.ref == "sales.revenue"
-    assert preview.sample_policy.method == "pre_aggregate_limit"
-    assert preview.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE
-    assert any(w.kind == "approximate_preview" for w in preview.warnings)
-    rendered = preview.render()
+    assert metric_preview.ref == "sales.revenue"
+    assert metric_preview.sample_policy.method == "pre_aggregate_limit"
+    assert metric_preview.sample_policy.limit == METRIC_PREVIEW_SAMPLE_SIZE
+    assert any(w.kind == "approximate_preview" for w in metric_preview.warnings)
+    rendered = metric_preview.render()
     assert "sample_policy: pre_aggregate_limit(limit=10000)" in rendered
     assert "treat the result as approximate" in rendered
+
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.preview(
+            catalog.require(ms.ref.metric("sales.revenue")).ref,
+            scope=snapshot.scope,
+            context_columns=("order_id",),
+        )
+
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
+    assert "context_columns" in str(exc_info.value)
 
 
 def test_catalog_preview_metric_caps_input_before_aggregation(
@@ -1766,24 +1735,6 @@ def test_catalog_preview_ratio_over_filtered_weighted_means(
     )
 
     assert preview.rows == ({"value": pytest.approx(0.8)},)
-
-
-def test_catalog_preview_context_columns_rejected_for_metric(
-    semantic_project_factory, tmp_path, monkeypatch
-):
-    catalog, snapshot = _preview_catalog_and_snapshot(
-        semantic_project_factory, tmp_path, monkeypatch
-    )
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        catalog.preview(
-            catalog.require(ms.ref.metric("sales.revenue")).ref,
-            scope=snapshot.scope,
-            context_columns=("order_id",),
-        )
-
-    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "context_columns" in str(exc_info.value)
 
 
 def _write_minimal_project(tmp_path) -> None:

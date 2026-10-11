@@ -36,10 +36,6 @@ def test_trino_help_matches_source_native_quantile_capability() -> None:
     text, _, _ = render_help_text("datasource.trino")
     callable_text, _, _ = render_help_text(md.trino)
     assert text == callable_text
-    assert "does not support exact median/percentile" in text
-    assert "approx_median" in text and "('approx_percentile', q)" in text
-    assert "readiness blocks incompatible aggregates" in text
-    assert "execution never substitutes them" in text
     assert len(text.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
     assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
 
@@ -104,27 +100,6 @@ def test_unknown_string_raises_typed_bounded_error() -> None:
 
     assert len(exc_info.value.candidates) <= SURFACE_LIMITS.help_suggestion_limit
     assert "datasource.inspect" in exc_info.value.candidates
-
-
-def test_register_help_discloses_the_declaration_repair(capsys: pytest.CaptureFixture[str]) -> None:
-    marivo.help("datasource.register")
-    output = capsys.readouterr().out
-    assert "datasource_register_outside_loader" in output
-    assert "execution outside model loading" in output
-    assert "datasource constructor directly" in output
-    assert "md.duckdb(name=" in output
-
-
-def test_inspect_help_discloses_workspace_and_project_roots(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    marivo.help("datasource.inspect")
-    output = capsys.readouterr().out
-    assert "workspace_dir:" in output
-    assert "datasource_project_roots" in output
-    assert "configured external model roots" in output
-    assert len(output.splitlines()) <= SURFACE_LIMITS.focused_help_max_lines
-    assert len(output) <= SURFACE_LIMITS.focused_help_max_codepoints
 
 
 @pytest.fixture

@@ -204,7 +204,6 @@ def test_state_validity_and_dictionary_corruption_are_rejected(
         expand(table, (cell,))
 
 
-@pytest.mark.slow
 def test_maximum_code_and_chunked_empty_buffers_round_trip() -> None:
     book = CellBook.from_reasons((("unknown", tuple(f"r{i:04}" for i in range(8191))),))
     cell = EncodedCell(CellFields("value", "cell_tag", "cell_reason"), book, "cell_state")

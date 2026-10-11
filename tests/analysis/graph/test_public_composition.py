@@ -97,32 +97,6 @@ def test_ratio_original_state_and_empty_contribution(
         assert row["cell_tag"] == "undefined" and row["cell_reason"] == "zero_denominator"
 
 
-def test_numeric_selection_source_fixed_parity_and_ordered_endpoints(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    current, baseline = _observations(case)
-    difference = current.compare(baseline).absolute
-    fixed = current.execute().compare(baseline.execute()).absolute.execute()
-    source_selection = difference.where(difference.value.lt(0)).execute()
-    fixed_selection = fixed.where(fixed.value.lt(0)).execute()
-    assert source_selection.to_pandas().equals(fixed_selection.to_pandas())
-    assert fixed.to_pandas().set_index("member")["value"].to_dict() == {
-        "A": -40,
-        "B": 20,
-        "C": -50,
-        "D": 0,
-    }
-    reverse = (
-        baseline.compare(current)
-        .absolute.execute()
-        .to_pandas()
-        .set_index("member")["value"]
-        .to_dict()
-    )
-    assert reverse == {"A": 40, "B": -20, "C": 50, "D": 0}
-
-
 def test_empty_numeric_selection_has_distinct_row_policies(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -174,6 +148,10 @@ def test_exact_artifact_corruption_blocks_recovery_and_dynamic_k(
             )
     with pytest.raises(AnalysisError) as caught:
         case.session.artifact(reference)
+    if corruption == "snapshot":
+        assert caught.value.expected and caught.value.received
+        assert caught.value.repair is not None
+        assert caught.value.repair.help_target.canonical_id == "actions.execute"
     if corruption == "part":
         assert caught.value.repair is not None
         assert caught.value.repair.help_target.canonical_id == "session.artifact"

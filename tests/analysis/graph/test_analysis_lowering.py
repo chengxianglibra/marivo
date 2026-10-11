@@ -131,8 +131,9 @@ def _rows():
     )
 
 
-@pytest.fixture(params=["table", "parquet"])
+@pytest.fixture
 def source_case(request, tmp_path: Path):
+    form = getattr(request, "param", "table")
     backend = ibis.duckdb.connect()
     data = _rows()
     backend.create_table("facts", data)
@@ -142,7 +143,7 @@ def source_case(request, tmp_path: Path):
         "db", "db", "duckdb", {}, {}, AiContextIR(), "db", DatasourceSourceLocation("source.py", 1)
     )
     with SourceSession(provider_for("duckdb"), datasource, backend) as session:
-        yield session, request.param, path
+        yield session, form, path
 
 
 def _bind(case, leaf):
@@ -245,6 +246,7 @@ def _spearman(left, right):
 
 
 @pytest.mark.parametrize("route", ["ibis", "ibis_python"])
+@pytest.mark.parametrize("source_case", ["table", "parquet"], indirect=True)
 @pytest.mark.parametrize(
     "values_a,values_b,status,expected,complete",
     [
@@ -1235,32 +1237,20 @@ def test_false_source_identity_declaration_is_not_reaudited(source_case):
     assert not session._staged_relations
 
 
-def test_decimal_count_admits_but_unqualified_time_rejects_before_business_read(source_case):
-    source = source_case[0]
-    base = _leaf(source_case[1])
+def test_decimal_count_admits_but_unqualified_time_rejects_before_business_read():
+    base = _leaf()
     _plan(_count(replace(base, value_type=DecimalType(18, 2))))
-    changed = (
-        replace(
-            base,
-            definition=replace(
-                base.definition,
-                shape=SourceShape(
-                    "duckdb",
-                    source_case[1],
-                    "native" if source_case[1] == "table" else "parquet",
-                    TimeShape("instant", "ms", "UTC")
-                    if source_case[1] == "table"
-                    else TimeShape("instant", "us", "Asia/Tokyo"),
-                ),
-            ),
-        ),
+    changed_shapes = (
+        SourceShape("duckdb", "table", "native", TimeShape("instant", "ms", "UTC")),
+        SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "Asia/Tokyo")),
     )
-    for leaf in changed:
+    for shape in changed_shapes:
+        leaf = replace(base, definition=replace(base.definition, shape=shape))
         with pytest.raises(MethodRegistrationError, match="qualified exact key"):
             _plan(_count(leaf))
-    assert source.submissions == []
 
 
+@pytest.mark.parametrize("source_case", ["table", "parquet"], indirect=True)
 def test_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_read(source_case):
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_source_execution import execute_source_graph

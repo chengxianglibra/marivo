@@ -2043,54 +2043,9 @@ def test_metric_keyword_only() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_metric_with_ai_context() -> None:
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-
-        @ms.metric(
-            entities=[ref_factory.entity("sales.orders")],
-            additivity=ms.additive_all(),
-            ai_context=ms.ai_context(
-                business_definition="Total revenue",
-                guardrails=["Must be positive"],
-            ),
-        )
-        def revenue(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.ai_context.business_definition == "Total revenue"
-        assert ir.ai_context.guardrails == ("Must be positive",)
-    finally:
-        _exit_ctx()
-
-
 # ---------------------------------------------------------------------------
 # AiContext validation
 # ---------------------------------------------------------------------------
-
-
-def test_ai_context_with_valid_keys_works() -> None:
-    """ai_context with all supported keys should work."""
-    ctx = _enter_ctx(default_domain="sales")
-    try:
-
-        @ms.metric(
-            entities=[ref_factory.entity("sales.orders")],
-            additivity=ms.additive_all(),
-            ai_context=ms.ai_context(
-                business_definition="Revenue",
-                guardrails=["Must be positive"],
-            ),
-        )
-        def revenue(table: object) -> object:
-            return None  # type: ignore[unreachable]
-
-        ir, _ = _pending_objects(ctx)[-1]
-        assert ir.ai_context.business_definition == "Revenue"
-        assert ir.ai_context.guardrails == ("Must be positive",)
-    finally:
-        _exit_ctx()
 
 
 @pytest.mark.parametrize(

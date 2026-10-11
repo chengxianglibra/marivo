@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -35,6 +36,7 @@ def producer_recovery(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
+    phases: tuple[Literal["fixed", "cold"], ...] = ("fixed", "cold"),
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
@@ -162,7 +164,7 @@ def producer_recovery(
     reports: list[Json] = [{"phase": "produce", "pid": os.getpid()}]
     repository = PROJECT_ROOT
     environment = dict(os.environ, PYTHONPATH=str(repository))
-    for phase in ("fixed", "cold"):
+    for phase in phases:
         report = tmp_path / f"r94-{phase}.json"
         completed = subprocess.run(
             [
@@ -182,9 +184,10 @@ def producer_recovery(
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
         reports.append(json.loads(report.read_text()))
-    assert len({row["pid"] for row in reports if isinstance(row, dict)}) == 3
+    assert len({row["pid"] for row in reports if isinstance(row, dict)}) == len(phases) + 1
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(directory, f"r94-recovery-{backend}{suffix}.json").write_text(
+        phase_suffix = "" if phases == ("fixed", "cold") else "-" + "-".join(phases)
+        Path(directory, f"r94-recovery-{backend}{suffix}{phase_suffix}.json").write_text(
             json.dumps(
                 {
                     "backend": backend,
@@ -198,16 +201,23 @@ def producer_recovery(
         )
 
 
-def test_native_producer_offline_and_cold_continuation(
+@pytest.mark.slow
+def test_native_producer_cold_continuation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
 ) -> None:
     backend = "duckdb"
-    profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
+    profile = "table"
     producer_recovery(
-        backend, profile, tmp_path, monkeypatch, semantic_project_factory, source_trace
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        source_trace,
+        phases=("fixed", "cold"),
     )
 
 

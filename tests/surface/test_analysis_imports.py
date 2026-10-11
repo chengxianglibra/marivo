@@ -6,7 +6,7 @@ import sys
 from tests.support.paths import PROJECT_ROOT
 
 
-def test_dataset_core_public_bindings_are_stable_across_private_imports() -> None:
+def test_public_bindings_stay_stable_across_private_imports() -> None:
     script = """
 import importlib
 import marivo.analysis as mv
@@ -24,23 +24,6 @@ assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
 assert {'datasets', 'datasets.materialized_state', 'actions.execute'} <= set(help_targets)
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-def test_observation_imports_do_not_replace_public_bindings() -> None:
-    script = """
-import importlib
-import marivo.analysis as mv
-from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)

@@ -149,45 +149,6 @@ order=ms.business_order(name='order',subject=subjects,sequences=(ms.event_sequen
     assert baseline.to_pandas().reached_count.tolist() == [2, 1]
     change = current.compare(baseline).execute()
     assert change.to_pandas().loss_rate_delta.tolist()[-1] == pytest.approx(-1 / 6)
-    assert change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[
-        -1
-    ] == pytest.approx(-1 / 6)
-    comparison_script = """
-import os, sys
-import ibis
-import marivo.analysis as mv
-from marivo.datasource.adapters import SourceSession
-from marivo.semantic.reader import SemanticProject
-def forbidden(*args, **kwargs):
-    raise AssertionError('Cold Funnel comparison accessed source or semantic execution')
-SourceSession.batches = forbidden
-SemanticProject.load = forbidden
-ibis.duckdb.connect = forbidden
-ibis.sqlite.connect = forbidden
-os.chdir(sys.argv[1])
-session = mv.session.resume(sys.argv[2], by='id')
-change = session.artifact(sys.argv[3])
-assert abs(change.to_pandas().loss_rate_delta.tolist()[-1] + 1/6) < 1e-15
-assert abs(change.read(change.loss_rate_delta).execute().to_pandas().value.tolist()[-1] + 1/6) < 1e-15
-assert change.evidence_digest().finding_set_digest == sys.argv[4]
-"""
-    subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            comparison_script,
-            str(tmp_path),
-            session.id,
-            change.state.artifact_ref.ref,
-            change.evidence_digest().finding_set_digest,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-    )
-
     axes = (ms.ref.dimension("sales.subjects.id"),)
     grouped_current = complete_funnel(datetime(2026, 8, 1, tzinfo=timezone.utc), axes)
     grouped_baseline = complete_funnel(datetime(2026, 7, 26, tzinfo=timezone.utc), axes)

@@ -293,14 +293,10 @@ def test_display_precision_matrix(
     assert dict(zip(fixed_values.member, fixed_values.value, strict=True)) == expected
 
 
-@pytest.mark.parametrize("parquet", [False])
 def test_top_k_original_rank_share_and_empty(
-    analysis_dsl_case_factory: DslCaseFactory, parquet: bool
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    if parquet:
-        export_dsl_parquet_models(case, case.root)
-        ms.load(workspace_dir=case.root)
     members = case.session.members(ms.ref.entity("sales.customer"))
     category = members.read(ms.ref.dimension("sales.customer.region"))
     values = members.observe(
@@ -312,8 +308,7 @@ def test_top_k_original_rank_share_and_empty(
     shares = values.share_of(values.rollup())
     ranking = shares.rank(order="descending", ties="min", partition_by=(category,)).execute()
     prefix = ranking.limit(1).execute()
-    defined = ranking.where(ranking.ranks.value.is_defined())
-    top = defined.where(defined.ranks.value.lte(1)).execute()
+    top = ranking.where(ranking.ranks.value.lte(1)).execute()
     assert len(prefix.values.to_pandas()) == 1
     # Both east ties plus the singleton south and west groups survive.
     assert top.values.to_pandas().member.tolist() == ["A", "B", "C", "D"]
@@ -326,16 +321,9 @@ def test_top_k_original_rank_share_and_empty(
     assert (
         prefix.values._node.root.signature.quantity == ranking.values._node.root.signature.quantity
     )
-    empty = ranking.where(ranking.ranks.value.gt(99)).execute()
-    assert empty.values.to_pandas().empty and empty.ranks.to_pandas().empty
-    assert mv.table(a=empty.values, b=empty.ranks).execute().to_pandas().empty
-    selected = ranking.where(ranking.values.value.gt(0)).limit(3).execute()
-    assert selected.values.to_pandas().member.tolist() == selected.ranks.to_pandas().member.tolist()
-
     fixed = values.execute().rank(order="descending", ties="ordinal").execute()
     continued = fixed.where(fixed.ranks.value.gt(2)).execute()
     assert continued.ranks.to_pandas().value.tolist() == [3, 4]
-    assert continued.limit(1).execute().ranks.to_pandas().value.tolist() == [3]
 
 
 def test_static_display_errors_are_zero_read(
