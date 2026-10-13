@@ -47,7 +47,7 @@ def register_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_public_connect_test_and_no_default_cache(
+def test_owned_backend_probes_and_no_default_cache(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -62,13 +62,14 @@ def test_public_connect_test_and_no_default_cache(
     with md.credential_scope(resolver=resolver):
         assert md.test("warehouse").ok
         assert manage.test_no_persist("warehouse", project_root=tmp_path).ok
-        connection = manage._connect("warehouse")
+        connection = manage.open_backend(
+            manage.load_datasource("warehouse", tmp_path), project_root=tmp_path
+        )
     try:
-        with connection as backend:
-            assert backend is connection.backend
-            assert backend.raw_sql("SELECT 1").fetchall() == [(1,)]
-            with md.credential_scope(resolver=HostResolver("other-value")):
-                assert backend.raw_sql("SELECT 2").fetchall() == [(2,)]
+        backend = connection.backend
+        assert backend.raw_sql("SELECT 1").fetchall() == [(1,)]
+        with md.credential_scope(resolver=HostResolver("other-value")):
+            assert backend.raw_sql("SELECT 2").fetchall() == [(2,)]
     finally:
         connection.disconnect()
     assert len(resolver.requests) == 3
@@ -104,7 +105,9 @@ def test_typed_host_failures_never_fallback(
 
     with md.credential_scope(resolver=Resolver()):
         with pytest.raises(md.DatasourceCredentialError) as captured:
-            manage._connect("warehouse")
+            manage.open_backend(
+                manage.load_datasource("warehouse", tmp_path), project_root=tmp_path
+            )
         result = md.test("warehouse")
     assert captured.value.reason == reason
     assert "provider-cause-canary" not in "".join(traceback.format_exception(captured.value))
@@ -142,7 +145,7 @@ def test_raw_sdk_failure_is_sanitized(tmp_path: Path, monkeypatch: pytest.Monkey
         md.credential_scope(resolver=Resolver()),
         pytest.raises(md.DatasourceCredentialError) as captured,
     ):
-        manage._connect("warehouse")
+        manage.open_backend(manage.load_datasource("warehouse", tmp_path), project_root=tmp_path)
     assert "sdk-payload-canary" not in "".join(traceback.format_exception(captured.value))
     assert captured.value.reason == "unavailable"
 
@@ -277,7 +280,7 @@ def test_driver_error_redaction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
         md.credential_scope(resolver=resolver),
         pytest.raises(DatasourceConnectionError) as captured,
     ):
-        manage._connect("warehouse")
+        manage.open_backend(manage.load_datasource("warehouse", tmp_path), project_root=tmp_path)
     assert resolver.value not in "".join(traceback.format_exception(captured.value))
 
 
@@ -618,7 +621,10 @@ def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         )
     )
     try:
-        with md.credential_scope(resolver=resolver), manage._connect("warehouse") as backend:
+        with (
+            md.credential_scope(resolver=resolver),
+            DatasourceConnectionService(tmp_path).use_backend("warehouse") as backend,
+        ):
             assert backend.raw_sql(
                 f"SELECT sum(amount) FROM read_json_auto('{scope}data.json')"
             ).fetchall() == [(30,)]
@@ -645,7 +651,10 @@ def test_concurrent_contexts_keep_resolvers_separate(
     resolvers = (Resolver("first-fixture-token"), Resolver("second-fixture-token"))
 
     def run(resolver: HostResolver) -> bool:
-        with md.credential_scope(resolver=resolver), manage._connect("warehouse") as backend:
+        with (
+            md.credential_scope(resolver=resolver),
+            DatasourceConnectionService(tmp_path).use_backend("warehouse") as backend,
+        ):
             return credentials.injected_values(backend)[0].reveal() == resolver.value
 
     with ThreadPoolExecutor(max_workers=2) as workers:

@@ -21,11 +21,11 @@ from marivo.datasource import credentials as cr
 from marivo.datasource import secrets as _secrets
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
-from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.authoring import (
     DatasourceSpec,
     _storage_name,
 )
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
@@ -46,7 +46,7 @@ from marivo.datasource.runtime import (
 )
 from marivo.project import resolve_project_root
 from marivo.refs import DatasourceKind, Ref
-from marivo.render import Card, RenderableResult, result_repr
+from marivo.render import Card, RenderableResult
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 """Default requested native timeout for connection and probe settings.
@@ -287,64 +287,6 @@ class RawSqlResult(_DataResult):
         return df
 
 
-class _DatasourceConnection:
-    """Context-manageable datasource backend connection.
-
-    Args:
-        backend: The live ibis backend opened for a project datasource.
-
-    Returns:
-        A connection proxy that delegates backend methods and owns cleanup.
-
-    Example:
-        >>> import marivo.datasource as md
-        >>> with _connect("wh") as con:
-        ...     con.list_tables()
-
-    Constraints:
-        ``with`` blocks yield the raw ibis backend and disconnect on exit.
-        Scripts that cannot use ``with`` may call ``.disconnect()`` manually.
-        The ``.backend`` property exposes the raw backend for explicit handoff.
-        Direct backend calls bypass governed ``SourceSession`` reads and the
-        reason, row and timeout guards of ``md.raw_sql``.
-    """
-
-    def __init__(self, backend: Any) -> None:
-        self._backend = backend
-        self._lease = BackendLease(backend)
-
-    @property
-    def backend(self) -> Any:
-        """Return the wrapped raw ibis backend."""
-        return self._backend
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._backend, name)
-
-    def __enter__(self) -> Any:
-        return self._backend
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        traceback: object | None,
-    ) -> Literal[False]:
-        self._disconnect(suppress_errors=exc_type is not None)
-        return False
-
-    def _disconnect(self, *, suppress_errors: bool) -> None:
-        self._lease.close(suppress_errors=suppress_errors)
-
-    def disconnect(self) -> None:
-        """Disconnect the backend once; repeated calls are no-ops."""
-        self._disconnect(suppress_errors=False)
-
-    def __repr__(self) -> str:
-        state = "closed" if self._lease.closed else "open"
-        return result_repr(f"DatasourceConnection backend={type(self._backend).__name__} {state}")
-
-
 def register(
     spec: DatasourceSpec,
     *,
@@ -467,42 +409,6 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
     )
 
 
-def _connect_internal(
-    name: str,
-    *,
-    project_root: Path | None = None,
-    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    terminal_timeout_seconds: int | None = None,
-) -> _DatasourceConnection:
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be positive.")
-    project_root = cr.operation_root(project_root)
-    datasource = load_datasource(name, project_root)
-    built = open_backend(
-        datasource,
-        project_root=project_root,
-        timeout_seconds=timeout_seconds,
-        read_only=terminal_timeout_seconds is not None,
-        terminal_timeout_seconds=terminal_timeout_seconds,
-    )
-    connection = _DatasourceConnection(built.backend)
-    connection._lease = built.lease
-    cr.remember_injected(connection, built.injected)
-    _secrets.remember_env_sourced(connection, built.env_sourced_secrets)
-    return connection
-
-
-def _connect(
-    name: str,
-    *,
-    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
-    terminal_timeout_seconds: int | None = None,
-) -> _DatasourceConnection:
-    return _connect_internal(
-        name, timeout_seconds=timeout_seconds, terminal_timeout_seconds=terminal_timeout_seconds
-    )
-
-
 def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
     return _storage_name(value)
 
@@ -576,14 +482,9 @@ def _failure_code_for_phase(phase: str) -> DatasourceFailureCode:
     return "connection_open_failed"
 
 
-def _release_connection(connection: _DatasourceConnection | None) -> None:
-    if connection is not None:
-        connection._disconnect(suppress_errors=True)
-
-
 @dataclass
 class _ProbeState:
-    backend: _DatasourceConnection | None
+    backend: BuiltDatasourceBackend | None
     phase: Literal["connection", "roundtrip"]
     started: float
 
@@ -636,7 +537,8 @@ def _run_roundtrip(
                 repair=_connection_repair(exc, failure_code=failure_code),
             )
         finally:
-            _release_connection(state.backend)
+            if state.backend is not None:
+                state.backend.disconnect()
 
 
 def test(
@@ -691,19 +593,12 @@ def _test_in_project(
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: _ProbeState) -> DatasourceTestResult:
-        connection = (
-            _connect(
-                datasource_name,
-                timeout_seconds=timeout_seconds,
-                terminal_timeout_seconds=timeout_seconds,
-            )
-            if project_root is None
-            else _connect_internal(
-                datasource_name,
-                project_root=project_root,
-                timeout_seconds=timeout_seconds,
-                terminal_timeout_seconds=timeout_seconds,
-            )
+        connection = open_backend(
+            load_datasource(datasource_name, cr.operation_root(project_root)),
+            project_root=project_root,
+            timeout_seconds=timeout_seconds,
+            read_only=True,
+            terminal_timeout_seconds=timeout_seconds,
         )
         state.backend = connection
         state.phase = "roundtrip"
@@ -714,7 +609,7 @@ def _test_in_project(
         timeout = profile.native_query_timeout
         with timeout(selected_backend, timeout_seconds) if timeout is not None else nullcontext():
             profile.probe(selected_backend)
-        _secrets.try_persist_backend_env_sourced(connection)
+        _secrets.try_persist_backend_env_sourced(selected_backend)
         latency_ms = int((time.perf_counter() - state.started) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
@@ -769,10 +664,11 @@ def test_no_persist(
         raise ValueError("timeout_seconds must be positive.")
 
     def roundtrip(state: _ProbeState) -> DatasourceTestResult:
-        connection = _connect_internal(
-            datasource_name,
+        connection = open_backend(
+            load_datasource(datasource_name, cr.operation_root(project_root)),
             project_root=project_root,
             timeout_seconds=timeout_seconds,
+            read_only=True,
             terminal_timeout_seconds=timeout_seconds,
         )
         state.backend = connection

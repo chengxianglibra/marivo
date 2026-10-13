@@ -176,7 +176,8 @@ def test_source_profile(
         fault = ""
         active = session.batches(read, chunk_size=1)
         assert next(iter(active)).num_rows == 1
-        termination = session.interrupt()
+        session.close()
+        termination = session.submissions[-1].termination
         assert termination == (
             "local_closed" if backend in {"duckdb", "sqlite"} else "remote_unknown"
         )

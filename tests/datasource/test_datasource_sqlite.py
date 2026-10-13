@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource import backends, manage, store
+from marivo.datasource import backends, store
 from marivo.datasource.metadata import inspect_table
 
 
@@ -181,8 +181,10 @@ def test_sqlite_explicit_and_internal_read_only_connections(
     _seed_sqlite(database_path)
     md.register(md.sqlite(name="app", path=str(database_path), read_only=True))
 
+    from marivo.datasource.runtime import DatasourceConnectionService
+
     with (
-        manage._connect("app") as connection,
+        DatasourceConnectionService(tmp_path).use_backend("app") as connection,
         pytest.raises(sqlite3.DatabaseError, match="not authorized"),
     ):
         connection.raw_sql("INSERT INTO orders VALUES (3, 'c', 30.0, CURRENT_TIMESTAMP)")

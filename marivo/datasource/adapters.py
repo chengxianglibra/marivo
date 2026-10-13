@@ -29,6 +29,7 @@ from ibis.backends import BaseBackend
 
 from marivo import _execution_log
 from marivo.datasource import credentials as cr
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.engines import (
     SUPPORTED_BACKEND_TYPES,
     EngineProfile,
@@ -766,18 +767,25 @@ class SourceSession:
         backend: BaseBackend,
         *,
         owns_backend: bool = True,
+        backend_lease: BackendLease | None = None,
         project_root: Path | None = None,
     ):
         if datasource.backend_type != provider.name:
             raise _invalid(provider.name, datasource.backend_type)
         if backend.name != provider.name:
             raise _invalid(provider.name, backend.name)
+        if backend_lease is not None and (not owns_backend or backend_lease.backend is not backend):
+            raise _invalid("an owned lease for this exact backend", "borrowed or mismatched lease")
         self._log_context = _execution_log.snapshot(project_root)
         self._log_root = self._log_context.root
         self.provider = provider
         self.datasource = datasource
         self._backend = backend
-        self._owns_backend = owns_backend
+        self._backend_lease = (
+            backend_lease or BackendLease(backend, thread_affine=provider.thread_affine)
+            if owns_backend
+            else None
+        )
         self._backend_disconnected = False
         self._token = object()
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
@@ -1226,10 +1234,9 @@ class SourceSession:
                 if (
                     self.provider.name == "mysql"
                     and isinstance(error, KeyboardInterrupt)
-                    and self._owns_backend
+                    and self._backend_lease is not None
                 ):
-                    self._backend.disconnect()
-                    self.mark_backend_disconnected()
+                    self._release_backend()
                     submission.cursor_state = "closed"
                 else:
                     submission.cursor_state = "close_failed"
@@ -1321,21 +1328,6 @@ class SourceSession:
                     "local_closed" if self.provider.name == "sqlite" else "remote_unknown"
                 )
 
-    def interrupt(self) -> Termination:
-        """Request a driver's existing cancellation API, then release owned resources."""
-        connection = getattr(self._backend, "con", None)
-        native = getattr(
-            connection,
-            "interrupt" if self.provider.name in {"duckdb", "sqlite"} else "cancel",
-            None,
-        )
-        try:
-            if callable(native):
-                native()
-        finally:
-            self.close()
-        return "local_closed" if self.provider.name in {"duckdb", "sqlite"} else "remote_unknown"
-
     def close(self) -> None:
         if self._closed:
             return
@@ -1358,15 +1350,21 @@ class SourceSession:
         self._issued.clear()
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
-        if self._owns_backend and not self._backend_disconnected:
-            try:
-                self._backend.disconnect()
-                self.mark_backend_disconnected()
-            except BaseException as error:
-                if failure is None:
-                    failure = error
+        try:
+            self._release_backend()
+        except BaseException as error:
+            if failure is None:
+                failure = error
         if failure is not None:
             raise failure
+
+    def _release_backend(self) -> None:
+        if self._backend_lease is not None and not self._backend_disconnected:
+            if not self._backend_lease.close(suppress_errors=False):
+                raise _invalid(
+                    "confirmed owned connection release", "connection release unconfirmed"
+                )
+            self.mark_backend_disconnected()
 
     def mark_backend_disconnected(self) -> None:
         """Record only a connection release confirmed by the backend owner."""

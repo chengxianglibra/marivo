@@ -17,6 +17,7 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
@@ -67,7 +68,9 @@ def _sqlite_capture(
         snapshot_backend = connect(
             "domain_capture", {"path": str(Path(directory) / "snapshot.sqlite"), "read_only": True}
         )
-        resources.callback(snapshot_backend.disconnect)
+        resources.callback(
+            BackendLease(snapshot_backend, thread_affine=True).close, suppress_errors=False
+        )
         snapshot = getattr(snapshot_backend, "con", None)
         if not isinstance(snapshot, sqlite3.Connection):
             fail(

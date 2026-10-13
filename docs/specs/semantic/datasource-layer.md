@@ -637,6 +637,11 @@ as text; Trino named rows retain their field names; MySQL temporal converters
 preserve invalid date text for rejection rather than silently turning it into
 null. A DuckDB result is connection-owned and is released with its connection;
 remote cursor close does not prove server-side query termination.
+Connection probes and owned source sessions share the backend's single internal
+lease, which disconnects through Ibis at most once. Borrowed source sessions
+release streams and staged relations before the connection owner disconnects.
+Cleanup continues across resource failures and records disconnection only after
+confirmed release; it does not actively cancel remote queries.
 
 SQLite native NUMERIC affinity is not an exact Decimal carrier. Declaring a
 Decimal schema, including through `type_map`, does not restore precision already

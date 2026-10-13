@@ -8,11 +8,13 @@ from pathlib import Path
 from threading import get_ident
 from unittest.mock import Mock
 
+import ibis
 import pyarrow as pa
 import pytest
 from ibis.backends import BaseBackend
 
-from marivo.datasource import backends, runtime
+from marivo.datasource import adapters, backends, manage, runtime
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import (
     SourceBatchStream,
     SourceSession,
@@ -22,6 +24,81 @@ from marivo.datasource.adapters import (
 from marivo.datasource.engines import mysql
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from tests.datasource.source_cases import datasource
+
+
+def test_provider_session_reuses_the_built_backend_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend.name = "duckdb"
+    built = backends.BuiltDatasourceBackend(backend, ())
+    monkeypatch.setattr(runtime, "open_backend", lambda *_args, **_kwargs: built)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+
+    session = provider_for("duckdb").open(datasource("duckdb", {}))
+    assert session._backend_lease is built.lease
+    built.disconnect()
+    session.close()
+    session.close()
+    assert session._backend_disconnected
+    backend.disconnect.assert_called_once_with()
+
+
+@pytest.mark.parametrize("borrowed", (False, True))
+def test_source_session_rejects_borrowed_or_mismatched_lease(
+    borrowed: bool, tmp_path: Path
+) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend.name = "duckdb"
+    lease = BackendLease(backend if borrowed else Mock(spec=BaseBackend))
+    with pytest.raises(DatasourceSourceCapabilityError, match="borrowed or mismatched lease"):
+        SourceSession(
+            provider_for("duckdb"),
+            datasource("duckdb", {}),
+            backend,
+            owns_backend=not borrowed,
+            backend_lease=lease,
+            project_root=tmp_path,
+        )
+    backend.disconnect.assert_not_called()
+    assert not lease.closed
+
+
+@pytest.mark.parametrize("failed", (False, True))
+@pytest.mark.parametrize("persist", (False, True))
+def test_probe_releases_the_owned_backend_and_caches_only_success(
+    failed: bool, persist: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend.name = "trino"
+    backend._marivo_terminal_timeout_seconds = 7
+    backend.con = Mock()
+    backend.con.session_properties = {"query_max_run_time": "7s"}
+    built = backends.BuiltDatasourceBackend(backend, ())
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(manage, "load_datasource", lambda *_args: datasource("trino", {}))
+    monkeypatch.setattr(manage, "open_backend", lambda *_args, **_kwargs: built)
+    probe = Mock(side_effect=RuntimeError("probe failed") if failed else None)
+    monkeypatch.setattr(adapters, "_probe_backend", probe)
+    cache = Mock()
+    monkeypatch.setattr(manage._secrets, "try_persist_backend_env_sourced", cache)
+
+    result = (
+        manage.test("fixture", timeout_seconds=7)
+        if persist
+        else manage.test_no_persist("fixture", timeout_seconds=7, project_root=tmp_path)
+    )
+    assert result.ok is not failed
+    probe.assert_called_once_with("trino", backend)
+    if failed:
+        assert result.failure is not None
+        assert result.failure.code == "connection_roundtrip_failed"
+    if persist and not failed:
+        cache.assert_called_once_with(backend)
+    else:
+        cache.assert_not_called()
+    built.disconnect()
+    backend.disconnect.assert_called_once_with()
 
 
 @pytest.mark.parametrize("backend_kind", ("postgres", "trino", "clickhouse", "mysql"))
@@ -227,6 +304,44 @@ def test_failed_disconnect_cannot_confirm_cleanup(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="disconnect unconfirmed"):
         session.close()
     assert not session._backend_disconnected
+
+
+def test_cleanup_releases_stages_and_connection_after_stream_failure(tmp_path: Path) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend.name = "duckdb"
+    session = SourceSession(
+        provider_for("duckdb"), datasource("duckdb", {}), backend, project_root=tmp_path
+    )
+    events: list[str] = []
+
+    def fail_close() -> None:
+        events.append("cursor")
+        raise OSError("cursor release failed")
+
+    cursor = Mock()
+    cursor.close.side_effect = fail_close
+    submission = SourceSubmission("fixture", "facts", 1, "SELECT value FROM facts")
+    session._streams.add(
+        SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
+    )
+    for name in ("first_stage", "second_stage"):
+        relation = ibis.table({"value": "int64"}, name=name)
+        session._staged_relations[relation.op()] = (frozenset({"facts"}), name)
+
+    def drop_table(name: str, *, force: bool) -> None:
+        assert force
+        events.append(name)
+        if name == "first_stage":
+            raise OSError("stage release failed")
+
+    backend.drop_table.side_effect = drop_table
+    backend.disconnect.side_effect = lambda: events.append("connection")
+    with pytest.raises(OSError, match="cursor release failed"):
+        session.close()
+    session.close()
+    assert events == ["cursor", "first_stage", "second_stage", "connection"]
+    assert not session._streams and not session._staged_relations
+    assert session._backend_disconnected
 
 
 def test_connection_service_closes_other_owners_after_source_cleanup_failure(

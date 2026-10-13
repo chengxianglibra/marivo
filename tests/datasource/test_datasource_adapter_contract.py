@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 from collections.abc import Iterator
+from contextlib import closing
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -564,17 +565,28 @@ def test_early_close_and_empty_result_keep_fixed_schema(session: SourceSession) 
     assert empty_stream.schema.equals(empty.schema, check_metadata=False)
 
 
-def test_interrupt_reports_only_local_close(session: SourceSession) -> None:
-    stream = session.batches(_read(session), chunk_size=1)
-    assert session.interrupt() == "local_closed"
-    assert not session._streams
-    assert session.submissions[-1].termination == "local_closed"
-    assert session.submissions[-1].connection_disconnected is True
-    cleanup = execution_records(session._log_root)[-1]
-    assert cleanup["event"] == "query.cleanup"
-    assert cleanup["termination"] == "local_closed"
-    with pytest.raises(DatasourceSourceCapabilityError):
-        list(stream)
+@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
+def test_borrowed_session_releases_stream_without_closing_connection(
+    session: SourceSession, tmp_path: Path
+) -> None:
+    borrowed = SourceSession(
+        session.provider,
+        session.datasource,
+        session._backend,
+        owns_backend=False,
+        project_root=tmp_path,
+    )
+    try:
+        stream = borrowed.batches(_read(borrowed), chunk_size=1)
+        assert next(iter(stream)).num_rows == 1
+    finally:
+        borrowed.close()
+    borrowed.close()
+    assert not borrowed._streams
+    assert borrowed.submissions[-1].state == "closed_early"
+    assert not borrowed.submissions[-1].connection_disconnected
+    with closing(session.batches(_read(session), chunk_size=1)) as stream:
+        assert sum(batch.num_rows for batch in stream) == 2
 
 
 def test_fetch_failure_closes_cursor_and_records_failure(session: SourceSession) -> None:
@@ -682,33 +694,8 @@ def test_stub_provider_cannot_grant_basic_route() -> None:
         bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
         with pytest.raises(DatasourceSourceCapabilityError, match="not a live Ibis backend"):
             session.qualify(bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan"})))
-        assert session.interrupt() == "remote_unknown"
     finally:
         session.close()
-
-
-def test_trino_owner_interrupt_does_not_wait_for_its_own_cleanup() -> None:
-    backend = Mock()
-    backend.name = "trino"
-    session = SourceSession(provider_for("trino"), _datasource("trino"), backend)
-    cursor = Mock()
-    session._own_pending_cursor(cursor)
-    session._pending_cursor = None
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
-    session._query_logs[id(submission)] = _execution_log.QueryLog(
-        "compiled SQL",
-        backend=session.provider.name,
-        purpose="basic.rows",
-        project_root=session._log_root,
-    )
-    session.submissions.append(submission)
-    stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
-    session._streams.add(stream)
-    assert session.interrupt() == "remote_unknown"
-    backend.con.cancel.assert_called_once_with()
-    cursor.close.assert_called_once_with()
-    assert submission.state == "closed_early"
-    assert submission.connection_disconnected
 
 
 def test_session_rejects_backend_from_another_provider(tmp_path: Path) -> None:

@@ -169,10 +169,10 @@ class DatasourceConnectionService:
     - ``session_backend(name)`` -- returns a cached backend that lives
       until ``close_all()`` is called.
 
-    This service uses ``backends.build_backend()`` (without secrets
-    tracking) because it is intended for short-lived scoped operations
-    such as inspections and previews. The private connectivity probe in
-    ``manage.py`` handles validated secret caching separately.
+    Each owned backend has one shared ``BackendLease`` for idempotent
+    disconnection through Ibis. Borrowed source sessions release their streams
+    and staging resources before this service releases the connection.
+    Connectivity probes handle validated secret caching separately.
     """
 
     def __init__(

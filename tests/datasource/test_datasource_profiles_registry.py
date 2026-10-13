@@ -17,6 +17,7 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
+from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMissingError
 
 
@@ -151,8 +152,8 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 
     monkeypatch.setattr(
         registry_mod,
-        "_connect",
-        lambda _name, **kwargs: registry_mod._DatasourceConnection(backend),
+        "open_backend",
+        lambda _datasource, **kwargs: BuiltDatasourceBackend(backend, ()),
     )
 
     result = md.test("wh")
@@ -160,115 +161,6 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     assert result.ok is True, result.failure
     assert result.repair is None
     assert backend.disconnected is True
-
-
-def test_connect_context_manager_yields_backend_and_disconnects(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
-
-    class _FakeBackend:
-        disconnect_calls = 0
-
-        def raw_sql(self, sql: str) -> str:
-            assert sql == "SELECT 1"
-            return "ok"
-
-        def list_tables(self) -> list[str]:
-            return ["orders"]
-
-        def disconnect(self) -> None:
-            self.disconnect_calls += 1
-
-    backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource import backends
-    from marivo.datasource.backends import BuiltDatasourceBackend
-
-    monkeypatch.setattr(
-        backends,
-        "build_backend_with_secrets",
-        lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
-        ),
-    )
-
-    connection = registry_mod._connect("wh")
-    assert connection.backend is backend
-    assert connection.list_tables() == ["orders"]
-
-    with connection as con:
-        assert con is backend
-        assert con.raw_sql("SELECT 1") == "ok"
-        assert backend.disconnect_calls == 0
-
-    assert backend.disconnect_calls == 1
-
-
-def test_connect_context_manager_disconnects_after_error(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
-
-    class _FakeBackend:
-        disconnect_calls = 0
-
-        def disconnect(self) -> None:
-            self.disconnect_calls += 1
-
-    backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource import backends
-    from marivo.datasource.backends import BuiltDatasourceBackend
-
-    monkeypatch.setattr(
-        backends,
-        "build_backend_with_secrets",
-        lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="boom"), registry_mod._connect("wh"):
-        raise RuntimeError("boom")
-
-    assert backend.disconnect_calls == 1
-
-
-def test_connect_manual_disconnect_is_idempotent(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
-
-    class _FakeBackend:
-        disconnect_calls = 0
-
-        def disconnect(self) -> None:
-            self.disconnect_calls += 1
-
-    backend = _FakeBackend()
-    import marivo.datasource.manage as registry_mod
-    from marivo.datasource import backends
-    from marivo.datasource.backends import BuiltDatasourceBackend
-
-    monkeypatch.setattr(
-        backends,
-        "build_backend_with_secrets",
-        lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
-        ),
-    )
-
-    connection = registry_mod._connect("wh")
-    connection.disconnect()
-    connection.disconnect()
-    with connection:
-        pass
-
-    assert backend.disconnect_calls == 1
 
 
 def test_datasource_test_success_persists_env_sourced_secret(
@@ -397,10 +289,12 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     from marivo.datasource import manage as manage_mod
+    from tests.datasource.source_cases import datasource
 
+    monkeypatch.setattr(manage_mod, "load_datasource", lambda _name, _root: datasource("trino", {}))
     monkeypatch.setattr(
         manage_mod,
-        "_connect",
+        "open_backend",
         lambda _name, **kwargs: (_ for _ in ()).throw(
             RuntimeError(
                 "connect postgresql://alice:uri-secret@db.example "
@@ -435,8 +329,8 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
 
     monkeypatch.setattr(
         manage_mod,
-        "_connect",
-        lambda _name, **kwargs: manage_mod._DatasourceConnection(_FakeBackend()),
+        "open_backend",
+        lambda _datasource, **kwargs: BuiltDatasourceBackend(_FakeBackend(), ()),
     )
     monkeypatch.setattr(
         manage_mod._secrets,

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
 
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.capabilities import (
     ProviderStatement,
     execute_provider_statement,
@@ -232,7 +233,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
                 backend, PROFILE, "duckdb.connection.read_only", purpose="datasource.connection"
             )
         except BaseException:
-            backend.disconnect()
+            BackendLease(backend).close(suppress_errors=False)
             raise
     backend._marivo_timezone_name = "UTC"
     return backend

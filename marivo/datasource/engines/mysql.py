@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ibis.backends import BaseBackend
 
+from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.capabilities import (
     ProviderStatement,
     execute_provider_statement,
@@ -52,7 +53,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
                 try:
                     super()._post_connect()
                 except Warning as cause:
-                    self.con.close()
+                    BackendLease(self).close(suppress_errors=False)
                     raise DatasourceConnectionError(
                         message="The MySQL reader could not initialize UTC.",
                         expected="successful Ibis UTC reader initialization",

@@ -29,11 +29,6 @@ def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_connect_rejects_non_positive_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        manage_mod._connect("warehouse", timeout_seconds=0)
-
-
 def test_test_rejects_non_positive_timeout() -> None:
     with pytest.raises(ValueError, match="timeout_seconds must be positive"):
         md.test("warehouse", timeout_seconds=0)

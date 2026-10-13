@@ -185,7 +185,7 @@ class EngineProfile:
             timeout_seconds=30 if terminal_timeout_seconds is not None else None,
             terminal_timeout_seconds=terminal_timeout_seconds,
         )
-        return SourceSession(self, datasource, selected.backend)
+        return SourceSession(self, datasource, selected.backend, backend_lease=selected.lease)
 
     def probe(self, backend: BaseBackend) -> None:
         """Round-trip an Ibis literal through this provider's native transport."""

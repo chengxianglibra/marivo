@@ -14,7 +14,7 @@ import pytest
 import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import manage, store
+from marivo.datasource import store
 from marivo.datasource.backends import build_backend_with_secrets
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
@@ -127,18 +127,29 @@ def test_authored_default_rejected_by_both_loaders(project_root: Path, external:
 
 
 def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
-    for operation in (md.describe, manage._connect, md.load().get):
+    for operation in (md.describe, md.load().get):
         with pytest.raises(DatasourceMissingError):
             operation("missing")
+
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    with (
+        pytest.raises(DatasourceMissingError),
+        DatasourceConnectionService(project_root).use_backend("missing"),
+    ):
+        pass
 
 
 def test_managed_connections_have_independent_memory(project_root: Path) -> None:
     assert md.test(ms.ref.datasource("default")).ok
-    with manage._connect("default") as first, manage._connect("default") as second:
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    service = DatasourceConnectionService(project_root)
+    with service.use_backend("default") as first, service.use_backend("default") as second:
         first.create_table("only_first", ibis.memtable({"value": [7]}))
         assert "only_first" in first.list_tables()
         assert "only_first" not in second.list_tables()
-    with manage._connect("default") as reopened:
+    with service.use_backend("default") as reopened:
         assert "only_first" not in reopened.list_tables()
     assert not (project_root / "models").exists()
 

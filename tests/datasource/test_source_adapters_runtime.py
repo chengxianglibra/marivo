@@ -219,7 +219,7 @@ def test_postgres_table_view_namespace_and_exact_decimal(
                     expected=expected,
                     expected_metadata=_expect_postgres_view_facts,
                 )
-                assert session.interrupt() == "remote_unknown"
+                session.close()
                 assert all(item.connection_disconnected for item in session.submissions)
         finally:
             admin.execute(sql.SQL("DROP VIEW IF EXISTS {}").format(sql.Identifier(view)))
@@ -269,7 +269,7 @@ def test_mysql_table_view_and_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                     expected=expected,
                     expected_metadata=_expect_mysql_view_facts,
                 )
-                assert session.interrupt() == "remote_unknown"
+                session.close()
                 assert all(item.connection_disconnected for item in session.submissions)
         finally:
             cursor.execute(f"DROP VIEW IF EXISTS {view}")
@@ -388,7 +388,7 @@ def test_trino_iceberg_and_non_iceberg_forms() -> None:
                         expected=expected,
                         expected_metadata=_expect_trino_view_facts,
                     )
-                    assert session.interrupt() == "remote_unknown"
+                    session.close()
                     assert all(item.connection_disconnected for item in session.submissions)
             finally:
                 cursor.execute(f"DROP VIEW IF EXISTS {catalog}.analysis.{view}").fetchall()
@@ -496,7 +496,7 @@ def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                     ],
                     expected_metadata=_expect_clickhouse_view_facts,
                 )
-                assert session.interrupt() == "remote_unknown"
+                session.close()
                 assert all(item.connection_disconnected for item in session.submissions)
         finally:
             admin.command(f"DROP VIEW IF EXISTS {view}")
@@ -595,7 +595,7 @@ def test_clickhouse_distributed_reads_both_shards(monkeypatch: pytest.MonkeyPatc
                 identity=suffix,
                 expected=[{"id": value, "amount": Decimal(f"{value}.25")} for value in range(5)],
             )
-            assert session.interrupt() == "remote_unknown"
+            session.close()
             assert all(item.connection_disconnected for item in session.submissions)
     finally:
         ch.drop_cluster_tables(suffix)
