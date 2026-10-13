@@ -1,0 +1,23 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.5.8
+title: Marivo 0.5.8
+description: Marivo 0.5.8 发布说明。
+---
+
+Marivo 0.5.8 修复仅含日期的 `strptime` 时间字段分桶问题，并将 SQLGlot 固定到与 DuckDB 兼容的版本。
+
+## 修复
+
+- 使用 `%Y-%m`、`%Y%m%d` 等仅含日期的 `strptime` 格式解析的时间字段，现在按民用日期分桶，不再做时区偏移。此前当请求粒度与字段的日级分类不一致，且报告时区与数据源读取时区不同时，分桶会报错 `unsupported operand type(s) for +: 'DateColumn' and 'IntervalScalar'`。
+
+## 变更
+
+- `sqlglot` 依赖固定为 `30.8.0`。SQLGlot `30.22.0` 生成的 SQL 会被 DuckDB 拒绝。
+
+## 安装
+
+~~~bash
+pip install --upgrade marivo==0.5.8
+~~~
+
+Marivo 0.5.8 要求 Python 3.10 或更新版本。
