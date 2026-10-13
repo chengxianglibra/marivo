@@ -13,6 +13,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
+from heapq import merge
 from pathlib import Path
 from types import MappingProxyType
 from typing import (
@@ -434,7 +435,7 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     return factory(path)
 
 
-CatalogObjectT = TypeVar("CatalogObjectT")
+CatalogObjectT = TypeVar("CatalogObjectT", bound="CatalogEntry[SemanticKindTag]")
 CatalogEntryKindT = TypeVar("CatalogEntryKindT", bound=SemanticKindTag, covariant=True)
 KindT = TypeVar("KindT", bound=SemanticKindTag)
 
@@ -489,26 +490,6 @@ def _format_card_refs(
     if len(refs) > limit:
         rendered += "; full: .details().show()"
     return rendered
-
-
-def _format_event_participant(
-    participant: tuple[
-        str,
-        Ref[EntityKind],
-        str,
-        tuple[Ref[RelationshipKind], ...],
-    ],
-    *,
-    bounded: bool,
-) -> str:
-    name, endpoint, cardinality, path = participant
-    if not path:
-        path_text = "self"
-    elif bounded:
-        path_text = _format_card_refs(path)
-    else:
-        path_text = " -> ".join(ref.key for ref in path)
-    return f"{name}: endpoint={endpoint.key}; cardinality={cardinality}; path={path_text}"
 
 
 def _format_tuple_values(values: tuple[str, ...], *, limit: int = 6) -> str:
@@ -3014,15 +2995,96 @@ def _normalize_location(loc: SourceLocation | DatasourceSourceLocation) -> Sourc
     return SourceLocation(file=loc.file, line=loc.line)
 
 
+def _freeze_ref_groups(
+    groups: Mapping[str, Sequence[Ref[KindT]]],
+) -> Mapping[str, tuple[Ref[KindT], ...]]:
+    return MappingProxyType({key: tuple(values) for key, values in groups.items()})
+
+
+class _CatalogBuildIndex:
+    """Declaration-order navigation projections for one catalog construction."""
+
+    def __init__(self, registry: Registry, default_cumulative_axes: frozenset[str]) -> None:
+        domain_children: dict[str, list[Ref[SemanticKindTag]]] = {}
+        datasource_entities: dict[str, list[Ref[EntityKind]]] = {}
+        entity_children: dict[str, list[Ref[SemanticKindTag]]] = {}
+        entity_metrics: dict[str, list[Ref[MetricKind]]] = {}
+        measure_dependents: dict[str, list[Ref[MetricKind]]] = {}
+        metric_dependents: dict[str, list[Ref[MetricKind]]] = {}
+        relationships_by_domain: dict[str, list[RelationshipIR]] = {}
+        dimensions_by_entity: dict[str, list[DimensionIR]] = {}
+
+        for entity in registry.entities.values():
+            entity_ref = ref_factory.entity(entity.semantic_id)
+            domain_children.setdefault(entity.domain, []).append(entity_ref)
+            datasource_entities.setdefault(entity.datasource, []).append(entity_ref)
+        for dimension in registry.dimensions.values():
+            dimension_ref = _make_ref(
+                dimension.semantic_id,
+                SemanticKind.TIME_DIMENSION
+                if dimension.is_time_dimension
+                else SemanticKind.DIMENSION,
+            )
+            entity_children.setdefault(dimension.entity, []).append(dimension_ref)
+        for measure in registry.measures.values():
+            entity_children.setdefault(measure.entity, []).append(
+                ref_factory.measure(measure.semantic_id)
+            )
+        for metric in registry.metrics.values():
+            metric_ref = ref_factory.metric(metric.semantic_id)
+            domain_children.setdefault(metric.domain, []).append(metric_ref)
+            for entity_id in dict.fromkeys(metric.entities):
+                entity_children.setdefault(entity_id, []).append(metric_ref)
+                entity_metrics.setdefault(entity_id, []).append(metric_ref)
+            measure_ids = [metric.measure] if metric.measure is not None else []
+            if metric.weighted_mean is not None:
+                measure_ids.extend((metric.weighted_mean.value, metric.weighted_mean.weight))
+            for measure_id in dict.fromkeys(measure_ids):
+                measure_dependents.setdefault(measure_id, []).append(metric_ref)
+            if metric.composition is not None:
+                for component_id in dict.fromkeys(
+                    composition_components(metric.composition).values()
+                ):
+                    metric_dependents.setdefault(component_id, []).append(metric_ref)
+        for relationship in registry.relationships.values():
+            relationship_ref = ref_factory.relationship(relationship.semantic_id)
+            for entity_id in dict.fromkeys((relationship.from_entity, relationship.to_entity)):
+                entity_children.setdefault(entity_id, []).append(relationship_ref)
+            relationships_by_domain.setdefault(relationship.domain, []).append(relationship)
+        for calendar in registry.period_calendars.values():
+            domain_children.setdefault(calendar.domain, []).append(
+                ref_factory.period_calendar(calendar.semantic_id)
+            )
+        for temporal_set in registry.temporal_sets.values():
+            domain_children.setdefault(temporal_set.domain, []).append(
+                ref_factory.temporal_set(temporal_set.semantic_id)
+            )
+        for schedule in registry.work_schedules.values():
+            domain_children.setdefault(schedule.domain, []).append(
+                ref_factory.work_schedule(schedule.semantic_id)
+            )
+        for dimension in sorted(registry.dimensions.values(), key=lambda item: item.semantic_id):
+            dimensions_by_entity.setdefault(dimension.entity, []).append(dimension)
+
+        self.domain_children = _freeze_ref_groups(domain_children)
+        self.datasource_entities = _freeze_ref_groups(datasource_entities)
+        self.entity_children = _freeze_ref_groups(entity_children)
+        self.entity_metrics = _freeze_ref_groups(entity_metrics)
+        self.measure_dependents = _freeze_ref_groups(measure_dependents)
+        self.metric_dependents = _freeze_ref_groups(metric_dependents)
+        self.relationships_by_domain = MappingProxyType(
+            {key: tuple(values) for key, values in relationships_by_domain.items()}
+        )
+        self.dimensions_by_entity = MappingProxyType(
+            {key: tuple(values) for key, values in dimensions_by_entity.items()}
+        )
+        self.default_cumulative_axes = default_cumulative_axes
+
+
 def _build_datasource_object(
-    ds_ir: DatasourceIR, reg: Registry, catalog: SemanticCatalog
+    ds_ir: DatasourceIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
 ) -> DatasourceEntry:
     ref = ref_factory.datasource(ds_ir.semantic_id)
-    dependents = tuple(
-        _make_ref(d.semantic_id, SemanticKind.ENTITY)
-        for d in reg.entities.values()
-        if ref_factory.datasource(d.datasource) == ref
-    )
     details = DatasourceDetails(
         ref=ref,
         kind=SemanticKind.DATASOURCE,
@@ -3032,7 +3094,7 @@ def _build_datasource_object(
         source_location=_normalize_location(ds_ir.location),
         parents=(),
         children=(),
-        dependents=dependents,
+        dependents=build_index.datasource_entities.get(ds_ir.semantic_id, ()),
         python_symbol=ds_ir.python_symbol,
         backend_type=ds_ir.backend_type,
         fields=dict(ds_ir.fields),
@@ -3042,37 +3104,9 @@ def _build_datasource_object(
 
 
 def _build_domain_object(
-    model_ir: DomainIR, reg: Registry, catalog: SemanticCatalog
+    model_ir: DomainIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
 ) -> DomainEntry:
     ref = _make_ref(model_ir.name, SemanticKind.DOMAIN)
-    datasets_refs = tuple(
-        _make_ref(d.semantic_id, SemanticKind.ENTITY)
-        for d in reg.entities.values()
-        if d.domain == model_ir.name
-    )
-    metrics_refs = tuple(
-        _make_ref(m.semantic_id, SemanticKind.METRIC)
-        for m in reg.metrics.values()
-        if m.domain == model_ir.name
-    )
-    period_calendar_refs = tuple(
-        _make_ref(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
-        for calendar in reg.period_calendars.values()
-        if calendar.domain == model_ir.name
-    )
-    temporal_set_refs = tuple(
-        _make_ref(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
-        for temporal_set in reg.temporal_sets.values()
-        if temporal_set.domain == model_ir.name
-    )
-    work_schedule_refs = tuple(
-        _make_ref(schedule.semantic_id, SemanticKind.WORK_SCHEDULE)
-        for schedule in reg.work_schedules.values()
-        if schedule.domain == model_ir.name
-    )
-    children = (
-        datasets_refs + metrics_refs + period_calendar_refs + temporal_set_refs + work_schedule_refs
-    )
     details = DomainDetails(
         ref=ref,
         kind=SemanticKind.DOMAIN,
@@ -3081,7 +3115,7 @@ def _build_domain_object(
         context=model_ir.ai_context,
         source_location=model_ir.location,
         parents=(),
-        children=children,
+        children=build_index.domain_children.get(model_ir.name, ()),
         dependents=(),
         python_symbol="",
         owner=model_ir.owner,
@@ -3090,38 +3124,11 @@ def _build_domain_object(
     return _object_from_details(DomainEntry, details, catalog)
 
 
-def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalog) -> EntityEntry:
+def _build_entity_object(
+    ds_ir: EntityIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
+) -> EntityEntry:
     ref = _make_ref(ds_ir.semantic_id, SemanticKind.ENTITY)
     ds_ref = ref_factory.datasource(ds_ir.datasource)
-    fields_refs = tuple(
-        _make_ref(
-            f.semantic_id,
-            SemanticKind.TIME_DIMENSION if f.is_time_dimension else SemanticKind.DIMENSION,
-        )
-        for f in reg.dimensions.values()
-        if f.entity == ds_ir.semantic_id
-    )
-    measure_refs = tuple(
-        _make_ref(m.semantic_id, SemanticKind.MEASURE)
-        for m in reg.measures.values()
-        if m.entity == ds_ir.semantic_id
-    )
-    rels_refs = tuple(
-        _make_ref(r.semantic_id, SemanticKind.RELATIONSHIP)
-        for r in reg.relationships.values()
-        if r.from_entity == ds_ir.semantic_id or r.to_entity == ds_ir.semantic_id
-    )
-    metric_refs = tuple(
-        _make_ref(m.semantic_id, SemanticKind.METRIC)
-        for m in reg.metrics.values()
-        if ds_ir.semantic_id in m.entities
-    )
-    children = fields_refs + measure_refs + metric_refs + rels_refs
-    metric_dependents = tuple(
-        _make_ref(m.semantic_id, SemanticKind.METRIC)
-        for m in reg.metrics.values()
-        if ds_ir.semantic_id in m.entities
-    )
     sidecar = catalog._project._expression_sidecar
     body = sidecar.bodies.get(ref) if sidecar is not None else None
     expression_display = None
@@ -3137,8 +3144,8 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         context=ds_ir.ai_context,
         source_location=ds_ir.location,
         parents=(ds_ref,),
-        children=children,
-        dependents=metric_dependents,
+        children=build_index.entity_children.get(ds_ir.semantic_id, ()),
+        dependents=build_index.entity_metrics.get(ds_ir.semantic_id, ()),
         python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
@@ -3206,7 +3213,7 @@ def _definition_expression(
 
 
 def _build_dimension_object(
-    f_ir: DimensionIR, reg: Registry, catalog: SemanticCatalog
+    f_ir: DimensionIR, catalog: SemanticCatalog
 ) -> CatalogEntry[SemanticKindTag]:
     is_time = f_ir.is_time_dimension
     kind = SemanticKind.TIME_DIMENSION if is_time else SemanticKind.DIMENSION
@@ -3297,18 +3304,11 @@ def _build_dimension_object(
     return _object_from_details(DimensionEntry, details, catalog)
 
 
-def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatalog) -> MeasureEntry:
+def _build_measure_object(
+    m_ir: MeasureIR, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
+) -> MeasureEntry:
     ref = _make_ref(m_ir.semantic_id, SemanticKind.MEASURE)
     entity_ref = _make_ref(m_ir.entity, SemanticKind.ENTITY)
-    dependents = tuple(
-        _make_ref(metric.semantic_id, SemanticKind.METRIC)
-        for metric in reg.metrics.values()
-        if metric.measure == m_ir.semantic_id
-        or (
-            metric.weighted_mean is not None
-            and m_ir.semantic_id in {metric.weighted_mean.value, metric.weighted_mean.weight}
-        )
-    )
     details = MeasureDetails(
         ref=ref,
         kind=SemanticKind.MEASURE,
@@ -3335,7 +3335,7 @@ def _build_measure_object(m_ir: MeasureIR, reg: Registry, catalog: SemanticCatal
         ),
         parents=(entity_ref, *_expression_dependency_refs(catalog, ref)),
         children=(),
-        dependents=dependents,
+        dependents=build_index.measure_dependents.get(m_ir.semantic_id, ()),
         python_symbol=m_ir.python_symbol,
         entity=entity_ref,
         additivity=additivity_bucket(m_ir.additivity),
@@ -3420,7 +3420,7 @@ def _metric_expression_row(
 def _metric_analysis_metadata(
     metric_ir: MetricIR,
     registry: Registry,
-    default_cumulative_axes: frozenset[str] = frozenset(),
+    build_index: _CatalogBuildIndex,
 ) -> tuple[
     tuple[Ref[SemanticKindTag], ...],
     tuple[Ref[SemanticKindTag], ...],
@@ -3448,7 +3448,7 @@ def _metric_analysis_metadata(
                 current,
                 path=expression_path,
                 registry=registry,
-                default_cumulative_axis=current.semantic_id in default_cumulative_axes,
+                default_cumulative_axis=current.semantic_id in build_index.default_cumulative_axes,
             )
         )
         for entity_id in current.entities:
@@ -3502,9 +3502,13 @@ def _metric_analysis_metadata(
     )
     candidate_dimensions: list[Ref[SemanticKindTag]] = []
     candidate_time_dimensions: list[Ref[SemanticKindTag]] = []
-    for dimension in sorted(registry.dimensions.values(), key=lambda item: item.semantic_id):
-        if dimension.entity not in effective_entity_ids:
-            continue
+    for dimension in merge(
+        *(
+            build_index.dimensions_by_entity.get(entity_id, ())
+            for entity_id in effective_entity_ids
+        ),
+        key=lambda item: item.semantic_id,
+    ):
         target = candidate_time_dimensions if dimension.is_time_dimension else candidate_dimensions
         target.append(
             _make_ref(
@@ -3524,10 +3528,9 @@ def _metric_analysis_metadata(
 
 
 def _build_metric_object(
-    m_ir: MetricIR, reg: Registry, project: SemanticProject, catalog: SemanticCatalog
+    m_ir: MetricIR, reg: Registry, build_index: _CatalogBuildIndex, catalog: SemanticCatalog
 ) -> MetricEntry:
     ref = _make_ref(m_ir.semantic_id, SemanticKind.METRIC)
-    sidecar = catalog._project._expression_sidecar
     definition = SemanticDefinition(
         ref,
         catalog.definition_fingerprint,
@@ -3535,7 +3538,7 @@ def _build_metric_object(
             m_ir,
             reg,
             _definition_expression(catalog, ref),
-            default_cumulative_axis=sidecar is not None and ref in sidecar.default_cumulative_axes,
+            default_cumulative_axis=m_ir.semantic_id in build_index.default_cumulative_axes,
         ),
         m_ir.location,
         temporal_rules(m_ir, reg),
@@ -3561,11 +3564,7 @@ def _build_metric_object(
     ) = _metric_analysis_metadata(
         m_ir,
         reg,
-        frozenset(
-            item.path for item in catalog._project._expression_sidecar.default_cumulative_axes
-        )
-        if catalog._project._expression_sidecar is not None
-        else frozenset(),
+        build_index,
     )
     linear_terms = (
         tuple((sign, metric.path) for sign, metric in node.terms)
@@ -3576,10 +3575,8 @@ def _build_metric_object(
     if len(m_ir.entities) > 1:
         required_rels = tuple(
             _make_ref(r.semantic_id, SemanticKind.RELATIONSHIP)
-            for r in reg.relationships.values()
-            if r.domain == m_ir.domain
-            and r.from_entity in m_ir.entities
-            and r.to_entity in m_ir.entities
+            for r in build_index.relationships_by_domain.get(m_ir.domain, ())
+            if r.from_entity in m_ir.entities and r.to_entity in m_ir.entities
         )
     weighted_mean_refs = (node.value, node.weight) if isinstance(node, _WeightedMean) else ()
     parents = (
@@ -3589,12 +3586,7 @@ def _build_metric_object(
         + required_rels
         + _expression_dependency_refs(catalog, ref)
     )
-    dependents = tuple(
-        _make_ref(m2.semantic_id, SemanticKind.METRIC)
-        for m2 in reg.metrics.values()
-        if m2.composition is not None
-        and m_ir.semantic_id in composition_components(m2.composition).values()
-    )
+    dependents = build_index.metric_dependents.get(m_ir.semantic_id, ())
     add = m_ir.additivity
     temporal_contract = definition.temporal.effective
     if isinstance(node, (_Ratio, _Linear, _Cumulative)):
@@ -3723,7 +3715,6 @@ def _build_relationship_object(
 
 def _build_period_calendar_object(
     calendar_ir: PeriodCalendarIR,
-    reg: Registry,
     catalog: SemanticCatalog,
 ) -> PeriodCalendarEntry:
     ref = ref_factory.period_calendar(calendar_ir.semantic_id)
@@ -3777,7 +3768,6 @@ def _build_period_calendar_object(
 
 def _build_temporal_set_object(
     temporal_set_ir: TemporalSetIR,
-    reg: Registry,
     catalog: SemanticCatalog,
 ) -> TemporalSetEntry:
     ref = ref_factory.temporal_set(temporal_set_ir.semantic_id)
@@ -3820,7 +3810,6 @@ def _build_temporal_set_object(
 
 def _build_work_schedule_object(
     work_schedule_ir: WorkScheduleIR,
-    reg: Registry,
     catalog: SemanticCatalog,
 ) -> WorkScheduleEntry:
     ref = ref_factory.work_schedule(work_schedule_ir.semantic_id)
@@ -4353,33 +4342,50 @@ class _CatalogIndex:
         self.registry = registry
         objects = self._build_objects()
         self._by_ref = {obj.ref: obj for obj in objects}
-        grouped_by_name: dict[str, list[CatalogEntry[SemanticKindTag]]] = {}
+        grouped: dict[
+            tuple[type[CatalogEntry[SemanticKindTag]], Ref[SemanticKindTag] | None],
+            list[CatalogEntry[SemanticKindTag]],
+        ] = {}
+        scopes_by_ref: dict[Ref[SemanticKindTag], frozenset[Ref[SemanticKindTag]]] = {}
         for obj in objects:
-            grouped_by_name.setdefault(obj.name, []).append(obj)
-        self._by_name = {
-            name: tuple(sorted(grouped_by_name[name], key=lambda obj: obj.key))
-            for name in sorted(grouped_by_name)
-        }
+            grouped.setdefault((type(obj), None), []).append(obj)
+            scopes = frozenset(ref for ref in self._scope_refs(obj) if ref in self._by_ref)
+            scopes_by_ref[obj.ref] = scopes
+            for scope_ref in scopes:
+                grouped.setdefault((type(obj), scope_ref), []).append(obj)
+        self._collections = MappingProxyType(
+            {key: tuple(values) for key, values in grouped.items()}
+        )
+        self._scopes_by_ref = MappingProxyType(scopes_by_ref)
 
     def _build_objects(self) -> tuple[CatalogEntry[SemanticKindTag], ...]:
         reg = self.registry
+        sidecar = self.project._expression_sidecar
+        build_index = _CatalogBuildIndex(
+            reg,
+            frozenset(item.path for item in sidecar.default_cumulative_axes)
+            if sidecar is not None
+            else frozenset(),
+        )
         result: list[CatalogEntry[SemanticKindTag]] = []
         result.extend(
-            _build_domain_object(item, reg, self.catalog) for item in reg.domains.values()
+            _build_domain_object(item, build_index, self.catalog) for item in reg.domains.values()
         )
         datasource_irs = self.project._datasource_irs or tuple(reg.datasources.values())
-        result.extend(_build_datasource_object(item, reg, self.catalog) for item in datasource_irs)
         result.extend(
-            _build_entity_object(item, reg, self.catalog) for item in reg.entities.values()
+            _build_datasource_object(item, build_index, self.catalog) for item in datasource_irs
         )
         result.extend(
-            _build_dimension_object(item, reg, self.catalog) for item in reg.dimensions.values()
+            _build_entity_object(item, build_index, self.catalog) for item in reg.entities.values()
         )
         result.extend(
-            _build_measure_object(item, reg, self.catalog) for item in reg.measures.values()
+            _build_dimension_object(item, self.catalog) for item in reg.dimensions.values()
         )
         result.extend(
-            _build_metric_object(item, reg, self.project, self.catalog)
+            _build_measure_object(item, build_index, self.catalog) for item in reg.measures.values()
+        )
+        result.extend(
+            _build_metric_object(item, reg, build_index, self.catalog)
             for item in reg.metrics.values()
         )
         result.extend(
@@ -4387,24 +4393,19 @@ class _CatalogIndex:
             for item in reg.relationships.values()
         )
         result.extend(
-            _build_period_calendar_object(item, reg, self.catalog)
+            _build_period_calendar_object(item, self.catalog)
             for item in reg.period_calendars.values()
         )
         result.extend(
-            _build_temporal_set_object(item, reg, self.catalog)
-            for item in reg.temporal_sets.values()
+            _build_temporal_set_object(item, self.catalog) for item in reg.temporal_sets.values()
         )
         result.extend(
-            _build_work_schedule_object(item, reg, self.catalog)
-            for item in reg.work_schedules.values()
+            _build_work_schedule_object(item, self.catalog) for item in reg.work_schedules.values()
         )
         return tuple(sorted(result, key=lambda obj: obj.key))
 
     def require(self, ref: Ref[SemanticKindTag]) -> CatalogEntry[SemanticKindTag] | None:
         return self._by_ref.get(ref)
-
-    def named(self, name: str) -> tuple[CatalogEntry[SemanticKindTag], ...]:
-        return self._by_name.get(name, ())
 
     def objects(
         self,
@@ -4412,60 +4413,36 @@ class _CatalogIndex:
         *,
         scope_ref: Ref[SemanticKindTag] | None = None,
     ) -> tuple[CatalogObjectT, ...]:
-        candidates = tuple(
-            cast("CatalogObjectT", obj) for obj in self._by_ref.values() if type(obj) is object_type
+        # The concrete class is part of the index key, so every stored entry
+        # has precisely the requested subtype.
+        return cast(
+            "tuple[CatalogObjectT, ...]", self._collections.get((object_type, scope_ref), ())
         )
-        if scope_ref is None:
-            return candidates
-        scope = self._by_ref.get(scope_ref)
-        if scope is None:
-            return ()
-        selected = tuple(
-            obj
-            for obj in candidates
-            if self._in_scope(cast("CatalogEntry[SemanticKindTag]", obj), scope)
-        )
-        return selected
 
-    def details_under(
-        self,
-        kind: SemanticKind,
-        *,
-        scope_ref: Ref[SemanticKindTag] | None = None,
-    ) -> tuple[_CatalogObjectDetails, ...]:
-        object_type = _OBJECT_TYPE_BY_KIND[kind]
-        return tuple(obj.details() for obj in self.objects(object_type, scope_ref=scope_ref))
+    @staticmethod
+    def _scope_refs(obj: CatalogEntry[SemanticKindTag]) -> tuple[Ref[SemanticKindTag], ...]:
+        details = obj._details
+        scopes: list[Ref[SemanticKindTag]] = []
+        if details.domain is not None:
+            scopes.append(ref_factory.domain(details.domain))
+        if isinstance(details, EntityDetails):
+            scopes.append(details.datasource)
+        elif isinstance(details, (DimensionDetails, TimeDimensionDetails, MeasureDetails)):
+            scopes.append(details.entity)
+        elif isinstance(details, (SimpleMetricDetails, DerivedMetricDetails)):
+            scopes.extend(details.entities)
+        elif isinstance(details, RelationshipDetails):
+            scopes.extend((details.from_entity, details.to_entity))
+        elif isinstance(details, (TemporalSetDetails, WorkScheduleDetails)):
+            scopes.extend(
+                parent for parent in details.parents if parent.kind is SemanticKind.ENTITY
+            )
+        return tuple(dict.fromkeys(scopes))
 
-    def semantic_ids(
-        self,
-        kind: SemanticKind,
-        *,
-        scope_ref: Ref[SemanticKindTag] | None = None,
-    ) -> tuple[str, ...]:
-        return tuple(details.ref.path for details in self.details_under(kind, scope_ref=scope_ref))
-
-    def _in_scope(
-        self,
-        obj: CatalogEntry[SemanticKindTag],
-        scope: CatalogEntry[SemanticKindTag],
+    def contains(
+        self, obj: CatalogEntry[SemanticKindTag], *, scope_ref: Ref[SemanticKindTag] | None
     ) -> bool:
-        details = obj.details()
-        if isinstance(scope, DomainEntry):
-            return details.domain == scope.ref.path
-        if isinstance(scope, DatasourceEntry):
-            return isinstance(details, EntityDetails) and details.datasource == scope.ref
-        if isinstance(scope, EntityEntry):
-            if isinstance(details, (DimensionDetails, TimeDimensionDetails, MeasureDetails)):
-                return details.entity == scope.ref
-            if isinstance(details, (SimpleMetricDetails, DerivedMetricDetails)):
-                return scope.ref in details.entities
-            if isinstance(details, RelationshipDetails):
-                return scope.ref in {details.from_entity, details.to_entity}
-            if isinstance(details, TemporalSetDetails):
-                return any(parent == scope.ref for parent in details.parents)
-            if isinstance(details, WorkScheduleDetails):
-                return any(parent == scope.ref for parent in details.parents)
-        return False
+        return scope_ref is None or scope_ref in self._scopes_by_ref[obj.ref]
 
 
 # ---------------------------------------------------------------------------
@@ -4658,18 +4635,87 @@ class SemanticCatalog(RenderableResult):
         self._require_ready()
         return CatalogCollection(self, object_type, kind, scope_ref=scope_ref)
 
+    def _get_exact_from_collection(
+        self,
+        collection: CatalogCollection[KindT],
+        ref: Ref[SemanticKindTag],
+        *,
+        full_path: str | None = None,
+    ) -> CatalogEntry[KindT]:
+        if ref.kind is not collection._kind:
+            correct_collection = _COLLECTION_PROPERTY_BY_KIND[ref.kind]
+            _raise(
+                ErrorKind.INVALID_REF,
+                "CatalogCollection.get(...) received the wrong ref kind. "
+                f"Expected {collection._kind.value}, received {ref.kind.value}. "
+                f"Inspect catalog.{correct_collection} for this ref kind.",
+                cls=SemanticRuntimeError,
+                refs=(ref.key,),
+                expected=f"Ref[{collection._kind.value}]",
+                received=f"Ref[{ref.kind.value}]",
+                repair_value=repair(
+                    kind="inspect",
+                    canonical_id="load",
+                    action=(
+                        f"Inspect catalog.{correct_collection}; do not substitute it "
+                        f"for the {collection._kind.value} input."
+                    ),
+                ),
+            )
+        index = self._require_index()
+        match = index.require(ref)
+        if match is not None:
+            if type(match) is collection._object_type and index.contains(
+                match, scope_ref=collection._scope_ref
+            ):
+                return match
+            scope = collection._scope_ref.key if collection._scope_ref is not None else "catalog"
+            label = f"Path {full_path!r}" if full_path is not None else f"Ref {ref.key!r}"
+            _raise(
+                ErrorKind.NOT_FOUND,
+                f"{label} exists but is outside collection scope {scope}. "
+                "The collection scope is a hard visibility boundary. Use "
+                f"catalog.require(ms.ref.{ref.kind.value}({ref.path!r})) "
+                "only for an intentional global lookup.",
+                cls=SemanticRuntimeError,
+                refs=(ref.key,),
+                repair_value=repair(
+                    kind="inspect",
+                    canonical_id="SemanticCatalog.require",
+                    action="Inspect the exact global object without widening this collection.",
+                    candidates=(ref.key,),
+                ),
+            )
+        available = tuple(item.key for item in collection.items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
+        label = f"Full path {full_path!r}" if full_path is not None else f"Ref {ref.key!r}"
+        _raise(
+            ErrorKind.NOT_FOUND,
+            f"{label} was not found in this "
+            f"{collection._kind.value} collection. Current candidates: {available!r}.",
+            cls=SemanticRuntimeError,
+            refs=(full_path if full_path is not None else ref.key,),
+            repair_value=repair(
+                kind="inspect",
+                canonical_id="load",
+                action="Inspect current same-kind collection members.",
+                candidates=available,
+            ),
+        )
+
     def _get_from_collection(
         self,
         collection: CatalogCollection[KindT],
         key: str | Ref[SemanticKindTag],
     ) -> CatalogEntry[KindT]:
-        items = collection.items
+        self._require_ready()
         if type(key) is str and ":" in key:
             typed_key = key
             try:
                 key = _decode_ref_key(typed_key)
             except (TypeError, ValueError) as exc:
-                candidates = tuple(item.ref for item in items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
+                candidates = tuple(
+                    item.ref for item in collection.items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT]
+                )
                 scope = (
                     collection._scope_ref.key if collection._scope_ref is not None else "catalog"
                 )
@@ -4696,64 +4742,7 @@ class SemanticCatalog(RenderableResult):
                     },
                 )
         if type(key) is Ref:
-            ref_key = key
-            if ref_key.kind is not collection._kind:
-                correct_collection = _COLLECTION_PROPERTY_BY_KIND[ref_key.kind]
-                _raise(
-                    ErrorKind.INVALID_REF,
-                    "CatalogCollection.get(...) received the wrong ref kind. "
-                    f"Expected {collection._kind.value}, received {ref_key.kind.value}. "
-                    f"Inspect catalog.{correct_collection} for this ref kind.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_key.key,),
-                    expected=f"Ref[{collection._kind.value}]",
-                    received=f"Ref[{ref_key.kind.value}]",
-                    repair_value=repair(
-                        kind="inspect",
-                        canonical_id="load",
-                        action=(
-                            f"Inspect catalog.{correct_collection}; do not substitute it "
-                            f"for the {collection._kind.value} input."
-                        ),
-                    ),
-                )
-            match = next((item for item in items if item.ref == ref_key), None)
-            if match is not None:
-                return match
-            global_match = self._require_index().require(ref_key)
-            if global_match is not None:
-                scope = (
-                    collection._scope_ref.key if collection._scope_ref is not None else "catalog"
-                )
-                _raise(
-                    ErrorKind.NOT_FOUND,
-                    f"Ref {ref_key.key!r} exists but is outside collection scope {scope}. "
-                    "The collection scope is a hard visibility boundary. Use "
-                    f"catalog.require(ms.ref.{ref_key.kind.value}({ref_key.path!r})) "
-                    "only for an intentional global lookup.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref_key.key,),
-                    repair_value=repair(
-                        kind="inspect",
-                        canonical_id="SemanticCatalog.require",
-                        action="Inspect the exact global object without widening this collection.",
-                        candidates=(ref_key.key,),
-                    ),
-                )
-            available = tuple(item.key for item in items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
-            _raise(
-                ErrorKind.NOT_FOUND,
-                f"Ref {ref_key.key!r} was not found in this "
-                f"{collection._kind.value} collection. Current candidates: {available!r}.",
-                cls=SemanticRuntimeError,
-                refs=(ref_key.key,),
-                repair_value=repair(
-                    kind="inspect",
-                    canonical_id="load",
-                    action="Inspect current same-kind collection members.",
-                    candidates=available,
-                ),
-            )
+            return self._get_exact_from_collection(collection, key)
 
         if type(key) is not str:
             _raise(
@@ -4772,43 +4761,7 @@ class SemanticCatalog(RenderableResult):
                     cls=SemanticRuntimeError,
                     refs=(key,),
                 )
-            match = next((item for item in items if item.ref == full_ref), None)
-            if match is not None:
-                return match
-            global_match = self._require_index().require(full_ref)
-            if global_match is not None:
-                scope = (
-                    collection._scope_ref.key if collection._scope_ref is not None else "catalog"
-                )
-                _raise(
-                    ErrorKind.NOT_FOUND,
-                    f"Path {key!r} exists but is outside collection scope {scope}. "
-                    "The collection scope is a hard visibility boundary. Use "
-                    f"catalog.require(ms.ref.{collection._kind.value}({key!r})) "
-                    "only for an intentional global lookup.",
-                    cls=SemanticRuntimeError,
-                    refs=(full_ref.key,),
-                    repair_value=repair(
-                        kind="inspect",
-                        canonical_id="SemanticCatalog.require",
-                        action="Inspect the exact global object without widening this collection.",
-                        candidates=(full_ref.key,),
-                    ),
-                )
-            available = tuple(item.key for item in items[:_SEMANTIC_INPUT_CANDIDATE_LIMIT])
-            _raise(
-                ErrorKind.NOT_FOUND,
-                f"Full path {key!r} was not found in this "
-                f"{collection._kind.value} collection. Current candidates: {available!r}.",
-                cls=SemanticRuntimeError,
-                refs=(key,),
-                repair_value=repair(
-                    kind="inspect",
-                    canonical_id="load",
-                    action="Inspect current same-kind collection members.",
-                    candidates=available,
-                ),
-            )
+            return self._get_exact_from_collection(collection, full_ref, full_path=key)
         from marivo.refs import _validate_segment
 
         try:
@@ -4820,6 +4773,7 @@ class SemanticCatalog(RenderableResult):
                 cls=SemanticRuntimeError,
                 refs=(key,),
             )
+        items = collection.items
         matches = tuple(item for item in items if item.name == key)
         if len(matches) == 1:
             return matches[0]

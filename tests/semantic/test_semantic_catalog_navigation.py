@@ -612,3 +612,95 @@ def test_object_and_collection_repr_are_bounded(semantic_project_factory) -> Non
     )
     assert "CatalogCollection type=MetricEntry scope=catalog count=" in repr(catalog.metrics)
     assert "\n" not in repr(catalog.metrics)
+
+
+@pytest.mark.parametrize("key_shape", ("path", "typed_key", "ref"))
+def test_exact_collection_lookup_does_not_enumerate_members(
+    semantic_project_factory, monkeypatch: pytest.MonkeyPatch, key_shape: str
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    revenue = catalog.metrics.get("revenue")
+    key = {"path": revenue.path, "typed_key": revenue.key, "ref": revenue.ref}[key_shape]
+    global_collection = catalog.metrics
+    scoped_collection = catalog.domains.get("sales").metrics
+
+    def reject_items(_collection: object) -> None:
+        pytest.fail("exact lookup enumerated collection members")
+
+    monkeypatch.setattr(CatalogCollection, "items", property(reject_items))
+    assert global_collection.get(key) is revenue
+    assert scoped_collection.get(key) is revenue
+
+
+def test_collection_with_unknown_scope_remains_empty(semantic_project_factory) -> None:
+    catalog = _catalog(semantic_project_factory)
+    collection = CatalogCollection(
+        catalog, MetricEntry, SemanticKind.METRIC, scope_ref=ms.ref.entity("sales.missing")
+    )
+    assert collection.items == ()
+    assert len(collection) == 0
+    with pytest.raises(
+        SemanticRuntimeError, match=r"outside collection scope entity:sales\.missing"
+    ):
+        collection.get(ms.ref.metric("sales.revenue"))
+
+
+def test_navigation_preserves_declared_ownership_and_relationship_order(
+    semantic_project_factory,
+) -> None:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/objects.py": _OBJECTS_PY
+            + textwrap.dedent("""\
+                ms.relationship(
+                    name="orders_self", from_entity=orders, to_entity=orders,
+                    keys=[ms.join_on(user_id, user_id)],
+                )
+                @ms.metric(entities=[orders, users], root_entity=orders,
+                           additivity=ms.additive_all())
+                def joined_revenue(orders, users):
+                    return orders.amount.sum()
+                derived = ms.ratio(name="derived", numerator=revenue, denominator=revenue)
+            """),
+            "ops/_domain.py": _OPS_DOMAIN_PY,
+            "ops/objects.py": _OPS_OBJECTS_PY.replace('"warehouse"', '"archive"'),
+        }
+    )
+    catalog = SemanticCatalog(project)
+    orders = catalog.entities.get("sales.orders")
+    users = catalog.entities.get("sales.users")
+    assert [ref.key for ref in orders.details().children] == [
+        "dimension:sales.orders.region",
+        "dimension:sales.orders.user_id",
+        "time_dimension:sales.orders.ordered_at",
+        "measure:sales.orders.amount",
+        "metric:sales.revenue",
+        "metric:sales.joined_revenue",
+        "relationship:sales.orders_to_users",
+        "relationship:sales.orders_self",
+    ]
+    assert [ref.key for ref in orders.details().dependents] == [
+        "metric:sales.revenue",
+        "metric:sales.joined_revenue",
+    ]
+    assert [ref.key for ref in orders.relationships.refs] == [
+        "relationship:sales.orders_self",
+        "relationship:sales.orders_to_users",
+    ]
+    assert users.relationships.refs == (ms.ref.relationship("sales.orders_to_users"),)
+    assert users.metrics.refs == (ms.ref.metric("sales.joined_revenue"),)
+    # Effective dependency roots do not widen a Metric's declared entity scope.
+    assert ms.ref.metric("sales.derived") not in orders.metrics.refs
+    assert catalog.metrics.get("sales.derived").details().effective_entities == (orders.ref,)
+    assert catalog.datasources.get("archive").entities.refs == (ms.ref.entity("ops.events"),)
+    warehouse = catalog.datasources.get("warehouse")
+    assert warehouse.entities.refs == (orders.ref, users.ref)
+    assert warehouse.details().dependents == warehouse.entities.refs
+    assert [ref.key for ref in catalog.domains.get("sales").details().children] == [
+        "entity:sales.orders",
+        "entity:sales.users",
+        "metric:sales.revenue",
+        "metric:sales.joined_revenue",
+        "metric:sales.derived",
+    ]

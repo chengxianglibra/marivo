@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import textwrap
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,13 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.preview import PreviewLimitError
-from marivo.semantic.catalog import MetricEntry, SemanticCatalog
+from marivo.semantic.catalog import (
+    MetricEntry,
+    PeriodCalendarEntry,
+    SemanticCatalog,
+    TemporalSetEntry,
+    WorkScheduleEntry,
+)
 from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
 
@@ -400,3 +407,74 @@ def test_temporal_artifact_certification_and_failed_previews(
     with pytest.raises(PreviewLimitError):
         catalog.preview(calendar_ref, scope=default_scope(max_rows=4), limit=0)
     assert catalog.period_calendars.get(calendar_ref).details().snapshot_status == "current"
+
+
+def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
+    tmp_path: Path, semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = certified_project(
+        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
+    )
+    sales = catalog.domains.get("sales")
+
+    def reject_snapshot(_entry: object) -> None:
+        pytest.fail("static navigation inspected a certified snapshot")
+
+    for entry_type in (PeriodCalendarEntry, TemporalSetEntry, WorkScheduleEntry):
+        monkeypatch.setattr(entry_type, "_snapshot_with_status", reject_snapshot)
+
+    for collection, ref in (
+        (sales.period_calendars, ms.ref.period_calendar("sales.fiscal")),
+        (sales.temporal_sets, ms.ref.temporal_set("sales.named_campaigns")),
+        (sales.work_schedules, ms.ref.work_schedule("sales.schedule")),
+    ):
+        assert len(collection) == 1
+        assert collection.refs == (ref,)
+        entry = collection[0]
+        assert tuple(collection) == (entry,)
+        for key in (ref.name, ref.path, ref.key, ref):
+            assert collection.get(key) is entry
+        assert catalog.require(ref) is entry
+        assert "count=1" in repr(collection)
+
+
+@pytest.mark.parametrize(
+    ("kind", "path", "max_rows"),
+    (
+        (ms.SemanticKind.PERIOD_CALENDAR, "sales.fiscal", 4),
+        (ms.SemanticKind.TEMPORAL_SET, "sales.named_campaigns", 2),
+        (ms.SemanticKind.WORK_SCHEDULE, "sales.schedule", 4),
+    ),
+)
+def test_temporal_details_observe_state_changes_after_navigation(
+    tmp_path: Path, semantic_project_factory, kind: ms.SemanticKind, path: str, max_rows: int
+) -> None:
+    catalog = certified_project(
+        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
+    )
+    sales = catalog.domains.get("sales")
+    collection = {
+        ms.SemanticKind.PERIOD_CALENDAR: sales.period_calendars,
+        ms.SemanticKind.TEMPORAL_SET: sales.temporal_sets,
+        ms.SemanticKind.WORK_SCHEDULE: sales.work_schedules,
+    }[kind]
+    entry = collection.get(path)
+    assert entry.details().snapshot_status == "missing"
+    catalog.preview(entry.ref, scope=default_scope(max_rows=max_rows), limit=1)
+    assert collection.get(entry.ref) is entry
+    assert entry.details().snapshot_status == "current"
+
+    manifests = tuple((catalog.workspace_dir / ".marivo" / "temporal").rglob("current.json"))
+    assert len(manifests) == 1
+    manifest_path = manifests[0]
+    current = manifest_path.read_text()
+    manifest = json.loads(current)
+    manifest["definition_digest"] = "0" * 64
+    manifest_path.write_text(json.dumps(manifest))
+    assert entry.details().snapshot_status == "stale"
+    manifest_path.write_text("invalid json")
+    assert entry.details().snapshot_status == "invalid"
+    manifest_path.unlink()
+    assert entry.details().snapshot_status == "missing"
+    manifest_path.write_text(current)
+    assert entry.details().snapshot_status == "current"
