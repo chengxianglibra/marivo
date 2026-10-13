@@ -55,7 +55,6 @@ reads preserve existing bytes.
 - Forecast is a model result, not an observed outcome or calibrated guarantee.
 - Deviation scores and runs retain explicit fit/condition scope; they do not
   certify business anomalies or recommendations.
-- Journey and History reducers retain assignment/replay and completeness limits.
 
 Start at `marivo.help("analysis.evidence")` and follow its native focused routes.
 The packaged analysis skill owns investigation judgment; it does not duplicate

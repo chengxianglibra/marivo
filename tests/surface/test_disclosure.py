@@ -231,7 +231,6 @@ def test_readiness_render_contains_available(semantic_project_factory) -> None:
     [
         "marivo/analysis/materialization/graph_observation.py",
         "marivo/analysis/materialization/graph_members.py",
-        "marivo/analysis/materialization/graph_axes.py",
         "marivo/analysis/compiler/graph_lowering.py",
         "marivo/analysis/materialization/admission.py",
     ],

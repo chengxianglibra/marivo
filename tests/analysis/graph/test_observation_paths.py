@@ -164,14 +164,6 @@ def test_long_path_sum_and_count(
         for index, (left, right) in enumerate(pairwise(names)):
             extra = f",ms.join_on({left}_segment,{right}_segment)" if compound else ""
             models += f"hop{index}=ms.relationship(name='hop{index}',from_entity={left},to_entity={right},keys=[ms.join_on({left}_owner,{right}_owner){extra}])\n"
-        models += "sequence=ms.dimension_column(name='sequence',entity=facts,column='sequence')\n"
-        models += "event_id=ms.dimension_column(name='id',entity=facts,column='id')\n"
-        models += (
-            "@ms.event(name='entry',identity=(event_id,),occurred_at=instant,participants=(ms.participant(name='subject',path=("
-            + ",".join(f"hop{i}" for i in range(depth))
-            + ",),cardinality='one'),))\ndef entry(rows):\n    return ms.all_rows()\n"
-        )
-        models += "order=ms.business_order(name='order',subject=subjects,sequences=(ms.event_sequence(entry,sequence,order='integer'),),ai_context=ms.ai_context(business_definition='Per Subject native event sequence.'))\n"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
@@ -268,20 +260,6 @@ def test_long_path_sum_and_count(
                     } == {(1, "a"): 2, (1, "b"): 0, (2, "c"): 0}
                 else:
                     assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]
-        if backend == "duckdb":
-            anchors = session.anchors(
-                ms.participant_role(event=ms.ref.event("sales.entry"), name="subject"),
-                population=population,
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                business_order=ms.ref.business_order("sales.order"),
-            )
-            for metric, expected in (("total", [2, 0, 0]), ("number", [1, 0, 0])):
-                result = anchors.observe(
-                    ms.ref.metric("sales." + metric),
-                    within=mv.elapsed(mv.duration(seconds=10)),
-                    via=routes,
-                ).execute()
-                assert result.to_pandas().value.tolist() == expected
         assert session._runtime.store.resources(session.id) == ()
 
     if depth == 4 and key_type == "int64":

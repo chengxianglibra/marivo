@@ -58,8 +58,6 @@ from marivo.semantic.ir import (
 from marivo.semantic.validator import (
     Registry,
     assembly_validate,
-    canonicalize_business_orders,
-    canonicalize_state_models,
 )
 
 if TYPE_CHECKING:
@@ -749,14 +747,11 @@ def _build_registry(
     Pass 2: assemble all pending IR objects into the registry.
     """
     from marivo.semantic.ir import (
-        BusinessOrderDeclarationIR,
         DimensionIR,
         EntityIR,
-        EventIR,
         MetricIR,
         PeriodCalendarIR,
         RelationshipIR,
-        StateModelDeclarationIR,
         TemporalSetIR,
         WorkScheduleIR,
     )
@@ -765,8 +760,6 @@ def _build_registry(
     bodies = {}
     field_owners = {}
     catalog_refs: set[Ref[SemanticKindTag]] = set()
-    state_model_declarations: list[StateModelDeclarationIR] = []
-    business_order_declarations: list[BusinessOrderDeclarationIR] = []
     for datasource_ir in datasource_irs:
         registry.datasources[datasource_ir.semantic_id] = datasource_ir
         catalog_refs.add(ref_factory.datasource(datasource_ir.semantic_id))
@@ -802,12 +795,6 @@ def _build_registry(
                 registry.work_schedules[sid] = ir
             elif isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
-            elif isinstance(ir, EventIR):
-                registry.events[sid] = ir
-            elif isinstance(ir, StateModelDeclarationIR):
-                state_model_declarations.append(ir)
-            elif isinstance(ir, BusinessOrderDeclarationIR):
-                business_order_declarations.append(ir)
             if expression_body is not None:
                 bodies[ref] = expression_body
 
@@ -825,15 +812,7 @@ def _build_registry(
         catalog_refs=frozenset(catalog_refs),
         default_cumulative_axes=default_cumulative_axes,
     )
-    business_order_errors = canonicalize_business_orders(
-        registry,
-        tuple(business_order_declarations),
-    )
-    state_model_errors = canonicalize_state_models(
-        registry,
-        tuple(state_model_declarations),
-    )
-    return registry, expression_sidecar, (*business_order_errors, *state_model_errors)
+    return registry, expression_sidecar, ()
 
 
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
@@ -1035,11 +1014,11 @@ def load_project(
             if ctx is not None:
                 all_contexts.append(ctx)
 
-        registry, expression_sidecar, state_model_errors = _build_registry(
+        registry, expression_sidecar, assembly_errors = _build_registry(
             all_contexts,
             datasource_irs=tuple(datasource_irs),
         )
-        errors.extend(state_model_errors)
+        errors.extend(assembly_errors)
 
         errors.extend(_semantic_duplicate_errors(all_contexts))
 

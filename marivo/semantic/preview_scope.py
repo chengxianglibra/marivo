@@ -73,10 +73,6 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         return SemanticKind.METRIC
     if ref in registry.relationships:
         return SemanticKind.RELATIONSHIP
-    if ref in registry.events:
-        return SemanticKind.EVENT
-    if ref in registry.state_models:
-        return SemanticKind.STATE_MODEL
     if ref in registry.period_calendars:
         return SemanticKind.PERIOD_CALENDAR
     if ref in registry.temporal_sets:
@@ -94,8 +90,6 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
-        SemanticKind.EVENT: ref_factory.event,
-        SemanticKind.STATE_MODEL: ref_factory.state_model,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -116,34 +110,6 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
     if kind == SemanticKind.RELATIONSHIP:
         relationship = registry.relationships[ref]
         return tuple(dict.fromkeys((relationship.from_entity, relationship.to_entity)))
-    if kind == SemanticKind.EVENT:
-        event = registry.events[ref]
-        event_entities = [event.source_entity]
-        for participant in event.participants:
-            endpoint = event.source_entity
-            for relationship_id in participant.path or ():
-                endpoint = registry.relationships[relationship_id].to_entity
-                if endpoint not in event_entities:
-                    event_entities.append(endpoint)
-        return tuple(event_entities)
-    if kind == SemanticKind.STATE_MODEL:
-        model = registry.state_models[ref]
-        entities: list[str] = []
-        event_refs = tuple(
-            dict.fromkeys(
-                (
-                    *(item.trigger.event_ref for item in model.inceptions),
-                    *(item.trigger.event_ref for item in model.transitions),
-                )
-            )
-        )
-        for event_ref in event_refs:
-            for entity_id in dependency_entities(event_ref, SemanticKind.EVENT, registry):
-                if entity_id not in entities:
-                    entities.append(entity_id)
-        if model.subject not in entities:
-            entities.append(model.subject)
-        return tuple(entities)
     if kind == SemanticKind.PERIOD_CALENDAR:
         field = registry.dimensions.get(registry.period_calendars[ref].date)
         return (field.entity,) if field is not None else ()

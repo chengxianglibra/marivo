@@ -42,6 +42,10 @@ repair the smallest conflict, and author only genuine gaps. Keep grain, identity
 time, units, additivity, cardinality, and guardrails explicit when they affect
 interpretation.
 
+Model occurrence facts with ordinary entities and descriptive states with
+dimensions when their meaning fits those contracts. Do not invent a transition
+model or assume that a state field establishes a complete behavioral history.
+
 Use `marivo.help("semantic.objects")` to select the object kind, then follow its
 object page for the stable decision checklist, legal construction modes, and
 evidence limitations. Use `marivo.help("semantic.builders")` when a constructor

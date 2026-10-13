@@ -19,8 +19,6 @@ export const latestOnlyDocs = [
   'guides/time-and-cohorts.mdx',
   'guides/comparison-and-attribution.mdx',
   'guides/statistics.mdx',
-  'guides/events-and-funnels.mdx',
-  'guides/lifecycle-and-retention.mdx',
   'guides/calendars-and-schedules.mdx',
   'reference/project-configuration.mdx',
   'reference/telemetry.mdx',

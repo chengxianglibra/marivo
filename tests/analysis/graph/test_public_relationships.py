@@ -1,6 +1,5 @@
-"""Public authored relationship refs govern Metric and Event execution."""
+"""Public authored relationship refs govern Metric execution."""
 
-from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -9,38 +8,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 
-_MODEL = """import marivo.datasource as md
-import marivo.semantic as ms
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders", columns={
-        "order_id": "order_id",
-        "region": "region"}), primary_key=["order_id"])
-events = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),
-    source=md.table("events", columns={
-        "event_id": "event_id",
-        "order_id": "order_id",
-        "kind": "kind",
-        "occurred_at": "occurred_at"}),
-    primary_key=["event_id"])
-subject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")
-participant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")
-region = ms.dimension_column(name="region", entity=orders, column="region")
-event_key = ms.dimension_column(name="event_key", entity=events, column="event_id")
-kind = ms.dimension_column(name="kind", entity=events, column="kind")
-instant = ms.time_dimension_column(name="instant", entity=events, column="occurred_at",
-    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)
-event_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,
-    keys=[ms.join_on(participant_key, subject_key)])
-event_count = ms.count(name="event_count", entity=events, time=instant)
-@ms.event(name="created", identity=(event_key,), occurred_at=instant,
-    participants=(ms.participant(name="order", path=(event_order,), cardinality="one"),))
-def created(rows):
-    return ms.bind(kind, rows) == "created"
-@ms.event(name="paid", identity=(event_key,), occurred_at=instant,
-    participants=(ms.participant(name="order", path=(event_order,), cardinality="one"),))
-def paid(rows):
-    return ms.bind(kind, rows) == "paid"
-"""
+_MODEL = 'import marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders", columns={\n        "order_id": "order_id",\n        "region": "region"}), primary_key=["order_id"])\nevents = ms.entity(name="events", datasource=ms.ref.datasource("warehouse"),\n    source=md.table("events", columns={\n        "event_id": "event_id",\n        "order_id": "order_id",\n        "kind": "kind",\n        "occurred_at": "occurred_at"}),\n    primary_key=["event_id"])\nsubject_key = ms.dimension_column(name="subject_key", entity=orders, column="order_id")\nparticipant_key = ms.dimension_column(name="participant_key", entity=events, column="order_id")\nregion = ms.dimension_column(name="region", entity=orders, column="region")\nevent_key = ms.dimension_column(name="event_key", entity=events, column="event_id")\nkind = ms.dimension_column(name="kind", entity=events, column="kind")\ninstant = ms.time_dimension_column(name="instant", entity=events, column="occurred_at",\n    granularity="second", parse=ms.timestamp(timezone="UTC"), is_default=True)\nevent_order = ms.relationship(name="event_order", from_entity=events, to_entity=orders,\n    keys=[ms.join_on(participant_key, subject_key)])\nevent_count = ms.count(name="event_count", entity=events, time=instant)\n'
 
 
 @pytest.fixture
@@ -62,53 +30,7 @@ def relationship_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     return tmp_path
 
 
-def _journey(session: mv.Session) -> mv.LogicalJourneyResult:
-    created = mv.step(
-        participant=ms.participant_role(event=ms.ref.event("sales.created"), name="order"),
-        key="created",
-    )
-    paid = mv.step(
-        participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
-    )
-    return session.events.match(
-        mv.sequence(created, paid),
-        population=session.members(ms.ref.entity("sales.orders")),
-        cohort_window=mv.time_scope(
-            start=datetime(2026, 1, 1, tzinfo=timezone.utc),
-            end=datetime(2026, 2, 1, tzinfo=timezone.utc),
-        ),
-        completion_through=datetime(2026, 2, 1, tzinfo=timezone.utc),
-        matching=mv.first_per_subject(),
-    )
-
-
-def test_authored_relationship_keys_construct_without_source_io(
-    relationship_project: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.datasource import backends
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("relationship resolution attempted source I/O")
-
-    monkeypatch.setattr(backends, "build_backend", forbidden)
-    monkeypatch.setattr(backends, "build_backend_with_secrets", forbidden)
-    session = mv.session.get_or_create("relationship", report_timezone="UTC")
-    from marivo.analysis.materialization.graph_journey import _normalize_steps
-
-    created = mv.step(
-        participant=ms.participant_role(event=ms.ref.event("sales.created"), name="order"),
-        key="created",
-    )
-    paid = mv.step(
-        participant=ms.participant_role(event=ms.ref.event("sales.paid"), name="order"), key="paid"
-    )
-    steps = _normalize_steps(session._sources(), mv.sequence(created, paid))
-    assert {item.subject.ref.path for item in steps} == {"sales.orders"}
-    assert session.runs().items == ()
-    assert not (relationship_project / "warehouse.duckdb").exists()
-
-
-def test_authored_relationship_keys_execute_metric_and_event(relationship_project: Path) -> None:
+def test_authored_relationship_keys_execute_metric(relationship_project: Path) -> None:
     with duckdb.connect(str(relationship_project / "warehouse.duckdb")) as database:
         database.execute("CREATE TABLE orders (order_id BIGINT, region VARCHAR)")
         database.execute("INSERT INTO orders VALUES (1, 'east'), (2, 'west')")
@@ -139,10 +61,3 @@ def test_authored_relationship_keys_execute_metric_and_event(relationship_projec
         .to_pandas()
     )
     assert dict(zip(metric["group"], metric["value"], strict=True)) == {"east": 2, "west": 1}
-    journeys = _journey(session).execute()
-    rows = journeys.to_pandas()
-    assert rows["group"].tolist() == [1, 2]
-    assert rows["coord_0"].tolist() == ["sales.created", "sales.created"]
-    assert rows["coord_1"].tolist() == [1, 3]
-    funnel = journeys.funnel().execute().to_pandas()
-    assert funnel["reached_count"].tolist() == [2, 1]

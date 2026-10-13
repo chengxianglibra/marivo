@@ -40,7 +40,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ),
         )
         for item in numeric_implementations(MethodKey("deviation.read"))
-        if item.key.input_domains != ("journey",)
+        if item.key.input_domains != ()
         if not isinstance(item.key.shape, SourceShape) or item.key.shape.backend == "duckdb"
     )
     sqlite = tuple(

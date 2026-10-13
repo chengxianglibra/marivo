@@ -91,21 +91,20 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
             ),
             Qualified(
-                "r93-journey-" + method.name + "-float64-v1"
-                if domain == "journey"
-                else "r8-"
+                "r8-"
                 + method.name.replace(".", "-")
                 + ("-artifact_python-v1" if isinstance(shape, FixedShape) else "-ibis_python-v1"),
                 "analysis.materialization.deviation_execution",
-                "tests/test_r93_duration_ratio_unknown.py"
-                if domain == "journey"
-                else "tests/test_analysis_deviation_r82.py",
+                "tests/test_analysis_deviation_r82.py",
             ),
         )
-        for domain in ("singleton", "entity", "group", "journey")
+        for domain in (
+            "singleton",
+            "entity",
+            "group",
+        )
         for typ in (ScalarType("int64"), ScalarType("float64"))
         for shape in shapes
-        if domain != "journey" or (typ == ScalarType("float64") and shape == FixedShape(NoTime()))
     )
     source_backends: tuple[Literal["sqlite", "clickhouse", "mysql", "postgres", "trino"], ...] = (
         "sqlite",

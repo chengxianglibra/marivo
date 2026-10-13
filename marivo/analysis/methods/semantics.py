@@ -30,29 +30,6 @@ MethodName: TypeAlias = Literal[
     "deviation.zscore",
     "deviation.mad",
     "deviation.read",
-    "anchor.retention",
-    "retention.by_subject",
-    "anchor.bind",
-    "anchor.observe",
-    "history.replay",
-    "history.in_state",
-    "history.distribution",
-    "history.transitions",
-    "history.violations",
-    "history.intervals",
-    "history.dwell",
-    "history.read",
-    "history.axes",
-    "funnel.entry_axes",
-    "funnel.reduce",
-    "funnel.compare",
-    "funnel.read",
-    "funnel_ratio_mix",
-    "journey.match",
-    "journey.duration",
-    "journey.completed",
-    "journey.read",
-    "occurrence.prepare",
     "attribution.additive_difference",
     "attribution.component_mix",
     "time.product",
@@ -107,16 +84,6 @@ MethodName: TypeAlias = Literal[
 
 
 PersistentStateKind: TypeAlias = Literal[
-    "anchor_retention",
-    "subject_retention",
-    "canonical_history",
-    "history_view",
-    "entry_axes",
-    "funnel_components",
-    "funnel_comparison",
-    "funnel_allocation",
-    "journey_assignment",
-    "occurrence_inputs",
     "attribution_additive",
     "attribution_component_mix",
     "ranking",
@@ -163,7 +130,7 @@ class MethodKey:
             reject(
                 "a connected Analysis method at version 1",
                 f"{self.name}@v{self.version}",
-                "Use a connected method; datasource terminals and legacy journey IDs are not methods.",
+                "Use a connected method; datasource terminals are not methods.",
             )
 
     def __str__(self) -> str:
@@ -200,61 +167,6 @@ def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
         return MethodKey("deviation.zscore" if params.method == "zscore" else "deviation.mad")
     if isinstance(params, rules.DeviationRead):
         return MethodKey("deviation.read")
-    if isinstance(params, rules.AnchorRetention):
-        return MethodKey("anchor.retention")
-    if isinstance(params, rules.RetentionBySubject):
-        return MethodKey("retention.by_subject")
-    if isinstance(params, rules.AnchorBind):
-        return MethodKey("anchor.bind")
-    if isinstance(params, rules.AnchorObserve):
-        return MethodKey("anchor.observe")
-    if isinstance(
-        params,
-        (
-            rules.FunnelAxesPrepare,
-            rules.FunnelReduce,
-            rules.FunnelCompare,
-            rules.FunnelRead,
-            rules.FunnelAttribute,
-        ),
-    ):
-        return MethodKey(
-            "funnel.entry_axes"
-            if isinstance(params, rules.FunnelAxesPrepare)
-            else "funnel.reduce"
-            if isinstance(params, rules.FunnelReduce)
-            else "funnel.compare"
-            if isinstance(params, rules.FunnelCompare)
-            else "funnel.read"
-            if isinstance(params, rules.FunnelRead)
-            else "funnel_ratio_mix"
-        )
-    if type(params) is rules.JourneyDuration:
-        return MethodKey("journey.duration")
-    if type(params) is rules.JourneyCompleted:
-        return MethodKey("journey.completed")
-    if type(params) is rules.JourneyRead:
-        return MethodKey("journey.read")
-    if isinstance(params, rules.HistoryAxesPrepare):
-        return MethodKey("history.axes")
-    if isinstance(params, rules.HistoryRead):
-        return MethodKey("history.read")
-    if isinstance(params, rules.HistoryView):
-        names: dict[str, MethodName] = {
-            "in_state": "history.in_state",
-            "distribution": "history.distribution",
-            "transitions": "history.transitions",
-            "violations": "history.violations",
-            "intervals": "history.intervals",
-            "dwell": "history.dwell",
-        }
-        return MethodKey(names[params.request.kind])
-    if type(params) is rules.HistoryReplay:
-        return MethodKey("history.replay")
-    if type(params) is rules.JourneyMatch:
-        return MethodKey("journey.match")
-    if type(params) is rules.OccurrencePrepare:
-        return MethodKey("occurrence.prepare")
     if type(params) is rules.PreparedObservation:
         return key_for_parameters(params.observation)
     if type(params) is rules.AttributionDerive:
@@ -401,29 +313,6 @@ class MethodSemantics:
             "deviation.zscore": "none",
             "deviation.mad": "none",
             "deviation.read": "none",
-            "anchor.retention": "anchor_retention",
-            "retention.by_subject": "subject_retention",
-            "anchor.bind": "none",
-            "anchor.observe": "none",
-            "history.replay": "canonical_history",
-            "history.in_state": "none",
-            "history.distribution": "history_view",
-            "history.transitions": "history_view",
-            "history.violations": "history_view",
-            "history.intervals": "history_view",
-            "history.dwell": "history_view",
-            "history.read": "none",
-            "history.axes": "history_view",
-            "funnel.entry_axes": "entry_axes",
-            "funnel.reduce": "funnel_components",
-            "funnel.compare": "funnel_comparison",
-            "funnel.read": "none",
-            "funnel_ratio_mix": "funnel_allocation",
-            "journey.match": "journey_assignment",
-            "journey.duration": "journey_assignment",
-            "journey.completed": "journey_assignment",
-            "journey.read": "none",
-            "occurrence.prepare": "occurrence_inputs",
             "attribution.additive_difference": "attribution_additive",
             "attribution.component_mix": "attribution_component_mix",
             "display.rank": "ranking",
@@ -526,82 +415,6 @@ class MethodSemantics:
                     "the exact owned deviation field type",
                     repr(output),
                     "Preserve the fitted output carrier.",
-                )
-            return
-        if isinstance(
-            params,
-            (
-                rules.FunnelAxesPrepare,
-                rules.FunnelReduce,
-                rules.FunnelCompare,
-                rules.FunnelRead,
-                rules.FunnelAttribute,
-            ),
-        ):
-            funnel_type = (
-                ScalarType("int64")
-                if isinstance(params, (rules.FunnelAxesPrepare, rules.FunnelReduce))
-                or (isinstance(params, rules.FunnelRead) and params.field.endswith("_count"))
-                else ScalarType("float64")
-            )
-            if output != funnel_type:
-                reject(
-                    "the exact funnel field carrier",
-                    repr(output),
-                    "Preserve exact counts and float64 rate finishes.",
-                )
-            return
-        if isinstance(params, (rules.AnchorRetention, rules.RetentionBySubject)):
-            if output != ScalarType("boolean"):
-                reject("Boolean retention status", repr(output), "Preserve three-valued status.")
-            return
-        if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
-            return
-        if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
-            from marivo.analysis.methods.history_view_physical import (
-                output_type as history_output_type,
-            )
-
-            history_type = history_output_type(params)
-            if output != history_type:
-                reject(
-                    "the exact History field carrier",
-                    repr(output),
-                    "Use the retained History field type.",
-                )
-            return
-        if isinstance(params, rules.JourneyRead):
-            field_type = (
-                DurationType("us")
-                if params.field in ("duration", "observed_duration")
-                else ScalarType(
-                    "boolean"
-                    if params.field == "dropout"
-                    else "string"
-                    if params.field == "status"
-                    else "timestamp"
-                )
-            )
-            if output != field_type:
-                reject(
-                    "the exact Journey field carrier", repr(output), "Read the retained field type."
-                )
-            return
-        if isinstance(
-            params,
-            (
-                rules.OccurrencePrepare,
-                rules.HistoryReplay,
-                rules.JourneyMatch,
-                rules.JourneyDuration,
-                rules.JourneyCompleted,
-            ),
-        ):
-            if output != ScalarType("int64"):
-                reject(
-                    "occurrence row marker int64",
-                    repr(output),
-                    "Preserve the typed occurrence carrier.",
                 )
             return
         if isinstance(params, rules.PreparedObservation):
@@ -940,22 +753,6 @@ class MethodSemantics:
             return "cell_compare@v1"
         if name == "comparison.read":
             return "comparison_read@v1"
-        if name in ("anchor.retention", "retention.by_subject"):
-            return "retention@v1"
-        if name.startswith("anchor."):
-            return "anchor@v1"
-        if name.startswith("history.") and name != "history.replay":
-            return "history_view@v1"
-        if name == "history.replay":
-            return "history_replay@v1"
-        if name.startswith("funnel.") or name == "funnel_ratio_mix":
-            return "funnel@v1"
-        if name in ("journey.duration", "journey.completed", "journey.read"):
-            return "journey_view@v1"
-        if name == "journey.match":
-            return "journey_match@v1"
-        if name == "occurrence.prepare":
-            return "occurrence_prepare@v1"
         if name.startswith("attribution."):
             return "attribution@v1"
         if name.startswith("display."):
@@ -1069,7 +866,7 @@ class MethodSemantics:
                 ("undefined", ("zero_denominator",)),
                 (
                     "unknown",
-                    ("coverage_censored", "entry_unknown", "insufficient_business_coverage"),
+                    ("insufficient_business_coverage",),
                 ),
             )
         if self.key.name == "cell.difference":
@@ -1078,7 +875,7 @@ class MethodSemantics:
                 ("null", ("empty_contribution",)),
             )
         if self.key.name == "row.mean":
-            return (("undefined", ("empty_mean", "empty_completed_set")),)
+            return (("undefined", ("empty_mean",)),)
         if self.key.name in ("row.min", "row.max"):
             return (("undefined", ("empty_" + self.key.name.removeprefix("row."),)),)
         if self.key.name == "bind_project":
@@ -1201,14 +998,6 @@ class MethodSemantics:
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
-        if self.key.name == "history.replay":
-            return ("history",)
-        if self.key.name.startswith("history."):
-            return ("history_view",)
-        if self.key.name.startswith("journey."):
-            return ("subject", "journey")
-        if self.key.name == "occurrence.prepare":
-            return ("subject", "occurrences")
         if self.key.name in (
             "metric.distinct",
             "metric.approx_distinct",
@@ -1350,35 +1139,6 @@ class MethodSemantics:
             from marivo.analysis.core.statistical_rules import derive as derive_statistics
 
             return derive_statistics(inputs, params)
-        if isinstance(
-            params,
-            (
-                rules.FunnelAxesPrepare,
-                rules.FunnelReduce,
-                rules.FunnelCompare,
-                rules.FunnelRead,
-                rules.FunnelAttribute,
-            ),
-        ):
-            from marivo.analysis.core.funnel_rules import derive
-
-            return derive(inputs, params)
-        if isinstance(params, (rules.AnchorRetention, rules.RetentionBySubject)):
-            from marivo.analysis.core.retention_rules import derive as derive_retention
-
-            return derive_retention(inputs, params)
-        if isinstance(params, (rules.AnchorBind, rules.AnchorObserve)):
-            from marivo.analysis.core.anchor_rules import derive as derive_anchor
-
-            return derive_anchor(inputs, params)
-        if isinstance(params, (rules.JourneyDuration, rules.JourneyCompleted, rules.JourneyRead)):
-            return rules._journey_view(inputs, params)
-        if isinstance(params, (rules.HistoryView, rules.HistoryRead, rules.HistoryAxesPrepare)):
-            from marivo.analysis.core.history_rules import derive as derive_history_view
-
-            return derive_history_view(inputs, params)
-        if isinstance(params, rules.HistoryReplay):
-            return rules._history_replay(inputs, params)
         if isinstance(params, (rules.TimeRuns, rules.TimeRunRead)):
             from marivo.analysis.core.runs_rules import derive as derive_runs
 
@@ -1387,10 +1147,6 @@ class MethodSemantics:
             from marivo.analysis.core.deviation_rules import derive as derive_deviation
 
             return derive_deviation(inputs, params)
-        if isinstance(params, rules.JourneyMatch):
-            return rules._journey_match(inputs, params)
-        if isinstance(params, rules.OccurrencePrepare):
-            return rules._occurrence_prepare(inputs, params)
         if isinstance(params, rules.PreparedObservation):
             return rules._prepared_observation(inputs, params)
         if key_for_parameters(params) != self.key:
@@ -1480,34 +1236,6 @@ CONNECTED_METHODS = (
             "deviation.read",
         )
     ),
-    MethodSemantics(MethodKey("history.replay"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.in_state"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.distribution"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.transitions"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.violations"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.intervals"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.dwell"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.read"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("history.axes"), "analysis.core.rules"),
-    *(
-        MethodSemantics(MethodKey(name), "analysis.core.rules")
-        for name in (
-            "funnel.entry_axes",
-            "funnel.reduce",
-            "funnel.compare",
-            "funnel.read",
-            "funnel_ratio_mix",
-        )
-    ),
-    MethodSemantics(MethodKey("anchor.retention"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("retention.by_subject"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("anchor.bind"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("anchor.observe"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("journey.match"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("journey.duration"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("journey.completed"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("journey.read"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("occurrence.prepare"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.additive_difference"), "analysis.core.rules"),
     MethodSemantics(MethodKey("attribution.component_mix"), "analysis.core.rules"),
     MethodSemantics(MethodKey("metric.min"), "analysis.core.rules"),

@@ -174,9 +174,9 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
         "checks",
         *(contract.canonical_id for contract in REGISTRY.object_contracts),
     } <= set(REGISTRY.canonical_ids())
-    assert len(REGISTRY.object_contracts) == 13
+    assert len(REGISTRY.object_contracts) == 10
     assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
-    assert len(REGISTRY.object_contracts) == 13
+    assert len(REGISTRY.object_contracts) == 10
 
 
 REQUIRED_DECISION_IDS = MappingProxyType(
@@ -241,29 +241,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "join_key_equivalence",
                 "multiplicity_fanout",
                 "evidence_checks",
-            }
-        ),
-        SemanticKind.EVENT: frozenset(
-            {
-                "occurrence_predicate",
-                "occurrence_identity",
-                "occurrence_time",
-                "participant_roles",
-                "directed_paths",
-                "participant_cardinality",
-            }
-        ),
-        SemanticKind.BUSINESS_ORDER: frozenset(
-            {"order_rationale", "sequence_order", "simultaneous_precedence"}
-        ),
-        SemanticKind.STATE_MODEL: frozenset(
-            {
-                "subject_lifecycle",
-                "state_vocabulary",
-                "initial_terminal_meaning",
-                "inception_transitions",
-                "deterministic_transitions",
-                "excluded_replay_policies",
             }
         ),
         SemanticKind.PERIOD_CALENDAR: frozenset(
@@ -335,7 +312,7 @@ def test_state_model_replay_policy_is_the_only_unencoded_decision() -> None:
         for decision in contract.decisions
         if decision.encoding_status == "unsupported"
     }
-    assert unsupported == {(SemanticKind.STATE_MODEL, "excluded_replay_policies")}
+    assert unsupported == set()
 
 
 def test_registry_rejects_missing_required_object_kind_eagerly() -> None:

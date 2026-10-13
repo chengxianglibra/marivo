@@ -35,57 +35,7 @@ def _extend_authoring_project(root: Path) -> None:
     source.write_text(
         source.read_text()
         + textwrap.dedent(
-            """\
-
-            query_id = ms.dimension_column(name='query_id', entity=orders, column='query_id')
-            events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'),
-                               source=md.table('events'), primary_key=['event_id'])
-            event_id = ms.dimension_column(name='event_id', entity=events, column='event_id')
-            event_query_id = ms.dimension_column(name='query_id', entity=events, column='query_id')
-            sequence = ms.dimension_column(name='sequence_number', entity=events,
-                                           column='sequence_number')
-            occurred_at = ms.time_dimension_column(name='occurred_at', entity=events,
-                column='occurred_at', granularity='second', parse=ms.timestamp(timezone='UTC'))
-            event_to_order = ms.relationship(name='event_to_order', from_entity=events,
-                to_entity=orders, keys=[ms.join_on(event_query_id, query_id)])
-
-            @ms.event(name='activated', identity=(event_id,), occurred_at=occurred_at,
-                participants=(ms.participant(name='order', path=(event_to_order,),
-                                             cardinality='one'),))
-            def activated(rows):
-                return ms.all_rows()
-
-            @ms.event(name='deactivated', identity=(event_id,), occurred_at=occurred_at,
-                participants=(ms.participant(name='order', path=(event_to_order,),
-                                             cardinality='one'),))
-            def deactivated(rows):
-                return ms.all_rows()
-
-            order = ms.business_order(name='order_sequence', subject=orders,
-                sequences=(ms.event_sequence(activated, sequence, order='integer'),
-                           ms.event_sequence(deactivated, sequence, order='integer')),
-                conflicts=(ms.precedes(ms.participant_role(event=activated, name='order'),
-                                       ms.participant_role(event=deactivated, name='order')),),
-                ai_context=ms.ai_context(business_definition='Order event sequence.'))
-            active = ms.lifecycle_state(name='active', initial=True)
-            closed = ms.lifecycle_state(name='closed', terminal=True)
-            model = ms.state_model(name='order_model', subject=orders,
-                states=(active, closed),
-                transitions=(ms.inception(on=activated),
-                             ms.transition(from_state=active, on=deactivated, to_state=closed)),
-                business_order=order)
-
-            calendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'),
-                source=md.table('calendar'))
-            calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar,
-                column='calendar_date', granularity='day')
-            month = ms.dimension_column(name='month', entity=calendar, column='month')
-            fiscal = ms.period_calendar(name='fiscal', date=calendar_date,
-                boundary_timezone='UTC',
-                coverage=(__import__('datetime').date(2041, 7, 17),
-                          __import__('datetime').date(2041, 7, 19)),
-                levels={'month': month})
-            """
+            "\nquery_id = ms.dimension_column(name='query_id', entity=orders, column='query_id')\nevents = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'),\n                   source=md.table('events'), primary_key=['event_id'])\nevent_id = ms.dimension_column(name='event_id', entity=events, column='event_id')\nevent_query_id = ms.dimension_column(name='query_id', entity=events, column='query_id')\nsequence = ms.dimension_column(name='sequence_number', entity=events,\n                               column='sequence_number')\noccurred_at = ms.time_dimension_column(name='occurred_at', entity=events,\n    column='occurred_at', granularity='second', parse=ms.timestamp(timezone='UTC'))\nevent_to_order = ms.relationship(name='event_to_order', from_entity=events,\n    to_entity=orders, keys=[ms.join_on(event_query_id, query_id)])\n\n\n\n\ncalendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'),\n    source=md.table('calendar'))\ncalendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar,\n    column='calendar_date', granularity='day')\nmonth = ms.dimension_column(name='month', entity=calendar, column='month')\nfiscal = ms.period_calendar(name='fiscal', date=calendar_date,\n    boundary_timezone='UTC',\n    coverage=(__import__('datetime').date(2041, 7, 17),\n              __import__('datetime').date(2041, 7, 19)),\n    levels={'month': month})\n"
         ),
         encoding="utf-8",
     )
@@ -105,19 +55,14 @@ def test_project_handoff_separates_static_and_physical_evidence(
     _extend_authoring_project(authoring_evidence_project)
     catalog = ms.load(workspace_dir=authoring_evidence_project)
     revenue = ms.ref.metric("sales.revenue")
-    model = ms.ref.state_model("sales.order_model")
-    order = ms.ref.business_order("sales.order_sequence")
     calendar = ms.ref.period_calendar("sales.fiscal")
-    assert tuple(catalog.require(ref).ref for ref in (revenue, model, order, calendar)) == (
+    assert tuple(catalog.require(ref).ref for ref in (revenue, calendar)) == (
         revenue,
-        model,
-        order,
         calendar,
     )
 
-    baseline = catalog.readiness(refs=[revenue, model, order])
-    assert baseline.analysis_ready_inputs == (revenue, model)
-    assert any(issue.kind == "business_order_values_unverified" for issue in baseline.warnings)
+    baseline = catalog.readiness(refs=[revenue])
+    assert baseline.analysis_ready_inputs == (revenue,)
     calendar_report = catalog.readiness(refs=[calendar])
     assert calendar_report.analysis_ready_inputs == ()
     assert any(
@@ -128,10 +73,7 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert ontology.edge_count == 1
     assert ontology.semantic_catalog_fingerprint == catalog.definition_fingerprint
     assert "entity:sales.orders -> metric:sales.revenue" in ontology.render()
-    assert catalog.readiness(refs=[revenue, model, order]).analysis_ready_inputs == (
-        revenue,
-        model,
-    )
+    assert catalog.readiness(refs=[revenue]).analysis_ready_inputs == (revenue,)
 
     scope = md.unpruned(max_rows=10, timeout_seconds=30)
     preview = catalog.preview(revenue, scope=scope)
@@ -153,6 +95,6 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert value_check.status == "failed"
     assert value_check.user_data_queried is True
     assert value_check.scopes == ((ms.ref.entity("sales.orders"), scope),)
-    assert catalog.readiness(refs=[revenue, model, order]).to_dict() | {"checked_at": None} == (
+    assert catalog.readiness(refs=[revenue]).to_dict() | {"checked_at": None} == (
         baseline.to_dict() | {"checked_at": None}
     )

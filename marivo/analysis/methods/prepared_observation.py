@@ -27,7 +27,7 @@ class Restriction:
 def restrict(
     candidates: pa.Table, selections: tuple[Restriction, ...]
 ) -> tuple[tuple[Mapping[str, object], ...], ...]:
-    """Preserve every contribution use for overlapping actual Anchor windows."""
+    """Preserve every contribution use for retained member/time windows."""
     by_subject: dict[tuple[str | int, ...], list[Mapping[str, object]]] = {}
     member_names = tuple(name for name in candidates.column_names if name.startswith("member_"))
     for row in candidates.to_pylist():
@@ -44,7 +44,7 @@ def restrict(
             subject.append(value)
         by_subject.setdefault(tuple(subject), []).append(row)
     if len({selection.key for selection in selections}) != len(selections):
-        fail("input_binding", "duplicate complete selection/Anchor keys", stage="consume")
+        fail("input_binding", "duplicate complete selected instance keys", stage="consume")
     result = []
     for selection in selections:
         check()
@@ -54,7 +54,7 @@ def restrict(
             or selection.end.utcoffset() is None
             or selection.start >= selection.end
         ):
-            fail("preparation_bounds", "invalid actual Subject/Anchor window", stage="consume")
+            fail("preparation_bounds", "invalid actual member/time window", stage="consume")
         rows = []
         for row in by_subject.get(selection.subject, []):
             check()

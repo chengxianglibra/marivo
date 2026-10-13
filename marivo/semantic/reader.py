@@ -272,24 +272,6 @@ class SemanticProject:
 
         if name in reg.relationships:
             return _DepNode(semantic_id=name, kind=SemanticKind.RELATIONSHIP, children=())
-        if name in reg.events:
-            children = tuple(
-                _DepNode(
-                    semantic_id=model.semantic_id,
-                    kind=SemanticKind.STATE_MODEL,
-                    children=(),
-                )
-                for model in reg.state_models.values()
-                if any(item.trigger.event_ref == name for item in model.inceptions)
-                or any(item.trigger.event_ref == name for item in model.transitions)
-            )
-            return _DepNode(
-                semantic_id=name,
-                kind=SemanticKind.EVENT,
-                children=children,
-            )
-        if name in reg.state_models:
-            return _DepNode(semantic_id=name, kind=SemanticKind.STATE_MODEL, children=())
 
         _raise(
             ErrorKind.NOT_FOUND,
@@ -317,15 +299,6 @@ class SemanticProject:
             if measure_ir.entity == name:
                 ds_children.append(
                     _DepNode(semantic_id=measure_id, kind=SemanticKind.MEASURE, children=())
-                )
-        for model in reg.state_models.values():
-            if model.subject == name:
-                ds_children.append(
-                    _DepNode(
-                        semantic_id=model.semantic_id,
-                        kind=SemanticKind.STATE_MODEL,
-                        children=(),
-                    )
                 )
         return _DepNode(
             semantic_id=name,

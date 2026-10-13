@@ -28,32 +28,8 @@ from marivo.analysis._comparison import ordinal as ordinal
 from marivo.analysis._comparison import outer as outer
 from marivo.analysis._comparison import weekday as weekday
 from marivo.analysis._subject import SubjectBinding as SubjectBinding
-from marivo.analysis.anchors import AnyAnchor as AnyAnchor
-from marivo.analysis.anchors import CalendarWindow as CalendarWindow
-from marivo.analysis.anchors import Duration as Duration
-from marivo.analysis.anchors import ElapsedWindow as ElapsedWindow
-from marivo.analysis.anchors import EveryAnchor as EveryAnchor
-from marivo.analysis.anchors import any_anchor as any_anchor
-from marivo.analysis.anchors import calendar_days as calendar_days
-from marivo.analysis.anchors import duration as duration
-from marivo.analysis.anchors import elapsed as elapsed
-from marivo.analysis.anchors import every_anchor as every_anchor
 from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
 from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
-from marivo.analysis.domains.completeness import (
-    BoundedCompletenessDeclarationV1 as BoundedCompletenessDeclarationV1,
-)
-from marivo.analysis.domains.completeness import (
-    SourceOriginCompletenessDeclarationV1 as SourceOriginCompletenessDeclarationV1,
-)
-from marivo.analysis.event import EventPattern as EventPattern
-from marivo.analysis.event import EveryStart as EveryStart
-from marivo.analysis.event import FirstPerSubject as FirstPerSubject
-from marivo.analysis.event import PatternStep as PatternStep
-from marivo.analysis.event import every_start as every_start
-from marivo.analysis.event import first_per_subject as first_per_subject
-from marivo.analysis.event import sequence as sequence
-from marivo.analysis.event import step as step
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
@@ -63,12 +39,6 @@ from marivo.analysis.forecast_models import drift as drift
 from marivo.analysis.forecast_models import naive as naive
 from marivo.analysis.forecast_models import periods as periods
 from marivo.analysis.forecast_models import seasonal_naive as seasonal_naive
-from marivo.analysis.funnel import FunnelLossRate as FunnelLossRate
-from marivo.analysis.funnel import funnel_loss_rate as funnel_loss_rate
-from marivo.analysis.lifecycle import FromInception as FromInception
-from marivo.analysis.lifecycle import InState as InState
-from marivo.analysis.lifecycle import from_inception as from_inception
-from marivo.analysis.lifecycle import in_state as in_state
 from marivo.analysis.materialization.graph_fields import all_of as all_of
 from marivo.analysis.materialization.graph_fields import any_of as any_of
 from marivo.analysis.materialization.graph_fields import not_ as not_
@@ -80,7 +50,6 @@ from marivo.analysis.public_dsl import GroupedNumericRelation as GroupedNumericR
 from marivo.analysis.public_dsl import GroupedRatioRelation as GroupedRatioRelation
 from marivo.analysis.public_dsl import GroupedStatisticRelation as GroupedStatisticRelation
 from marivo.analysis.public_dsl import LogicalAnalysisDomain as LogicalAnalysisDomain
-from marivo.analysis.public_dsl import LogicalAnchorDomain as LogicalAnchorDomain
 from marivo.analysis.public_dsl import LogicalAssociationResult as LogicalAssociationResult
 from marivo.analysis.public_dsl import LogicalAttributionResult as LogicalAttributionResult
 from marivo.analysis.public_dsl import LogicalBooleanRelation as LogicalBooleanRelation
@@ -90,23 +59,13 @@ from marivo.analysis.public_dsl import (
     LogicalCoefficientSelectionRelation as LogicalCoefficientSelectionRelation,
 )
 from marivo.analysis.public_dsl import LogicalComparisonResult as LogicalComparisonResult
-from marivo.analysis.public_dsl import LogicalCompletedJourneys as LogicalCompletedJourneys
 from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
-from marivo.analysis.public_dsl import LogicalDwellSummary as LogicalDwellSummary
-from marivo.analysis.public_dsl import LogicalEventDurationResult as LogicalEventDurationResult
 from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
 from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
-from marivo.analysis.public_dsl import (
-    LogicalFunnelComparisonResult as LogicalFunnelComparisonResult,
-)
-from marivo.analysis.public_dsl import LogicalFunnelResult as LogicalFunnelResult
-from marivo.analysis.public_dsl import LogicalHistoryResult as LogicalHistoryResult
-from marivo.analysis.public_dsl import LogicalJourneyResult as LogicalJourneyResult
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
 from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
 from marivo.analysis.public_dsl import LogicalRatioRelation as LogicalRatioRelation
-from marivo.analysis.public_dsl import LogicalRetentionResult as LogicalRetentionResult
 from marivo.analysis.public_dsl import LogicalRolledNumericRelation as LogicalRolledNumericRelation
 from marivo.analysis.public_dsl import LogicalRolledRatioRelation as LogicalRolledRatioRelation
 from marivo.analysis.public_dsl import (
@@ -121,21 +80,11 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import (
     LogicalSelectedTemporalRelation as LogicalSelectedTemporalRelation,
 )
-from marivo.analysis.public_dsl import (
-    LogicalStateDistributionResult as LogicalStateDistributionResult,
-)
-from marivo.analysis.public_dsl import LogicalStateIntervalResult as LogicalStateIntervalResult
 from marivo.analysis.public_dsl import LogicalStatisticRelation as LogicalStatisticRelation
-from marivo.analysis.public_dsl import (
-    LogicalSubjectRetentionResult as LogicalSubjectRetentionResult,
-)
 from marivo.analysis.public_dsl import LogicalTable as LogicalTable
 from marivo.analysis.public_dsl import LogicalTemporalRelation as LogicalTemporalRelation
 from marivo.analysis.public_dsl import LogicalTimeRunResult as LogicalTimeRunResult
-from marivo.analysis.public_dsl import LogicalTransitionSummary as LogicalTransitionSummary
-from marivo.analysis.public_dsl import LogicalViolationResult as LogicalViolationResult
 from marivo.analysis.public_dsl import MaterializedAnalysisDomain as MaterializedAnalysisDomain
-from marivo.analysis.public_dsl import MaterializedAnchorDomain as MaterializedAnchorDomain
 from marivo.analysis.public_dsl import (
     MaterializedAssociationResult as MaterializedAssociationResult,
 )
@@ -151,31 +100,17 @@ from marivo.analysis.public_dsl import (
     MaterializedCoefficientSelectionRelation as MaterializedCoefficientSelectionRelation,
 )
 from marivo.analysis.public_dsl import MaterializedComparisonResult as MaterializedComparisonResult
-from marivo.analysis.public_dsl import (
-    MaterializedCompletedJourneys as MaterializedCompletedJourneys,
-)
 from marivo.analysis.public_dsl import MaterializedDeviationResult as MaterializedDeviationResult
 from marivo.analysis.public_dsl import (
     MaterializedDifferenceRelation as MaterializedDifferenceRelation,
 )
-from marivo.analysis.public_dsl import MaterializedDwellSummary as MaterializedDwellSummary
-from marivo.analysis.public_dsl import (
-    MaterializedEventDurationResult as MaterializedEventDurationResult,
-)
 from marivo.analysis.public_dsl import MaterializedForecastResult as MaterializedForecastResult
-from marivo.analysis.public_dsl import (
-    MaterializedFunnelComparisonResult as MaterializedFunnelComparisonResult,
-)
-from marivo.analysis.public_dsl import MaterializedFunnelResult as MaterializedFunnelResult
 from marivo.analysis.public_dsl import (
     MaterializedGroupedNumericRelation as MaterializedGroupedNumericRelation,
 )
-from marivo.analysis.public_dsl import MaterializedHistoryResult as MaterializedHistoryResult
-from marivo.analysis.public_dsl import MaterializedJourneyResult as MaterializedJourneyResult
 from marivo.analysis.public_dsl import MaterializedNumericRelation as MaterializedNumericRelation
 from marivo.analysis.public_dsl import MaterializedRankingResult as MaterializedRankingResult
 from marivo.analysis.public_dsl import MaterializedRatioRelation as MaterializedRatioRelation
-from marivo.analysis.public_dsl import MaterializedRetentionResult as MaterializedRetentionResult
 from marivo.analysis.public_dsl import (
     MaterializedRolledNumericRelation as MaterializedRolledNumericRelation,
 )
@@ -195,24 +130,11 @@ from marivo.analysis.public_dsl import (
     MaterializedSelectedTemporalRelation as MaterializedSelectedTemporalRelation,
 )
 from marivo.analysis.public_dsl import (
-    MaterializedStateDistributionResult as MaterializedStateDistributionResult,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedStateIntervalResult as MaterializedStateIntervalResult,
-)
-from marivo.analysis.public_dsl import (
     MaterializedStatisticRelation as MaterializedStatisticRelation,
-)
-from marivo.analysis.public_dsl import (
-    MaterializedSubjectRetentionResult as MaterializedSubjectRetentionResult,
 )
 from marivo.analysis.public_dsl import MaterializedTable as MaterializedTable
 from marivo.analysis.public_dsl import MaterializedTemporalRelation as MaterializedTemporalRelation
 from marivo.analysis.public_dsl import MaterializedTimeRunResult as MaterializedTimeRunResult
-from marivo.analysis.public_dsl import (
-    MaterializedTransitionSummary as MaterializedTransitionSummary,
-)
-from marivo.analysis.public_dsl import MaterializedViolationResult as MaterializedViolationResult
 from marivo.analysis.public_dsl import MemberAxis as MemberAxis
 from marivo.analysis.public_dsl import OneToOneCorrespondence as OneToOneCorrespondence
 from marivo.analysis.public_dsl import ReferenceWeights as ReferenceWeights
@@ -239,26 +161,8 @@ from marivo.analysis.session._lazy_read_model import RunPage as RunPage
 from marivo.analysis.session._lazy_read_model import SessionGraph as SessionGraph
 from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRun
 from marivo.analysis.session.core import Session as Session
-from marivo.analysis.subject import DroppedBefore as DroppedBefore
-from marivo.analysis.subject import dropped_before as dropped_before
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
-    "AnyAnchor",
-    "EveryAnchor",
-    "any_anchor",
-    "every_anchor",
-    "LogicalRetentionResult",
-    "MaterializedRetentionResult",
-    "LogicalSubjectRetentionResult",
-    "MaterializedSubjectRetentionResult",
-    "Duration",
-    "ElapsedWindow",
-    "CalendarWindow",
-    "duration",
-    "elapsed",
-    "calendar_days",
-    "LogicalAnchorDomain",
-    "MaterializedAnchorDomain",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",
     "LogicalRankingResult",
@@ -279,31 +183,9 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "all_instances",
     "DatasetByteCount",
     "MaterializedDatasetState",
-    "LogicalHistoryResult",
-    "LogicalStateDistributionResult",
-    "MaterializedStateDistributionResult",
-    "LogicalTransitionSummary",
-    "MaterializedTransitionSummary",
-    "LogicalDwellSummary",
-    "MaterializedDwellSummary",
-    "LogicalViolationResult",
-    "MaterializedViolationResult",
-    "LogicalStateIntervalResult",
-    "MaterializedStateIntervalResult",
-    "MaterializedHistoryResult",
     "ForecastHorizon",
     "ForecastModel",
-    "BoundedCompletenessDeclarationV1",
-    "SourceOriginCompletenessDeclarationV1",
-    "DroppedBefore",
-    "EventPattern",
-    "EveryStart",
-    "FirstPerSubject",
-    "FromInception",
-    "FunnelLossRate",
     "Grain",
-    "InState",
-    "PatternStep",
     "TimeScope",
     "BeforeEndBoundary",
     "TimeGrid",
@@ -339,16 +221,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "AnalysisAction",
     "AnalysisContract",
     "LogicalAnalysisDomain",
-    "LogicalFunnelResult",
-    "MaterializedFunnelResult",
-    "LogicalFunnelComparisonResult",
-    "MaterializedFunnelComparisonResult",
-    "LogicalJourneyResult",
-    "MaterializedJourneyResult",
-    "LogicalEventDurationResult",
-    "MaterializedEventDurationResult",
-    "LogicalCompletedJourneys",
-    "MaterializedCompletedJourneys",
     "MaterializedAnalysisDomain",
     "LogicalCategoryRelation",
     "LogicalBooleanRelation",
@@ -410,14 +282,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "not_",
     "grain",
     "time_scope",
-    "step",
-    "sequence",
-    "first_per_subject",
-    "every_start",
-    "dropped_before",
-    "in_state",
-    "funnel_loss_rate",
-    "from_inception",
     "periods",
     "naive",
     "drift",

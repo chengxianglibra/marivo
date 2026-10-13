@@ -112,8 +112,6 @@ def _sqlite_interval_seconds(interval: ops.Value) -> ir.IntegerValue | int | Non
     civil-midnight bucket builds.  Sub-second and calendar-variable units have
     no exact whole-second form here and stay on their default lowering.
     """
-    if not isinstance(interval.dtype, dt.Interval):
-        return None
     factor = _SQLITE_INTERVAL_SECONDS.get(interval.dtype.unit.short)
     if factor is None:
         return None

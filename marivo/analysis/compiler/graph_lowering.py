@@ -24,8 +24,6 @@ from marivo.analysis.compiler.graph_plan import (
 from marivo.analysis.compiler.member_version import select_version, version_predicate
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, _CapturedGraph, topology
 from marivo.analysis.core.model import (
-    AnchorDomainPart,
-    AnchorObservationPart,
     AttributionPart,
     CohortDecisionPart,
     ConditionCellsPart,
@@ -34,21 +32,13 @@ from marivo.analysis.core.model import (
     CorrespondencePart,
     DisplayPart,
     EndpointPart,
-    EntryAxesPart,
     FactInput,
     FindingPolicyPart,
     FitInputsPart,
     FitStatePart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
     GridCellsPart,
-    HistoryPart,
-    HistoryViewPart,
-    JourneyPart,
     Obligation,
     ObservedQuantity,
-    OccurrencePart,
     OriginalStatePart,
     Part,
     ReferenceStatePart,
@@ -63,9 +53,6 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorObserve,
-    AnchorRetention,
     AssociationScore,
     AttachCategory,
     AttributionDerive,
@@ -76,20 +63,12 @@ from marivo.analysis.core.rules import (
     DisplayRank,
     DisplayTable,
     EntityObservationTarget,
-    FunnelAxesPrepare,
-    HistoryAxesPrepare,
-    HistoryReplay,
-    HistoryView,
-    JourneyCompleted,
-    JourneyDuration,
-    JourneyMatch,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
     OccurrenceCombine,
     OccurrenceFilter,
-    OccurrencePrepare,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
@@ -169,15 +148,9 @@ def components(part: Part) -> tuple[str, ...]:
 
     if isinstance(part, ComparisonPart):
         return ("absolute_error_bound", "relative_error_bound")
-    from marivo.analysis.core.model import InstanceRetentionPart, SubjectRetentionPart
-
-    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
-        return ("retained",)
-    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
-        return part.components
     if isinstance(
         part,
-        (EntryAxesPart, FindingPolicyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart),
+        (FindingPolicyPart,),
     ):
         return ("retained",)
     if isinstance(
@@ -198,14 +171,6 @@ def components(part: Part) -> tuple[str, ...]:
         )
     if isinstance(part, SubjectMapPart):
         return tuple(f"key_{i}" for i in range(len(part.subject.subject_key)))
-    if isinstance(part, HistoryViewPart):
-        return ("retained",)
-    if isinstance(part, HistoryPart):
-        return ("record",)
-    if isinstance(part, JourneyPart):
-        return ("assignment",)
-    if isinstance(part, OccurrencePart):
-        return part.components
     if isinstance(part, AttributionPart):
         from marivo.analysis.methods.attribution import columns
 
@@ -247,7 +212,7 @@ def components(part: Part) -> tuple[str, ...]:
             "unknown_count",
             "false_count",
             "accepted",
-            *(("opportunity_count",) if part.opportunity_domain.kind == "journey" else ()),
+            *(),
         )
     if isinstance(part, SubjectPart):
         return tuple(f"key_{i}" for i in range(len(part.subject_key)))
@@ -3835,23 +3800,6 @@ def lower(
                 has_value=not isinstance(stage.node.parameters, PartsTransport)
                 or stage.node.parameters.keep_quantity,
             )
-            if isinstance(
-                stage.node.parameters,
-                (
-                    AnchorBind,
-                    HistoryReplay,
-                    OccurrencePrepare,
-                    JourneyMatch,
-                    JourneyDuration,
-                    JourneyCompleted,
-                ),
-            ):
-                output_layout = canonical_layout(stage.node.signature, has_value=False)
-            if (
-                isinstance(stage.node.parameters, HistoryView)
-                and stage.node.signature.quantity is None
-            ):
-                output_layout = canonical_layout(stage.node.signature, has_value=False)
             if (
                 isinstance(stage.node.parameters, MapCorrespond)
                 and stage.node.parameters.mode == "subjects"
@@ -3919,13 +3867,7 @@ def lower(
                 isinstance(node, MethodNode)
                 and isinstance(
                     node.parameters,
-                    (
-                        OccurrencePrepare,
-                        PreparedObservation,
-                        AnchorObserve,
-                        FunnelAxesPrepare,
-                        HistoryAxesPrepare,
-                    ),
+                    (PreparedObservation,),
                 )
                 and stage.leaf in node.sources
                 for node in captured.nodes
@@ -3990,61 +3932,11 @@ def lower(
             inputs = tuple(
                 results[i]
                 for i in stage.inputs[
-                    : 1
-                    if isinstance(params, PreparedObservation)
-                    or (isinstance(params, AnchorObserve) and stage.operation == "prepare")
-                    else len(stage.node.inputs)
+                    : 1 if isinstance(params, PreparedObservation) else len(stage.node.inputs)
                 ]
             )
             source_ids = inputs[0].source_ids
-            if isinstance(params, AnchorBind):
-                from marivo.analysis.compiler.anchors import bind as lower_anchor_bind
-
-                table, layout, source_ids = lower_anchor_bind(stage, inputs[0])
-                cell_reasons = ()
-            elif isinstance(params, AnchorRetention):
-                from marivo.analysis.compiler.retention import lower as lower_retention
-
-                table, layout, source_ids = lower_retention(stage, inputs, checks)
-                cell_reasons = (("unknown", ("insufficient_followup",)),)
-            elif isinstance(params, AnchorObserve):
-                from marivo.analysis.compiler.anchors import observe as lower_anchor_observe
-
-                captured_ids: list[tuple[str, tuple[str, ...]]] = []
-                table, layout, source_ids = lower_anchor_observe(
-                    stage,
-                    inputs,
-                    bindings,
-                    tuple(results.values()),
-                    checks,
-                    part_expressions,
-                    captured_ids,
-                )
-                part_source_ids = tuple(captured_ids)
-                cell_reasons = (
-                    ("null", ("empty_contribution",)),
-                    ("undefined", ("zero_denominator",)),
-                )
-            elif isinstance(params, HistoryAxesPrepare):
-                from marivo.analysis.compiler.history_axes import lower_axes as lower_history_axes
-
-                table, layout, source_ids = lower_history_axes(stage, inputs[0], bindings, checks)
-                cell_reasons = ()
-            elif isinstance(params, FunnelAxesPrepare):
-                from marivo.analysis.compiler.funnel_axes import lower_axes
-
-                captured_ids = []
-                table, layout, source_ids = lower_axes(
-                    stage, inputs[0], bindings, checks, part_expressions, captured_ids
-                )
-                part_source_ids = tuple(captured_ids)
-                cell_reasons = ()
-            elif isinstance(params, OccurrencePrepare):
-                from marivo.analysis.compiler.domain_preparation import lower_occurrences
-
-                table, layout, source_ids = lower_occurrences(stage, inputs[0], bindings, checks)
-                cell_reasons = ()
-            elif isinstance(params, PreparedObservation):
+            if isinstance(params, PreparedObservation):
                 from marivo.analysis.compiler.domain_preparation import lower_candidates
 
                 table, layout, source_ids = lower_candidates(
@@ -4349,11 +4241,6 @@ def lower(
                 isinstance(owner.parameters, RowState)
                 and isinstance(owner.inputs[0].node, MethodNode)
                 and isinstance(owner.inputs[0].node.parameters, PreparedObservation)
-            )
-            or (
-                isinstance(owner.parameters, RowState)
-                and owner.inputs[0].node.signature.domain.kind in ("journey", "interval")
-                and requirement.obligation.check_id == "source.finite_numeric@v1"
             )
         ):
             checks.append(requirement)

@@ -11,7 +11,6 @@ from uuid import uuid4
 
 from marivo.analysis.core.model import Signature, reject
 from marivo.analysis.core.rules import (
-    AnchorObserve,
     AttachCategory,
     AttributionDerive,
     BindProject,
@@ -19,16 +18,10 @@ from marivo.analysis.core.rules import (
     ComparisonRead,
     DisplayRank,
     DisplayTable,
-    FunnelAttribute,
-    FunnelAxesPrepare,
-    FunnelCompare,
-    FunnelRead,
-    HistoryAxesPrepare,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
-    OccurrencePrepare,
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
@@ -405,7 +398,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
     if node.method != key_for_parameters(node.parameters):
         _fail("the parameter variant's exact method version", str(node.method))
     roles = tuple(e.role for e in node.inputs)
-    if isinstance(node.parameters, (CellDerive, FunnelCompare)):
+    if isinstance(node.parameters, (CellDerive,)):
         expected: tuple[str, ...] = ("current", "baseline")
     elif isinstance(node.parameters, ReferenceDerive):
         expected = tuple(
@@ -444,35 +437,7 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
                 _fail("the classification's exact frozen Dimension role", selected.binding_id)
     if type(node.sources) is not tuple or any(type(s) is not SourceLeaf for s in node.sources):
         _fail("immutable explicit source dependencies", node.identity)
-    if isinstance(node.parameters, OccurrencePrepare):
-        required_ids = {event.source_id for event in node.parameters.events}
-        if not required_ids <= {source.identity for source in node.sources} and not isinstance(
-            node.inputs[0].node, FixedLeaf
-        ):
-            _fail("explicit captured Event source dependencies", node.identity)
-        if not isinstance(node.inputs[0].node, FixedLeaf):
-            required = {event.source.ref.path for event in node.parameters.events}
-            required.update(event.subject.ref.path for event in node.parameters.events)
-            required.update(
-                hop.to_entity_ref.path for event in node.parameters.events for hop in event.path
-            )
-            actual = {source.definition.ref.path for source in node.sources}
-            if actual != required or len(actual) != len(node.sources):
-                _fail(
-                    f"all captured participant dependencies for {sorted(required)}",
-                    repr(sorted(actual)),
-                )
-    elif isinstance(node.parameters, HistoryAxesPrepare):
-        if {s.identity for s in node.sources} != {
-            identity for axis in node.parameters.request.axes for identity in axis.source_ids
-        }:
-            _fail("all exact checkpoint-axis path dependencies", node.identity)
-    elif isinstance(node.parameters, FunnelAxesPrepare):
-        if {s.identity for s in node.sources} != {
-            identity for axis in node.parameters.axes for identity in axis.source_ids
-        }:
-            _fail("all exact entry-axis path dependencies", node.identity)
-    elif isinstance(node.parameters, PreparedObservation):
+    if isinstance(node.parameters, PreparedObservation):
         if len(node.inputs) != 2:
             _fail("selected and original population dependencies", node.identity)
         observation = node.parameters.observation
@@ -504,14 +469,6 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         }
         if actual != required or len(actual) != len(node.sources):
             _fail(f"explicit source bindings for {sorted(required)}", repr(sorted(actual)))
-    elif isinstance(node.parameters, AnchorObserve):
-        required = {observation.contribution.path for observation in node.parameters.observations}
-        for observation in node.parameters.observations:
-            for hop in observation.path:
-                required.update((hop.from_entity_ref.path, hop.to_entity_ref.path))
-        actual = {source.definition.ref.path for source in node.sources}
-        if not required <= actual:
-            _fail("all frozen relative Metric sources", repr(sorted(actual)))
     elif node.sources:
         _fail("source dependencies only for source-binding methods", node.identity)
     if type(node.retained_endpoints) is not tuple or any(
@@ -522,11 +479,6 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
         if not isinstance(
             node.parameters,
             (
-                FunnelCompare,
-                FunnelRead,
-                FunnelAxesPrepare,
-                HistoryAxesPrepare,
-                FunnelAttribute,
                 AttributionDerive,
                 CellDerive,
                 ComparisonRead,

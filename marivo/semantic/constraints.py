@@ -90,16 +90,6 @@ class ConstraintId(StrEnum):
     STATUS_TIME_DIMENSION_REQUIRED = "status_time_dimension_required"
     STATUS_TIME_DIMENSION_INVALID = "invalid_status_time_dimension"
     TIME_GRANULARITY_PARSE_COMPATIBLE = "time_granularity_parse_compatible"
-    EVENT_SOURCE_OWNER = "event_source_owner"
-    EVENT_IDENTITY = "event_identity"
-    EVENT_PREDICATE = "event_predicate"
-    EVENT_PARTICIPANT_PATH = "event_participant_path"
-    EVENT_PARTICIPANT_CARDINALITY = "event_participant_cardinality"
-    EVENT_PARTICIPANT_MEMBERSHIP = "event_participant_membership"
-    EVENT_ALL_ROWS_COMPLETE_RETURN = "event_all_rows_complete_return"
-    STATE_MODEL_SHAPE = "state_model_shape"
-    STATE_MODEL_TRIGGER = "state_model_trigger"
-    MODEL_STATE_MEMBERSHIP = "model_state_membership"
 
 
 _EXPR_BODY_AST_SPEC = ASTSpec(
@@ -186,7 +176,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "derived_metric",
             "relationship",
             "event",
-            "state_model",
         ),
         "Decorators require an active semantic loader context.",
         "Semantic declarations register into the project loader registry, not global process state.",
@@ -229,7 +218,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "metric",
             "relationship",
             "event",
-            "state_model",
             "ref",
         ),
         "References must be typed refs returned by Marivo authoring helpers.",
@@ -286,70 +274,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Simple metrics need entities=[...]; use ms.ratio/ms.linear "
         "for metrics composed from other metrics.",
     ),
-    ConstraintId.EVENT_SOURCE_OWNER: _constraint(
-        ConstraintId.EVENT_SOURCE_OWNER,
-        "invalid_event_source",
-        "assembly",
-        ("event",),
-        "Event source ownership is inferred from occurred_at.",
-        "Identity and predicate fields must belong to the same occurrence source.",
-        "Use one source-owned time dimension and source-owned categorical dimensions.",
-    ),
-    ConstraintId.EVENT_IDENTITY: _constraint(
-        ConstraintId.EVENT_IDENTITY,
-        "invalid_event_identity",
-        "assembly",
-        ("event",),
-        "Event identity must be a non-empty ordered tuple of source-owned dimensions.",
-        "The tuple identifies one occurrence after the Event predicate is applied.",
-        "Pass unique categorical Dimension refs owned by owner(occurred_at).",
-    ),
-    ConstraintId.EVENT_PREDICATE: _constraint(
-        ConstraintId.EVENT_PREDICATE,
-        "invalid_event_predicate",
-        "ast",
-        ("event",),
-        "Event bodies return one restricted boolean row predicate.",
-        "A closed predicate keeps Event meaning deterministic and executable.",
-        "Return ms.all_rows() or compare source-owned ms.bind(...) values.",
-        ast_spec=_EXPR_BODY_AST_SPEC,
-    ),
-    ConstraintId.EVENT_PARTICIPANT_PATH: _constraint(
-        ConstraintId.EVENT_PARTICIPANT_PATH,
-        "invalid_event_participant_path",
-        "assembly",
-        ("event", "participant"),
-        "Participant paths are omitted for the source or are non-empty directed paths.",
-        "The endpoint and subject identity must be mechanically reproducible.",
-        "Omit path for the source Entity or pass a continuous tuple of Relationship refs.",
-    ),
-    ConstraintId.EVENT_PARTICIPANT_CARDINALITY: _constraint(
-        ConstraintId.EVENT_PARTICIPANT_CARDINALITY,
-        "invalid_event_participant_cardinality",
-        "assembly",
-        ("event", "participant"),
-        "Participant cardinality is one or optional_one.",
-        "Journey subjects require exactly one endpoint identity per occurrence.",
-        "Use cardinality='one' for analytical subjects and give the endpoint a primary key.",
-    ),
-    ConstraintId.EVENT_PARTICIPANT_MEMBERSHIP: _constraint(
-        ConstraintId.EVENT_PARTICIPANT_MEMBERSHIP,
-        "invalid_event_participant_path",
-        "runtime",
-        ("participant_role",),
-        "Participant-role handles must name a role on the exact loaded Event definition.",
-        "Typed membership prevents stale roles from silently selecting another subject.",
-        "Inspect catalog.events.get(...).details() and rebuild the role handle.",
-    ),
-    ConstraintId.EVENT_ALL_ROWS_COMPLETE_RETURN: _constraint(
-        ConstraintId.EVENT_ALL_ROWS_COMPLETE_RETURN,
-        "invalid_event_predicate",
-        "ast",
-        ("event", "all_rows"),
-        "ms.all_rows() is legal only as the complete Event return value.",
-        "The sentinel makes an unfiltered Event explicit without becoming a boolean operand.",
-        "Write exactly `return ms.all_rows()` in the Event body.",
-    ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
         "invalid_component_body",
@@ -371,7 +295,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "metric",
             "relationship",
             "event",
-            "state_model",
         ),
         "ai_context must use the supported schema.",
         "Agent-facing metadata is persisted in a stable IR shape.",
@@ -391,37 +314,10 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "metric_body_not_single_return",
         "ast",
         ("entity", "dimension", "time_dimension", "metric"),
-        "Expression decorators allow fresh sequential local bindings and one final return; Events require one return.",
+        "Expression decorators allow fresh sequential local bindings and one final return.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
         "Finish with return <ibis expression>; define each local name once before use.",
         ast_spec=_EXPR_BODY_AST_SPEC,
-    ),
-    ConstraintId.STATE_MODEL_SHAPE: _constraint(
-        ConstraintId.STATE_MODEL_SHAPE,
-        "invalid_state_model",
-        "assembly",
-        ("lifecycle_state", "inception", "transition", "state_model"),
-        "StateModel states and transitions form one closed deterministic finite model.",
-        "One model is the normative owner of state names, initial and terminal meaning, and legal transitions.",
-        "Use exact LifecycleState values, exactly one initial state, and deterministic typed Event triggers.",
-    ),
-    ConstraintId.STATE_MODEL_TRIGGER: _constraint(
-        ConstraintId.STATE_MODEL_TRIGGER,
-        "ambiguous_participant_role",
-        "assembly",
-        ("inception", "transition", "participant_role"),
-        "Each StateModel trigger resolves to one cardinality-one Event participant at the subject Entity.",
-        "Replay must associate every occurrence with exactly one governed subject identity.",
-        "Pass the Event ref when exactly one role qualifies; otherwise pass an exact ms.participant_role(...) handle.",
-    ),
-    ConstraintId.MODEL_STATE_MEMBERSHIP: _constraint(
-        ConstraintId.MODEL_STATE_MEMBERSHIP,
-        "model_state_mismatch",
-        "runtime",
-        ("model_state",),
-        "ModelStateHandle names one state owned by its exact StateModel ref.",
-        "Typed state ownership prevents equal local names from different models from being mixed.",
-        "Inspect catalog.state_models.get(...).details() and rebuild ms.model_state(...) with a current state name.",
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
         ConstraintId.AST_FORBIDDEN_STATEMENT,
@@ -430,7 +326,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Decorator bodies allow only fresh local expression bindings and a final return; imports, control flow, writes, lambdas, and nested definitions are forbidden.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
-        "Use fresh local bindings and one final return expression (Events allow only the return). For a metric composed from "
+        "Use fresh local bindings and one final return expression. For a metric composed from "
         "other metrics, use the body-free constructors instead: "
         "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
         "ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>). For conditionals, use ibis "

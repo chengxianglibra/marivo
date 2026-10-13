@@ -307,17 +307,6 @@ def test_receiver_members_and_grouped_leaves_remain_exactly_resolvable() -> None
         assert isinstance(route_help_target(target), NativeHelpRoute)
 
 
-def test_model_state_handle_has_one_semantic_help_owner() -> None:
-    handle = ms.ModelStateHandle(
-        model=ms.ref.state_model("sales.order_lifecycle"),
-        name="paid",
-    )
-
-    assert marivo.help("semantic.ModelStateHandle") is None
-    assert marivo.help(ms.ModelStateHandle) is None
-    assert marivo.help(handle) is None
-
-
 def test_period_calendar_period_navigation_resolves_through_public_help() -> None:
     from marivo.semantic.catalog import PeriodCalendarEntry
 

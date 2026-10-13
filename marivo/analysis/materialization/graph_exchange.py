@@ -164,10 +164,6 @@ class ExchangeContract:
                     "ranking_domain",
                     "partitions",
                     "ordering",
-                    "retention",
-                    "history_view",
-                    "entry_axes",
-                    "funnel_state",
                     "finding_policy",
                     "coordinate_state",
                     "allocation_state",
@@ -184,17 +180,6 @@ class ExchangeContract:
             or self.state_kind
             not in (
                 "none",
-                "anchor_retention",
-                "subject_retention",
-                "occurrence_inputs",
-                "canonical_history",
-                "history_view",
-                "journey_assignment",
-                "entry_axes",
-                "history_view",
-                "funnel_components",
-                "funnel_comparison",
-                "funnel_allocation",
                 "attribution_additive",
                 "attribution_component_mix",
                 "ranking",
@@ -557,10 +542,6 @@ def collect(
             "fit_inputs",
             "fit_state",
             "table_fits",
-            "retention",
-            "history_view",
-            "entry_axes",
-            "funnel_state",
             "finding_policy",
         ):
             if (
@@ -711,32 +692,6 @@ def collect(
         from marivo.analysis.materialization.deviation_execution import validate_table_fits
 
         validate_table_fits(contract, primary, parts)
-    if any(part.role == "retention" for part in parts):
-        from marivo.analysis.materialization.retention_execution import (
-            validate as validate_retention,
-        )
-
-        validate_retention(contract, primary, parts)
-    if any(part.role == "anchor" for part in parts):
-        from marivo.analysis.materialization.anchor_execution import validate as validate_anchor
-
-        validate_anchor(contract, primary, parts)
-    if any(part.role == "history_view" for part in parts):
-        from marivo.analysis.materialization.history_views import validate as validate_view
-
-        validate_view(contract, primary, parts)
-    if any(part.role == "history" for part in parts):
-        from marivo.analysis.materialization.history_execution import validate as validate_history
-
-        validate_history(contract, primary, parts)
-    if any(part.role == "journey" for part in parts):
-        from marivo.analysis.materialization.journey_execution import validate as validate_journey
-
-        validate_journey(contract, primary, parts)
-    if any(part.role in ("entry_axes", "funnel_state") for part in parts):
-        from marivo.analysis.materialization.funnel_execution import validate as validate_funnel
-
-        validate_funnel(contract, primary, parts)
     if contract.state_kind == "none":
         from marivo.analysis.materialization.business_coverage import partial_primary
 
@@ -879,42 +834,9 @@ def collect(
                 states[tuple(row[k] for k in contract.key_fields)] for row in cell_rows(primary)
             ] != expected_status:
                 raise _invalid("display method status differs")
-        elif contract.state_kind in (
-            "entry_axes",
-            "history_view",
-            "funnel_components",
-            "funnel_comparison",
-            "funnel_allocation",
-        ):
-            if any(value != "accepted" for value in states.values()):
-                raise _invalid("funnel state contains unaccepted components")
-        elif contract.state_kind == "journey_assignment":
-            from marivo.analysis.materialization.journey_execution import validate
-
-            validate(contract, primary, parts)
-            if any(value != "accepted" for value in states.values()):
-                raise _invalid("Journey state contains unaccepted assignments")
-        elif contract.state_kind == "occurrence_inputs":
-            from marivo.analysis.materialization.domain_preparation import validate_exchange
-
-            validate_exchange(contract, primary, parts)
-            if any(value != "accepted" for value in states.values()):
-                raise _invalid("occurrence state contains unaccepted inputs")
         elif contract.state_kind == "cohort":
             if any(value != "accepted" for value in states.values()):
                 raise _invalid("cohort state contains an unaccepted target")
-        elif contract.state_kind in ("anchor_retention", "subject_retention"):
-            if any(
-                states[tuple(row[k] for k in contract.key_fields)] != row["cell_tag"]
-                for row in cell_rows(primary)
-            ):
-                raise _invalid("retention state vector differs from its Boolean Cells")
-        elif contract.state_kind == "canonical_history":
-            if any(
-                states[tuple(row[key] for key in contract.key_fields)] != row["classification"]
-                for row in cell_rows(primary)
-            ):
-                raise _invalid("canonical History state vector differs from its Subject ledger")
         elif contract.state_kind == "spearman" and any(p.role == "pair_inputs" for p in parts):
             if any(
                 states[tuple(row[k] for k in contract.key_fields)] != row["status"]
@@ -963,10 +885,6 @@ def collect(
             selected_keys = set()
             for row in table.to_pylist():
                 t, u, f = (row[name] for name in columns)
-                if signature_part.opportunity_domain.kind == "journey":
-                    expected = row.get("cohort_decision__opportunity_count")
-                    if type(expected) is not int or expected < 0:
-                        raise _invalid("Journey cohort lacks the complete opportunity count")
                 if (
                     any(type(value) is not int or value < 0 for value in (t, u, f))
                     or t + u + f != expected

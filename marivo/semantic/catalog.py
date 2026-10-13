@@ -67,12 +67,10 @@ from marivo.preview import (
     validate_preview_limit,
 )
 from marivo.refs import (
-    BusinessOrderKind,
     DatasourceKind,
     DimensionKind,
     DomainKind,
     EntityKind,
-    EventKind,
     FieldKind,
     MeasureKind,
     MetricKind,
@@ -82,7 +80,6 @@ from marivo.refs import (
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
-    StateModelKind,
     TemporalSetKind,
     TimeDimensionKind,
     WorkScheduleKind,
@@ -114,7 +111,6 @@ from marivo.semantic._metric_resolution import (
     fold_input_to_ir,
     resolve_aggregate_temporal_contract,
 )
-from marivo.semantic.business_order import _business_order_fingerprint
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.definition import (
     ExpressionDescription,
@@ -141,18 +137,14 @@ from marivo.semantic.errors import (
     _raise,
     repair,
 )
-from marivo.semantic.event import _event_fingerprint as _event_definition_fingerprint
 from marivo.semantic.ir import (
     AggKind,
-    BusinessOrderIR,
     DateParse,
     DatetimeParse,
     DimensionIR,
     DomainIR,
     EntityIR,
     EntityVersioningIR,
-    EventIR,
-    EventParticipantIR,
     HourPrefixParse,
     LinearComposition,
     MeasureIR,
@@ -164,7 +156,6 @@ from marivo.semantic.ir import (
     SemiAdditive,
     SnapshotVersioningIR,
     SourceLocation,
-    StateModelIR,
     StrptimeParse,
     TemporalSetIR,
     TimeFoldIR,
@@ -192,7 +183,6 @@ from marivo.semantic.runtime_metric import (
     replay_payload,
     runtime_metric_leaf_refs,
 )
-from marivo.semantic.state_model import _state_model_fingerprint
 
 CalendarDate = date
 
@@ -207,8 +197,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AiContextView",
-    "BusinessOrderDetails",
-    "BusinessOrderEntry",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
     "CatalogCollection",
@@ -223,8 +211,6 @@ __all__ = [
     "EntityDetails",
     "EntityEntry",
     "EntityVersioning",
-    "EventDetails",
-    "EventEntry",
     "MeasureDetails",
     "MeasureEntry",
     "MetricDetails",
@@ -237,8 +223,6 @@ __all__ = [
     "SemanticKind",
     "SimpleMetricDetails",
     "SnapshotVersioning",
-    "StateModelDetails",
-    "StateModelEntry",
     "TemporalOccurrencePage",
     "TemporalSetDetails",
     "TemporalSetEntry",
@@ -416,18 +400,6 @@ def _make_ref(path: str, kind: Literal[SemanticKind.RELATIONSHIP]) -> Ref[Relati
 
 
 @overload
-def _make_ref(path: str, kind: Literal[SemanticKind.EVENT]) -> Ref[EventKind]: ...
-
-
-@overload
-def _make_ref(path: str, kind: Literal[SemanticKind.STATE_MODEL]) -> Ref[StateModelKind]: ...
-
-
-@overload
-def _make_ref(path: str, kind: Literal[SemanticKind.BUSINESS_ORDER]) -> Ref[BusinessOrderKind]: ...
-
-
-@overload
 def _make_ref(
     path: str, kind: Literal[SemanticKind.PERIOD_CALENDAR]
 ) -> Ref[PeriodCalendarKind]: ...
@@ -455,9 +427,6 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
-        SemanticKind.EVENT: ref_factory.event,
-        SemanticKind.STATE_MODEL: ref_factory.state_model,
-        SemanticKind.BUSINESS_ORDER: ref_factory.business_order,
         SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
         SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
         SemanticKind.WORK_SCHEDULE: ref_factory.work_schedule,
@@ -1137,146 +1106,6 @@ class RelationshipDetails(_DetailsBase):
 
 
 @dataclass(frozen=True, repr=False)
-class EventDetails(_DetailsBase):
-    """Details for one executable Event definition."""
-
-    source_entity: Ref[EntityKind]
-    identity: tuple[Ref[DimensionKind], ...]
-    occurred_at: Ref[TimeDimensionKind]
-    participants: tuple[tuple[str, Ref[EntityKind], str, tuple[Ref[RelationshipKind], ...]], ...]
-    predicate_kind: Literal["all_rows", "filtered"]
-    definition_fingerprint: str
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="source_entity", value=self.source_entity.key),
-                FieldSection(label="identity", value=_format_refs(self.identity)),
-                FieldSection(label="occurred_at", value=self.occurred_at.key),
-                FieldSection(label="predicate", value=self.predicate_kind),
-                FieldSection(
-                    label="definition_fingerprint",
-                    value=self.definition_fingerprint,
-                ),
-                FieldSection(
-                    label="participants",
-                    value="; ".join(
-                        _format_event_participant(participant, bounded=False)
-                        for participant in self.participants
-                    ),
-                ),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
-class StateModelDetails(_DetailsBase):
-    """Complete details for one canonical StateModel."""
-
-    subject: Ref[EntityKind]
-    states: tuple[tuple[str, bool, bool], ...]
-    inceptions: tuple[
-        tuple[Ref[EventKind], str, tuple[Ref[RelationshipKind], ...]],
-        ...,
-    ]
-    transitions: tuple[
-        tuple[
-            str,
-            Ref[EventKind],
-            str,
-            tuple[Ref[RelationshipKind], ...],
-            str,
-        ],
-        ...,
-    ]
-    business_order: Ref[BusinessOrderKind] | None
-    definition_fingerprint: str
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="subject", value=self.subject.key),
-                FieldSection(
-                    label="business_order",
-                    value=self.business_order.key if self.business_order is not None else "(none)",
-                ),
-                FieldSection(
-                    label="states",
-                    value="; ".join(
-                        f"{name}: initial={initial}; terminal={terminal}"
-                        for name, initial, terminal in self.states
-                    ),
-                ),
-                FieldSection(
-                    label="inceptions",
-                    value="; ".join(
-                        (
-                            f"{event.key}#{role}; path="
-                            + ("self" if not path else " -> ".join(item.key for item in path))
-                        )
-                        for event, role, path in self.inceptions
-                    )
-                    or "(none)",
-                ),
-                FieldSection(
-                    label="transitions",
-                    value="; ".join(
-                        (
-                            f"{source} -- {event.key}#{role} --> {target}; path="
-                            + ("self" if not path else " -> ".join(item.key for item in path))
-                        )
-                        for source, event, role, path, target in self.transitions
-                    )
-                    or "(none)",
-                ),
-                FieldSection(
-                    label="definition_fingerprint",
-                    value=self.definition_fingerprint,
-                ),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
-class BusinessOrderDetails(_DetailsBase):
-    """Complete declared order facts for one exact Subject."""
-
-    subject: Ref[EntityKind]
-    sequences: tuple[
-        tuple[Ref[EventKind], Ref[DimensionKind], Literal["integer"] | tuple[str, ...], str], ...
-    ]
-    conflicts: tuple[tuple[str, str], ...]
-    definition_fingerprint: str
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="subject", value=self.subject.key),
-                FieldSection(label="definition_fingerprint", value=self.definition_fingerprint),
-                FieldSection(
-                    label="sequences",
-                    value="; ".join(
-                        f"{event.key}#{role}: {value.key} order={order!r}"
-                        for event, value, order, role in self.sequences
-                    )
-                    or "(none)",
-                ),
-                FieldSection(
-                    label="precedence",
-                    value="; ".join(f"{before} -> {after}" for before, after in self.conflicts)
-                    or "(none)",
-                ),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
 class CalendarLevelDetails(RenderableResult):
     """Certification-derived facts for one owned period-calendar level."""
 
@@ -1460,9 +1289,6 @@ _CatalogObjectDetails = (
     | TimeDimensionDetails
     | MetricDetails
     | RelationshipDetails
-    | EventDetails
-    | StateModelDetails
-    | BusinessOrderDetails
     | PeriodCalendarDetails
     | TemporalSetDetails
     | WorkScheduleDetails
@@ -1571,9 +1397,6 @@ class DomainEntry(CatalogEntry[DomainKind]):
         "measures",
         "metrics",
         "relationships",
-        "events",
-        "state_models",
-        "business_orders",
         "period_calendars",
         "temporal_sets",
         "work_schedules",
@@ -1616,24 +1439,6 @@ class DomainEntry(CatalogEntry[DomainKind]):
             RelationshipEntry,
             SemanticKind.RELATIONSHIP,
             scope_ref=self.ref,
-        )
-
-    @property
-    def events(self) -> CatalogCollection[EventKind]:
-        return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
-
-    @property
-    def state_models(self) -> CatalogCollection[StateModelKind]:
-        return self._catalog._collection(
-            StateModelEntry,
-            SemanticKind.STATE_MODEL,
-            scope_ref=self.ref,
-        )
-
-    @property
-    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
-        return self._catalog._collection(
-            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
         )
 
     @property
@@ -1685,9 +1490,6 @@ class EntityEntry(CatalogEntry[EntityKind]):
         "measures",
         "metrics",
         "relationships",
-        "events",
-        "state_models",
-        "business_orders",
     )
 
     def details(self) -> EntityDetails:
@@ -1723,24 +1525,6 @@ class EntityEntry(CatalogEntry[EntityKind]):
             RelationshipEntry,
             SemanticKind.RELATIONSHIP,
             scope_ref=self.ref,
-        )
-
-    @property
-    def events(self) -> CatalogCollection[EventKind]:
-        return self._catalog._collection(EventEntry, SemanticKind.EVENT, scope_ref=self.ref)
-
-    @property
-    def state_models(self) -> CatalogCollection[StateModelKind]:
-        return self._catalog._collection(
-            StateModelEntry,
-            SemanticKind.STATE_MODEL,
-            scope_ref=self.ref,
-        )
-
-    @property
-    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
-        return self._catalog._collection(
-            BusinessOrderEntry, SemanticKind.BUSINESS_ORDER, scope_ref=self.ref
         )
 
 
@@ -1859,122 +1643,6 @@ class RelationshipEntry(CatalogEntry[RelationshipKind]):
             ._card()
             .field(label="from_entity", value=self.from_entity.key)
             .field(label="to_entity", value=self.to_entity.key)
-        )
-
-
-class EventEntry(CatalogEntry[EventKind]):
-    """Loaded executable Event."""
-
-    ref: Ref[EventKind]
-
-    def details(self) -> EventDetails:
-        return cast("EventDetails", self._details)
-
-    def _card(self) -> Card:
-        details = self.details()
-        visible_participants = details.participants[:6]
-        card = (
-            super()
-            ._card()
-            .field(label="source_entity", value=details.source_entity.key)
-            .field(label="identity", value=_format_card_refs(details.identity))
-            .field(label="occurred_at", value=details.occurred_at.key)
-            .field(label="participant_count", value=str(len(details.participants)))
-        )
-        for participant in visible_participants:
-            card = card.field(
-                label=f"participant.{participant[0]}",
-                value=_format_event_participant(participant, bounded=True),
-            )
-        omitted = len(details.participants) - len(visible_participants)
-        if omitted:
-            card = card.field(
-                label="participants_omitted",
-                value=f"{omitted}; full: .details().show()",
-            )
-        return card
-
-
-class StateModelEntry(CatalogEntry[StateModelKind]):
-    """Loaded canonical StateModel."""
-
-    ref: Ref[StateModelKind]
-
-    def details(self) -> StateModelDetails:
-        return cast("StateModelDetails", self._details)
-
-    def _card(self) -> Card:
-        details = self.details()
-        members: list[tuple[str, str]] = [
-            (
-                f"state.{name}",
-                f"initial={initial}; terminal={terminal}",
-            )
-            for name, initial, terminal in details.states
-        ]
-        members.extend(
-            (
-                f"inception.{index}",
-                (f"{event.key}#{role}; path=" + ("self" if not path else _format_card_refs(path))),
-            )
-            for index, (event, role, path) in enumerate(details.inceptions, start=1)
-        )
-        members.extend(
-            (
-                f"transition.{index}",
-                (
-                    f"{source} -- {event.key}#{role} --> {target}; path="
-                    + ("self" if not path else _format_card_refs(path))
-                ),
-            )
-            for index, (source, event, role, path, target) in enumerate(
-                details.transitions,
-                start=1,
-            )
-        )
-        card = (
-            super()
-            ._card()
-            .field(label="subject", value=details.subject.key)
-            .field(
-                label="business_order",
-                value=details.business_order.key
-                if details.business_order is not None
-                else "(none)",
-            )
-            .field(label="state_count", value=str(len(details.states)))
-            .field(
-                label="transition_count",
-                value=str(len(details.inceptions) + len(details.transitions)),
-            )
-        )
-        for label, value in members[:6]:
-            card = card.field(label=label, value=value)
-        omitted = len(members) - min(6, len(members))
-        if omitted:
-            card = card.field(
-                label="members_omitted",
-                value=f"{omitted}; full: .details().show()",
-            )
-        return card
-
-
-class BusinessOrderEntry(CatalogEntry[BusinessOrderKind]):
-    """Loaded named business ordering authority."""
-
-    ref: Ref[BusinessOrderKind]
-
-    def details(self) -> BusinessOrderDetails:
-        return cast("BusinessOrderDetails", self._details)
-
-    def _card(self) -> Card:
-        details = self.details()
-        return (
-            super()
-            ._card()
-            .field(label="subject", value=details.subject.key)
-            .field(label="sequence_count", value=str(len(details.sequences)))
-            .field(label="precedence_count", value=str(len(details.conflicts)))
         )
 
 
@@ -2911,24 +2579,6 @@ class CatalogCollection(RenderableResult, Generic[KindT]):
 
     @overload
     def get(
-        self: CatalogCollection[EventKind],
-        key: str | Ref[EventKind],
-    ) -> EventEntry: ...
-
-    @overload
-    def get(
-        self: CatalogCollection[StateModelKind],
-        key: str | Ref[StateModelKind],
-    ) -> StateModelEntry: ...
-
-    @overload
-    def get(
-        self: CatalogCollection[BusinessOrderKind],
-        key: str | Ref[BusinessOrderKind],
-    ) -> BusinessOrderEntry: ...
-
-    @overload
-    def get(
         self: CatalogCollection[PeriodCalendarKind],
         key: str | Ref[PeriodCalendarKind],
     ) -> PeriodCalendarEntry: ...
@@ -3405,21 +3055,6 @@ def _build_domain_object(
         for m in reg.metrics.values()
         if m.domain == model_ir.name
     )
-    event_refs = tuple(
-        _make_ref(event.semantic_id, SemanticKind.EVENT)
-        for event in reg.events.values()
-        if event.domain == model_ir.name
-    )
-    state_model_refs = tuple(
-        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
-        for model in reg.state_models.values()
-        if model.domain == model_ir.name
-    )
-    business_order_refs = tuple(
-        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
-        for order in reg.business_orders.values()
-        if order.domain == model_ir.name
-    )
     period_calendar_refs = tuple(
         _make_ref(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
         for calendar in reg.period_calendars.values()
@@ -3436,14 +3071,7 @@ def _build_domain_object(
         if schedule.domain == model_ir.name
     )
     children = (
-        datasets_refs
-        + metrics_refs
-        + event_refs
-        + state_model_refs
-        + business_order_refs
-        + period_calendar_refs
-        + temporal_set_refs
-        + work_schedule_refs
+        datasets_refs + metrics_refs + period_calendar_refs + temporal_set_refs + work_schedule_refs
     )
     details = DomainDetails(
         ref=ref,
@@ -3488,39 +3116,11 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
     )
-    event_refs = tuple(
-        _make_ref(event.semantic_id, SemanticKind.EVENT)
-        for event in reg.events.values()
-        if event.source_entity == ds_ir.semantic_id
-    )
-    state_model_refs = tuple(
-        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
-        for model in reg.state_models.values()
-        if model.subject == ds_ir.semantic_id
-    )
-    business_order_refs = tuple(
-        _make_ref(order.semantic_id, SemanticKind.BUSINESS_ORDER)
-        for order in reg.business_orders.values()
-        if order.subject == ds_ir.semantic_id
-    )
-    children = (
-        fields_refs
-        + measure_refs
-        + metric_refs
-        + rels_refs
-        + event_refs
-        + state_model_refs
-        + business_order_refs
-    )
+    children = fields_refs + measure_refs + metric_refs + rels_refs
     metric_dependents = tuple(
         _make_ref(m.semantic_id, SemanticKind.METRIC)
         for m in reg.metrics.values()
         if ds_ir.semantic_id in m.entities
-    )
-    state_model_dependents = tuple(
-        _make_ref(model.semantic_id, SemanticKind.STATE_MODEL)
-        for model in reg.state_models.values()
-        if model.subject == ds_ir.semantic_id
     )
     sidecar = catalog._project._expression_sidecar
     body = sidecar.bodies.get(ref) if sidecar is not None else None
@@ -3538,7 +3138,7 @@ def _build_entity_object(ds_ir: EntityIR, reg: Registry, catalog: SemanticCatalo
         source_location=ds_ir.location,
         parents=(ds_ref,),
         children=children,
-        dependents=metric_dependents + state_model_dependents + business_order_refs,
+        dependents=metric_dependents,
         python_symbol=ds_ir.python_symbol,
         datasource=ds_ref,
         source=ds_ir.source,
@@ -4119,306 +3719,6 @@ def _build_relationship_object(
         to_version_resolution_required=normalized.to_version_resolution_required,
     )
     return _object_from_details(RelationshipEntry, details, catalog)
-
-
-def _event_participant_endpoint(
-    event_ir: EventIR,
-    path: tuple[str, ...] | None,
-    registry: Registry,
-) -> str:
-    endpoint = event_ir.source_entity
-    for relationship_id in path or ():
-        endpoint = registry.relationships[relationship_id].to_entity
-    return endpoint
-
-
-def _validate_event_preview(
-    result: PreviewResult,
-    *,
-    event_ir: EventIR,
-    participants: tuple[EventParticipantIR, ...],
-) -> PreviewResult:
-    identity_columns = tuple(f"__event_identity_{index}" for index in range(len(event_ir.identity)))
-    observed: dict[
-        tuple[object, ...],
-        dict[str, list[tuple[object, ...]]],
-    ] = {}
-    for row in result.rows:
-        identity = tuple(row.get(column) for column in identity_columns)
-        if any(value is None for value in identity):
-            _raise(
-                ErrorKind.INVALID_EVENT_IDENTITY,
-                f"Event {event_ir.semantic_id!r} preview observed a null identity component.",
-                cls=SemanticRuntimeError,
-                refs=(event_ir.semantic_id, *event_ir.identity),
-                expected="a non-null occurrence identity tuple",
-                received=repr(identity),
-            )
-        subjects_by_role = observed.setdefault(identity, {})
-        for participant in participants:
-            subject_prefix = f"__subject_{participant.name}_identity_"
-            subject_columns = tuple(
-                column for column in result.columns if column.startswith(subject_prefix)
-            )
-            subject = tuple(row.get(column) for column in subject_columns)
-            if participant.cardinality == "one" and (
-                not subject_columns or any(value is None for value in subject)
-            ):
-                _raise(
-                    ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
-                    (
-                        f"Event {event_ir.semantic_id!r} participant "
-                        f"{participant.name!r} preview did not resolve one subject."
-                    ),
-                    cls=SemanticRuntimeError,
-                    refs=(event_ir.semantic_id,),
-                    expected="one non-null endpoint primary-key tuple per occurrence",
-                    received=repr(subject),
-                )
-            subjects_by_role.setdefault(participant.name, []).append(subject)
-    for identity, subjects_by_role in observed.items():
-        row_count = max((len(values) for values in subjects_by_role.values()), default=0)
-        if row_count < 2:
-            continue
-        fanned_out = next(
-            (
-                (role, subjects)
-                for role, subjects in subjects_by_role.items()
-                if len(set(subjects)) > 1
-            ),
-            None,
-        )
-        if fanned_out is not None:
-            role, subjects = fanned_out
-            _raise(
-                ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
-                (
-                    f"Event {event_ir.semantic_id!r} participant "
-                    f"{role!r} preview fanned out one occurrence."
-                ),
-                cls=SemanticRuntimeError,
-                refs=(event_ir.semantic_id,),
-                expected="at most one subject identity per Event identity",
-                received=repr({"event_identity": identity, "subjects": subjects}),
-            )
-        _raise(
-            ErrorKind.INVALID_EVENT_IDENTITY,
-            f"Event {event_ir.semantic_id!r} preview observed a duplicate occurrence identity.",
-            cls=SemanticRuntimeError,
-            refs=(event_ir.semantic_id, *event_ir.identity),
-            expected="unique Event identity after applying the Event predicate",
-            received=repr(identity),
-        )
-    return result
-
-
-def _build_event_object(
-    event_ir: EventIR,
-    reg: Registry,
-    catalog: SemanticCatalog,
-) -> EventEntry:
-    ref = ref_factory.event(event_ir.semantic_id)
-    source_ref = ref_factory.entity(event_ir.source_entity)
-    identity = tuple(ref_factory.dimension(path) for path in event_ir.identity)
-    occurred_at = ref_factory.time_dimension(event_ir.occurred_at)
-    participants = tuple(
-        (
-            participant.name,
-            ref_factory.entity(_event_participant_endpoint(event_ir, participant.path, reg)),
-            participant.cardinality,
-            tuple(ref_factory.relationship(path) for path in participant.path or ()),
-        )
-        for participant in event_ir.participants
-    )
-    body = catalog._state.sidecar.bodies.get(ref)
-    predicate_dimensions = (
-        tuple(ref_factory.dimension(binding.field_ref.path) for binding in body.bindings)
-        if body is not None
-        else ()
-    )
-    parents = tuple(
-        dict.fromkeys(
-            (
-                source_ref,
-                occurred_at,
-                *identity,
-                *predicate_dimensions,
-                *(
-                    relationship
-                    for _name, _endpoint, _cardinality, path in participants
-                    for relationship in path
-                ),
-            )
-        )
-    )
-    dependents = tuple(
-        ref_factory.state_model(model.semantic_id)
-        for model in reg.state_models.values()
-        if any(item.trigger.event_ref == event_ir.semantic_id for item in model.inceptions)
-        or any(item.trigger.event_ref == event_ir.semantic_id for item in model.transitions)
-    )
-    details = EventDetails(
-        ref=ref,
-        kind=SemanticKind.EVENT,
-        name=event_ir.name,
-        domain=event_ir.domain,
-        context=event_ir.ai_context,
-        source_location=event_ir.location,
-        parents=parents,
-        children=(),
-        dependents=dependents,
-        python_symbol=event_ir.python_symbol,
-        source_entity=source_ref,
-        identity=identity,
-        occurred_at=occurred_at,
-        participants=participants,
-        predicate_kind=event_ir.predicate_kind,
-        definition_fingerprint=_event_definition_fingerprint(
-            ref,
-            registry=reg,
-            sidecar=catalog._state.sidecar,
-        ),
-    )
-    return _object_from_details(EventEntry, details, catalog)
-
-
-def _build_state_model_object(
-    model_ir: StateModelIR,
-    reg: Registry,
-    catalog: SemanticCatalog,
-) -> StateModelEntry:
-    ref = ref_factory.state_model(model_ir.semantic_id)
-    subject = ref_factory.entity(model_ir.subject)
-    event_refs = tuple(
-        dict.fromkeys(
-            (
-                *(item.trigger.event_ref for item in model_ir.inceptions),
-                *(item.trigger.event_ref for item in model_ir.transitions),
-            )
-        )
-    )
-    events = tuple(ref_factory.event(path) for path in event_refs)
-
-    def trigger_path(event_ref: str, role: str) -> tuple[Ref[RelationshipKind], ...]:
-        event = reg.events[event_ref]
-        participant = next(item for item in event.participants if item.name == role)
-        return tuple(ref_factory.relationship(path) for path in participant.path or ())
-
-    details = StateModelDetails(
-        ref=ref,
-        kind=SemanticKind.STATE_MODEL,
-        name=model_ir.name,
-        domain=model_ir.domain,
-        context=model_ir.ai_context,
-        source_location=model_ir.location,
-        parents=(
-            subject,
-            *events,
-            *(
-                (ref_factory.business_order(model_ir.business_order),)
-                if model_ir.business_order is not None
-                else ()
-            ),
-        ),
-        children=(),
-        dependents=(),
-        python_symbol=model_ir.python_symbol,
-        subject=subject,
-        states=tuple((state.name, state.initial, state.terminal) for state in model_ir.states),
-        inceptions=tuple(
-            (
-                ref_factory.event(item.trigger.event_ref),
-                item.trigger.participant_role,
-                trigger_path(
-                    item.trigger.event_ref,
-                    item.trigger.participant_role,
-                ),
-            )
-            for item in model_ir.inceptions
-        ),
-        transitions=tuple(
-            (
-                item.from_state,
-                ref_factory.event(item.trigger.event_ref),
-                item.trigger.participant_role,
-                trigger_path(
-                    item.trigger.event_ref,
-                    item.trigger.participant_role,
-                ),
-                item.to_state,
-            )
-            for item in model_ir.transitions
-        ),
-        business_order=(
-            ref_factory.business_order(model_ir.business_order)
-            if model_ir.business_order is not None
-            else None
-        ),
-        definition_fingerprint=_state_model_fingerprint(
-            ref,
-            registry=reg,
-            sidecar=catalog._state.sidecar,
-        ),
-    )
-    return _object_from_details(StateModelEntry, details, catalog)
-
-
-def _build_business_order_object(
-    order_ir: BusinessOrderIR, reg: Registry, catalog: SemanticCatalog
-) -> BusinessOrderEntry:
-    ref = ref_factory.business_order(order_ir.semantic_id)
-    subject = ref_factory.entity(order_ir.subject)
-    event_paths = {
-        *(item.event_ref for item in order_ir.sequences),
-        *(item.before_event for item in order_ir.conflicts),
-        *(item.after_event for item in order_ir.conflicts),
-    }
-    parents: tuple[Ref[SemanticKindTag], ...] = tuple(
-        dict.fromkeys(
-            (
-                subject,
-                *(ref_factory.event(path) for path in sorted(event_paths)),
-                *(ref_factory.dimension(item.value_ref) for item in order_ir.sequences),
-            )
-        )
-    )
-    details = BusinessOrderDetails(
-        ref=ref,
-        kind=SemanticKind.BUSINESS_ORDER,
-        name=order_ir.name,
-        domain=order_ir.domain,
-        context=order_ir.ai_context,
-        source_location=order_ir.location,
-        parents=parents,
-        children=(),
-        dependents=tuple(
-            ref_factory.state_model(model.semantic_id)
-            for model in reg.state_models.values()
-            if model.business_order == order_ir.semantic_id
-        ),
-        python_symbol=order_ir.python_symbol,
-        subject=subject,
-        sequences=tuple(
-            (
-                ref_factory.event(item.event_ref),
-                ref_factory.dimension(item.value_ref),
-                item.order,
-                item.participant_role,
-            )
-            for item in order_ir.sequences
-        ),
-        conflicts=tuple(
-            (
-                f"event:{item.before_event}#participant:{item.before_role}",
-                f"event:{item.after_event}#participant:{item.after_role}",
-            )
-            for item in order_ir.conflicts
-        ),
-        definition_fingerprint=_business_order_fingerprint(
-            ref, registry=reg, sidecar=catalog._state.sidecar
-        ),
-    )
-    return _object_from_details(BusinessOrderEntry, details, catalog)
 
 
 def _build_period_calendar_object(
@@ -5087,14 +4387,6 @@ class _CatalogIndex:
             _build_relationship_object(item, reg, self.catalog)
             for item in reg.relationships.values()
         )
-        result.extend(_build_event_object(item, reg, self.catalog) for item in reg.events.values())
-        result.extend(
-            _build_state_model_object(item, reg, self.catalog) for item in reg.state_models.values()
-        )
-        result.extend(
-            _build_business_order_object(item, reg, self.catalog)
-            for item in reg.business_orders.values()
-        )
         result.extend(
             _build_period_calendar_object(item, reg, self.catalog)
             for item in reg.period_calendars.values()
@@ -5170,15 +4462,6 @@ class _CatalogIndex:
                 return scope.ref in details.entities
             if isinstance(details, RelationshipDetails):
                 return scope.ref in {details.from_entity, details.to_entity}
-            if isinstance(details, EventDetails):
-                return scope.ref == details.source_entity or any(
-                    endpoint == scope.ref
-                    for _name, endpoint, _cardinality, _path in details.participants
-                )
-            if isinstance(details, StateModelDetails):
-                return scope.ref == details.subject
-            if isinstance(details, BusinessOrderDetails):
-                return scope.ref == details.subject
             if isinstance(details, TemporalSetDetails):
                 return any(parent == scope.ref for parent in details.parents)
             if isinstance(details, WorkScheduleDetails):
@@ -5598,18 +4881,6 @@ class SemanticCatalog(RenderableResult):
     @property
     def relationships(self) -> CatalogCollection[RelationshipKind]:
         return self._collection(RelationshipEntry, SemanticKind.RELATIONSHIP)
-
-    @property
-    def events(self) -> CatalogCollection[EventKind]:
-        return self._collection(EventEntry, SemanticKind.EVENT)
-
-    @property
-    def state_models(self) -> CatalogCollection[StateModelKind]:
-        return self._collection(StateModelEntry, SemanticKind.STATE_MODEL)
-
-    @property
-    def business_orders(self) -> CatalogCollection[BusinessOrderKind]:
-        return self._collection(BusinessOrderEntry, SemanticKind.BUSINESS_ORDER)
 
     @property
     def period_calendars(self) -> CatalogCollection[PeriodCalendarKind]:
@@ -6511,90 +5782,6 @@ class SemanticCatalog(RenderableResult):
                     sample_policy=result.sample_policy,
                     timezones=result.timezones,
                 )
-            if kind == SemanticKind.EVENT:
-                event_ir = reg.events[ref_str]
-                table = resolver.event(
-                    ref_factory.event(ref_str),
-                    participants=tuple(participant.name for participant in event_ir.participants),
-                )
-                return _validate_event_preview(
-                    preview_with_source(
-                        table,
-                        kind="semantic_event",
-                        ref=ref_str,
-                        limit=preview_limit,
-                        sample_policy=PreviewSamplePolicy(
-                            method="bounded_limit",
-                            limit=preview_limit,
-                        ),
-                        include_types=include_types,
-                        report_tz=system_timezone_name(),
-                    ),
-                    event_ir=event_ir,
-                    participants=event_ir.participants,
-                )
-            if kind == SemanticKind.STATE_MODEL:
-                import pandas as pd
-
-                model_ir = reg.state_models[ref_str]
-                event_refs = tuple(
-                    dict.fromkeys(
-                        (
-                            *(item.trigger.event_ref for item in model_ir.inceptions),
-                            *(item.trigger.event_ref for item in model_ir.transitions),
-                        )
-                    )
-                )
-                rows: list[dict[str, object]] = []
-                for event_ref in event_refs:
-                    event_ir = reg.events[event_ref]
-                    event_preview = _validate_event_preview(
-                        preview_with_source(
-                            resolver.event(
-                                ref_factory.event(event_ref),
-                                participants=tuple(
-                                    participant.name for participant in event_ir.participants
-                                ),
-                            ),
-                            kind="semantic_event",
-                            ref=event_ref,
-                            limit=preview_limit,
-                            sample_policy=PreviewSamplePolicy(
-                                method="bounded_limit",
-                                limit=preview_limit,
-                            ),
-                            include_types=include_types,
-                            report_tz=system_timezone_name(),
-                        ),
-                        event_ir=event_ir,
-                        participants=event_ir.participants,
-                    )
-                    rows.append(
-                        {
-                            "event_ref": event_ref,
-                            "status": event_preview.status,
-                            "observed_rows": event_preview.returned_row_count,
-                            "truncated": event_preview.is_truncated,
-                        }
-                    )
-                return preview_from_pandas(
-                    pd.DataFrame(
-                        rows,
-                        columns=(
-                            "event_ref",
-                            "status",
-                            "observed_rows",
-                            "truncated",
-                        ),
-                    ),
-                    kind="semantic_state_model",
-                    ref=ref_str,
-                    requested_limit=preview_limit,
-                    sample_policy=PreviewSamplePolicy(
-                        method="bounded_limit",
-                        limit=preview_limit,
-                    ),
-                )
             if kind == SemanticKind.RELATIONSHIP:
                 relationship = reg.relationships[ref_str]
                 left = resolver.table(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
@@ -6720,8 +5907,6 @@ class SemanticCatalog(RenderableResult):
             SemanticKind.MEASURE,
             SemanticKind.METRIC,
             SemanticKind.RELATIONSHIP,
-            SemanticKind.EVENT,
-            SemanticKind.STATE_MODEL,
         }
         resolved: list[tuple[str, SemanticKind]] = []
         for ref_obj in ref_objects:

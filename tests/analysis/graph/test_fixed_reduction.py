@@ -222,8 +222,10 @@ def test_execution_never_constructs_another_semantic_graph(monkeypatch: pytest.M
         pytest.fail("L8 execution rebuilt a semantic graph")
 
     from marivo.analysis.core import graph
+    from marivo.analysis.materialization import graph_attribution
 
     monkeypatch.setattr(graph, "method_node", forbidden)
+    monkeypatch.setattr(graph_attribution, "method_node", forbidden)
     assert local.execute_verified_fixed(prepared, lowered, (verified,)).primary[
         "value"
     ].to_pylist() == [78]

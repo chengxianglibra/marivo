@@ -177,8 +177,8 @@ def test_ontology_execution_error_issue_has_structured_repair(tmp_path) -> None:
 def test_relation_constructors_enforce_roles_context_and_symmetric_identity(tmp_path) -> None:
     with pytest.raises(mo.errors.InvalidOntologyRefError):
         mo.influences(
-            name="invalid_event_driver",
-            driver=cast("Any", ms.ref.event("sales.ordered")),
+            name="invalid_time_dimension_driver",
+            driver=cast("Any", ms.ref.time_dimension("sales.orders.created_at")),
             outcome=ms.ref.metric("sales.revenue"),
             ai_context=ms.ai_context(business_definition="Invalid endpoint."),
         )

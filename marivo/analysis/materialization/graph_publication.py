@@ -381,25 +381,12 @@ def _execute(
                         for schema, bound in zip(source_schemas, bindings, strict=True)
                     ):
                         raise invalid("opened physical schema differs from selected preflight")
-                    from marivo.analysis.core.rules import OccurrencePrepare, PreparedObservation
-                    from marivo.datasource.domain_snapshot import capture
-
-                    uses_preparation = any(
-                        isinstance(node, MethodNode)
-                        and (
-                            isinstance(node.parameters, OccurrencePrepare)
-                            or (
-                                isinstance(node.parameters, PreparedObservation)
-                                and node.inputs[0].node.identity != node.inputs[1].node.identity
-                            )
-                        )
-                        for node in captured.nodes
-                    )
                     from marivo.analysis.materialization.execute_deadline import (
                         check,
                         guard,
                         remaining,
                     )
+                    from marivo.datasource.domain_snapshot import capture
 
                     source._checkpoint = check
                     source._seconds_remaining = remaining
@@ -414,6 +401,14 @@ def _execute(
                             run_ref, source.datasource.name
                         )
                         store.reserve(control_resource)
+                    from marivo.analysis.core.rules import PreparedObservation
+
+                    uses_preparation = any(
+                        isinstance(node, MethodNode)
+                        and isinstance(node.parameters, PreparedObservation)
+                        and node.inputs[0].node.identity != node.inputs[1].node.identity
+                        for node in captured.nodes
+                    )
                     source._prepare_interrupt()
                     from marivo.datasource.interrupts import owned_sigint
 

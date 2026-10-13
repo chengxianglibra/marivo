@@ -38,16 +38,11 @@ _VALUES = frozenset(
         t.DerivedGraphQuantityV1,
         t.RowStatisticGraphQuantityV1,
         t.RolledGraphQuantityV1,
-        t.FunnelFindingSubjectV1,
         t.GraphFindingDerivationV1,
         t.NoAssociationLagV1,
         t.AssociationLagV1,
-        t.DefinedFindingRatioV1,
-        t.UndefinedFindingShareV1,
         t.AssociationFindingValueV1,
-        t.ContributionFindingValueV1,
         t.ForecastPointFindingValueV1,
-        t.FunnelDeltaFindingValueV1,
     }
 )
 

@@ -7,8 +7,7 @@ marivo.analysis
    :no-members:
 
 Construct typed algebra through ``session.members(entity_ref)`` and its owned
-read/observe operations. Journey, History, Anchor and retention use the unified
-graph. The former Population, Metric Dataset and generic Dataset APIs have been retired.
+read/observe operations. The former Population, Metric Dataset and generic Dataset APIs have been retired.
 Logical typed values describe work
 without source I/O. ``execute()`` commits a Run and returns an immutable
 Materialized value. Its owned fields and methods describe valid continuations.
@@ -31,27 +30,16 @@ Duration cells show integer ticks with their unit. Cell state counts cover the
 whole result. The card shows interpretation facts and conditional evidence
 reads; use ``contract()`` for the full operation directory.
 
-History distribution rows have checkpoint × model_state × full axes grain.
-``seeded_subject_count`` and ``coverage_censored_count`` repeat the checkpoint ×
-axes Subject pool across state rows; do not sum across states. Zero known-state
-cells can include alternate states of seeded Subjects, so their complement does
-not identify NotStarted or censored Subjects. Dwell and Duration fields disclose
-the actual ``duration_unit`` and ticks-to-seconds conversion. History microseconds
-use ``seconds = ticks / 1000000``; exported pandas timedelta columns use
-``.dt.total_seconds()``.
-
 Association results, coefficient/selected views and terminal table columns
 disclose ``pairing_key`` from the retained original input domain: each Entity,
 field and coordinate role in original order. The complete tuple pairs original
 observations; association output keys identify candidate pairs. These facts use
 frozen definitions without source access or new Runs.
 Identical terminal-column facts are printed once with all applicable column
-labels; different units and keys remain separate. Logical Dwell parent contracts
-already disclose Duration units and conversion before execution, using the
-existing field types; materialized parents read their retained Arrow schema.
+labels; different units and keys remain separate.
 
 Execution retains results as project-local Parquet. There is no analysis result
-storage setting or database result storage. Session recovery reads Store 7;
+storage setting or database result storage. Session recovery reads Store 9;
 older generation files are not migrated or rewritten.
 
 Execution errors carry an optional ``run_ref`` after the invocation's Run is
@@ -226,12 +214,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: MaterializedDatasetState
    :members:
 
-.. autoclass:: LogicalHistoryResult
-   :members:
-
-.. autoclass:: MaterializedHistoryResult
-   :members:
-
 .. autoclass:: ForecastHorizon
    :members:
 
@@ -247,37 +229,7 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autoclass:: OrdinalTimeKey
    :members:
 
-.. autoclass:: BoundedCompletenessDeclarationV1
-   :members:
-
-.. autoclass:: SourceOriginCompletenessDeclarationV1
-   :members:
-
-.. autoclass:: DroppedBefore
-   :members:
-
-.. autoclass:: EventPattern
-   :members:
-
-.. autoclass:: EveryStart
-   :members:
-
-.. autoclass:: FirstPerSubject
-   :members:
-
-.. autoclass:: FromInception
-   :members:
-
-.. autoclass:: FunnelLossRate
-   :members:
-
 .. autoclass:: Grain
-   :members:
-
-.. autoclass:: InState
-   :members:
-
-.. autoclass:: PatternStep
    :members:
 
 .. autoclass:: TimeScope
@@ -331,22 +283,6 @@ constructors are documented inline to support case-insensitive filesystems.
 .. autofunction:: outer
 
 .. autofunction:: ordinal
-
-.. autofunction:: step
-
-.. autofunction:: sequence
-
-.. autofunction:: first_per_subject
-
-.. autofunction:: every_start
-
-.. autofunction:: dropped_before
-
-.. autofunction:: in_state
-
-.. autofunction:: funnel_loss_rate
-
-.. autofunction:: from_inception
 
 .. autofunction:: periods
 
@@ -467,129 +403,6 @@ terminal. Original reductions with group keys publish
 
 The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
 are removed. Their Help targets are unresolved, with no compatibility redirect.
-The private Event funnel Delta/Attribution families and their exclusive codecs
-are removed. The public Journey funnel chain below uses registered graph methods
-and Store 9; fixed continuations never reopen the source or rerun matching.
-
-R7.4 funnel results and frozen Findings
----------------------------------------
-
-``journeys.funnel(axes=())`` consumes the canonical first-per-subject assignment.
-Seven exact int64 counts and three rates retain their original components.
-Receiver-owned field handles feed ``read(handle)``; ``funnel_loss_rate(step=...)``
-requires an exact noninitial step. Historical axes use the entry-time version,
-complete governed paths and true Null categories.
-
-``current.compare(baseline)`` requires the same explicit population, exact
-pattern/matching/definitions, equal windows/follow-up lengths and complete
-coverage. It pairs complete outer support. ``change.attribute(target=..., axes=...)``
-uses exact Fraction ratio-mix allocation, common Top-K and typed Other; logical
-axis expansion depends on the same assignment, while fixed missing axes reject.
-Filtering retains original reconciliation scope and drops complete partition claims.
-
-Materialized graph results expose ``evidence_digest()``, ``findings(limit=20,
-cursor=None)`` and ``finding(finding_id)``. Compare and allocation use frozen
-extractors capped at 1000, preserving eligible/emitted/truncated authority.
-Every read validates the full collection, bodies, bindings, versions and receipts.
-Artifact, Evidence, Findings and successful terminal publish atomically in Store 7.
-Other producers use the explicit zero-Finding policy.
-
-.. autoclass:: LogicalFunnelResult
-   :members:
-
-.. autoclass:: MaterializedFunnelResult
-   :members:
-
-.. autoclass:: LogicalFunnelComparisonResult
-   :members:
-
-.. autoclass:: MaterializedFunnelComparisonResult
-   :members:
-
-Anchor domains and relative observation
----------------------------------------
-
-``Session.anchors(event_role, population=members, during=scope, business_order=order)``
-selects each Event start with its full Subject and occurrence identity. Journey
-starts inherit their captured assignment and order; fixed Journey input requires
-a compatible fixed population. ``during`` filters starts only.
-
-``anchors.observe(metric, within=window, via=route)`` returns a NumericRelation
-on the Anchor instance domain. Windows are half-open and exclude the exact Anchor
-occurrence. Overlapping windows retain separate component-use bindings and cannot
-be rolled up by discarding Anchor coordinates. Event elapsed observation uses Ibis;
-calendar and local Journey observation prepare all bounded source candidates before
-local window restriction. Fixed results continue through retained parts; a fixed
-Anchor cannot introduce a new live Metric dependency.
-
-.. autoclass:: Duration
-   :members:
-
-.. autofunction:: duration
-
-.. autoclass:: ElapsedWindow
-   :members:
-
-.. autofunction:: elapsed
-
-.. autoclass:: CalendarWindow
-   :members:
-
-.. autofunction:: calendar_days
-
-.. autoclass:: LogicalAnchorDomain
-   :members:
-
-.. autoclass:: MaterializedAnchorDomain
-   :members:
-
-.. automethod:: LogicalAnchorDomain.observe
-
-.. automethod:: LogicalAnchorDomain.subjects
-
-.. automethod:: MaterializedAnchorDomain.observe
-
-.. automethod:: MaterializedAnchorDomain.subjects
-
-Retention and Subject quantification
-------------------------------------
-
-.. autofunction:: any_anchor
-
-.. autofunction:: every_anchor
-
-.. autoclass:: AnyAnchor
-   :members:
-
-.. autoclass:: EveryAnchor
-   :members:
-
-.. autoclass:: LogicalRetentionResult
-   :members:
-
-.. autoclass:: MaterializedRetentionResult
-   :members:
-
-.. autoclass:: LogicalSubjectRetentionResult
-   :members:
-
-.. autoclass:: MaterializedSubjectRetentionResult
-   :members:
-
-.. automethod:: LogicalAnchorDomain.retention
-
-.. automethod:: MaterializedAnchorDomain.retention
-
-.. automethod:: LogicalRetentionResult.by_subject
-
-.. automethod:: MaterializedRetentionResult.by_subject
-
-.. automethod:: LogicalRetentionResult.known_true
-
-.. automethod:: LogicalRetentionResult.known_false
-
-.. automethod:: LogicalRetentionResult.unknown
-
 R8 Statistical Relations
 ------------------------
 

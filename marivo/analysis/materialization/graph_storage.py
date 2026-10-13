@@ -155,21 +155,11 @@ def read_result(
         statuses = pa.Table.from_arrays(
             [
                 *(primary.column(key) for key in keys),
-                primary.column("classification")
-                if state.kind == "canonical_history"
-                else pa.array(["accepted"] * len(primary), type=pa.string())
+                pa.array(["accepted"] * len(primary), type=pa.string())
                 if descriptor.method_state.kind
                 in (
                     "cohort",
                     "table",
-                    "occurrence_inputs",
-                    "canonical_history",
-                    "journey_assignment",
-                    "history_view",
-                    "entry_axes",
-                    "funnel_components",
-                    "funnel_comparison",
-                    "funnel_allocation",
                 )
                 else column(primary, status_column),
             ],

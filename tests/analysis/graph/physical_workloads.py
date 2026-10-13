@@ -424,14 +424,6 @@ def _author(
     code += "average=ms.aggregate(name='average',measure=facts_amount,agg='mean')\n"
     code += "distinct=ms.aggregate(name='distinct',measure=facts_amount,agg='count_distinct',time=facts_time,empty=ms.empty.zero())\n"
     code += "quantile=ms.aggregate(name='quantile',measure=facts_amount,agg=('percentile',0.5),time=facts_time)\n"
-    for event in ("started", "finished"):
-        code += (
-            f"@ms.event(name={event!r},identity=(facts_tenant,facts_id,facts_revision),occurred_at=facts_time,participants=(ms.participant(name='subject',path=(facts_subject,),cardinality='one'),),ai_context=ms.ai_context(business_definition='Owned cost fixture event.'))\n"
-            f"def {event}(rows):\n    return ms.bind(facts_kind,rows)=={event!r}\n"
-        )
-    code += "order=ms.business_order(name='order',subject=subjects,sequences=(ms.event_sequence(started,facts_seq,order='integer'),ms.event_sequence(finished,facts_seq,order='integer')),ai_context=ms.ai_context(business_definition='Owned sequential fixture order.'))\n"
-    code += "open_state=ms.lifecycle_state(name='open',initial=True)\ndone_state=ms.lifecycle_state(name='done')\n"
-    code += "model=ms.state_model(name='model',subject=subjects,states=(open_state,done_state),transitions=(ms.inception(on=started),ms.transition(from_state=open_state,on=finished,to_state=done_state)),business_order=order,ai_context=ms.ai_context(business_definition='Repeated events retain post-inception transition diagnostics.'))\n"
     (models / "semantic" / "cost" / "objects.py").write_text(code)
     ms.load(workspace_dir=root)
 

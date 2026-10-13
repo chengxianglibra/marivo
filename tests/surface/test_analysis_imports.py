@@ -128,8 +128,6 @@ def test_session_class_exposes_sources_and_dataset_owned_operators():
 
     assert callable(mv.LogicalNumericRelation.compare)
     assert callable(mv.Session.members)
-    assert isinstance(mv.Session.events, property)
-    assert isinstance(mv.Session.lifecycle, property)
     for name in ("correlate", "forecast"):
         assert not hasattr(mv.Session, name)
         assert callable(getattr(mv.LogicalNumericRelation, name))

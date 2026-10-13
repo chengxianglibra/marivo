@@ -11,9 +11,9 @@ from marivo._compat import UTC
 from marivo.render import Card, RenderableResult
 
 if TYPE_CHECKING:
-    from marivo.semantic.ir import DimensionIR
+    from marivo.semantic.ir import DimensionIR, EntityIR, MeasureIR, MetricIR
     from marivo.semantic.reader import SemanticProject
-    from marivo.semantic.validator import Registry
+from marivo.semantic.validator import Registry
 
 
 @dataclass(frozen=True)
@@ -84,13 +84,11 @@ def _checked_at() -> str:
 
 def _detect_depth(reg: Registry) -> list[tuple[str, tuple[str, ...]]]:
     gaps: list[tuple[str, tuple[str, ...]]] = []
-    objects = (
-        list(reg.entities.values())
-        + list(reg.dimensions.values())
-        + list(reg.measures.values())
-        + list(reg.metrics.values())
-        + list(reg.events.values())
-        + list(reg.state_models.values())
+    objects: tuple[EntityIR | DimensionIR | MeasureIR | MetricIR, ...] = (
+        *reg.entities.values(),
+        *reg.dimensions.values(),
+        *reg.measures.values(),
+        *reg.metrics.values(),
     )
     for obj in objects:
         ai = obj.ai_context
@@ -240,8 +238,6 @@ def build_richness_report(
         **reg.dimensions,
         **reg.measures,
         **reg.metrics,
-        **reg.events,
-        **reg.state_models,
     }
     fields_by_dataset: dict[str, list[DimensionIR]] = {}
     for field_obj in reg.dimensions.values():

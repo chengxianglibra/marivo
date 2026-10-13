@@ -48,7 +48,6 @@ AuthoringObjectKind = Literal[
     "derived_metric",
     "relationship",
     "event",
-    "state_model",
     "period_calendar",
     "temporal_set",
     "work_schedule",

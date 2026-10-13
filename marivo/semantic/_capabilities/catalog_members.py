@@ -33,13 +33,6 @@ CATALOG_MEMBER_CONTRACTS: tuple[CatalogMemberContract, ...] = (
         "relationships",
         "RelationshipEntry",
     ),
-    CatalogMemberContract(SemanticKind.EVENT, "events", "EventEntry"),
-    CatalogMemberContract(SemanticKind.BUSINESS_ORDER, "business_orders", "BusinessOrderEntry"),
-    CatalogMemberContract(
-        SemanticKind.STATE_MODEL,
-        "state_models",
-        "StateModelEntry",
-    ),
     CatalogMemberContract(
         SemanticKind.PERIOD_CALENDAR,
         "period_calendars",

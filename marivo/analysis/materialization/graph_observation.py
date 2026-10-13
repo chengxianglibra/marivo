@@ -30,10 +30,8 @@ from marivo.analysis.core.rules import (
     ObserveMetric,
     ObserveWeightedMean,
     OccurrenceFilter,
-    OccurrencePrepare,
     PreparedObservation,
     TimeRuns,
-    entity_candidates,
     entity_members,
 )
 from marivo.analysis.core.time_authority import (
@@ -221,7 +219,6 @@ def observe_members(
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     component_index: int = 0,
     at: datetime | GridPoint | None = None,
-    relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
 ) -> MemberGraph:
     """Resolve schema only and capture one component's observation before admission.
@@ -242,7 +239,6 @@ def observe_members(
         coordinates=coordinates,
         component_index=component_index,
         at=at,
-        relative=relative,
         target_keys=target_keys,
     )
 
@@ -259,7 +255,6 @@ def _observe_component(
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     component_index: int = 0,
     at: datetime | GridPoint | None = None,
-    relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
     classifications: MemberGraph | None = None,
     classification_coordinates: tuple[Coordinate, ...] = (),
@@ -299,13 +294,8 @@ def _observe_component(
         or any(
             relationship.cardinality not in ("many_to_one", "one_to_one")
             or not relationship.keys
-            or (
-                not relative
-                and (
-                    relationship.from_version_resolution_required
-                    or relationship.to_version_resolution_required
-                )
-            )
+            or relationship.from_version_resolution_required
+            or relationship.to_version_resolution_required
             for relationship in path
         )
         or any(first.to_entity_ref != second.from_entity_ref for first, second in pairwise(path))
@@ -608,8 +598,6 @@ def _observe_component(
         else "us",
         "UTC",
     )
-    if classifications is not None and relative:
-        raise _reject("contribution classifications require ordinary member observation")
     nodes: dict[str, Node] = {}
     roots = (members.root,) if classifications is None else (members.root, classifications.root)
     for node in (item for root in roots for item in topology(root)):
@@ -686,7 +674,7 @@ def _observe_component(
                 replace(schema.shape, time=temporal),
                 schema.contract.version,
             ),
-            (entity_candidates if relative else entity_members)(
+            entity_members(
                 replace(
                     schema.contract,
                     columns=tuple((field.name, str(field.type)) for field in schema.schema),
@@ -867,20 +855,10 @@ def _observe_component(
         if isinstance(during, TimeScope) and during.kind != "absolute"
         else report_timezone,
     )
-    if relative:
-        if not isinstance(parameters, (ObserveMetric, ObserveCount)):
-            raise _reject("relative capture requires count or additive components")
-        parameters = replace(parameters, capture_versions=True)
     observation_inputs: tuple[Edge, ...] = (Edge("subject", member_root),)
     if classification_root is not None:
         observation_inputs = (*observation_inputs, Edge("subject", classification_root))
-    local_populations = tuple(
-        {
-            node.inputs[0].node.identity: node.inputs[0].node
-            for node in topology(member_root)
-            if isinstance(node, MethodNode) and isinstance(node.parameters, OccurrencePrepare)
-        }.values()
-    )
+    local_populations: tuple[Node, ...] = ()
     for node in topology(member_root):
         if not isinstance(node, MethodNode) or not isinstance(
             node.parameters, (DeviationFit, TimeRuns, CellCompare)
@@ -1022,7 +1000,6 @@ def observe_ratio_members(
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
-    relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
     classifications: tuple[tuple[str, MemberGraph], ...] = (),
     classification_coordinates: tuple[Coordinate, ...] = (),
@@ -1057,7 +1034,6 @@ def observe_ratio_members(
             coordinates=coordinates,
             component_index=index,
             at=at,
-            relative=relative,
             target_keys=target_keys,
             classifications=dict(classifications).get(component.computation_root.path),
             classification_coordinates=classification_coordinates,
@@ -1098,7 +1074,6 @@ def observe_linear_members(
     report_timezone: str,
     coordinates: tuple[Ref[DimensionKind], ...] = (),
     at: datetime | GridPoint | None = None,
-    relative: bool = False,
     target_keys: tuple[Coordinate, ...] | None = None,
     classifications: tuple[tuple[str, MemberGraph], ...] = (),
     classification_coordinates: tuple[Coordinate, ...] = (),
@@ -1129,7 +1104,6 @@ def observe_linear_members(
             coordinates=coordinates,
             component_index=index,
             at=at,
-            relative=relative,
             target_keys=target_keys,
             classifications=dict(classifications).get(component.computation_root.path),
             classification_coordinates=classification_coordinates,

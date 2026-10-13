@@ -12,7 +12,7 @@ from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler import domain_preparation, source_time
+from marivo.analysis.compiler import source_time
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import engines
@@ -256,85 +256,6 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
         .to_pandas()
     )
     assert scalar.value.tolist() == [1176]
-
-
-@pytest.mark.parametrize("versioned", [False, True])
-def test_event_preparation_reads_encoded_clock_with_exact_window(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    versioned: bool,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    _encode_orders(case, "%Y-%m-%d %H:%M:%S")
-    with duckdb.connect(str(case.database_path)) as connection:
-        connection.execute(
-            "INSERT INTO \"order\" VALUES ('follow', 'A', 'web', 'paid', '2026-08-01 00:00:01', 91)"
-        )
-    path = case.root / "models" / "semantic" / "sales" / "models.py"
-    if versioned:
-        with duckdb.connect(str(case.database_path)) as connection:
-            connection.execute(
-                "ALTER TABLE customer ADD COLUMN beginning DATE DEFAULT DATE '2026-07-01'"
-            )
-            connection.execute("ALTER TABLE customer ADD COLUMN ending DATE")
-            connection.execute("UPDATE customer SET ending=DATE '2026-08-02' WHERE customer_id='A'")
-            connection.execute("INSERT INTO customer VALUES ('A', 'new', DATE '2026-08-02', NULL)")
-        path.write_text(
-            path.read_text().replace(
-                "primary_key=['customer_id'])",
-                "primary_key=['customer_id'], versioning=ms.validity("
-                "valid_from=ms.ref.time_dimension('sales.customer.beginning'),"
-                "valid_to=ms.ref.time_dimension('sales.customer.ending'),"
-                "interval='closed_open', open_end=(None,), timezone='UTC'))",
-            )
-            + """
-beginning = ms.time_dimension_column(name='beginning', entity=customer, column='beginning', granularity='day')
-ending = ms.time_dimension_column(name='ending', entity=customer, column='ending', granularity='day')
-"""
-        )
-    path.write_text(
-        path.read_text()
-        + """
-sequence = ms.dimension_column(name='sequence', entity=orders, column='amount')
-@ms.event(name='entry', identity=(order_id,), occurred_at=ordered_at,
-          participants=(ms.participant(name='subject', path=(buyer,), cardinality='one'),))
-def entry(rows):
-    return ms.all_rows()
-ordering = ms.business_order(name='ordering', subject=customer,
-    sequences=(ms.event_sequence(entry, sequence, order='integer'),),
-    ai_context=ms.ai_context(business_definition='Per Subject event amount sequence.'))
-"""
-    )
-    ms.load(workspace_dir=case.root)
-    anchors = case.session.anchors(
-        ms.participant_role(event=ms.ref.event("sales.entry"), name="subject"),
-        population=case.session.members(
-            ms.ref.entity("sales.customer"),
-            at=datetime(2026, 8, 2, tzinfo=timezone.utc) if versioned else None,
-        ),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        business_order=ms.ref.business_order("sales.ordering"),
-    )
-
-    def execute() -> pd.DataFrame:
-        return (
-            anchors.observe(
-                ms.ref.metric("sales.revenue"),
-                within=mv.elapsed(mv.duration(seconds=2)),
-                via=ms.ref.relationship("sales.order_buyer"),
-            )
-            .execute()
-            .to_pandas()
-        )
-
-    result = execute()
-    assert len(result) == 4
-    assert result.value.dropna().tolist() == [91]
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        baseline.setattr(domain_preparation, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(result, previous)
 
 
 def test_event_column_on_relationship_destination_keeps_its_own_range(

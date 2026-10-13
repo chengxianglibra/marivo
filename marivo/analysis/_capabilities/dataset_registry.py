@@ -219,12 +219,11 @@ class DatasetDisclosureRegistry:
     def validate(self) -> None:
         if tuple(sorted(p.owner for p in self.providers)) != (
             "core",
-            "domains",
             "observation",
             "operators",
             "runtime",
         ):
-            raise invalid("all five native owners exactly once", "missing or duplicate provider")
+            raise invalid("all four native owners exactly once", "missing or duplicate provider")
         ids = self.canonical_ids()
         if len(set(ids)) != len(ids):
             raise invalid("unique canonical Help targets", "duplicate target")
@@ -405,9 +404,8 @@ def assemble(providers: tuple[DisclosureProvider, ...]) -> DatasetDisclosureRegi
 
 
 def prepare() -> DatasetDisclosureRegistry:
-    """Assemble the five current native disclosure owners without I/O."""
+    """Assemble the four current native disclosure owners without I/O."""
     from marivo.analysis.datasets import _disclosure as core
-    from marivo.analysis.domains import _disclosure as domains
     from marivo.analysis.observation import _disclosure as observation
     from marivo.analysis.operators import _disclosure as operators
     from marivo.analysis.session import _disclosure as runtime
@@ -417,7 +415,6 @@ def prepare() -> DatasetDisclosureRegistry:
             core.provider(),
             observation.provider(),
             operators.provider(),
-            domains.provider(),
             runtime.provider(),
         )
     )

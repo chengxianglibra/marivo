@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tarfile
 from email.parser import BytesParser
 from pathlib import Path
@@ -16,7 +15,7 @@ from packaging.requirements import Requirement
 from tests.packaging.boundary_probe import public_snapshot
 from tests.packaging.wheel_probe import surface_snapshot
 from tests.packaging.wheel_support import InstalledWheel
-from tests.support.json import Json, checked, obj, read
+from tests.support.json import checked, obj, read
 from tests.support.paths import PROJECT_ROOT
 
 pytestmark = pytest.mark.release
@@ -43,43 +42,6 @@ def test_archives_pin_sqlglot(installed_base_wheel: InstalledWheel) -> None:
         ]
         sqlglot = next(item for item in requirements if item.name == "sqlglot")
         assert str(sqlglot.specifier) == "==30.8.0" and sqlglot.marker is None
-
-
-def test_installed_interpretation_source_fixed_cold(
-    installed_wheel: InstalledWheel, installed_base_wheel: InstalledWheel
-) -> None:
-    candidate = installed_wheel
-    root = candidate.work / "interpretation"
-    receipts = []
-    for phase in ("produce", "fixed", "cold"):
-        output = candidate.run(
-            "interpretation-" + phase,
-            [
-                str(candidate.interpreter),
-                "-m",
-                "tests.analysis.graph.interpretation_worker",
-                str(root),
-                phase,
-            ],
-        )
-        receipts.append(json.loads(output.splitlines()[-1]))
-        if phase == "produce":
-            for family in ("history", "statistics"):
-                project = root / family
-                shutil.rmtree(project / "models")
-                for path in (*project.glob("*.duckdb*"), *project.rglob("*.parquet")):
-                    if ".marivo" not in path.parts:
-                        path.unlink()
-    assert len({item["pid"] for item in receipts}) == 3
-    installed_base_wheel.run(
-        "interpretation-base-cold",
-        [
-            str(installed_base_wheel.interpreter),
-            "-m",
-            "tests.packaging.interpretation_read_probe",
-            str(root),
-        ],
-    )
 
 
 def test_installed_dependency_isolation(installed_dependency_wheel: InstalledWheel) -> None:
@@ -282,41 +244,9 @@ def test_installed_relations_offline_and_cold(
     assert fixed_count == cold_count
 
 
-@pytest.mark.parametrize("family", ("statistics", "funnel", "history"))
+@pytest.mark.parametrize("family", ("statistics",))
 def test_installed_result_families_offline_and_cold(
     installed_wheel: InstalledWheel, family: str
 ) -> None:
     candidate = installed_wheel
     root = candidate.work / ("result-" + family)
-    if family != "statistics":
-        root.mkdir()
-    reports: list[dict[str, Json]] = []
-    modules = {
-        "statistics": "tests.analysis.statistics.recovery_worker",
-        "funnel": "tests.analysis.journey.funnel_public_recovery_worker",
-        "history": "tests.analysis.lifecycle.history_public_recovery_worker",
-    }
-    for phase in ("produce", "fixed", "cold"):
-        report = candidate.reports / (family + "-" + phase + ".json")
-        arguments = (
-            [str(root), "views", phase, str(report)]
-            if family == "history"
-            else [str(root), phase, "parquet", str(report)]
-            if family == "statistics"
-            else [str(root), phase, str(report), "parquet"]
-        )
-        candidate.run(
-            family + "-" + phase,
-            [str(candidate.interpreter), "-m", modules[family], *arguments],
-        )
-        reports.append(read(report))
-        if phase == "produce" and family != "statistics":
-            shutil.rmtree(root / "models")
-            for path in (*root.glob("source.duckdb*"), *root.glob("*.parquet")):
-                path.unlink()
-    assert len({item["pid"] for item in reports}) == 3
-    if family != "statistics":
-        assert reports[1]["outputs"] == reports[2]["outputs"]
-        assert reports[2]["kernels"] == reports[2]["new_runs"] == 0
-    for path in (candidate.reports / "origins").glob("*.json"):
-        assert "origin" in obj(read(path)), path.read_text()

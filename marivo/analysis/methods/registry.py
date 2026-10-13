@@ -29,9 +29,7 @@ from marivo.analysis.methods.errors import MethodRegistrationError, reject
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
-    FixedShape,
     Implementation,
-    NoTime,
     QualificationKey,
     Qualified,
     ScalarType,
@@ -94,20 +92,6 @@ class MethodRegistration:
                         "two ordered classification inputs",
                         repr(implementation.key),
                         "Bind receiver and category.",
-                    )
-            elif rule == "history_view@v1":
-                if input_count not in (1, 2):
-                    reject(
-                        "one History and optional checkpoint axes",
-                        repr(implementation.key),
-                        "Use the exact registered History shape.",
-                    )
-            elif rule == "history_replay@v1":
-                if input_count != 2:
-                    reject(
-                        "two ordered History inputs",
-                        repr(implementation.key),
-                        "Bind members and occurrences.",
                     )
             elif rule == "map_correspond@v1" or self.semantics.key.name == "parts_transport":
                 if input_count not in (1, 2):
@@ -213,19 +197,15 @@ class MethodRegistration:
             if rule == "association_score@v1" and (
                 not 1 <= input_count <= 16
                 or any(
-                    domain not in ("entity", "group", "journey")
+                    domain
+                    not in (
+                        "entity",
+                        "group",
+                    )
                     for domain in implementation.key.input_domains
                 )
                 or implementation.precision
                 not in ("finite_float64", "certified_statistical", "exact")
-                or (
-                    "journey" in implementation.key.input_domains
-                    and (
-                        implementation.key.shape != FixedShape(NoTime())
-                        or implementation.key.route != "artifact_python"
-                        or implementation.key.input_types != (ScalarType("float64"),) * input_count
-                    )
-                )
             ):
                 reject(
                     "exact typed association inputs",
@@ -293,9 +273,8 @@ class MethodRegistry:
         self, inputs: tuple[Signature, ...], params: RuleParameters, *, output_node_id: str = ""
     ) -> RuleDerivation:
         derivation = self.lookup(key_for_parameters(params)).semantics.derive(inputs, params)
-        from marivo.analysis.core.rules import captured_mapping_derivation, consumption_derivation
+        from marivo.analysis.core.rules import consumption_derivation
 
-        derivation = captured_mapping_derivation(inputs, params, derivation)
         derivation = consumption_derivation(inputs, params, derivation)
         return replace(
             derivation,

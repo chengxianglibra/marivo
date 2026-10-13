@@ -92,8 +92,8 @@ revenue.details().show()
 `SemanticCatalog` exposes one global collection per object type:
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
 `catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
-`catalog.metrics`, `catalog.relationships`, `catalog.events`,
-`catalog.business_orders`, `catalog.state_models`, `catalog.period_calendars`, `catalog.temporal_sets`,
+`catalog.metrics`, `catalog.relationships`,
+`catalog.period_calendars`, `catalog.temporal_sets`,
 and `catalog.work_schedules`. Each is a
 `CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`, `.render()`,
 `.show()`, `len()`, and iteration. `catalog.require(ref)` is the
@@ -138,11 +138,6 @@ scoped timeout and actual query-submission state. The isolated connection closes
 and no new or replacement certified snapshot is published. Existing typed errors
 retain their original repair. MySQL's certified SELECT limit remains distinct
 from ordinary preview's cancellation guard, raw-SQL timeout and Analysis cancellation.
-For an exact BusinessOrder ref or a StateModel bound to one, scoped readiness
-includes the order's Event, role, and sequence-field dependencies. It reports
-an advisory that source sequence values and Event history remain unverified;
-the BusinessOrder declaration itself is not an executable analysis input.
-Analysis checks the required captured values before matcher or replay consumption.
 
 ### Navigation matrix
 
@@ -151,9 +146,9 @@ container object exposes typed collection properties:
 
 | Object | Navigation properties |
 |---|---|
-| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `business_orders`, `state_models` |
+| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
 | `Datasource` | `entities` |
-| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships`, `events`, `business_orders`, `state_models` |
+| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
 | `Relationship` | `from_entity`, `to_entity` |
 | `Dimension` / `TimeDimension` / `Measure` / `Metric` | leaf objects — use `details()` for dependency information |
 
@@ -523,10 +518,9 @@ When `K` is declared, assembly derives the versioned source row key as
 An unkeyed computation source contributes no identity-based uniqueness proof.
 Version coordinate refs must resolve
 on the owning Entity with coherent temporal types and timezone rules. A
-source-only Entity may omit `K`; Population input, Event participant subject,
-and StateModel subject require a complete non-empty identity signature. Analysis
-checks the first of those consumer boundaries; semantic Event/StateModel
-assembly checks their own subject references. Static assembly does not inspect
+source-only Entity may omit `K`; member-domain input requires a complete
+non-empty identity signature. Analysis checks that consumer boundary; semantic
+assembly validates the referenced object identities. Static assembly does not inspect
 actual nulls, duplicates, or overlapping validity intervals; Analysis trusts
 those source-data declarations.
 
@@ -810,7 +804,6 @@ The current Analysis boundary preserves these independently owned contracts:
 - Static readiness does not invent temporal anchors, coverage or physical
   implementation qualification.
 - Member domains bind each Metric occurrence to its own contribution root/path;
-  Event/StateModel Subjects never derive identity from occurrence keys.
 - Original-state reduction consumes sufficient components, coverage and legal
   fold order; a displayed mean/ratio is not a mergeable state.
 - Native Help owns callable facts, result contracts own current continuations,

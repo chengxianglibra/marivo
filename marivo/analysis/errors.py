@@ -294,24 +294,6 @@ class SessionTimezoneConflict(SessionStateError):  # noqa: N818
 class FindingNotFoundError(AnalysisError): ...
 
 
-class InvalidEventPatternError(AnalysisError):
-    @property
-    def kind(self) -> str:
-        return "invalid_event_pattern"
-
-
-class PatternStepMismatchError(AnalysisError):
-    @property
-    def kind(self) -> str:
-        return "pattern_step_mismatch"
-
-
-class InvalidEventMatchingPolicyError(AnalysisError):
-    @property
-    def kind(self) -> str:
-        return "invalid_event_matching_policy"
-
-
 def _runtime_read_repair(*, action: str, target: str, snippet: str | None = None) -> AnalysisRepair:
     return AnalysisRepair(
         kind="inspect",

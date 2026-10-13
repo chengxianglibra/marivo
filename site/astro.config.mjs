@@ -67,8 +67,6 @@ function docsItems(version, isLatest = false) {
           { slug: `${versionSlug}/guides/time-and-cohorts` },
           { slug: `${versionSlug}/guides/comparison-and-attribution` },
           { slug: `${versionSlug}/guides/statistics` },
-          { slug: `${versionSlug}/guides/events-and-funnels` },
-          { slug: `${versionSlug}/guides/lifecycle-and-retention` },
           { slug: `${versionSlug}/guides/calendars-and-schedules` },
         ],
       },

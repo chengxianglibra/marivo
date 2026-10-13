@@ -72,7 +72,6 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
             "tests/analysis/numeric/test_analysis_display.py",
             "current_row_mean or business_display_reads_saved or closed_display_exchange_preserves_four_cells or top_k_original_rank_share_and_empty",
         ),
-        ("tests/analysis/numeric/test_cohort_unknown.py", ""),
         (
             "tests/analysis/numeric/test_fixed_selection_runtime.py",
             "fixed_difference_endpoints or display_and_fixed_reference_selection",
@@ -96,7 +95,6 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
             "direct_score_runs or two_separate_axes or score_select_members_followup or category_time_three_methods",
         ),
         ("tests/analysis/materialization/test_public_schema_drift.py", ""),
-        ("tests/analysis/journey/test_anchor_consumers.py", ""),
         ("tests/analysis/graph/test_reference_consumers.py", "duckdb or sqlite"),
         (
             "tests/analysis/graph/test_distribution_consumers.py",

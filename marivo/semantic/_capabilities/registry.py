@@ -49,8 +49,64 @@ from marivo.semantic._capabilities.model import (
     SemanticTypeContract,
 )
 
+OUTPUT_FAMILIES = frozenset(
+    {
+        "SemanticCatalog",
+        "CatalogEntry",
+        "CatalogCollection",
+        "PreviewBatchResult",
+        "PreviewResult",
+        "ReadinessReport",
+        "SourceCheck",
+        "NotNullSourceCheck",
+        "AllowedValuesSourceCheck",
+        "UniqueSourceCheck",
+        "FreshnessSourceCheck",
+        "RelationshipMatchesSourceCheck",
+        "RelationshipCardinalitySourceCheck",
+        "SourceHealthReport",
+        "RichnessReport",
+        "Ref",
+        "Ref[domain]",
+        "Ref[datasource]",
+        "Ref[entity]",
+        "Ref[dimension]",
+        "Ref[time_dimension]",
+        "Ref[measure]",
+        "Ref[metric]",
+        "Ref[relationship]",
+        "Ref[period_calendar]",
+        "Ref[temporal_set]",
+        "Ref[work_schedule]",
+        "Ref[dimension | time_dimension]",
+        "Ref[dimension | time_dimension | measure]",
+        "JoinKey",
+        "AiContextValue",
+        "Additivity",
+        "ValuePolicy",
+        "ValiditySpec",
+        "DateTimeSpec",
+        "TimestampSpec",
+        "StrptimeSpec",
+        "HourPrefixSpec",
+        "GrainToDate",
+        "TrailingSpec",
+        "None",
+        "Text",
+        "WhereFilter",
+        "IbisValue",
+        "PeriodCorrespondence",
+        "Grain",
+        "CalendarPeriodPage",
+        "CalendarLevelDetails",
+        "PeriodCalendarDetails",
+        "PeriodCalendarEntry",
+    }
+)
+
 INPUT_FAMILIES = frozenset(
     {
+        "Duration",
         "Ref",
         "Ref[domain]",
         "Ref[datasource]",
@@ -64,10 +120,6 @@ INPUT_FAMILIES = frozenset(
         "NullInputPolicyV1",
         "EmptyContributionPolicyV1",
         "ZeroDenominatorPolicyV1",
-        "Ref[event]",
-        "Ref[event] | ParticipantRoleHandle",
-        "Ref[state_model]",
-        "Ref[business_order]",
         "Ref[period_calendar]",
         "Ref[temporal_set]",
         "Ref[work_schedule]",
@@ -98,7 +150,6 @@ INPUT_FAMILIES = frozenset(
         "MeasureName",
         "MetricName",
         "RelationshipName",
-        "EventName",
         "ColumnName",
         "TableName",
         "SqlText",
@@ -137,93 +188,17 @@ INPUT_FAMILIES = frozenset(
         "WhereFilter",
         "FilterConditions",
         "EntityAlias",
-        "Participant",
-        "ParticipantRoleHandle",
-        "LifecycleState",
-        "Inception",
-        "StateTransition",
-        "ModelStateHandle",
-        "StateModelName",
-        "BusinessOrderName",
-        "EventSequence",
-        "EventPrecedence",
         "SequenceOrder",
         "LifecycleStateName",
         "PeriodCorrespondence",
         "Grain",
         "Text",
         "SourceScalarSequence",
-        "Duration",
         "RelationshipSide",
         "RelationshipCardinality",
     }
 )
 
-OUTPUT_FAMILIES = frozenset(
-    {
-        "SemanticCatalog",
-        "CatalogEntry",
-        "CatalogCollection",
-        "PreviewBatchResult",
-        "PreviewResult",
-        "ReadinessReport",
-        "SourceCheck",
-        "NotNullSourceCheck",
-        "AllowedValuesSourceCheck",
-        "UniqueSourceCheck",
-        "FreshnessSourceCheck",
-        "RelationshipMatchesSourceCheck",
-        "RelationshipCardinalitySourceCheck",
-        "SourceHealthReport",
-        "RichnessReport",
-        "Ref",
-        "Ref[domain]",
-        "Ref[datasource]",
-        "Ref[entity]",
-        "Ref[dimension]",
-        "Ref[time_dimension]",
-        "Ref[measure]",
-        "Ref[metric]",
-        "Ref[relationship]",
-        "Ref[event]",
-        "Ref[state_model]",
-        "Ref[business_order]",
-        "Ref[period_calendar]",
-        "Ref[temporal_set]",
-        "Ref[work_schedule]",
-        "Ref[dimension | time_dimension]",
-        "Ref[dimension | time_dimension | measure]",
-        "JoinKey",
-        "AiContextValue",
-        "Additivity",
-        "ValuePolicy",
-        "ValiditySpec",
-        "DateTimeSpec",
-        "TimestampSpec",
-        "StrptimeSpec",
-        "HourPrefixSpec",
-        "GrainToDate",
-        "TrailingSpec",
-        "None",
-        "Text",
-        "WhereFilter",
-        "IbisValue",
-        "Participant",
-        "ParticipantRoleHandle",
-        "LifecycleState",
-        "Inception",
-        "StateTransition",
-        "EventSequence",
-        "EventPrecedence",
-        "ModelStateHandle",
-        "PeriodCorrespondence",
-        "Grain",
-        "CalendarPeriodPage",
-        "CalendarLevelDetails",
-        "PeriodCalendarDetails",
-        "PeriodCalendarEntry",
-    }
-)
 
 ERROR_TYPES: Mapping[str, type] = {}
 TYPE_CONTRACTS: Mapping[type, SemanticTypeContract] = {}
@@ -419,9 +394,6 @@ def _source_contracts() -> Mapping[str, AuthoringSourceContract]:
             "metric",
         ),
         SemanticKind.RELATIONSHIP: ("relationship",),
-        SemanticKind.EVENT: ("event",),
-        SemanticKind.BUSINESS_ORDER: ("business_order",),
-        SemanticKind.STATE_MODEL: ("state_model",),
         SemanticKind.PERIOD_CALENDAR: ("period_calendar",),
         SemanticKind.TEMPORAL_SET: ("temporal_set",),
         SemanticKind.WORK_SCHEDULE: ("work_schedule",),
@@ -699,9 +671,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _relationship(
                     "consumed_by", "objects.relationship", "Dimensions may form join keys."
                 ),
-                _relationship(
-                    "consumed_by", "objects.event", "Dimensions may identify Event occurrences."
-                ),
             ),
             supporting=("ai_context", "bind"),
             checks=(
@@ -968,11 +937,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 _relationship(
                     "requires", "objects.entity", "Both directed endpoints are exact Entity refs."
                 ),
-                _relationship(
-                    "consumed_by",
-                    "objects.event",
-                    "Participant paths traverse directed Relationships.",
-                ),
             ),
             supporting=("join_on", "ai_context"),
             checks=(
@@ -982,185 +946,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "source_check.relationship_cardinality",
                 "source_health",
             ),
-        ),
-        _object_contract(
-            SemanticKind.EVENT,
-            "Reusable occurrence with identity, occurrence time, and participants.",
-            decisions=(
-                _business_decision(
-                    "occurrence_predicate",
-                    "Which business occurrence and row predicate define this Event?",
-                    "event",
-                    "all_rows",
-                    "ai_context",
-                ),
-                _source_business_decision(
-                    "occurrence_identity",
-                    "Which Dimensions uniquely identify an occurrence?",
-                    "event",
-                ),
-                _business_decision(
-                    "occurrence_time",
-                    "Which TimeDimension is the business occurrence time?",
-                    "event",
-                ),
-                _business_decision(
-                    "participant_roles",
-                    "Which named business participants belong to each occurrence?",
-                    "event",
-                    "participant",
-                ),
-                _source_business_decision(
-                    "directed_paths",
-                    "Which directed Relationship paths reach each participant?",
-                    "participant",
-                ),
-                _business_decision(
-                    "participant_cardinality",
-                    "What cardinality does each participant role guarantee?",
-                    "participant",
-                ),
-            ),
-            construction_modes=(
-                _mode("Declare one filtered or explicit all-rows occurrence.", "default", "event"),
-            ),
-            relationships=(
-                _relationship(
-                    "inferred_from",
-                    "objects.entity",
-                    "The occurred_at field owner determines the source Entity.",
-                ),
-                _relationship(
-                    "may_reference",
-                    "objects.relationship",
-                    "Participant roles may traverse directed Relationship paths.",
-                ),
-                _relationship(
-                    "consumed_by",
-                    "objects.state_model",
-                    "Events may trigger StateModel transitions.",
-                ),
-            ),
-            supporting=("all_rows", "participant", "ai_context"),
-            checks=("load", "readiness", "preview"),
-        ),
-        _object_contract(
-            SemanticKind.STATE_MODEL,
-            "Closed normative lifecycle for one subject Entity.",
-            decisions=(
-                _business_decision(
-                    "subject_lifecycle",
-                    "Which subject Entity lifecycle is governed?",
-                    "state_model",
-                    "ai_context",
-                ),
-                _business_decision(
-                    "state_vocabulary",
-                    "Which closed business-state vocabulary applies?",
-                    "lifecycle_state",
-                    "state_model",
-                ),
-                _business_decision(
-                    "initial_terminal_meaning",
-                    "Which states are initial or terminal and what do they mean?",
-                    "lifecycle_state",
-                    "ai_context",
-                ),
-                _business_decision(
-                    "inception_transitions",
-                    "Which Event establishes lifecycle inception?",
-                    "inception",
-                    "state_model",
-                ),
-                _business_decision(
-                    "deterministic_transitions",
-                    "Which exact Event triggers each state transition?",
-                    "transition",
-                    "participant_role",
-                    "state_model",
-                ),
-                _decision(
-                    "excluded_replay_policies",
-                    "Which replay, seed, or violation policies are deliberately excluded?",
-                    "StateModel owns normative lifecycle meaning and an optional order ref; analysis owns replay policy.",
-                    "business_authority",
-                    unsupported_reason=(
-                        "The current StateModel object does not encode replay policy; use the exact "
-                        "analysis lifecycle contract when replaying a model."
-                    ),
-                ),
-            ),
-            construction_modes=(
-                _mode("Declare one finite normative lifecycle.", "default", "state_model"),
-            ),
-            relationships=(
-                _relationship(
-                    "owned_by", "objects.entity", "The subject ref fixes lifecycle ownership."
-                ),
-                _relationship(
-                    "requires",
-                    "objects.event",
-                    "Inceptions and transitions use exact Event triggers or participant handles.",
-                ),
-                _relationship(
-                    "may_reference",
-                    "objects.business_order",
-                    "A StateModel may bind one default business order.",
-                ),
-            ),
-            supporting=(
-                "lifecycle_state",
-                "inception",
-                "transition",
-                "model_state",
-                "participant_role",
-                "ai_context",
-            ),
-            checks=("load", "readiness"),
-        ),
-        _object_contract(
-            SemanticKind.BUSINESS_ORDER,
-            "Named same-subject sequence and simultaneous-precedence authority.",
-            decisions=(
-                _business_decision(
-                    "order_rationale",
-                    "Why does this business order hold?",
-                    "business_order",
-                    "ai_context",
-                ),
-                _business_decision(
-                    "sequence_order",
-                    "Which exact Event value order is authoritative?",
-                    "event_sequence",
-                ),
-                _business_decision(
-                    "simultaneous_precedence",
-                    "Which same-subject roles have precedence?",
-                    "precedes",
-                ),
-            ),
-            construction_modes=(
-                _mode(
-                    "Declare one versioned same-subject order authority.",
-                    "default",
-                    "business_order",
-                ),
-            ),
-            relationships=(
-                _relationship(
-                    "owned_by", "objects.entity", "The Subject's complete K fixes order ownership."
-                ),
-                _relationship(
-                    "requires", "objects.event", "Each ordered occurrence has an exact Event role."
-                ),
-                _relationship(
-                    "consumed_by",
-                    "objects.state_model",
-                    "StateModels may bind this order as their default.",
-                ),
-            ),
-            supporting=("event_sequence", "precedes", "participant_role", "ai_context"),
-            checks=("load", "readiness"),
         ),
         _object_contract(
             SemanticKind.PERIOD_CALENDAR,
@@ -1366,23 +1151,10 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
             ),
         ),
         (
-            "builders.relationship_event",
-            "Relationship and Event support",
-            "Build join keys, participants, participant handles, and all-row predicates.",
-            (
-                "join_on",
-                "participant",
-                "participant_role",
-                "all_rows",
-                "event_sequence",
-                "precedes",
-            ),
-        ),
-        (
-            "builders.state_model",
-            "StateModel support",
-            "Build local lifecycle states, triggers, transitions, and typed state handles.",
-            ("lifecycle_state", "inception", "transition", "model_state"),
+            "builders.relationship",
+            "Relationship support",
+            "Build governed relationship join keys.",
+            ("join_on",),
         ),
         (
             "builders.governed_temporal",
@@ -2407,30 +2179,6 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
             ("to_entity",),
             ("keys",),
         ),
-        "event": (("name",), ("identity",), ("occurred_at",), ("participants",)),
-        "event_sequence": (("event",), ("value",), ("order",)),
-        "precedes": (("before",), ("after",)),
-        "business_order": (
-            ("name",),
-            ("subject",),
-            ("sequences",),
-            ("conflicts",),
-            ("ai_context",),
-        ),
-        "participant": (("name",), ("path",)),
-        "participant_role": (("event",), ("name",)),
-        "lifecycle_state": (("name",),),
-        "inception": (("on",),),
-        "transition": (("from_state",), ("on",), ("to_state",)),
-        "state_model": (
-            ("name",),
-            ("subject",),
-            ("states",),
-            ("transitions",),
-            ("transitions",),
-            ("business_order",),
-        ),
-        "model_state": (("model",), ("name",)),
         "join_on": (("from_key", "to_key"),),
         "bind": (("field",), ("entity_alias",)),
         "metric": (
@@ -2469,11 +2217,6 @@ _OPTIONAL_PARAMETER_REQUIREMENTS = frozenset(
         ("time_dimension", 0),
         ("measure", 0),
         ("cumulative", 2),
-        ("event", 0),
-        ("business_order", 2),
-        ("business_order", 3),
-        ("state_model", 5),
-        ("participant", 1),
         ("metric", 0),
         ("readiness", 1),
     }
@@ -2984,218 +2727,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "to_entity=customers, keys=[ms.join_on(order_customer_id, customer_id)])"
             ),
             see_also=(_target("join_on"),),
-        ),
-        _capability(
-            "event",
-            "marivo.semantic._authoring_decorators.event",
-            "Declare a filtered or explicit all-rows business occurrence.",
-            output="Ref[event]",
-            inputs=_inputs(
-                ("mapping_key", "EventName"),
-                ("dependency", "Ref[dimension]"),
-                ("dependency", "Ref[time_dimension]"),
-                ("dependency", "Participant"),
-            ),
-            effects=_AUTHOR,
-            constraints=(
-                "active_loader_context",
-                "event_source_owner",
-                "event_identity",
-                "event_predicate",
-                "event_participant_path",
-            ),
-            example=(
-                "@ms.event(identity=(event_id,), occurred_at=event_time, "
-                "participants=(ms.participant(name='order', cardinality='one'),))\n"
-                "def order_created(rows):\n"
-                "    return ms.all_rows()"
-            ),
-            see_also=(
-                _target("participant"),
-                _target("participant_role"),
-                _target("all_rows"),
-            ),
-            invocation_shape="decorator",
-        ),
-        _capability(
-            "participant",
-            "marivo.semantic.event.participant",
-            "Declare one named participant role inside an Event.",
-            output="Participant",
-            inputs=_inputs(
-                ("mapping_key", "EntityName"),
-                ("dependency", "Ref[relationship]"),
-            ),
-            effects=_NONE,
-            constraints=("event_participant_path", "event_participant_cardinality"),
-            example=("ms.participant(name='buyer', path=(event_to_buyer,), cardinality='one')"),
-            see_also=(_target("event"), _target("participant_role")),
-        ),
-        _capability(
-            "participant_role",
-            "marivo.semantic.event.participant_role",
-            "Create an immutable handle for one named participant role on an Event.",
-            output="ParticipantRoleHandle",
-            inputs=_inputs(
-                ("subject", "Ref[event]"),
-                ("mapping_key", "EntityName"),
-            ),
-            effects=_NONE,
-            constraints=("event_participant_membership",),
-            example="ms.participant_role(event=payment_succeeded, name='buyer')",
-            see_also=(_target("event"), _target("participant")),
-        ),
-        _capability(
-            "all_rows",
-            "marivo.semantic.event.all_rows",
-            "Return the explicit unfiltered predicate from an Event body.",
-            output="IbisValue",
-            effects=_NONE,
-            constraints=("event_all_rows_complete_return",),
-            example=(
-                "@ms.event(identity=(event_id,), occurred_at=event_time, "
-                "participants=(ms.participant(name='order', cardinality='one'),))\n"
-                "def order_created(rows):\n"
-                "    return ms.all_rows()"
-            ),
-            see_also=(_target("event"),),
-        ),
-        _capability(
-            "event_sequence",
-            "marivo.semantic.business_order.event_sequence",
-            "Declare an Event source field with one explicit business value order.",
-            output="EventSequence",
-            inputs=_inputs(
-                ("subject", "Ref[event]"),
-                ("dependency", "Ref[dimension]"),
-                ("dependency", "SequenceOrder"),
-            ),
-            effects=_NONE,
-            example="ms.event_sequence(payment, sequence_number, order='integer')",
-            see_also=(_target("business_order"),),
-        ),
-        _capability(
-            "precedes",
-            "marivo.semantic.business_order.precedes",
-            "Declare same-subject precedence for simultaneous Event roles.",
-            output="EventPrecedence",
-            inputs=_inputs(
-                ("subject", "ParticipantRoleHandle"),
-                ("dependency", "ParticipantRoleHandle"),
-            ),
-            effects=_NONE,
-            example="ms.precedes(activated_role, deactivated_role)",
-            see_also=(_target("business_order"), _target("participant_role")),
-        ),
-        _capability(
-            "business_order",
-            "marivo.semantic.business_order.business_order",
-            "Declare one named same-subject business order authority.",
-            output="Ref[business_order]",
-            inputs=_inputs(
-                ("mapping_key", "BusinessOrderName"),
-                ("subject", "Ref[entity]"),
-                ("dependency", "EventSequence"),
-                ("dependency", "EventPrecedence"),
-                ("evidence", "AiContextValue"),
-            ),
-            effects=_AUTHOR,
-            example=(
-                "ms.business_order(name='payment_order', subject=orders, "
-                "sequences=(ms.event_sequence(payment, sequence_number, order='integer'),), "
-                "ai_context=ms.ai_context(business_definition='Ledger order per subject'))"
-            ),
-            see_also=(_target("event_sequence"), _target("precedes"), _target("state_model")),
-        ),
-        _capability(
-            "lifecycle_state",
-            "marivo.semantic.state_model.lifecycle_state",
-            "Declare one immutable local state for a StateModel.",
-            output="LifecycleState",
-            inputs=_inputs(("mapping_key", "LifecycleStateName")),
-            effects=_NONE,
-            constraints=("state_model_shape",),
-            example="created = ms.lifecycle_state(name='created', initial=True)",
-            see_also=(_target("state_model"), _target("transition")),
-        ),
-        _capability(
-            "inception",
-            "marivo.semantic.state_model.inception",
-            "Declare a trigger from unseeded history into the sole initial state.",
-            output="Inception",
-            inputs=_inputs(("subject", "Ref[event] | ParticipantRoleHandle")),
-            effects=_NONE,
-            constraints=("state_model_trigger",),
-            example="seed = ms.inception(on=ms.ref.event('commerce.order_created'))",
-            see_also=(_target("state_model"), _target("participant_role")),
-        ),
-        _capability(
-            "transition",
-            "marivo.semantic.state_model.transition",
-            "Declare one deterministic transition between exact local states.",
-            output="StateTransition",
-            inputs=_inputs(
-                ("subject", "LifecycleState"),
-                ("dependency", "Ref[event] | ParticipantRoleHandle"),
-                ("dependency", "LifecycleState"),
-            ),
-            effects=_NONE,
-            constraints=("state_model_shape", "state_model_trigger"),
-            example=(
-                "paid_transition = ms.transition("
-                "from_state=created, on=ms.ref.event('commerce.payment_captured'), "
-                "to_state=paid)"
-            ),
-            see_also=(_target("lifecycle_state"), _target("state_model")),
-        ),
-        _capability(
-            "state_model",
-            "marivo.semantic.state_model.state_model",
-            "Declare a closed normative lifecycle for one subject Entity.",
-            output="Ref[state_model]",
-            inputs=_inputs(
-                ("mapping_key", "StateModelName"),
-                ("subject", "Ref[entity]"),
-                ("dependency", "LifecycleState"),
-                ("dependency", "Inception"),
-                ("dependency", "StateTransition"),
-                ("dependency", "Ref[business_order]"),
-            ),
-            effects=_AUTHOR,
-            constraints=(
-                "active_loader_context",
-                "state_model_shape",
-                "state_model_trigger",
-            ),
-            example=(
-                "order_lifecycle = ms.state_model("
-                "name='order_lifecycle', subject=orders, states=(created, paid), "
-                "transitions=(ms.inception(on=order_created), paid_transition,))"
-            ),
-            see_also=(
-                _target("lifecycle_state"),
-                _target("inception"),
-                _target("transition"),
-                _target("model_state"),
-                _target("business_order"),
-            ),
-        ),
-        _capability(
-            "model_state",
-            "marivo.semantic.state_model.model_state",
-            "Create the project-neutral typed identity of one StateModel state.",
-            output="ModelStateHandle",
-            inputs=_inputs(
-                ("subject", "Ref[state_model]"),
-                ("mapping_key", "LifecycleStateName"),
-            ),
-            effects=_NONE,
-            constraints=("model_state_membership",),
-            example=(
-                "paid = ms.model_state("
-                "model=ms.ref.state_model('commerce.order_lifecycle'), name='paid')"
-            ),
-            see_also=(_target("state_model"),),
         ),
         _capability(
             "join_on",
@@ -3718,7 +3249,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     """Build private type contracts without exposing constructors as help targets."""
     from marivo.preview import PreviewResult
     from marivo.refs import (
-        BusinessOrderKind,
         PeriodCalendarKind,
         Ref,
         SemanticKind,
@@ -3727,10 +3257,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     from marivo.refs import ref as ref_factory
     from marivo.semantic._authoring_metrics import GrainToDate
     from marivo.semantic._authoring_temporal import PeriodCorrespondence
-    from marivo.semantic.business_order import EventPrecedence, EventSequence
     from marivo.semantic.catalog import (
-        BusinessOrderDetails,
-        BusinessOrderEntry,
         CalendarLevelDetails,
         CalendarPeriodPage,
         CatalogCollection,
@@ -3744,8 +3271,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         DomainEntry,
         EntityDetails,
         EntityEntry,
-        EventDetails,
-        EventEntry,
         MeasureDetails,
         MeasureEntry,
         MetricEntry,
@@ -3755,8 +3280,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         RelationshipEntry,
         SemanticCatalog,
         SimpleMetricDetails,
-        StateModelDetails,
-        StateModelEntry,
         TemporalOccurrencePage,
         TemporalSetDetails,
         TemporalSetEntry,
@@ -3982,42 +3505,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         RelationshipDetails,
         "RelationshipDetails",
-        (),
-        methods=show_render,
-    )
-    add(
-        EventEntry,
-        "EventEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    add(
-        EventDetails,
-        "EventDetails",
-        (),
-        methods=show_render,
-    )
-    add(
-        BusinessOrderEntry,
-        "BusinessOrderEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    add(
-        BusinessOrderDetails,
-        "BusinessOrderDetails",
-        (),
-        methods=show_render,
-    )
-    add(
-        StateModelEntry,
-        "StateModelEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    add(
-        StateModelDetails,
-        "StateModelDetails",
         (),
         methods=show_render,
     )
@@ -4281,9 +3768,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "linear",
             "metric",
             "relationship",
-            "event",
-            "state_model",
-            "business_order",
             "period_calendar",
             "temporal_set",
             "work_schedule",
@@ -4304,11 +3788,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=factory_methods("ref"),
     )
     add(
-        BusinessOrderKind,
-        "BusinessOrderKind",
-        ("business_order",),
-    )
-    add(
         PeriodCalendarKind,
         "PeriodCalendarKind",
         ("period_calendar",),
@@ -4324,68 +3803,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         WorkScheduleKind,
         "WorkScheduleKind",
         ("work_schedule",),
-    )
-    from marivo.semantic.event import Participant, ParticipantRoleHandle
-    from marivo.semantic.state_model import (
-        Inception,
-        LifecycleState,
-        ModelStateHandle,
-        StateTransition,
-    )
-
-    add(
-        Participant,
-        "Participant",
-        ("participant",),
-        properties=("name", "path", "cardinality"),
-        consumers=("event",),
-    )
-    add(
-        EventSequence,
-        "EventSequence",
-        ("event_sequence",),
-        properties=("event", "value", "order"),
-        consumers=("business_order",),
-    )
-    add(
-        EventPrecedence,
-        "EventPrecedence",
-        ("precedes",),
-        properties=("before", "after"),
-        consumers=("business_order",),
-    )
-    add(
-        ParticipantRoleHandle,
-        "ParticipantRoleHandle",
-        ("participant_role",),
-        properties=("event", "name", "key"),
-    )
-    add(
-        LifecycleState,
-        "LifecycleState",
-        ("lifecycle_state",),
-        properties=("name", "initial", "terminal"),
-        consumers=("state_model", "transition"),
-    )
-    add(
-        Inception,
-        "Inception",
-        ("inception",),
-        properties=("on",),
-        consumers=("state_model",),
-    )
-    add(
-        StateTransition,
-        "StateTransition",
-        ("transition",),
-        properties=("from_state", "on", "to_state"),
-        consumers=("state_model",),
-    )
-    add(
-        ModelStateHandle,
-        "ModelStateHandle",
-        ("model_state",),
-        properties=("model", "name", "key"),
     )
     add(
         PeriodCorrespondence,

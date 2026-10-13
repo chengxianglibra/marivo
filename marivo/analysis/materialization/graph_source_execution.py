@@ -38,7 +38,6 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    OccurrencePrepare,
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
@@ -571,7 +570,11 @@ def _result(
     if state_kind != "none":
         statuses = (
             pa.array(["accepted"] * len(primary), type=pa.string())
-            if state_kind in ("cohort", "table", "occurrence_inputs")
+            if state_kind
+            in (
+                "cohort",
+                "table",
+            )
             else primary.column("status")
             if state_kind == "spearman"
             else cell_column(primary, "cell_tag")
@@ -640,7 +643,7 @@ def execute_source_graph(
         raise _invalid("prepared and lowered graph identity or input class differs")
     if any(
         isinstance(stage.node, MethodNode)
-        and isinstance(stage.node.parameters, (OccurrencePrepare, PreparedObservation))
+        and isinstance(stage.node.parameters, (PreparedObservation,))
         for stage in lowered.stages
         if isinstance(stage, LoweredRelation)
     ) or any(

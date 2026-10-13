@@ -7,14 +7,6 @@ from dataclasses import dataclass, field, replace
 from hashlib import sha256
 from typing import Literal, TypeAlias
 
-from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
-from marivo.analysis.core.domain_captures import (
-    EntryAxisCapture,
-    EventCapture,
-    OrderCapture,
-    StateModelCapture,
-)
-from marivo.analysis.core.history_types import Distribution, HistoryField, HistoryRequest
 from marivo.analysis.core.model import (
     AttributionPart,
     Binding,
@@ -37,16 +29,9 @@ from marivo.analysis.core.model import (
     FactKind,
     FindingPolicyPart,
     FitInputsPart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
-    HistoryPart,
-    HistoryViewPart,
-    JourneyPart,
     MissingCoordinate,
     Obligation,
     ObservedQuantity,
-    OccurrencePart,
     OriginalStatePart,
     PairCountsPart,
     Part,
@@ -72,7 +57,6 @@ from marivo.analysis.core.predicates import ValuePredicate, leaves
 from marivo.analysis.core.time_alignment import evaluate_time_keys
 from marivo.analysis.core.time_authority import TemporalExecution
 from marivo.analysis.core.time_grid import BoundTimeGrid, CumulativeBinding, GridVersionSelection
-from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -110,14 +94,6 @@ RuleId: TypeAlias = Literal[
     "forecast@v1",
     "time_runs@v1",
     "deviation@v1",
-    "retention@v1",
-    "anchor@v1",
-    "funnel@v1",
-    "history_replay@v1",
-    "history_view@v1",
-    "journey_match@v1",
-    "journey_view@v1",
-    "occurrence_prepare@v1",
     "attribution@v1",
     "bind_project@v1",
     "map_correspond@v1",
@@ -253,7 +229,6 @@ class ObserveMetric:
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
     window_timezone: str = "UTC"
-    capture_versions: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,7 +275,6 @@ class ObserveCount:
     grid_window: bool = False
     cumulative: CumulativeBinding | None = None
     window_timezone: str = "UTC"
-    capture_versions: bool = False
 
 
 MapMode: TypeAlias = Literal[
@@ -517,186 +491,8 @@ class AttributionDerive:
 
 
 @dataclass(frozen=True, slots=True)
-class OccurrencePrepare:
-    output: DomainSignature
-    events: tuple[EventCapture, ...]
-    start: str | None
-    end: str
-    order: OrderCapture | None = None
-    model: StateModelCapture | None = None
-    completeness: tuple[CompletenessDeclaration, ...] = ()
-    order_use: Literal["prepare", "ordered", "one_step_every_start", "after_terminal"] = "prepare"
-    terminal_state: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class PreparedObservation:
     observation: ObserveMetric | ObserveCount
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryReplay:
-    output: DomainSignature
-    window_start: str
-    window_end: str
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryView:
-    output: DomainSignature
-    request: HistoryRequest
-    kind: Literal["history_view"] = "history_view"
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryRead:
-    field: HistoryField
-    kind: Literal["history_read"] = "history_read"
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryAxesPrepare:
-    history: HistoryPart
-    request: Distribution
-    kind: Literal["history_axes"] = "history_axes"
-
-
-@dataclass(frozen=True, slots=True)
-class JourneyMatch:
-    output: DomainSignature
-    steps: tuple[str, ...]
-    events: tuple[str, ...]
-    policy: Literal["first_per_subject", "exclusive", "shared"]
-    cohort_start: str
-    cohort_end: str
-    completion_through: str
-
-
-@dataclass(frozen=True, slots=True)
-class JourneyDuration:
-    from_step: int
-    to_step: int
-    kind: Literal["duration"] = "duration"
-
-
-@dataclass(frozen=True, slots=True)
-class JourneyCompleted:
-    from_step: int
-    to_step: int
-    kind: Literal["completed"] = "completed"
-
-
-@dataclass(frozen=True, slots=True)
-class JourneyRead:
-    from_step: int
-    to_step: int
-    field: Literal[
-        "dropout",
-        "status",
-        "started_at",
-        "completed_at",
-        "duration",
-        "observed_duration",
-        "followup_until",
-    ]
-
-
-FunnelField: TypeAlias = Literal[
-    "cohort_count",
-    "resolved_cohort_count",
-    "entry_count",
-    "resolved_entry_count",
-    "reached_count",
-    "lost_count",
-    "coverage_censored_count",
-    "conversion_from_first",
-    "conversion_from_previous",
-    "loss_rate_from_previous",
-    "current_cohort_count",
-    "baseline_cohort_count",
-    "current_resolved_cohort_count",
-    "baseline_resolved_cohort_count",
-    "current_entry_count",
-    "baseline_entry_count",
-    "current_resolved_entry_count",
-    "baseline_resolved_entry_count",
-    "current_reached_count",
-    "baseline_reached_count",
-    "current_lost_count",
-    "baseline_lost_count",
-    "current_coverage_censored_count",
-    "baseline_coverage_censored_count",
-    "current_loss_rate_from_previous",
-    "baseline_loss_rate_from_previous",
-    "loss_rate_delta",
-]
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelAxesPrepare:
-    cohort_start: str
-    cohort_end: str
-    axes: tuple[EntryAxisCapture, ...]
-    first_event: str
-    kind: Literal["funnel_axes"] = "funnel_axes"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelReduce:
-    output: DomainSignature
-    capture_scope: str
-    axes: tuple[EntryAxisCapture, ...]
-    population_id: str
-    kind: Literal["funnel_reduce"] = "funnel_reduce"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelCompare:
-    output: DomainSignature
-    kind: Literal["funnel_compare"] = "funnel_compare"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelRead:
-    field: FunnelField
-    step: int | None = None
-    kind: Literal["funnel_read"] = "funnel_read"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelAttribute:
-    output: DomainSignature
-    axes: tuple[Ref[DimensionKind], ...]
-    target_step: int
-    mode: Literal["joint", "hierarchy"]
-    top_k: int | None
-    kind: Literal["funnel_attribute"] = "funnel_attribute"
-
-
-@dataclass(frozen=True, slots=True)
-class AnchorBind:
-    output: DomainSignature
-    during_start: str
-    during_end: str
-
-
-@dataclass(frozen=True, slots=True)
-class AnchorObserve:
-    window: ElapsedWindow | CalendarWindow
-    observations: tuple[ObserveMetric | ObserveCount, ...]
-    template: Signature
-    composition: OriginalRatio | OccurrenceCombine | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AnchorRetention:
-    window: ElapsedWindow | CalendarWindow
-
-
-@dataclass(frozen=True, slots=True)
-class RetentionBySubject:
-    output: DomainSignature
-    rule: AnyAnchor | EveryAnchor
 
 
 RuleParameters: TypeAlias = (
@@ -708,24 +504,6 @@ RuleParameters: TypeAlias = (
     | TimeRunRead
     | DeviationFit
     | DeviationRead
-    | AnchorRetention
-    | RetentionBySubject
-    | AnchorBind
-    | AnchorObserve
-    | FunnelAxesPrepare
-    | FunnelReduce
-    | FunnelCompare
-    | FunnelRead
-    | FunnelAttribute
-    | HistoryReplay
-    | HistoryView
-    | HistoryRead
-    | HistoryAxesPrepare
-    | JourneyMatch
-    | JourneyDuration
-    | JourneyCompleted
-    | JourneyRead
-    | OccurrencePrepare
     | PreparedObservation
     | AttributionDerive
     | BindProject
@@ -819,72 +597,6 @@ def _contribution_mapping_fact(
     scope = sha256(repr(params).encode()).hexdigest()
     return _fact(
         "mapping_total", inputs[0].domain.binding, f"contribution_mapping:{scope}:{index}", inputs
-    )
-
-
-def captured_mapping_fact(
-    inputs: tuple[Signature, ...],
-    params: OccurrencePrepare | FunnelAxesPrepare | HistoryAxesPrepare,
-    slot: str,
-) -> Fact:
-    """Bind historical matches to ordered nodes, source captures, path, version and window."""
-    if isinstance(params, (FunnelAxesPrepare, HistoryAxesPrepare)):
-        segments = slot.split(":")
-        position = 1 if isinstance(params, FunnelAxesPrepare) else 3
-        axes = params.axes if isinstance(params, FunnelAxesPrepare) else params.request.axes
-        axis = axes[int(segments[position])]
-        segments[position] = sha256(
-            repr((axis.subject, axis.path, axis.entities, axis.source_ids)).encode()
-        ).hexdigest()
-        slot = ":".join(segments)
-    scope = sha256(repr(params).encode()).hexdigest()
-    return _fact(
-        "mapping_total", inputs[0].domain.binding, f"captured_mapping:{scope}:{slot}", inputs
-    )
-
-
-def captured_mapping_derivation(
-    inputs: tuple[Signature, ...], params: RuleParameters, derivation: RuleDerivation
-) -> RuleDerivation:
-    """Add the source-only capture owners' unknown match premises before physical selection."""
-    if isinstance(params, OccurrencePrepare):
-        slots = tuple(
-            f"event:{event.ref.path}:hop:{index}"
-            for event in params.events
-            for index in range(len(event.path))
-        )
-    elif isinstance(params, FunnelAxesPrepare):
-        slots = tuple(
-            f"axis:{axis_index}:hop:{index}"
-            for axis_index, axis in enumerate(params.axes)
-            for index in range(len(axis.entities))
-        )
-    elif isinstance(params, HistoryAxesPrepare):
-        slots = tuple(
-            f"point:{point}:axis:{axis_index}:hop:{index}"
-            for point in range(len(params.request.at))
-            for axis_index, axis in enumerate(params.request.axes)
-            for index in range(len(axis.entities))
-        )
-    else:
-        return derivation
-    facts = tuple(captured_mapping_fact(inputs, params, slot) for slot in slots)
-    assumptions = tuple(Evidence(fact, "assumption", "relationship_contract") for fact in facts)
-    return replace(
-        derivation,
-        pre=(*derivation.pre, *facts),
-        output=replace(
-            derivation.output,
-            evidence=(
-                *(
-                    replace(item, dependencies=tuple(dict.fromkeys((*item.dependencies, *facts))))
-                    if item.basis == "builder" and item.source_id == derivation.eval_id
-                    else item
-                    for item in derivation.output.evidence
-                ),
-                *assumptions,
-            ),
-        ),
     )
 
 
@@ -1293,21 +1005,6 @@ def entity_members(
     )
 
 
-def entity_candidates(
-    entity: TargetEntityContract, ref: Ref[EntityKind], binding: Binding
-) -> Signature:
-    """Describe raw source keys without claiming a selected version or unique members.
-
-    Per-occurrence version resolution and complete-key checks belong to the
-    bounded preparation consumer, before these candidates become an instance domain.
-    """
-    key = tuple(Coordinate(ref, name, "identity") for name in entity.primary_key)
-    return Signature(
-        DomainSignature(binding, "entity", key, key, f"candidates:{ref.path}"),
-        parts=(SubjectPart(binding, ref, key, key, entity.version is None, True, "v1"),),
-    )
-
-
 def _bind_project(inputs: tuple[Signature, ...], params: BindProject) -> RuleDerivation:
     if len(inputs) != 1:
         reject("one domain input", str(len(inputs)), "Bind one domain.", "core.bind_project")
@@ -1502,9 +1199,6 @@ def _observe_metric(
 ) -> RuleDerivation:
     from datetime import datetime, timedelta
 
-    prepared = prepared or (
-        isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions
-    )
     from marivo.semantic.metric_graph import component_node
 
     if (
@@ -3283,23 +2977,11 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
                 "Use the original Entity target for cohort.",
                 "analysis.cohort",
             )
-        journey = next((p for p in inputs[1].parts if isinstance(p, JourneyPart)), None)
         opportunity_subject = require_part(inputs[1], "subject")
         assert isinstance(opportunity_subject, SubjectPart)
-        if journey is not None and not journey.complete:
-            reject(
-                "a complete Journey opportunity domain",
-                "selected journeys",
-                "Use the unfiltered matching result.",
-                "analysis.cohort",
-            )
         if (
             any(item.domain != opportunity for item in inputs[1:])
-            or (
-                opportunity_subject.subject_key
-                if journey is not None
-                else tuple(k for k in opportunity.instance_key if k.role != "anchor")
-            )
+            or tuple(k for k in opportunity.instance_key if k.role != "anchor")
             != target.domain.instance_key
         ):
             reject(
@@ -3396,29 +3078,21 @@ def _parts_transport(inputs: tuple[Signature, ...], params: PartsTransport) -> R
             "core.parts_transport.domain",
         )
     parts: tuple[Part, ...] = tuple(
-        replace(part, complete=False)
-        if isinstance(
-            part,
-            (JourneyPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart, HistoryViewPart),
-        )
-        and params.mode in ("where", "limit")
-        else part
+        part
         for part in (require_part(source, role) for role in params.retained_roles)
         if not isinstance(part, FindingPolicyPart)
         or part.policy
         in ("zero_findings@v1", "bounded_descriptive_findings@v1", "bounded_prediction_findings@v1")
     )
-    from marivo.analysis.core.retention_rules import transport as retention_transport
 
-    parts = tuple(retention_transport(part, params) for part in parts)
-    if any(isinstance(p, (AttributionPart, FunnelAllocationPart)) for p in parts):
+    if any(isinstance(p, (AttributionPart,)) for p in parts):
         parts = tuple(
             replace(
                 p,
                 complete=False if params.mode == "where" else p.complete,
                 view=params.attribution_view or p.view,
             )
-            if isinstance(p, (AttributionPart, FunnelAllocationPart))
+            if isinstance(p, (AttributionPart,))
             else p
             for p in parts
         )
@@ -4028,6 +3702,7 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
         )
     binding = first.domain.binding
     identity = first.domain.definition_id
+    parts: tuple[Part, ...]
     if isinstance(params, DisplayRank):
         if (
             first.quantity is None
@@ -4084,12 +3759,7 @@ def _display(inputs: tuple[Signature, ...], params: DisplayRank | DisplayTable) 
             ("ordering", ("position",), ("int64",), True),
         )
         parts = (
-            *tuple(
-                p
-                for p in first.parts
-                if not isinstance(p, DisplayPart)
-                and not (isinstance(p, FindingPolicyPart) and p.producer.startswith("funnel."))
-            ),
+            *(p for p in first.parts if not isinstance(p, DisplayPart)),
             *(
                 DisplayPart(
                     binding, role, columns, types, identity, independent, params.order, params.ties
@@ -4309,153 +3979,6 @@ def _attribution(inputs: tuple[Signature, ...], params: AttributionDerive) -> Ru
     )
 
 
-def _occurrence_prepare(inputs: tuple[Signature, ...], params: OccurrencePrepare) -> RuleDerivation:
-    from datetime import datetime
-
-    from marivo.analysis.core.domain_captures import fail
-
-    binding = _binding(inputs, "r7.input_binding")
-    _output_domain(binding, params.output, "r7.input_binding")
-    if len(inputs) != 1 or params.output.kind != "occurrence" or not params.events:
-        fail(
-            "input_binding", "one explicit population and a complete occurrence output are required"
-        )
-    if len({e.ref for e in params.events}) != len(params.events):
-        fail("input_binding", "repeat Event uses must share one explicit capture")
-    if any(e.subject.ref != params.events[0].subject.ref for e in params.events):
-        fail("input_binding", "participants have different Subjects")
-    if len({len(event.identity) for event in params.events}) != 1:
-        fail("input_binding", "captured Events have incompatible complete key shapes")
-    if inputs[0].domain.kind not in ("entity", "occurrence"):
-        fail("input_mode", "population is not an Analysis Entity domain")
-    if params.start is not None and datetime.fromisoformat(params.start) >= datetime.fromisoformat(
-        params.end
-    ):
-        fail("preparation_bounds", "empty or reversed preparation interval")
-    if datetime.fromisoformat(params.end).utcoffset() is None or (
-        params.start is not None and datetime.fromisoformat(params.start).utcoffset() is None
-    ):
-        fail("preparation_bounds", "preparation needs aware instant bounds")
-    if (
-        params.order is not None
-        and params.order.definition.subject != params.events[0].subject.ref.path
-    ):
-        fail("business_order", "order Subject differs")
-    captured = {event.ref.path: event for event in params.events}
-    if params.order is not None:
-        if any(
-            (event.ref.path, event.fingerprint) not in params.order.dependencies
-            for event in params.events
-            if event.ref.path in {item.event_ref for item in params.order.definition.sequences}
-        ):
-            fail("business_order", "order dependency fingerprint differs from its captured Event")
-        for item, field in zip(params.order.definition.sequences, params.order.fields, strict=True):
-            event = captured.get(item.event_ref)
-            if event is not None and (
-                item.participant_role != event.participant or field.entity_ref != event.source.ref
-            ):
-                fail(
-                    "business_order", "sequence role or field owner differs from its Event capture"
-                )
-        for precedence in params.order.definition.conflicts:
-            for event_ref, role in (
-                (precedence.before_event, precedence.before_role),
-                (precedence.after_event, precedence.after_role),
-            ):
-                event = captured.get(event_ref)
-                if event is not None and event.participant != role:
-                    fail("business_order", "precedence role differs from its Event capture")
-    if params.model is not None and (
-        params.model.triggers != params.events or params.model.order != params.order
-    ):
-        fail(
-            "input_binding",
-            "preparation must retain every explicit StateModel trigger and default order capture",
-        )
-    if params.order_use == "after_terminal":
-        fail(
-            "business_order",
-            "preparation has no already-known terminal-prefix proof; consume this case in qualified replay",
-        )
-    if params.order_use == "one_step_every_start" and (
-        len(params.events) != 1 or params.model is not None
-    ):
-        fail(
-            "business_order",
-            "the one-step every_start invariant requires one Event and no replay model",
-        )
-    columns = (
-        "occurred_at",
-        *(
-            ("sequence_int",)
-            if params.order is not None
-            and any(item.order == "integer" for item in params.order.definition.sequences)
-            else ("sequence_enum",)
-            if params.order is not None and params.order.definition.sequences
-            else ()
-        ),
-    )
-    from hashlib import sha256
-
-    preparation_id = sha256(
-        repr(
-            (
-                params.events,
-                params.start,
-                params.end,
-                params.order,
-                params.model,
-                params.completeness,
-                params.order_use,
-                params.terminal_state,
-            )
-        ).encode()
-    ).hexdigest()
-    state = OccurrencePart(
-        binding,
-        params.events,
-        params.order,
-        params.model,
-        columns,
-        preparation_id,
-        params.start,
-        params.end,
-        params.completeness,
-        params.order_use,
-        params.terminal_state,
-    )
-    subject_keys = tuple(
-        Coordinate(semantic_ref.entity(params.events[0].subject.ref.path), key, "identity")
-        for key in params.events[0].subject.primary_key
-    )
-    if inputs[0].domain.kind == "entity" and inputs[0].domain.instance_key != subject_keys:
-        fail("input_binding", "population does not carry the complete participant Subject key")
-    if inputs[0].domain.kind == "occurrence" and state not in inputs[0].parts:
-        fail("input_binding", "fixed preparation cannot replace its captured request")
-    part = SubjectPart(
-        binding,
-        semantic_ref.entity(params.events[0].subject.ref.path),
-        params.output.instance_key,
-        subject_keys,
-        False,
-        True,
-        "v1",
-    )
-    return _result(
-        "occurrence_prepare@v1",
-        inputs,
-        params.output,
-        None,
-        (part, state),
-        pre=(),
-        required=(),
-        created=("subject", "occurrences"),
-        post=(),
-        obligations=(),
-        eval_id=params.output.definition_id,
-    )
-
-
 def _prepared_observation(
     inputs: tuple[Signature, ...], params: PreparedObservation
 ) -> RuleDerivation:
@@ -4514,153 +4037,3 @@ def _prepared_observation(
             "prepared cumulative/fold or this numeric state is not qualified",
         )
     return _observe_metric((inputs[0],), observation, prepared=True)
-
-
-def _journey_match(inputs: tuple[Signature, ...], params: JourneyMatch) -> RuleDerivation:
-    from marivo.analysis.core.domain_captures import fail
-    from marivo.analysis.core.model import validate_part
-
-    binding = _binding(inputs, "r7.journey_binding")
-    _output_domain(binding, params.output, "r7.journey_binding")
-    if len(inputs) != 1 or inputs[0].domain.kind != "occurrence" or params.output.kind != "journey":
-        fail(
-            "journey_binding", "matching requires one captured occurrence input and Journey output"
-        )
-    capture = require_part(inputs[0], "occurrences")
-    subject = require_part(inputs[0], "subject")
-    assert isinstance(capture, OccurrencePart) and isinstance(subject, SubjectPart)
-    if params.output.instance_key != (*subject.subject_key, *inputs[0].domain.instance_key):
-        fail("journey_binding", "Journey identity must contain the complete Subject and start keys")
-    if capture.start != params.cohort_start or capture.end != params.completion_through:
-        fail("journey_binding", "matching bounds differ from captured input")
-    if capture.order_use != "ordered" and not (
-        capture.order_use == "one_step_every_start"
-        and len(params.events) == 1
-        and params.policy != "first_per_subject"
-    ):
-        fail("business_order", "matching requires proved order or one-step every-start invariant")
-    state = JourneyPart(
-        binding,
-        capture,
-        params.steps,
-        params.events,
-        params.policy,
-        params.cohort_start,
-        params.cohort_end,
-        params.completion_through,
-    )
-    validate_part(state)
-    mapping = replace(
-        subject,
-        source_key=params.output.instance_key,
-        injective=params.policy == "first_per_subject",
-    )
-    return _result(
-        "journey_match@v1",
-        inputs,
-        params.output,
-        None,
-        (mapping, state),
-        pre=(),
-        required=("subject", "occurrences"),
-        created=("subject", "journey"),
-        post=(),
-        obligations=(),
-        eval_id=params.output.definition_id,
-    )
-
-
-def _journey_view(
-    inputs: tuple[Signature, ...], params: JourneyDuration | JourneyCompleted | JourneyRead
-) -> RuleDerivation:
-    from hashlib import sha256
-
-    from marivo.analysis.core.domain_captures import fail
-
-    _binding(inputs, "r7.journey_binding")
-    if len(inputs) != 1 or inputs[0].domain.kind != "journey":
-        fail("journey_binding", "retained Journey input required")
-    source = inputs[0]
-    part = require_part(source, "journey")
-    assert isinstance(part, JourneyPart)
-    if not 0 <= params.from_step < params.to_step < len(part.steps):
-        fail("journey_binding", "duration and dropout require an increasing retained step pair")
-    if (
-        isinstance(params, JourneyRead)
-        and params.field == "dropout"
-        and part.policy != "first_per_subject"
-    ):
-        fail("journey_binding", "dropout requires first_per_subject matching")
-    identity = sha256(repr((source.domain.definition_id, params)).encode()).hexdigest()
-    domain = (
-        replace(source.domain, definition_id=identity)
-        if isinstance(params, JourneyCompleted)
-        else source.domain
-    )
-    quantity = (
-        DerivedQuantity(
-            identity,
-            "journey.read@v1",
-            (source.domain.definition_id, part.steps[params.from_step], part.steps[params.to_step]),
-            "us",
-            source.domain.binding.scope_id,
-            "completed_only",
-        )
-        if isinstance(params, JourneyRead) and params.field in ("duration", "observed_duration")
-        else None
-    )
-    return _result(
-        "journey_view@v1",
-        inputs,
-        domain,
-        quantity,
-        tuple(
-            replace(p, complete=False)
-            if isinstance(p, JourneyPart) and isinstance(params, JourneyCompleted)
-            else p
-            for p in source.parts
-        ),
-        pre=(),
-        required=("subject", "journey"),
-        created=(),
-        post=(),
-        obligations=(),
-        eval_id=identity,
-    )
-
-
-def _history_replay(inputs: tuple[Signature, ...], params: HistoryReplay) -> RuleDerivation:
-    from marivo.analysis.core.domain_captures import fail
-    from marivo.analysis.core.model import HistoryPart, validate_part
-
-    binding = _binding(inputs, "r7.history_binding")
-    _output_domain(binding, params.output, "r7.history_binding")
-    if (
-        len(inputs) != 2
-        or inputs[0].domain.kind != "entity"
-        or inputs[1].domain.kind != "occurrence"
-    ):
-        fail(
-            "history_binding",
-            "replay requires the complete Subject domain and captured occurrences",
-        )
-    capture = require_part(inputs[1], "occurrences")
-    subject = require_part(inputs[1], "subject")
-    assert isinstance(capture, OccurrencePart) and isinstance(subject, SubjectPart)
-    if params.output != inputs[0].domain or subject.subject_key != params.output.instance_key:
-        fail("history_binding", "History must preserve every exact input Subject")
-    state = HistoryPart(binding, capture, inputs[1].domain, params.window_start, params.window_end)
-    validate_part(state)
-    return _result(
-        "history_replay@v1",
-        inputs,
-        params.output,
-        None,
-        (state,),
-        pre=(),
-        required=("occurrences", "subject"),
-        created=("history",),
-        post=(),
-        obligations=(),
-        eval_id=inputs[1].domain.definition_id,
-    )

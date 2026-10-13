@@ -20,10 +20,6 @@ from marivo.analysis.core.model import (
     DerivedQuantity,
     DisplayPart,
     FitInputsPart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
-    HistoryViewPart,
     ObservedQuantity,
     PairInputsPart,
     RolledQuantity,
@@ -118,37 +114,6 @@ def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.
             if index == 0
             else f"coord_{index - 1}"
         )
-    funnel = next(
-        (
-            p
-            for p in signature.parts
-            if isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
-        ),
-        None,
-    )
-    if funnel is not None:
-        from marivo.analysis.materialization.funnel_execution import AXIS
-
-        axes = (
-            funnel.axes
-            if isinstance(funnel, FunnelPart)
-            else funnel.current.axes
-            if isinstance(funnel, FunnelComparisonPart)
-            else funnel.comparison.current.axes
-        )
-        names[0] = "resolution_key" if isinstance(funnel, FunnelAllocationPart) else "step"
-        for i, axis in enumerate(axes):
-            key = result.contract.key_fields[i + 1]
-            dtype = pa.int64() if axis.dimension.logical_type == "int64" else pa.string()
-            decoded = pa.array(
-                [AXIS.validate_json(value, strict=True) for value in table[key].to_pylist()],
-                type=dtype,
-            )
-            table = table.set_column(table.schema.get_field_index(key), key, decoded)
-            names[i + 1] = axis.dimension.ref.path
-        if isinstance(funnel, FunnelAllocationPart):
-            names[len(result.contract.key_fields) - 2] = "other_mask_key"
-            names[len(result.contract.key_fields) - 1] = "contribution_kind"
     quantity = signature.quantity
     if (
         isinstance(quantity, DerivedQuantity)
@@ -200,25 +165,7 @@ def interpretation_facts(
             facts.extend(
                 (("absolute_unit", part.absolute.unit or "not declared"), ("relative_unit", "1"))
             )
-        if isinstance(part, HistoryViewPart) and part.request.kind == "distribution":
-            axes = tuple(axis.dimension.ref.path for axis in part.request.axes)
-            pool = ", ".join(("checkpoint", *axes))
-            facts.extend(
-                (
-                    ("row_grain", ", ".join(("checkpoint", "model_state", *axes))),
-                    (
-                        "count_scope",
-                        f"seeded_subject_count and coverage_censored_count: one Subject pool per ({pool}); repeated across model_state rows; do not sum across states",
-                    ),
-                    (
-                        "zero_state_cells",
-                        "Zero known_state_count includes alternate states of seeded Subjects; its row complement is not a NotStarted or censored Subject pool",
-                    ),
-                )
-            )
-        elif isinstance(part, HistoryViewPart) and part.request.kind == "dwell":
-            facts.append(("row_grain", "model_state"))
-        elif isinstance(part, PairInputsPart):
+        if isinstance(part, PairInputsPart):
             facts.extend(
                 (
                     (
@@ -718,27 +665,13 @@ class GraphDataset:
                 [*table.column_names[: len(checked.contract.key_fields)], *params.labels]
             )
             frame: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
-        elif (
-            any(
-                isinstance(p, (DisplayPart, AttributionPart))
-                for p in checked.contract.signature.parts
-            )
-            or (
-                any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
-                and "value" in table.column_names
-                and table.schema.field("value").type == pa.int64()
-                and table["value"].null_count > 0
-            )
-            or (
-                any(
-                    isinstance(p, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart))
-                    for p in checked.contract.signature.parts
-                )
-                and any(
-                    field.type == pa.int64() and table[field.name].null_count > 0
-                    for field in table.schema
-                )
-            )
+        elif any(
+            isinstance(p, (DisplayPart, AttributionPart)) for p in checked.contract.signature.parts
+        ) or (
+            any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
+            and "value" in table.column_names
+            and table.schema.field("value").type == pa.int64()
+            and table["value"].null_count > 0
         ):
             frame = table.to_pandas(types_mapper=pd.ArrowDtype)
         else:
@@ -837,11 +770,6 @@ class GraphDataset:
         boundaries += tuple(
             (name, value) for name, value in disclosure(checked) if name != "retained_reference"
         )
-        precision = (checked.primary.schema.metadata or {}).get(b"r7.precision")
-        if precision is not None and not any(
-            name == "captured_precision" for name, _ in boundaries
-        ):
-            boundaries += (("captured_precision", precision.decode()),)
         for column, (tag_column, reason_column) in cell_columns.items():
             counts: Counter[str] = Counter()
             reasons: Counter[tuple[str, str]] = Counter()

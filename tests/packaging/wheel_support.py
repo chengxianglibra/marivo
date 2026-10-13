@@ -18,15 +18,11 @@ from tests.support.paths import PROJECT_ROOT
 
 PROBE_MODULES = (
     "tests.packaging.boundary_probe",
-    "tests.packaging.interpretation_read_probe",
     "tests.packaging.display_journey",
     "tests.packaging.complete_journeys",
     "tests.packaging.wheel_probe",
     "tests.packaging.source_probe",
     "tests.analysis.statistics.recovery_worker",
-    "tests.analysis.graph.interpretation_worker",
-    "tests.analysis.journey.funnel_public_recovery_worker",
-    "tests.analysis.lifecycle.history_public_recovery_worker",
     "tests.conftest",
     "tests.analysis.graph.test_method_consumers",
     "tests.analysis.graph.test_distribution_consumers",
@@ -35,7 +31,6 @@ PROBE_MODULES = (
     "tests.analysis.materialization.attribution_recovery_worker",
     "tests.analysis.graph.observation_recovery_worker",
     "tests.analysis.graph.test_premise_verification",
-    "tests.analysis.journey.test_native_funnel_recovery",
     "tests.analysis.materialization.test_producer_recovery",
     "tests.analysis.materialization.test_public_refusals",
     "tests.analysis.materialization.test_analysis_state",
@@ -50,7 +45,6 @@ PROBE_MODULES = (
     "tests.datasource.test_source_deadline",
     "tests.analysis.numeric.test_analysis_display",
     "tests.analysis.numeric.test_native_numeric",
-    "tests.analysis.numeric.test_cohort_unknown",
     "tests.analysis.numeric.test_fixed_selection_runtime",
     "tests.analysis.numeric.test_analysis_comparison_runtime",
     "tests.analysis.temporal.test_temporal_public_runtime",
@@ -59,8 +53,6 @@ PROBE_MODULES = (
     "tests.analysis.statistics.test_analysis_statistics_kernel",
     "tests.analysis.statistics.test_composition",
     "tests.analysis.materialization.test_public_schema_drift",
-    "tests.analysis.journey.test_anchor_consumers",
-    "tests.analysis.journey.anchor_components_worker",
 )
 
 

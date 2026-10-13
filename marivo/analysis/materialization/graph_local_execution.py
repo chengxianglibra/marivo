@@ -33,8 +33,6 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import compose, leaves
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorRetention,
     AssociationFit,
     AssociationRead,
     AttachCategory,
@@ -48,17 +46,10 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    FunnelAttribute,
-    FunnelCompare,
-    FunnelRead,
-    FunnelReduce,
-    HistoryRead,
-    HistoryView,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
     ReferenceDerive,
-    RetentionBySubject,
     RowState,
     TimeProduct,
     TimeRunRead,
@@ -651,10 +642,6 @@ def _transport_stage(
         from marivo.analysis.materialization.business_coverage import produce
 
         return produce(method, source, input_binding)
-    if any(p.role == "funnel_state" for p in source.parts):
-        from marivo.analysis.materialization.funnel_execution import transport
-
-        return transport(method, source, input_binding, predicate_sources)
     if params.mode == "cohort":
         return _cohort_stage(method, source, predicate_sources, input_binding)
     keys = source.contract.key_fields
@@ -750,8 +737,6 @@ def _transport_stage(
             "grid_cells",
             "subject_map",
             "finding_policy",
-            "retention",
-            "history_view",
             "fixed_reference",
             "reference_proof",
             "strata",
@@ -1535,8 +1520,7 @@ def _difference_stage(
                 or (
                     duration_ratio
                     and row["cell_tag"] == "unknown"
-                    and row["cell_reason"]
-                    not in ("coverage_censored", "entry_unknown", "insufficient_business_coverage")
+                    and row["cell_reason"] not in ("insufficient_business_coverage",)
                 )
             ):
                 raise _invalid("comparison operand is not a well-formed Cell")
@@ -2403,12 +2387,6 @@ def validate_fixed_schedule(lowered: LoweredPlan) -> None:
                     ReferenceDerive,
                     DisplayRank,
                     DisplayTable,
-                    HistoryView,
-                    HistoryRead,
-                    FunnelReduce,
-                    FunnelCompare,
-                    FunnelRead,
-                    FunnelAttribute,
                 ),
             )
             and not (isinstance(params, PartsTransport) and params.mode == "cohort")
@@ -2525,38 +2503,6 @@ def execute_verified_fixed(
             from marivo.analysis.materialization.deviation_execution import execute as deviation
 
             result = deviation(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, AnchorBind):
-            from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
-
-            result = bind_anchor(stage.stage.node, values[0], binding)
-        elif isinstance(stage.stage.node.parameters, (AnchorRetention, RetentionBySubject)):
-            from marivo.analysis.materialization.retention_execution import execute as retention
-
-            result = retention(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, (HistoryView, HistoryRead)):
-            from marivo.analysis.materialization.history_views import execute as history_view
-
-            result = history_view(stage.stage.node, values, binding)
-        elif isinstance(
-            stage.stage.node.parameters, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)
-        ):
-            from marivo.analysis.materialization.funnel_execution import execute as execute_funnel
-
-            result = execute_funnel(stage.stage.node, values, binding)
-        elif name in ("journey.duration", "journey.completed", "journey.read"):
-            from marivo.analysis.materialization.journey_views import execute as journey_view
-
-            result = journey_view(stage.stage.node, values[0], binding)
-        elif name == "journey.match":
-            from marivo.analysis.materialization.journey_execution import execute as match_journeys
-
-            result = match_journeys(stage.stage.node, values[0], binding)
-        elif name == "occurrence.prepare":
-            from marivo.analysis.materialization.domain_preparation import (
-                fixed as fixed_occurrences,
-            )
-
-            result = fixed_occurrences(stage.stage.node, values[0], binding)
         elif isinstance(stage.stage.node.parameters, AttributionDerive):
             from marivo.analysis.materialization.graph_attribution import fixed
 
@@ -2704,8 +2650,6 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
     primary = cell_rename(
         cell_project(retained, fields).take(pa.array(indices, type=pa.int64())), keys
     )
-    if b"r7.precision" in (source.primary.schema.metadata or {}):
-        primary = primary.replace_schema_metadata(source.primary.schema.metadata)
     part_table = primary
     for key, name in zip(keys, fields, strict=True):
         part_table = part_table.append_column(name, primary[key])
@@ -2999,17 +2943,6 @@ def _cohort_stage(
         for item in (grid.cells if grid is not None else (None,))
     }
     subject_map: dict[tuple[object, ...], tuple[object, ...]] = {}
-    if params.opportunity_domain.kind == "journey":
-        retained_subject = next(p.table for p in inputs[0].parts if p.role == "subject")
-        subject_map = {
-            tuple(row[k] for k in opportunity_keys): tuple(
-                row[f"subject__key_{i}"] for i in range(len(keys))
-            )
-            for row in retained_subject.to_pylist()
-        }
-        if not set(subject_map.values()) <= expected:
-            raise _invalid("Journey subjects escape the target population")
-        expected = set(subject_map)
     indexed: list[dict[tuple[object, ...], dict[str, object]]] = [{}] + [
         _index_rows(numeric_primary(item.primary), opportunity_keys) for item in inputs
     ]
@@ -3059,11 +2992,7 @@ def _cohort_stage(
                 "cohort_decision__unknown_count": u,
                 "cohort_decision__false_count": f,
                 "cohort_decision__accepted": accepted,
-                **(
-                    {"cohort_decision__opportunity_count": t + u + f}
-                    if params.opportunity_domain.kind == "journey"
-                    else {}
-                ),
+                **{},
             }
         )
     mask = pa.array(kept, type=pa.bool_())
@@ -3080,11 +3009,7 @@ def _cohort_stage(
             pa.field("cohort_decision__unknown_count", pa.int64()),
             pa.field("cohort_decision__false_count", pa.int64()),
             pa.field("cohort_decision__accepted", pa.bool_()),
-            *(
-                [pa.field("cohort_decision__opportunity_count", pa.int64())]
-                if params.opportunity_domain.kind == "journey"
-                else []
-            ),
+            *[],
         ]
     )
     parts = (
@@ -3144,14 +3069,14 @@ def _duration_mean(
         for cell in _cells(source):
             check()
             if not isinstance(cell, Defined) or type(cell.value) is not int:
-                raise _invalid("Duration mean requires Defined ticks; use completed().duration")
+                raise _invalid("Duration mean requires Defined ticks; select defined observations")
             assert isinstance(cell.value, int)
             values.append(cell.value)
         total, support = sum(values), len(values)
     if not -(2**63) <= total < 2**63:
         raise _invalid("Duration sum exceeds int64 ticks")
     value = round(Fraction(total, support)) if support else None
-    tag, reason = ("defined", None) if support else ("undefined", "empty_completed_set")
+    tag, reason = ("defined", None) if support else ("undefined", "empty_mean")
     primary_schema = compact_schema(
         pa.schema(
             (
@@ -3160,7 +3085,7 @@ def _duration_mean(
                 ("cell_reason", pa.string()),
             )
         ),
-        (("undefined", ("empty_completed_set",)),),
+        (("undefined", ("empty_mean",)),),
     )
     primary = from_rows(({"value": value, "cell_tag": tag, "cell_reason": reason},), primary_schema)
     retained = pa.table(
@@ -3185,7 +3110,7 @@ def _duration_mean(
         primary.schema,
         (),
         (PartContract("row_state", retained.schema, ()),),
-        (("undefined", ("empty_completed_set",)),),
+        (("undefined", ("empty_mean",)),),
         "row_mean",
         state.schema,
         checks,

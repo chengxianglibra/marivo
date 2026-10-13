@@ -76,11 +76,7 @@ def difference_matches(
             reason = endpoint.get(side + "_endpoint__cell_reason")
             operand = endpoint.get(side + "_endpoint__value")
             if tag == "unknown":
-                if operand is not None or reason not in (
-                    "coverage_censored",
-                    "entry_unknown",
-                    "insufficient_business_coverage",
-                ):
+                if operand is not None or reason not in ("insufficient_business_coverage",):
                     return False
                 if unknown_reason is None:
                     unknown_reason = reason
@@ -511,7 +507,7 @@ def state_matches(
                 total == 0
                 and value is None
                 and primary.get("cell_tag") == "undefined"
-                and primary.get("cell_reason") == "empty_completed_set"
+                and primary.get("cell_reason") == "empty_mean"
                 and bound == 0.0
             )
         return (

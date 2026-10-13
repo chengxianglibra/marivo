@@ -18,22 +18,13 @@ from marivo.analysis.core.model import (
     ConditionCellsPart,
     CoveragePart,
     FitInputsPart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
-    HistoryViewPart,
-    InstanceRetentionPart,
     Obligation,
     PairInputsPart,
     RunCellsPart,
-    SubjectRetentionPart,
     TrainingInputsPart,
     reject,
 )
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorObserve,
-    AnchorRetention,
     AssociationFit,
     AssociationRead,
     AttachCategory,
@@ -47,24 +38,10 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    FunnelAttribute,
-    FunnelAxesPrepare,
-    FunnelCompare,
-    FunnelRead,
-    FunnelReduce,
-    HistoryAxesPrepare,
-    HistoryRead,
-    HistoryReplay,
-    HistoryView,
-    JourneyCompleted,
-    JourneyDuration,
-    JourneyMatch,
-    JourneyRead,
     MapCorrespond,
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
-    RetentionBySubject,
     RowState,
     TimeProduct,
     TimeRunRead,
@@ -399,20 +376,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                         DeviationFit,
                         DeviationRead,
                         TimeProduct,
-                        AnchorRetention,
-                        RetentionBySubject,
-                        AnchorBind,
-                        AnchorObserve,
                         PreparedObservation,
-                        HistoryView,
-                        HistoryRead,
-                        JourneyDuration,
-                        JourneyCompleted,
-                        JourneyRead,
-                        FunnelReduce,
-                        FunnelCompare,
-                        FunnelRead,
-                        FunnelAttribute,
                     ),
                 )
                 and not (
@@ -430,16 +394,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                         )
                     )
                 )
-                and not (
-                    isinstance(node.parameters, PartsTransport)
-                    and node.parameters.mode == "cohort"
-                    and node.parameters.opportunity_domain is not None
-                    and node.parameters.opportunity_domain.kind == "journey"
-                )
-                and not (
-                    node.inputs[0].node.signature.domain.kind in ("journey", "interval", "anchor")
-                    and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
-                )
                 and not any(
                     isinstance(
                         p,
@@ -449,9 +403,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                             PairInputsPart,
                             TrainingInputsPart,
                             FitInputsPart,
-                            HistoryViewPart,
-                            InstanceRetentionPart,
-                            SubjectRetentionPart,
                         ),
                     )
                     for e in node.inputs
@@ -475,10 +426,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                             "attribution.component_mix",
                             "display.rank",
                             "display.table",
-                            "funnel.reduce",
-                            "funnel.compare",
-                            "funnel.read",
-                            "funnel_ratio_mix",
                         )
                     )
                     for edge in node.inputs
@@ -505,12 +452,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             implementation = selected.implementation
             inputs = tuple(outputs[e.node.identity] for e in node.inputs) + tuple(
                 outputs[s.identity] for s in node.sources
-            )
-            subject_image = (
-                isinstance(node.parameters, MapCorrespond)
-                and node.parameters.mode == "subjects"
-                and node.inputs[0].node.signature.domain.kind
-                in ("occurrence", "journey", "interval", "anchor")
             )
             local_consumer = (
                 prepared_consumer
@@ -550,19 +491,8 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                     and isinstance(node.inputs[0].node, MethodNode)
                     and isinstance(node.inputs[0].node.parameters, PreparedObservation)
                 )
-                or (isinstance(node.parameters, AnchorRetention) and route != "ibis")
-                or isinstance(node.parameters, RetentionBySubject)
-                or (isinstance(node.parameters, AnchorBind) and route != "ibis")
                 or (
-                    isinstance(node.parameters, PartsTransport)
-                    and node.parameters.mode == "cohort"
-                    and node.parameters.opportunity_domain is not None
-                    and node.parameters.opportunity_domain.kind == "journey"
-                )
-                or subject_image
-                or (
-                    not isinstance(node.parameters, HistoryAxesPrepare)
-                    and any(
+                    any(
                         isinstance(
                             p,
                             (
@@ -571,12 +501,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                                 PairInputsPart,
                                 TrainingInputsPart,
                                 FitInputsPart,
-                                FunnelPart,
-                                FunnelComparisonPart,
-                                FunnelAllocationPart,
-                                InstanceRetentionPart,
-                                SubjectRetentionPart,
-                                HistoryViewPart,
                             ),
                         )
                         for e in node.inputs
@@ -596,27 +520,11 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                         TimeRunRead,
                         DeviationFit,
                         DeviationRead,
-                        HistoryReplay,
-                        JourneyMatch,
-                        HistoryView,
-                        HistoryRead,
-                        JourneyDuration,
-                        JourneyCompleted,
-                        JourneyRead,
-                        FunnelReduce,
-                        FunnelCompare,
-                        FunnelRead,
-                        FunnelAttribute,
                     ),
-                )
-                or (
-                    node.inputs[0].node.signature.domain.kind in ("journey", "interval", "anchor")
-                    and isinstance(node.parameters, (PartsTransport, RowState))
                 )
             )
             prepared_observation = (
-                isinstance(node.parameters, (PreparedObservation, AnchorObserve))
-                and route != "ibis"
+                isinstance(node.parameters, (PreparedObservation,)) and route != "ibis"
             )
             if prepared_observation and node.inputs[1].node.identity in local:
                 _refuse(
@@ -667,10 +575,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                 or not any(prior.obligation == obligation for prior in checks)
             )
         outputs[node.identity] = output
-    if any(
-        isinstance(node.parameters, (PreparedObservation, AnchorObserve, FunnelAxesPrepare))
-        for node in methods
-    ):
+    if any(isinstance(node.parameters, (PreparedObservation,)) for node in methods):
         stages = [
             *(stage for stage in stages if not isinstance(stage, LocalMethodStage)),
             *(stage for stage in stages if isinstance(stage, LocalMethodStage)),

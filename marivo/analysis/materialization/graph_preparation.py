@@ -6,9 +6,8 @@ import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime
 
-import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pyarrow as pa
@@ -29,22 +28,13 @@ from marivo.analysis.core.model import (
     CoordinateStatePart,
     CoveragePart,
     FitInputsPart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
-    HistoryViewPart,
-    InstanceRetentionPart,
     OriginalStatePart,
     PairInputsPart,
     RunCellsPart,
     SubjectPart,
-    SubjectRetentionPart,
     TrainingInputsPart,
 )
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorObserve,
-    AnchorRetention,
     AssociationFit,
     AssociationRead,
     AttributionDerive,
@@ -57,34 +47,17 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    FunnelAttribute,
-    FunnelAxesPrepare,
-    FunnelCompare,
-    FunnelRead,
-    FunnelReduce,
-    HistoryAxesPrepare,
-    HistoryRead,
-    HistoryReplay,
-    HistoryView,
-    JourneyCompleted,
-    JourneyDuration,
-    JourneyMatch,
-    JourneyRead,
     MapCorrespond,
     ObserveCount,
-    OccurrencePrepare,
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
-    RetentionBySubject,
     RowState,
     TimeProduct,
     TimeRunRead,
     TimeRuns,
 )
-from marivo.analysis.domains.completeness import EventCoverageRequestV1
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.materialization.domain_preparation import validate_rows
 from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -93,90 +66,9 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.consumer_rules import prepared_numeric
-from marivo.analysis.methods.domain_coverage import FACTS, coverage
-from marivo.analysis.methods.physical import TimeShape, arrow_scalar_type
+from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.prepared_observation import Restriction, restrict, state
 from marivo.datasource.adapters import SourceSession
-from marivo.refs import ref
-
-
-def _metadata(
-    params: OccurrencePrepare, lowered: LoweredPlan, source: SourceSession
-) -> dict[bytes, bytes]:
-    from ibis.backends.duckdb import Backend
-
-    receipts = []
-    if source._domain_coverage_provider is not None:
-        if not isinstance(source._backend, Backend):
-            fail(
-                "physical_qualification",
-                "coverage provider needs the captured DuckDB connection",
-                stage="prepare",
-            )
-        for event in params.events:
-            check()
-            request = EventCoverageRequestV1(
-                event_ref=event.ref,
-                event_fingerprint=event.fingerprint,
-                source_entity_ref=event.source.ref.path,
-                source_origin_ref=ref.datasource(event.source.datasource_ref.path),
-                occurred_at_ref=event.occurred_at.ref.path,
-                required_from=datetime.fromisoformat(params.start)
-                if params.start is not None
-                else datetime.min.replace(tzinfo=timezone.utc),
-                required_through=datetime.fromisoformat(params.end),
-                source_binding_fingerprint=event.source.dependency_fingerprint,
-                execution_domain_id=params.output.definition_id,
-            )
-            receipt = source._domain_coverage_provider(source._backend, request)
-            if receipt is not None:
-                if (
-                    source.domain_authority is None
-                    or receipt.source_revision != source.domain_authority["digest"]
-                ):
-                    fail(
-                        "coverage_binding",
-                        "observed coverage is not bound to this input capture authority",
-                        stage="prepare",
-                    )
-                receipts.append(receipt)
-    precision = []
-    for event in params.events:
-        bound = next(
-            binding for binding in lowered.bindings if binding.leaf.identity == event.source_id
-        )
-        shape = bound.leaf.definition.shape.time
-        assert isinstance(shape, TimeShape)
-        physical = bound.source.relation[event.occurred_at.source_column].type()
-        native_unit = (
-            "ns"
-            if isinstance(physical, dt.Timestamp)
-            and physical.scale is not None
-            and physical.scale > 6
-            else "us"
-        )
-        unit = source.domain_time_units.get(
-            (event.source_id, event.occurred_at.source_column), native_unit
-        )
-        possible_loss = shape.unit == "ns" or unit == "ns"
-        precision.append(
-            {
-                "event": event.ref.path,
-                "declared_unit": shape.unit,
-                "source_unit": unit,
-                "effective_unit": "us",
-                "conversion": "native_driver_datetime",
-                "possible_loss": possible_loss,
-                "behavior": "possibly lossy native conversion; qualified naive timestamp_ns cast truncates toward zero; source/aware conversion may occur earlier"
-                if possible_loss
-                else "native microsecond carrier; no finer declared unit",
-            }
-        )
-    return {
-        b"r7.capture_authority": json.dumps(source.domain_authority, sort_keys=True).encode(),
-        b"r7.precision": json.dumps(precision, sort_keys=True).encode(),
-        b"r7.coverage": FACTS.dump_json(coverage(params, tuple(receipts))),
-    }
 
 
 def _observation(
@@ -443,23 +335,7 @@ def _execute(
                     DeviationFit,
                     DeviationRead,
                     TimeProduct,
-                    AnchorRetention,
-                    RetentionBySubject,
-                    AnchorBind,
-                    AnchorObserve,
                     PreparedObservation,
-                    HistoryReplay,
-                    HistoryView,
-                    HistoryRead,
-                    HistoryAxesPrepare,
-                    JourneyMatch,
-                    JourneyDuration,
-                    JourneyCompleted,
-                    JourneyRead,
-                    FunnelReduce,
-                    FunnelCompare,
-                    FunnelRead,
-                    FunnelAttribute,
                 ),
             )
             or (
@@ -501,12 +377,6 @@ def _execute(
                         FitInputsPart,
                         PairInputsPart,
                         TrainingInputsPart,
-                        InstanceRetentionPart,
-                        SubjectRetentionPart,
-                        FunnelPart,
-                        FunnelComparisonPart,
-                        FunnelAllocationPart,
-                        HistoryViewPart,
                     ),
                 )
                 for e in item.stage.node.inputs
@@ -523,21 +393,17 @@ def _execute(
                 )
             )
             or (
-                isinstance(item.stage.node.parameters, PartsTransport)
-                and item.stage.node.parameters.mode == "cohort"
-                and item.stage.node.parameters.opportunity_domain is not None
-                and item.stage.node.parameters.opportunity_domain.kind == "journey"
-            )
-            or (
-                item.stage.node.inputs[0].node.signature.domain.kind
-                in ("journey", "interval", "anchor")
+                item.stage.node.inputs[0].node.signature.domain.kind in ("interval",)
                 and isinstance(item.stage.node.parameters, (PartsTransport, RowState))
             )
             or (
                 isinstance(item.stage.node.parameters, MapCorrespond)
                 and item.stage.node.parameters.mode == "subjects"
                 and item.stage.node.inputs[0].node.signature.domain.kind
-                in ("occurrence", "journey", "interval", "anchor")
+                in (
+                    "occurrence",
+                    "interval",
+                )
             )
         )
         for item in locals_
@@ -560,11 +426,6 @@ def _execute(
         if isinstance(item.stage.node.parameters, PreparedObservation)
     }
     local_source_inputs = {key for item in locals_ for key in item.stage.inputs if key in relations}
-    anchor_candidate_outputs = {
-        item.stage.inputs[1]
-        for item in locals_
-        if isinstance(item.stage.node.parameters, AnchorObserve)
-    }
     # Complete all source reads before the first local consumer.
     for stage in relations.values():
         check()
@@ -572,16 +433,7 @@ def _execute(
         if (
             not isinstance(
                 params,
-                (
-                    AnchorRetention,
-                    RetentionBySubject,
-                    AnchorBind,
-                    AnchorObserve,
-                    OccurrencePrepare,
-                    PreparedObservation,
-                    FunnelAxesPrepare,
-                    HistoryAxesPrepare,
-                ),
+                (PreparedObservation,),
             )
             and stage.node.identity not in originals
             and stage.output not in local_source_inputs
@@ -614,41 +466,7 @@ def _execute(
             staged = source.stage_calculated(issued, table)
             lookup_relations.append(staged)
             replacements[stage.expression.op()] = staged.op()
-        if isinstance(params, (FunnelAxesPrepare, AnchorObserve)) and stage.part_expressions:
-            pools: list[pa.Table] = []
-            for _, expression in stage.part_expressions:
-                check()
-                pools.append(
-                    table
-                    if expression is stage.expression
-                    else _read(
-                        source,
-                        lowered,
-                        expression,
-                        purpose="analysis.domain.prepare",
-                        replacements=replacements,
-                        keys=(),
-                        validate_cells=False,
-                    )
-                )
-            if isinstance(params, FunnelAxesPrepare):
-                from marivo.analysis.materialization.funnel_execution import assemble_axes
-
-                table = assemble_axes(table, tuple(pools))
-            else:
-                table = pa.Table.from_arrays(
-                    [
-                        pa.array([cell_rows(pool)], type=pa.list_(pa.struct(pool.schema)))
-                        for pool in pools
-                    ],
-                    names=[role for role, _ in stage.part_expressions],
-                )
-        if isinstance(params, HistoryAxesPrepare):
-            assert isinstance(stage.node, MethodNode)
-            from marivo.analysis.materialization.history_views import (
-                axes_result as history_axes_result,
-            )
-
+        if isinstance(params, PreparedObservation):
             table = table.replace_schema_metadata(
                 {
                     b"r7.capture_authority": json.dumps(
@@ -656,77 +474,9 @@ def _execute(
                     ).encode()
                 }
             )
-            results[stage.output] = history_axes_result(stage.node, table, stage.node.identity)
-        elif isinstance(params, FunnelAxesPrepare):
-            assert isinstance(stage.node, MethodNode)
-            from marivo.analysis.materialization.funnel_execution import axes_result
-
-            table = table.replace_schema_metadata(
-                {
-                    b"r7.capture_authority": json.dumps(
-                        source.domain_authority, sort_keys=True
-                    ).encode()
-                }
-            )
-            results[stage.output] = axes_result(stage.node, table, stage.node.identity)
-        elif isinstance(params, OccurrencePrepare):
-            validate_rows(params, table)
-            table = table.replace_schema_metadata(
-                {**(table.schema.metadata or {}), **_metadata(params, lowered, source)}
-            )
-            results[stage.output] = _result(stage, table, (), (), retained_parts)
-        elif isinstance(params, PreparedObservation):
-            table = table.replace_schema_metadata(
-                {
-                    b"r7.capture_authority": json.dumps(
-                        source.domain_authority, sort_keys=True
-                    ).encode()
-                }
-            )
-        elif isinstance(params, (AnchorBind, AnchorObserve)):
-            from marivo.analysis.core.model import (
-                AnchorDomainPart,
-                AnchorObservationPart,
-                require_part,
-            )
-
-            declaration = require_part(stage.node.signature, "anchor")
-            domain = (
-                declaration.domain
-                if isinstance(declaration, AnchorObservationPart)
-                else declaration
-            )
-            assert isinstance(domain, AnchorDomainPart)
-            capture = next(
-                (
-                    result
-                    for result in results.values()
-                    if any(
-                        getattr(part, "preparation_id", None) == domain.preparation.preparation_id
-                        for part in result.contract.signature.parts
-                    )
-                ),
-                None,
-            )
-            if capture is not None:
-                table = table.replace_schema_metadata(
-                    {**(capture.primary.schema.metadata or {}), **(table.schema.metadata or {})}
-                )
-        if isinstance(params, AnchorRetention):
-            from marivo.analysis.materialization.retention_execution import native_result
-
-            assert isinstance(stage.node, MethodNode)
-            input_id = stage.node.inputs[1].node.identity
-            native_capture = next(
-                result
-                for output, result in results.items()
-                if relations[output].node.identity == input_id
-            )
-            results[stage.output] = native_result(stage.node, table, native_capture)
         if (
             isinstance(stage.node, MethodNode)
             and not isinstance(params, PreparedObservation)
-            and stage.output not in anchor_candidate_outputs
             and stage.output not in results
         ):
             results[stage.output] = _result(stage, table, (), (), retained_parts)
@@ -760,82 +510,7 @@ def _execute(
                     stage="consume",
                 )
             completed.append(CompletedCheck(requirement, prior.result_digest))
-        if isinstance(params, AnchorBind):
-            from marivo.analysis.core.model import AnchorDomainPart, require_part
-            from marivo.analysis.materialization.anchor_execution import bind as bind_anchor
-
-            anchor_part = require_part(item.stage.node.signature, "anchor")
-            assert isinstance(anchor_part, AnchorDomainPart)
-            captured = next(
-                (
-                    result
-                    for result in results.values()
-                    if any(
-                        getattr(part, "preparation_id", None)
-                        == anchor_part.preparation.preparation_id
-                        for part in result.contract.signature.parts
-                    )
-                ),
-                None,
-            )
-            results[item.stage.output] = bind_anchor(
-                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity, captured
-            )
-        elif isinstance(params, (AnchorRetention, RetentionBySubject)):
-            from marivo.analysis.materialization.retention_execution import execute as retention
-
-            results[item.stage.output] = retention(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, AnchorObserve):
-            from marivo.analysis.materialization.anchor_execution import observe as observe_anchor
-
-            candidates = tables[item.stage.inputs[1]]
-            results[item.stage.output] = observe_anchor(
-                item.stage.node,
-                results[item.stage.inputs[0]],
-                candidates,
-                item.stage.node.identity,
-            )
-        elif isinstance(params, (HistoryView, HistoryRead)):
-            from marivo.analysis.materialization.history_views import execute as history_view
-
-            results[item.stage.output] = history_view(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, (FunnelReduce, FunnelCompare, FunnelRead, FunnelAttribute)):
-            from marivo.analysis.materialization.funnel_execution import execute as execute_funnel
-
-            results[item.stage.output] = execute_funnel(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, (JourneyDuration, JourneyCompleted, JourneyRead)):
-            from marivo.analysis.materialization.journey_views import execute as journey_view
-
-            results[item.stage.output] = journey_view(
-                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
-            )
-        elif isinstance(params, HistoryReplay):
-            from marivo.analysis.materialization.history_execution import execute as replay_history
-
-            results[item.stage.output] = replay_history(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, JourneyMatch):
-            from marivo.analysis.materialization.journey_execution import execute as match_journeys
-
-            results[item.stage.output] = match_journeys(
-                item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
-            )
-        elif isinstance(params, (DisplayRank, DisplayTable)):
+        if isinstance(params, (DisplayRank, DisplayTable)):
             from marivo.analysis.materialization.graph_display import fixed
 
             result = fixed(

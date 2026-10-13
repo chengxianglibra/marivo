@@ -9,8 +9,8 @@ execution, publication and Store 9 recovery.
 ## Results and continuations
 
 The current families are AnalysisDomain; Category/Boolean/Temporal/Numeric/Ratio/
-Difference/Statistic/Coefficient relations; and Ranking, Attribution, Journey,
-History, Funnel, Anchor, Retention, Deviation, TimeRun, Association and Forecast
+Difference/Statistic/Coefficient relations; and Ranking, Attribution,
+Deviation, TimeRun, Association and Forecast
 results. Each admitted shape has concrete Logical/Materialized variants.
 Unsuffixed family names here are prose, not additional exported constructors.
 
@@ -38,8 +38,7 @@ family-wide method list or a permission to reconstruct lost state.
 
 BindProject, MapCorrespond, CellDerive, RowState, OriginalReduce and PartsTransport
 are the shared meta-rule families. Concrete methods have their own versioned
-identity and are derived through the single MethodRegistry. Specialized matching,
-replay, allocation and statistical rules retain their own algorithmic owners.
+identity and are derived through the single MethodRegistry. Specialized allocation and statistical rules retain their own algorithmic owners.
 
 Current-row `aggregate` constructs a new RowStatistic quantity over represented
 rows. Original `rollup` merges the retained Metric components and finishes under
@@ -529,273 +528,6 @@ subdomain completeness, even if selected contributions happen to sum to D.
 No shared helper, legacy registration or residual grants distinct_membership,
 distribution_shapley or a second attribution executor public qualification.
 
-## Domain methods
-
-### Ordering, matching and reach
-
-Occurrence preparation binds declared complete identity/version grain, exact
-Event/participant definitions, physical time precision and source authority.
-Declared key uniqueness, version nonoverlap and source parsing are trusted
-premises, not automatically repeated source-health queries. Actual matching,
-ordered-event and consumed-input requirements retain their method-owned checks. Time separates different instants. Integer/enum sequence is validated
-for all captured occurrences of a Subject, including uniqueness across the
-Events covered by that order authority; bool/unknown enum/duplicate sequence or
-contradicted precedence rejects. A deterministic typed-key enumeration does not
-resolve business order.
-
-The only methods admitting a remaining simultaneous partial order are:
-
-| Closed case | Invariant retained output and independent discriminator |
-| --- | --- |
-| preparation and Event-role Anchor binding | all exact occurrence/Anchor rows as sets; canonical typed-key display order only; shuffled input preserves every binding |
-| one-step every_start matching | one assignment per distinct start, identical reach=true and Subject map under either final-sharing policy; first_per_subject is excluded |
-| replay of a tied group strictly after an already known terminal state | every occurrence remains its own transition_from_terminal violation with the same terminal state; no legal transition or interval change; retain complete occurrence identities and compare shuffled traces as canonical sets |
-
-Every other consumed ambiguous group requires sequence/precedence sufficient
-for a unique relevant order. Equal final states are insufficient when assignment,
-transition, interval, violation, classification or continuation parts differ.
-The rules above are local proofs for these closed cases, not permission to
-enumerate permutations or use a general confluence callback. Ties across
-irrelevant Events not in the request are not read. Actual ambiguity is an
-execution error before publication, with an exact business_order repair.
-
-Matching starts in the half-open cohort_window, follows up strictly before
-completion_through, and uses the earliest qualified occurrence after the
-previous assigned step. first_per_subject selects one earliest qualified start;
-every_start creates one Journey per start. Repeated Event refs share one input
-capture. One occurrence never fills two distinct steps; missing intermediate
-steps cannot be skipped. Intermediate occurrences may be reused across attempts.
-Shared final assignment may finish several attempts; exclusive final assignment
-reserves each final occurrence for the earliest qualified unfinished attempt.
-Final reservation never forbids intermediate reuse. The one-step case assigns
-the start once, without creating another final-event consumption. Subjects with
-no start produce no synthetic failure Journey.
-
-Reach is a Boolean Cell at every exact step of every Journey. True is an
-assignment, False is a proved unreachable/absent step, Unknown is insufficient
-coverage. Earlier Unknown cannot become False merely because a later Event has
-broader coverage. Proved earlier failure makes later steps unreachable. Absence
-uses exact attempt interval and Event/source/version coverage, not whole-input
-max time, empty rows or a count. Damaged/contradicted claims are errors rather
-than Unknown. All checks consume the same captured input used by matching.
-
-### Duration, dropout and Subject image
-
-The closed duration statuses are complete, incomplete, coverage_censored,
-not_entered and entry_unknown. Complete owns both assigned endpoints and elapsed
-duration. Incomplete owns a known entered start and proved follow-up through the
-exclusive bound. Coverage-censored owns entered start and the known follow-up
-prefix. Not-entered has proved absence of the from-step; entry-unknown lacks that
-fact. Noncomplete duration is Undefined(not_completed); absent/unknown entry
-timestamps retain their corresponding Cell reason, never a shared physical NULL.
-observed_duration is the elapsed known follow-up interval for entered rows, capped
-at completion if completed; it never uses the last observed Event as follow-up.
-No entered-but-unknown negative interval is manufactured.
-
-Duration tick unit is the exact admitted occurrence/boundary unit s/ms/us/ns.
-All consumed endpoints must share that unit or be exactly representable in it;
-no truncation or implicit cross-unit arithmetic is admitted. Native timestamp us
-and each Parquet timestamp unit have separate qualifications. Tick subtraction
-and published states are checked int64; exact intermediates never use float.
-Mean is exact sum(ticks)/count. For sorted ticks x and quantile p, linear
-interpolation uses h=(n-1)*p, floor/ceil neighbors and exact Fraction arithmetic;
-median has p=1/2 and p90 p=9/10. Each finish rounds once to nearest-even ticks,
-preserving unit and disclosing absolute rounding error <= 1/2 tick. Empty
-completed sets yield Undefined(empty_completed_set), not Null/zero. Overflow or
-nonfinite/invalid time input rejects. Published sum state must itself fit int64.
-
-The admitted current-row Duration reducer here is row.mean for a bound
-Duration NumericRelation, with exact tick sum/count state and the above finish.
-Fixed Journey status, timestamp and microsecond Duration fields support current-row
-`count` and `count_defined`; grouping by the retained Subject coordinate counts
-Journey rows within each complete Subject key.
-Journey status and temporal-field selection preserve values and Cell tags/reasons
-through repeated `where` and fixed recovery; they do not become key-only domains.
-This includes CompletedJourneys.duration and intervals().observed_duration;
-it does not activate Decimal reducers, generic Duration sum/min/max/quantile or
-weighted mean. Dwell median/p90 belong to dwell's domain method only. The Journey
-10/30/100 seconds oracle is 140/3 seconds before tick finish; the mean of the two
-Subject means is 60 seconds and is a different quantity.
-
-Dropout before a noninitial exact step is True only for known started and
-resolved absence/unreachability before that step, False for known reach, Unknown
-for unresolved follow-up. It remains first_per_subject only. SubjectBinding is
-total/single-valued on its exact Journey/Interval/Anchor/violation domain;
-selection transports it, and members takes a set image without reads. This
-does not replace Journey opportunity multiplicity with Subject counts.
-Every-start opportunity quantification uses existing full-opportunity cohort
-methods with their exact three empty policies; no implicit subject funnel or
-select_subjects alias is introduced.
-
-### Funnel, period comparison and ratio-mix allocation
-
-Funnel counts exact int64 components over the same canonical assignment. At each
-step cohort_count is all starts, resolved_cohort_count is known current reach,
-entry_count is known reach of the previous step (all starts for the initial
-step), resolved_entry_count is entered rows with resolved current reach,
-reached_count is True, lost_count is entered False and coverage_censored_count
-is entered Unknown. For noninitial steps resolved_entry=reached+lost and
-entry=resolved_entry+coverage_censored. Conversion-from-first finishes
-reached/resolved_cohort; conversion-from-previous finishes reached/resolved_entry;
-loss-rate finishes lost/resolved_entry. Initial conversions use the known start
-cohort; initial loss is Undefined(initial_step). Zero denominators are
-Undefined(zero_denominator), including a legal empty ungrouped dense funnel.
-Axes bind historical Dimension values at the first assigned occurrence;
-complete actual tuples including real null are retained, without Cartesian
-invented groups. Group components must reproduce the ungrouped target exactly.
-
-Funnel-period comparison binds identical pattern/matching/Subject, the same
-explicit population realization/definition, exact Event and axis definitions,
-compatible time authority, equal start-window elapsed length and equal
-post-window follow-up length. Relevant follow-up must be complete. Outer pairing
-uses full step/axis keys; an absent side gets count zero only with complete
-domain evidence of group absence. Rates retain Undefined at zero denominator.
-MissingCoordinate remains distinct from an existing non-Defined rate. Ordinary
-NumericRelation.compare gains none of these domain-specific zero rules.
-
-funnel_ratio_mix@v1 binds one noninitial exact step. Let Ec/Eb be positive total
-resolved-entry counts, and Li,c/Li,b the per-basis lost counts:
-
-```text
-target = Lc/Ec - Lb/Eb
-loss contribution_i = (Li,c - Li,b)/Ec
-loss side(current, baseline)_i = (Li,c/Ec, Li,b/Ec)
-denominator_mix contribution_i = Li,b * (1/Ec - 1/Eb)
-denominator_mix side(current, baseline)_i = (0, -Li,b * (1/Ec - 1/Eb))
-```
-
-Combined sides reproduce the current/baseline overall rates; each contribution
-is its own current-minus-baseline side term. These are allocated terms, not
-actual subgroup rates. Exact count/Fraction state persists until one finite
-float64 finish; zero denominator, missing partition or contradictory components
-reject independently of residual. Each finite finish obeys the rational
-precision bound; reconciliation additionally uses the existing threshold
-max(1e-12, 1e-9*max(abs(expected), abs(actual), 1)), never as a precision substitute.
-Every joint/hierarchy resolution reproduces both sides and the target separately.
-
-Common Top-K uses current+baseline resolved-entry count, checked exactly, within
-each authored axis prefix; ties use the full canonical typed coordinate key.
-Mapping is shared across sides and loss/mix terms. Real null, real "Other" and
-typed Other with active/other masks stay distinct. Hierarchy preserves every
-ordered prefix. Contribution rank uses abs(contribution), then resolution/full
-typed key/kind; zero overall delta retains valid contributions, with
-Undefined(zero_total_delta) total shares and separate empty positive/negative
-pool reasons, Undefined(empty_positive_pool) and Undefined(empty_negative_pool).
-The allocation exchange declares all three reasons before compact Cell encoding.
-Views filtered later retain original reconciliation scope and
-revoke selected-domain complete-partition claims. Logical missing axes become
-explicit same-assignment expansion dependencies; fixed missing axes/components
-reject rather than reading lineage/current Semantic.
-
-### Replay, History views and retained truth
-
-`session.lifecycle.replay(model, population=members, window=window,
-seed=from_inception(), completeness=())` and the paired LogicalHistoryResult /
-MaterializedHistoryResult. Population is a required logical same-Session Subject
-domain; the model is an exact Ref and owns business order. Catalog entries, fixed
-membership, legacy PopulationInput and call-level order overrides reject before
-business reads or Run allocation. The graph explicitly consumes both complete
-members and occurrence preparation. Construction and planning read no business rows.
-
-Every distinct modeled Event is captured once. Source preparation completes before
-registered local replay consumes the captured inputs under the shared 600-second
-deadline. Only a tied group reached after a proved terminal prefix can be retained
-as a set, with invariant per-occurrence state and violation identities. Other ties
-require unique business order; IDs and physical/declaration order cannot resolve them.
-
-The closed HistoryPart@v1 is keyed by the complete Subject key, including empty
-lists for no-event/no-interval Subjects. It retains all trigger evaluations,
-pre-inception dispositions, legal/self/zero-duration transition trace, violations,
-raw/clipped interval boundaries, exact observed ticks and known-prefix coverage.
-Arrow/Parquet publication and recovery reproduce these projections from the saved
-trace without replaying origin or connecting to source/current Semantic. Violations
-use the existing zero-Findings policy. Precision follows the temporal capture contract
-and retained loss disclosure. There are no replay row, memory or tie-width quotas.
-
-History exposes the six views and Duration/Subject observation rules below
-on the unified local graph path. Logical and materialized History both return
-Logical views; materialized receivers retain fixed leaves. Dwell Duration summary
-fields cannot be pooled with aggregate or rollup. Current-row mean is admitted on
-interval observed_duration and retains exact sum/count for fixed merging.
-History field reads decode Cell state and reason through the field's frozen Cell
-binding, preserving Unknown and Undefined even when physical tag/reason columns
-are absent. Non-Cell fields such as counts remain Defined.
-
-Replay starts at real inception, which may precede the report window; only
-source-origin authority proves its absence. A complete origin history with a
-modeled trigger but no required inception fails atomically. Complete origin
-with no modeled trigger is NotStarted and creates no initial-state interval;
-insufficient origin is Unknown. Pre-inception observed triggers remain captured
-with pre_inception disposition and cannot establish/advance state. They are not
-legal transitions or post-inception illegal-transition assertions.
-Without origin authority, even an observed inception has unknown_origin disposition
-with no state, inception, interval or legal/violation assertion. Beyond the proved
-prefix, nonterminal follow-up has unknown_followup disposition and preserves the
-known prefix without inventing transitions. A terminal state reached inside the
-proved prefix remains absorbing, so later invariant terminal violations can still
-be retained as a set despite incomplete follow-up. Coverage remains censored.
-After known inception, illegal_transition records the exact trigger and keeps
-state; transition_from_terminal records its own occurrence and also keeps state.
-Legal transitions include self-transitions and zero-duration intermediate states.
-Canonical transition ordinal follows business order; canonical physical
-enumeration of the terminal-only violation case carries no business ordering fact.
-
-Every input Subject has inception/known-prefix/coverage classification even
-without intervals. in_state is True for known requested state, False for known
-other state or NotStarted, Unknown for insufficient authority. Checkpoints are
-in [window.start, window.end]; end observes the left limit and never consumes
-an occurrence at end. Distribution binds historical axes at each checkpoint,
-keeps all declared ModelStates for each actual full axis group, and reports
-Unknown and NotStarted separately. share_among_seeded conditions on definitely
-seeded Subjects and does not claim population coverage.
-
-Distribution row grain is checkpoint × model_state × full axes. The
-seeded_subject_count and coverage_censored_count fields describe one Subject pool
-per checkpoint × full axes and repeat on each model_state row; they must not be
-summed across states. A zero known_state_count cell can represent an alternate
-state of an already seeded Subject. Its row complement is therefore not a
-NotStarted or censored Subject pool. Help extracts these constraints from the
-public distribution docstring; contracts, cards and terminal table columns read
-the frozen HistoryViewPart request without opening a source.
-
-Transitions emit the model's complete declared TransitionPair domain with zeros;
-count comes from all legal trace entries in the window and share's denominator
-is all such modeled transitions, including self/zero-duration entries. Intervals
-retain original boundary causes and clipping/censoring status. Dwell owns
-completed_window_fragment_duration@v1: clip first; include completed fragments,
-including left-clipped completed; exclude right/coverage-censored fragments from
-duration statistics while retaining their counts. Exact completed ticks plus
-sum/count and sorted order statistics are required; grouped finished mean/p90
-cannot roll up. Two Histories cannot be bag-merged to replay. State/pair summaries
-cannot reconstruct Subject membership or a transition trace from intervals.
-
-Duration disclosure reads the actual DurationType or retained Arrow column unit.
-Logical Dwell parent contracts use the existing History field type owner before
-execution; materialized parents use their retained Arrow schema. Both expose
-the duration fields' units and conversion without source reads or new Runs.
-History Duration uses microsecond ticks: duration_unit=us and
-seconds = ticks / 1000000. For example, 86412333333 us is 86412.333333 seconds.
-Exported pandas timedelta columns use `.dt.total_seconds()` (or
-`total_seconds()` for an individual timedelta). Dwell parent cards, Duration
-fields and terminal table columns share this conversion fact; disclosure does
-not convert or round stored values.
-
-### Retention truth and conditional K
-
-Anchor retention fixes the full Subject-by-Anchor Omega before return reads.
-Observed qualifying return establishes K+ even with partial follow-up. No return
-establishes K- only with exact bound coverage through the exclusive deadline;
-otherwise it is K?. The three disjoint sets cover Omega. For nonempty Omega,
-lower=|K+|/|Omega| and upper=(|K+|+|K?|)/|Omega|, exact counts then one float finish;
-empty bounds are Undefined(empty_omega). 25/5/70 yields [0.25,0.95].
-any_anchor is True if any true, False if all false, otherwise Unknown;
-every_anchor is False if any false, True if all true, otherwise Unknown.
-Subject projection explicitly replaces Omega with its nonempty-fiber image.
-Status views/selection retain their original Omega and bounds; unknown members
-selection refuses. Overlapping windows preserve every (Anchor, occurrence) use,
-without disjointness or scalar-bound rollup. All fixed K requires the exact
-retained definition, instance domain, mapping and method parts, not display values.
-
 ## Statistical methods
 
 The following method/state contracts are version 1 unless the registered
@@ -1124,7 +856,7 @@ retaining scale-2 sum state. This is not blanket Decimal group/time admission.
 Errors carry the expected contract, received facts and concrete repair.
 Nonfinite values, overflow, incompatible ownership/types, missing consumed parts
 and contradictory coverage fail through AnalysisError subclasses.
-Unknown/censoring remains a result Cell only where its method explicitly owns
+Unknown remains a result Cell only where its method explicitly owns
 that meaning. No silent fallback, truncation, imputation or balancing allocation
 repairs the computation.
 

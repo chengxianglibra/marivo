@@ -8,17 +8,8 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Literal, NoReturn, TypeAlias
 
-from marivo.analysis.anchors import AnyAnchor, CalendarWindow, ElapsedWindow, EveryAnchor
-from marivo.analysis.core.domain_captures import (
-    EntryAxisCapture,
-    EventCapture,
-    OrderCapture,
-    StateModelCapture,
-)
-from marivo.analysis.core.history_types import HistoryRequest
 from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
-from marivo.analysis.domains.completeness import CompletenessDeclaration
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
@@ -83,7 +74,9 @@ class Binding:
             _nonempty(getattr(self, name), f"core.binding.{name}")
 
 
-CoordinateRole: TypeAlias = Literal["identity", "version", "group", "anchor", "aligned", "instance"]
+CoordinateRole: TypeAlias = Literal[
+    ("identity", "version", "group", "anchor", "aligned", "instance")
+]
 
 
 def coordinate_binding_id(entity: Ref[EntityKind], field: str, bindings: tuple[str, ...]) -> str:
@@ -130,9 +123,7 @@ class Coordinate:
             )
 
 
-DomainKind: TypeAlias = Literal[
-    "entity", "group", "singleton", "journey", "interval", "anchor", "occurrence"
-]
+DomainKind: TypeAlias = Literal["entity", "group", "singleton"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,10 +192,6 @@ class DomainSignature:
             "entity",
             "group",
             "singleton",
-            "journey",
-            "interval",
-            "anchor",
-            "occurrence",
         ):
             reject(
                 "a closed instance kind",
@@ -670,142 +657,6 @@ class CohortDecisionPart:
 
 
 @dataclass(frozen=True, slots=True)
-class OccurrencePart:
-    binding: Binding
-    events: tuple[EventCapture, ...]
-    order: OrderCapture | None
-    model: StateModelCapture | None
-    components: tuple[str, ...]
-    preparation_id: str
-    start: str | None
-    end: str
-    completeness: tuple[CompletenessDeclaration, ...]
-    order_use: Literal["prepare", "ordered", "one_step_every_start", "after_terminal"]
-    terminal_state: str | None
-    version: str = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryPart:
-    binding: Binding
-    preparation: OccurrencePart
-    capture_domain: DomainSignature
-    window_start: str
-    window_end: str
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class HistoryViewPart:
-    binding: Binding
-    history: HistoryPart
-    request: HistoryRequest
-    complete: bool = True
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class JourneyPart:
-    binding: Binding
-    preparation: OccurrencePart
-    steps: tuple[str, ...]
-    events: tuple[str, ...]
-    policy: Literal["first_per_subject", "exclusive", "shared"]
-    cohort_start: str
-    cohort_end: str
-    completion_through: str
-    complete: bool = True
-    version: str = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class AnchorDomainPart:
-    binding: Binding
-    preparation: OccurrencePart
-    during_start: str
-    during_end: str
-    journey: JourneyPart | None = None
-    components: tuple[str, ...] = ("started_at", "sequence_int", "sequence_enum")
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class AnchorObservationPart:
-    binding: Binding
-    domain: AnchorDomainPart
-    window: ElapsedWindow | CalendarWindow
-    component_roots: tuple[Ref[EntityKind], ...]
-    component_types: tuple[str, ...]
-    components: tuple[str, ...]
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class InstanceRetentionPart:
-    binding: Binding
-    anchors: AnchorDomainPart
-    returning: OccurrencePart
-    returning_domain: DomainSignature
-    window: ElapsedWindow | CalendarWindow
-    selection: Literal["full", "true", "false", "unknown", "predicate"] = "full"
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class SubjectRetentionPart:
-    binding: Binding
-    instances: InstanceRetentionPart
-    rule: AnyAnchor | EveryAnchor
-    selection: Literal["full", "true", "false", "unknown", "predicate"] = "full"
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class EntryAxesPart:
-    binding: Binding
-    cohort_start: str
-    cohort_end: str
-    occurrence: OccurrencePart
-    axes: tuple[EntryAxisCapture, ...]
-    first_event: str
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelPart:
-    binding: Binding
-    capture_scope: str
-    journey: JourneyPart
-    axes: tuple[EntryAxisCapture, ...]
-    population_id: str
-    complete: bool = True
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelComparisonPart:
-    binding: Binding
-    current: FunnelPart
-    baseline: FunnelPart
-    complete: bool = True
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
-class FunnelAllocationPart:
-    binding: Binding
-    comparison: FunnelComparisonPart
-    original: FunnelComparisonPart
-    axes: tuple[Ref[DimensionKind], ...]
-    target_step: int
-    mode: Literal["joint", "hierarchy"]
-    top_k: int | None
-    complete: bool = True
-    view: Literal["contribution", "current", "baseline"] = "contribution"
-    version: Literal["v1"] = "v1"
-
-
-@dataclass(frozen=True, slots=True)
 class ConditionCellsPart:
     binding: Binding
     input_domain: DomainSignature
@@ -931,8 +782,6 @@ class FutureCellsPart:
 class FindingPolicyPart:
     binding: Binding
     producer: Literal[
-        "funnel.compare",
-        "funnel_ratio_mix",
         "deviation.zscore",
         "deviation.mad",
         "time.runs",
@@ -944,18 +793,15 @@ class FindingPolicyPart:
         "forecast.seasonal_naive",
     ]
     extractor: Literal[
-        "graph.funnel_delta_findings@v1",
-        "graph.funnel_contribution_findings@v1",
         "graph.no_findings@v1",
         "graph.association_findings@v1",
         "graph.forecast_findings@v1",
     ]
     policy: Literal[
-        "bounded_algebraic_findings@v1",
         "zero_findings@v1",
         "bounded_descriptive_findings@v1",
         "bounded_prediction_findings@v1",
-    ] = "bounded_algebraic_findings@v1"
+    ] = "zero_findings@v1"
     version: Literal["v1"] = "v1"
 
 
@@ -985,19 +831,7 @@ Part: TypeAlias = (
     | GridCellsPart
     | SubjectMapPart
     | TableFitsPart
-    | InstanceRetentionPart
-    | SubjectRetentionPart
-    | AnchorDomainPart
-    | AnchorObservationPart
-    | EntryAxesPart
-    | FunnelPart
-    | FunnelComparisonPart
-    | FunnelAllocationPart
     | FindingPolicyPart
-    | HistoryPart
-    | HistoryViewPart
-    | JourneyPart
-    | OccurrencePart
     | AttributionPart
     | SubjectPart
     | CohortDecisionPart
@@ -1027,15 +861,7 @@ PartRole: TypeAlias = Literal[
     "grid_cells",
     "subject_map",
     "table_fits",
-    "retention",
-    "anchor",
-    "history",
-    "history_view",
-    "entry_axes",
-    "funnel_state",
     "finding_policy",
-    "journey",
-    "occurrences",
     "basis",
     "allocation",
     "reconciliation",
@@ -1095,24 +921,8 @@ def part_role(part: Part) -> PartRole:
         return "subject_map"
     if isinstance(part, TableFitsPart):
         return "table_fits"
-    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
-        return "retention"
-    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
-        return "anchor"
-    if isinstance(part, EntryAxesPart):
-        return "entry_axes"
-    if isinstance(part, (FunnelPart, FunnelComparisonPart, FunnelAllocationPart)):
-        return "funnel_state"
     if isinstance(part, FindingPolicyPart):
         return "finding_policy"
-    if isinstance(part, HistoryViewPart):
-        return "history_view"
-    if isinstance(part, HistoryPart):
-        return "history"
-    if isinstance(part, JourneyPart):
-        return "journey"
-    if isinstance(part, OccurrencePart):
-        return "occurrences"
     if isinstance(part, AttributionPart):
         return part.role
     if isinstance(part, DisplayPart):
@@ -1188,121 +998,33 @@ def validate_part(part: Part) -> None:
 
         validate_deviation(part)
         return
-    if isinstance(part, (InstanceRetentionPart, SubjectRetentionPart)):
-        from marivo.analysis.core.retention_rules import validate as validate_retention
-
-        validate_retention(part)
-        return
-    if isinstance(part, (AnchorDomainPart, AnchorObservationPart)):
-        from marivo.analysis.core.anchor_rules import validate as validate_anchor
-
-        validate_anchor(part)
-        return
-    if isinstance(
-        part,
-        (EntryAxesPart, FunnelPart, FunnelComparisonPart, FunnelAllocationPart, FindingPolicyPart),
-    ):
-        from marivo.analysis.core.funnel_rules import validate
-
-        validate(part)
-        return
-    if isinstance(part, HistoryViewPart):
-        from marivo.analysis.core.history_rules import validate as validate_history_view
-
-        validate_history_view(part)
-        return
-    if isinstance(part, HistoryPart):
-        from datetime import datetime
-
-        validate_part(part.preparation)
-        if (
-            part.version != "v1"
-            or part.preparation.model is None
-            or part.preparation.start is not None
-            or part.preparation.end != part.window_end
-            or part.preparation.order_use != "prepare"
-            or part.preparation.events != part.preparation.model.triggers
-            or part.preparation.order != part.preparation.model.order
-            or part.capture_domain.binding != part.binding
-            or part.preparation.binding != part.binding
-            or part.capture_domain.kind != "occurrence"
-            or datetime.fromisoformat(part.window_start).utcoffset() is None
-            or not datetime.fromisoformat(part.window_start)
-            < datetime.fromisoformat(part.window_end)
-        ):
-            reject(
-                "exact canonical History declaration",
-                repr(part),
-                "Rebuild replay from bound captures.",
-                "core.history",
-            )
-        return
-    if isinstance(part, JourneyPart):
-        from datetime import datetime
-
-        validate_part(part.preparation)
-        if (
-            type(part.complete) is not bool
-            or not part.steps
-            or len(set(part.steps)) != len(part.steps)
-            or len(part.steps) != len(part.events)
-            or not set(part.events) <= {event.ref.path for event in part.preparation.events}
-            or part.policy not in ("first_per_subject", "exclusive", "shared")
-            or part.version != "v1"
-            or any(
-                datetime.fromisoformat(value).utcoffset() is None
-                for value in (part.cohort_start, part.cohort_end, part.completion_through)
-            )
-            or not datetime.fromisoformat(part.cohort_start)
-            < datetime.fromisoformat(part.cohort_end)
-            <= datetime.fromisoformat(part.completion_through)
-        ):
-            reject(
-                "exact canonical Journey declaration",
-                repr(part),
-                "Rebuild matching from bound captures.",
-                "core.journey",
-            )
-        return
-    if isinstance(part, OccurrencePart):
-        from hashlib import sha256
-
-        components = (
-            "occurred_at",
-            *(
-                ("sequence_int",)
-                if part.order is not None
-                and any(item.order == "integer" for item in part.order.definition.sequences)
-                else ("sequence_enum",)
-                if part.order is not None and part.order.definition.sequences
-                else ()
-            ),
+    if isinstance(part, FindingPolicyPart):
+        association = part.producer.startswith("association.")
+        prediction = part.producer.startswith("forecast.")
+        expected_extractor = (
+            "graph.association_findings@v1"
+            if association
+            else "graph.forecast_findings@v1"
+            if prediction
+            else "graph.no_findings@v1"
         )
-        expected = sha256(
-            repr(
-                (
-                    part.events,
-                    part.start,
-                    part.end,
-                    part.order,
-                    part.model,
-                    part.completeness,
-                    part.order_use,
-                    part.terminal_state,
-                )
-            ).encode()
-        ).hexdigest()
+        expected_policy = (
+            "bounded_descriptive_findings@v1"
+            if association
+            else "bounded_prediction_findings@v1"
+            if prediction
+            else "zero_findings@v1"
+        )
         if (
-            not part.events
-            or part.components != components
+            part.extractor != expected_extractor
+            or part.policy != expected_policy
             or part.version != "v1"
-            or part.preparation_id != expected
         ):
             reject(
-                "complete occurrence inputs at v1",
+                "matching producer, extractor and Finding policy",
                 repr(part),
-                "Rebuild the captures.",
-                "core.occurrence",
+                "Rebuild the owning statistical result.",
+                "core.finding_policy",
             )
         return
     if isinstance(part, AttributionPart):

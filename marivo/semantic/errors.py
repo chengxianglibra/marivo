@@ -106,16 +106,6 @@ class ErrorKind(StrEnum):
     INVALID_DOMAIN_OWNER = "invalid_domain_owner"
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
     IBIS_ATTR_SHADOW = "ibis_attr_shadow"
-    INVALID_EVENT_IDENTITY = "invalid_event_identity"
-    INVALID_EVENT_SOURCE = "invalid_event_source"
-    INVALID_EVENT_TIME = "invalid_event_time"
-    INVALID_EVENT_PREDICATE = "invalid_event_predicate"
-    INVALID_EVENT_PARTICIPANT_PATH = "invalid_event_participant_path"
-    INVALID_EVENT_PARTICIPANT_CARDINALITY = "invalid_event_participant_cardinality"
-    INVALID_STATE_MODEL = "invalid_state_model"
-    INVALID_BUSINESS_ORDER = "invalid_business_order"
-    AMBIGUOUS_PARTICIPANT_ROLE = "ambiguous_participant_role"
-    MODEL_STATE_MISMATCH = "model_state_mismatch"
     ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"
 
     # assembly-time
@@ -482,45 +472,6 @@ def _raise(
             if hint_fn is not None:
                 hint = hint_fn()
     resolved_details = dict(details or {})
-    if repair_value is None and kind in {
-        ErrorKind.INVALID_EVENT_IDENTITY,
-        ErrorKind.INVALID_EVENT_SOURCE,
-        ErrorKind.INVALID_EVENT_TIME,
-        ErrorKind.INVALID_EVENT_PREDICATE,
-        ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
-        ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
-    }:
-        participant_error = kind in {
-            ErrorKind.INVALID_EVENT_PARTICIPANT_PATH,
-            ErrorKind.INVALID_EVENT_PARTICIPANT_CARDINALITY,
-        }
-        repair_value = repair(
-            kind="reauthor",
-            canonical_id="participant" if participant_error else "objects.event",
-            action=hint
-            or (
-                "Reauthor the participant declaration."
-                if participant_error
-                else "Reauthor the Event definition."
-            ),
-            snippet=(
-                "ms.participant(name='subject', cardinality='one')"
-                if participant_error
-                else "\n".join(
-                    (
-                        "@ms.event(",
-                        "    identity=(event_id,),",
-                        "    occurred_at=event_time,",
-                        "    participants=(",
-                        "        ms.participant(name='subject', cardinality='one'),",
-                        "    ),",
-                        ")",
-                        "def business_event(rows):",
-                        "    return ms.all_rows()",
-                    )
-                )
-            ),
-        )
     raise cls(
         kind=kind.value,
         message=message,

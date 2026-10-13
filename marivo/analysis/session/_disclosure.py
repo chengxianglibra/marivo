@@ -242,13 +242,6 @@ def provider() -> DisclosureProvider:
         *operations,
         (
             Session,
-            "anchors",
-            "LogicalAnchorDomain",
-            "result = session.anchors(buyer, population=members, during=window)",
-            "Bind exact Event or Journey starts; retain full Anchor identity and original authority.",
-        ),
-        (
-            Session,
             "render",
             "str",
             "result = session.render()",
@@ -256,10 +249,7 @@ def provider() -> DisclosureProvider:
         ),
     )
     acquisition = {
-        "source": "Use an exact Event participant or canonical JourneyResult.",
-        "population": "Use the matching complete Subject domain in the same Session and source/fixed mode.",
         "during": "Select starts with a finite half-open TimeScope.",
-        "business_order": "Event-only named order; Journey starts inherit captured order.",
         "at": "Versioned: datetime or TimeScope.before_end; else omit.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
         "name": "Choose a project-local Session name from recent() or a new name for get_or_create().",

@@ -529,13 +529,6 @@ def test_local_field_expression_is_evaluated_once(monkeypatch: pytest.MonkeyPatc
     assert binding_module.expression_column_accesses(body) == ()
 
 
-def test_event_rejects_local_bindings() -> None:
-    event = ref_factory.event("sales.created")
-    with pytest.raises(SemanticLoadError) as error:
-        compile_expression_body(_local_amount, owning_ref=event, ordered_entity_refs=(ORDERS,))
-    assert error.value.kind == ErrorKind.INVALID_EVENT_PREDICATE
-
-
 def test_single_return_preserves_pre_o5_identity() -> None:
     body = compile_expression_body(_raw_amount, owning_ref=AMOUNT, ordered_entity_refs=(ORDERS,))
     assert (

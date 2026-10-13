@@ -1,6 +1,6 @@
 ---
 name: marivo-analysis
-description: Use when a user wants to answer a business question or continue a Marivo investigation over governed metrics, Events, StateModels, or persisted analysis artifacts. Guides analytical judgment, evidence continuity, semantic handoffs, and stopping.
+description: Use when a user wants to answer a business question or continue a Marivo investigation over governed entities, fields, metrics, or persisted analysis artifacts. Guides analytical judgment, evidence continuity, semantic handoffs, and stopping.
 ---
 
 # marivo-analysis
@@ -27,12 +27,11 @@ implementation details.
 
 Before choosing an operation, establish the distinctions that affect the answer:
 
-- Identify the unit of analysis: subjects, event occurrences, or state history.
-  One subject can contribute several occurrences; do not silently change the
+- Identify the unit of analysis: members, contributions, or current result rows.
+  One member can contribute several facts; do not silently change the
   denominator or generalize a selected segment to the whole population.
-- Keep population selection, Metric observation, and follow-up windows distinct.
-  Preserve their alignment through Event and Lifecycle selections; incomplete
-  follow-up or unknown coverage cannot establish absence.
+- Keep population selection, Metric observation, and output time coordinates
+  distinct. Incomplete or unknown source coverage cannot establish absence.
 - Distinguish statistics over current result rows from aggregation of an
   original Metric. They may describe different quantities; preserve grain,
   units, weighting, and additivity when choosing the intended calculation.
@@ -94,7 +93,7 @@ evidence that business rows were read or a result exists.
 Inspect the materialized result with `.show()`. Follow
 `marivo.help("analysis.evidence")` when additional evidence detail is needed.
 Assess the facts that could change the conclusion: exact identity and scope,
-comparison alignment, completeness and censoring, missingness, reconciliation,
+comparison alignment, completeness, missingness, reconciliation,
 uncertainty, and material warnings. Do not repeat mechanical checks already
 owned by the DSL or treat its guarantees as proof of business validity.
 

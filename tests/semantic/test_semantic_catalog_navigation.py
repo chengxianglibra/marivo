@@ -4,7 +4,6 @@ and the navigation matrix."""
 from __future__ import annotations
 
 import textwrap
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -15,72 +14,18 @@ from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, AgentResult
 from marivo.semantic._capabilities.catalog_members import CATALOG_MEMBER_CONTRACTS
 from marivo.semantic.catalog import (
     CatalogCollection,
-    CatalogEntry,
-    DatasourceEntry,
-    DimensionEntry,
-    DomainEntry,
-    EntityEntry,
-    EventEntry,
-    MeasureEntry,
     MetricEntry,
-    RelationshipEntry,
     SemanticCatalog,
-    TimeDimensionEntry,
     _normalize_semantic_input,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.reader import SemanticProject
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
 ms.domain(name="sales", owner="Analytics", default=True)
 """
 
-_OBJECTS_PY = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"),
-    primary_key=["user_id"],
-)
-users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"), primary_key=["id"])
-
-@ms.dimension(entity=orders)
-def region(table):
-    return table.region
-
-user_id = ms.dimension_column(name="user_id", entity=orders, column="user_id")
-id = ms.dimension_column(name="id", entity=users, column="id")
-
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
-def ordered_at(table):
-    return table.ordered_at
-
-@ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-def amount(table):
-    return table.amount
-
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-
-ms.relationship(
-    name="orders_to_users",
-    from_entity=orders,
-    to_entity=users,
-    keys=[ms.join_on(user_id, id)],
-)
-
-@ms.event(
-    name="order_created",
-    identity=(user_id,),
-    occurred_at=ordered_at,
-    participants=(ms.participant(name="order", cardinality="one"),),
-)
-def order_created(rows):
-    return ms.all_rows()
-"""
+_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["user_id"],\n)\nusers = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"), primary_key=["id"])\n\n@ms.dimension(entity=orders)\ndef region(table):\n    return table.region\n\nuser_id = ms.dimension_column(name="user_id", entity=orders, column="user_id")\nid = ms.dimension_column(name="id", entity=users, column="id")\n\n@ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))\ndef ordered_at(table):\n    return table.ordered_at\n\n@ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")\ndef amount(table):\n    return table.amount\n\nrevenue = ms.aggregate(name="revenue", measure=amount, agg="sum")\n\nms.relationship(\n    name="orders_to_users",\n    from_entity=orders,\n    to_entity=users,\n    keys=[ms.join_on(user_id, id)],\n)\n\n'
 
 _OPS_DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -114,48 +59,6 @@ def _catalog(
         workspace_dir=workspace_dir,
     )
     return SemanticCatalog(project)
-
-
-def test_catalog_global_collections_are_typed_and_use_typed_ids(
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-    cases: list[tuple[str, type[CatalogEntry], SemanticKind, str]] = [
-        ("domains", DomainEntry, SemanticKind.DOMAIN, "domain:sales"),
-        ("datasources", DatasourceEntry, SemanticKind.DATASOURCE, "datasource:warehouse"),
-        ("entities", EntityEntry, SemanticKind.ENTITY, "entity:sales.orders"),
-        (
-            "dimensions",
-            DimensionEntry,
-            SemanticKind.DIMENSION,
-            "dimension:sales.orders.region",
-        ),
-        (
-            "time_dimensions",
-            TimeDimensionEntry,
-            SemanticKind.TIME_DIMENSION,
-            "time_dimension:sales.orders.ordered_at",
-        ),
-        ("measures", MeasureEntry, SemanticKind.MEASURE, "measure:sales.orders.amount"),
-        ("metrics", MetricEntry, SemanticKind.METRIC, "metric:sales.revenue"),
-        (
-            "relationships",
-            RelationshipEntry,
-            SemanticKind.RELATIONSHIP,
-            "relationship:sales.orders_to_users",
-        ),
-        ("events", EventEntry, SemanticKind.EVENT, "event:sales.order_created"),
-    ]
-    for attribute, expected_type, expected_kind, expected_id in cases:
-        collection = getattr(catalog, attribute)
-
-        assert isinstance(collection, CatalogCollection)
-        assert all(type(ref) is Ref and ref.kind is expected_kind for ref in collection.refs)
-        keys = [ref.key for ref in collection.refs]
-        assert expected_id in keys
-        assert all(type(item) is expected_type for item in collection.items)
-        assert keys == sorted(keys)
-        assert all(item.key in keys for item in collection)
 
 
 def test_catalog_collection_implements_shared_result_and_consumption_protocol(
@@ -225,10 +128,10 @@ def test_empty_collection_show_explains_blocked_selection(
     semantic_project_factory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    collection = catalog.state_models
+    collection = catalog.work_schedules
 
     rendered = collection.render()
-    assert "catalog.state_models.get(...): blocked; reason=empty_collection" in rendered
+    assert "catalog.work_schedules.get(...): blocked; reason=empty_collection" in rendered
 
 
 def test_catalog_output_respects_default_and_small_byte_budgets(
@@ -499,10 +402,7 @@ def test_semantic_input_normalization_accepts_entries_like_their_refs(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    for entry in (
-        catalog.metrics.get("sales.revenue"),
-        catalog.events.get("sales.order_created"),
-    ):
+    for entry in (catalog.metrics.get("sales.revenue"),):
         by_entry = _normalize_semantic_input(
             catalog,
             entry,

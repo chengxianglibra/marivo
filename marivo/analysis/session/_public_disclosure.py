@@ -6,7 +6,6 @@ from dataclasses import replace
 from inspect import getdoc, isfunction, signature
 
 import marivo.analysis._cohort as cohort
-from marivo.analysis import anchors as windows
 from marivo.analysis import public_dsl as dsl
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
@@ -43,17 +42,6 @@ _METHOD_GROUPS = {
     ("_NumericComparison", "deviation"): "methods.rows",
     ("_NumericComparison", "correlate"): "methods.association",
     ("_NumericComparison", "forecast"): "methods.forecast",
-    ("_AnchorDomain", "retention"): "methods.events",
-    ("_InstanceRetention", "by_subject"): "methods.events",
-    ("_Retention", "known_true"): "methods.events",
-    ("_Retention", "known_false"): "methods.events",
-    ("_Retention", "unknown"): "methods.events",
-    ("_AnchorDomain", "observe"): "methods.events",
-    ("_AnchorDomain", "subjects"): "methods.events",
-    ("_Journey", "funnel"): "methods.events",
-    ("_Funnel", "read"): "methods.events",
-    ("_FunnelResult", "compare"): "methods.compare",
-    ("_FunnelComparison", "attribute"): "methods.compare",
     ("_Attribution", "where"): "methods.compare",
     ("LogicalDifferenceRelation", "attribute"): "methods.compare",
     ("MaterializedDifferenceRelation", "attribute"): "methods.compare",
@@ -116,17 +104,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
     types = (
-        windows.Duration,
-        windows.ElapsedWindow,
-        windows.CalendarWindow,
-        windows.AnyAnchor,
-        windows.EveryAnchor,
-        dsl.LogicalRetentionResult,
-        dsl.MaterializedRetentionResult,
-        dsl.LogicalSubjectRetentionResult,
-        dsl.MaterializedSubjectRetentionResult,
-        dsl.LogicalAnchorDomain,
-        dsl.MaterializedAnchorDomain,
         SubjectBinding,
         cohort.AnyInstance,
         cohort.AtLeast,
@@ -154,28 +131,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.GroupedNumericRelation,
         dsl.GroupedStatisticRelation,
         dsl.GroupedRatioRelation,
-        dsl.LogicalFunnelResult,
-        dsl.MaterializedFunnelResult,
-        dsl.LogicalFunnelComparisonResult,
-        dsl.MaterializedFunnelComparisonResult,
-        dsl.LogicalHistoryResult,
-        dsl.LogicalStateDistributionResult,
-        dsl.MaterializedStateDistributionResult,
-        dsl.LogicalTransitionSummary,
-        dsl.MaterializedTransitionSummary,
-        dsl.LogicalViolationResult,
-        dsl.MaterializedViolationResult,
-        dsl.LogicalStateIntervalResult,
-        dsl.MaterializedStateIntervalResult,
-        dsl.LogicalDwellSummary,
-        dsl.MaterializedDwellSummary,
-        dsl.MaterializedHistoryResult,
-        dsl.LogicalJourneyResult,
-        dsl.MaterializedJourneyResult,
-        dsl.LogicalEventDurationResult,
-        dsl.MaterializedEventDurationResult,
-        dsl.LogicalCompletedJourneys,
-        dsl.MaterializedCompletedJourneys,
         dsl.LogicalAnalysisDomain,
         dsl.TimeGrid,
         dsl.GridEndpoint,
@@ -224,39 +179,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     for type_value in types:
         name = type_value.__name__
         policy_examples = {
-            windows.AnyAnchor: "mv.any_anchor()",
-            windows.EveryAnchor: "mv.every_anchor()",
-            dsl.LogicalRetentionResult: "anchors.retention(returning, within=mv.elapsed(mv.duration(hours=168)))",
-            dsl.MaterializedRetentionResult: "retention.execute()",
-            dsl.LogicalSubjectRetentionResult: "retention.by_subject(rule=mv.any_anchor())",
-            dsl.MaterializedSubjectRetentionResult: "subjects.execute()",
-            windows.Duration: "mv.duration(hours=168)",
-            windows.ElapsedWindow: "mv.elapsed(mv.duration(hours=168))",
-            windows.CalendarWindow: "mv.calendar_days(7, ZoneInfo('America/New_York'))",
-            dsl.LogicalAnchorDomain: "session.anchors(buyer, population=members, during=window)",
-            dsl.MaterializedAnchorDomain: "anchors.execute()",
-            dsl.LogicalFunnelResult: "journeys.funnel(axes=(channel,))",
-            dsl.MaterializedFunnelResult: "funnel.execute()",
-            dsl.LogicalFunnelComparisonResult: "current.compare(baseline)",
-            dsl.MaterializedFunnelComparisonResult: "change.execute()",
-            dsl.LogicalHistoryResult: "session.lifecycle.replay(model, population=members, window=window, seed=mv.from_inception())",
-            dsl.MaterializedHistoryResult: "history.execute()",
-            dsl.LogicalDwellSummary: "history.dwell()",
-            dsl.MaterializedDwellSummary: "history.dwell().execute()",
-            dsl.LogicalStateIntervalResult: "history.intervals()",
-            dsl.MaterializedStateIntervalResult: "history.intervals().execute()",
-            dsl.LogicalViolationResult: "history.violations()",
-            dsl.MaterializedViolationResult: "history.violations().execute()",
-            dsl.LogicalTransitionSummary: "history.transitions()",
-            dsl.MaterializedTransitionSummary: "history.transitions().execute()",
-            dsl.LogicalStateDistributionResult: "history.distribution(at=(checkpoint,))",
-            dsl.MaterializedStateDistributionResult: "history.distribution(at=(checkpoint,)).execute()",
-            dsl.LogicalJourneyResult: "session.events.match(pattern, population=members, cohort_window=window, completion_through=end, matching=mv.first_per_subject())",
-            dsl.MaterializedJourneyResult: "journeys.execute()",
-            dsl.LogicalEventDurationResult: "journeys.time_to_event(from_step=start, to_step=finish)",
-            dsl.MaterializedEventDurationResult: "elapsed.execute()",
-            dsl.LogicalCompletedJourneys: "elapsed.completed()",
-            dsl.MaterializedCompletedJourneys: "elapsed.completed().execute()",
             SubjectBinding: "relation.subject_binding",
             cohort.AnyInstance: "mv.any_instance()",
             cohort.AtLeast: "mv.at_least(3)",
@@ -285,18 +207,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             dsl.LogicalTable: "mv.table(values=ranking.values, ranks=ranking.ranks)",
             dsl.MaterializedTable: "table.execute()",
         }
-        history_families = {
-            dsl.LogicalStateDistributionResult: ("distribution", False),
-            dsl.MaterializedStateDistributionResult: ("distribution", True),
-            dsl.LogicalTransitionSummary: ("transitions", False),
-            dsl.MaterializedTransitionSummary: ("transitions", True),
-            dsl.LogicalViolationResult: ("violations", False),
-            dsl.MaterializedViolationResult: ("violations", True),
-            dsl.LogicalStateIntervalResult: ("intervals", False),
-            dsl.MaterializedStateIntervalResult: ("intervals", True),
-            dsl.LogicalDwellSummary: ("dwell", False),
-            dsl.MaterializedDwellSummary: ("dwell", True),
-        }
         acquisition = (
             f"Call {policy_examples[type_value]}."
             if type_value in policy_examples
@@ -319,25 +229,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             else "Use the linked producer or its owned result field; current continuations belong to the receiver contract."
         )
         producers = (
-            ("lifecycle.replay",)
-            if type_value is dsl.LogicalHistoryResult
-            else ("dsl.LogicalHistoryResult.execute",)
-            if type_value is dsl.MaterializedHistoryResult
-            else ("dsl.Journey.funnel",)
-            if type_value is dsl.LogicalFunnelResult
-            else ("dsl.LogicalFunnelResult.execute",)
-            if type_value is dsl.MaterializedFunnelResult
-            else ("dsl.FunnelResult.compare",)
-            if type_value is dsl.LogicalFunnelComparisonResult
-            else ("dsl.LogicalFunnelComparisonResult.execute",)
-            if type_value is dsl.MaterializedFunnelComparisonResult
-            else ("events.match",)
-            if type_value is dsl.LogicalJourneyResult
-            else ("dsl.Journey.time_to_event",)
-            if type_value is dsl.LogicalEventDurationResult
-            else ("dsl.Duration.completed",)
-            if type_value is dsl.LogicalCompletedJourneys
-            else ("dsl.LogicalDifferenceRelation.attribute",)
+            ("dsl.LogicalDifferenceRelation.attribute",)
             if type_value is dsl.LogicalAttributionResult
             else ("dsl.LogicalAttributionResult.execute",)
             if type_value is dsl.MaterializedAttributionResult
@@ -379,9 +271,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             if type_value is dsl.RelationshipPath
             else ()
         )
-        if type_value is windows.Duration:
-            producers = ("dsl.duration",)
-        elif type_value is dsl.LogicalTimeRunResult:
+        if type_value is dsl.LogicalTimeRunResult:
             producers = ("dsl.NumericComparison.runs",)
         elif type_value is dsl.LogicalAssociationResult:
             producers = ("dsl.NumericComparison.correlate",)
@@ -389,27 +279,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             producers = ("dsl.NumericComparison.forecast",)
         elif type_value is dsl.LogicalDeviationResult:
             producers = ("dsl.NumericComparison.deviation",)
-        elif type_value is windows.ElapsedWindow:
-            producers = ("dsl.elapsed",)
-        elif type_value is windows.CalendarWindow:
-            producers = ("dsl.calendar_days",)
-        elif type_value in (windows.AnyAnchor, windows.EveryAnchor):
-            producers = (
-                "dsl.any_anchor" if type_value is windows.AnyAnchor else "dsl.every_anchor",
-            )
-        elif type_value is dsl.LogicalRetentionResult:
-            producers = ("dsl.AnchorDomain.retention",)
-        elif type_value is dsl.LogicalSubjectRetentionResult:
-            producers = ("dsl.InstanceRetention.by_subject",)
-        elif type_value is dsl.LogicalAnchorDomain:
-            producers = ("session.anchors",)
-        if type_value in history_families:
-            method, materialized = history_families[type_value]
-            producers = (
-                ("dsl.Logical" + type_value.__name__.removeprefix("Materialized") + ".execute",)
-                if materialized
-                else ("dsl.History." + method,)
-            )
         descriptors.append(
             value_type(
                 name,
@@ -451,76 +320,12 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "dsl.Value.contract",
                 )
                 if type_value in (dsl.LogicalTimeRunResult, dsl.MaterializedTimeRunResult)
-                else ("dsl.InstanceRetention.by_subject",)
-                if type_value in (windows.AnyAnchor, windows.EveryAnchor)
                 else (
                     "dsl.LogicalDeviationResult.where",
                     "dsl.LogicalDeviationResult.execute",
                     "dsl.Value.contract",
                 )
                 if type_value in (dsl.LogicalDeviationResult, dsl.MaterializedDeviationResult)
-                else (
-                    "dsl.Retention.known_true",
-                    "dsl.Retention.known_false",
-                    "dsl.Retention.unknown",
-                    "dsl.Value.contract",
-                    "dsl.InstanceRetention.by_subject",
-                )
-                if type_value in (dsl.LogicalRetentionResult, dsl.MaterializedRetentionResult)
-                else (
-                    "dsl.Retention.known_true",
-                    "dsl.Retention.known_false",
-                    "dsl.Retention.unknown",
-                    "dsl.Value.contract",
-                )
-                if type_value
-                in (dsl.LogicalSubjectRetentionResult, dsl.MaterializedSubjectRetentionResult)
-                else ("dsl.AnchorDomain.observe", "dsl.AnchorDomain.retention")
-                if type_value in (windows.ElapsedWindow, windows.CalendarWindow)
-                else ("dsl.elapsed",)
-                if type_value is windows.Duration
-                else ("dsl.AnchorDomain.subjects", "dsl.Value.contract")
-                if type_value is dsl.MaterializedAnchorDomain
-                else (
-                    "dsl.AnchorDomain.observe",
-                    "dsl.AnchorDomain.retention",
-                    "dsl.AnchorDomain.subjects",
-                    "dsl.Value.contract",
-                )
-                if type_value is dsl.LogicalAnchorDomain
-                else ("dsl.Value.contract",)
-                if type_value in history_families
-                else (
-                    "dsl.LogicalHistoryResult.execute",
-                    "dsl.History.read",
-                    "dsl.History.distribution",
-                    "dsl.History.transitions",
-                    "dsl.History.violations",
-                    "dsl.History.intervals",
-                    "dsl.History.dwell",
-                    "dsl.Value.contract",
-                )
-                if type_value in (dsl.LogicalHistoryResult, dsl.MaterializedHistoryResult)
-                else ("dsl.Funnel.read", "dsl.FunnelResult.compare")
-                if type_value in (dsl.LogicalFunnelResult, dsl.MaterializedFunnelResult)
-                else ("dsl.Funnel.read", "dsl.FunnelComparison.attribute")
-                if type_value
-                in (dsl.LogicalFunnelComparisonResult, dsl.MaterializedFunnelComparisonResult)
-                else (
-                    "dsl.Journey.funnel",
-                    "dsl.Journey.time_to_event",
-                    "dsl.Journey.read",
-                    "dsl.Journey.subjects",
-                )
-                if type_value in (dsl.LogicalJourneyResult, dsl.MaterializedJourneyResult)
-                else ("dsl.Duration.completed", "dsl.LogicalEventDurationResult.execute")
-                if type_value
-                in (
-                    dsl.LogicalEventDurationResult,
-                    dsl.MaterializedEventDurationResult,
-                    dsl.LogicalCompletedJourneys,
-                    dsl.MaterializedCompletedJourneys,
-                )
                 else ("dsl.Attribution.where", "dsl.LogicalAttributionResult.execute")
                 if type_value in (dsl.LogicalAttributionResult, dsl.MaterializedAttributionResult)
                 else ("dsl.LogicalTable.execute",)
@@ -579,17 +384,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         if type_value in (dsl.LogicalAnalysisDomain, dsl.MaterializedAnalysisDomain)
                         else ()
                     ),
-                    *(
-                        (
-                            _doc_section(
-                                getattr(dsl._History, history_families[type_value][0]),
-                                "Constraints",
-                            ),
-                        )
-                        if type_value in history_families
-                        and history_families[type_value][0] in ("distribution", "dwell")
-                        else ()
-                    ),
+                    *(),
                 ),
             )
         )
@@ -654,11 +449,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
     )
     exports.append(ExportInput("table", dsl.table, "dsl.table"))
     functions = (
-        windows.duration,
-        windows.elapsed,
-        windows.calendar_days,
-        windows.any_anchor,
-        windows.every_anchor,
         dsl.path,
         dsl.member,
         dsl.sum,
@@ -687,9 +477,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 summary=(getdoc(function) or name).splitlines()[0]
                 if name == "member"
                 else f"Construct the admitted {name} argument for the Analysis DSL.",
-                discovery_group="methods.events"
-                if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
-                else None,
+                discovery_group="methods.events" if name in ("duration",) else None,
                 parameters=params,
                 output={
                     "duration": "Duration",
@@ -698,7 +486,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     "any_anchor": "AnyAnchor",
                     "every_anchor": "EveryAnchor",
                 }[name]
-                if name in ("duration", "elapsed", "calendar_days", "any_anchor", "every_anchor")
+                if name in ("duration",)
                 else "MemberAxis"
                 if name == "member"
                 else "CountMethod"
@@ -713,10 +501,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "member",
                         "path",
                         "duration",
-                        "elapsed",
-                        "calendar_days",
-                        "any_anchor",
-                        "every_anchor",
                     )
                     else "Only qualified typed graph input shapes are admitted.",
                 ),
@@ -739,8 +523,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "min",
                         "max",
                         "mean",
-                        "any_anchor",
-                        "every_anchor",
                     )
                     else "result = mv.path(relationship)",
                     ()
@@ -754,10 +536,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                         "max",
                         "mean",
                         "duration",
-                        "elapsed",
-                        "calendar_days",
-                        "any_anchor",
-                        "every_anchor",
                     )
                     else ("relationship",),
                     "result",
@@ -961,21 +739,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         fields._BoundValue,
         *field_types,
         dsl._Value,
-        dsl._History,
-        dsl._HistoryInstance,
-        dsl._StateDistributionResult,
-        dsl._TransitionSummary,
-        dsl._ViolationResult,
-        dsl._StateIntervalResult,
-        dsl._DwellSummary,
-        dsl._AnchorDomain,
-        dsl._Retention,
-        dsl._InstanceRetention,
-        dsl._Journey,
-        dsl._Funnel,
-        dsl._FunnelResult,
-        dsl._FunnelComparison,
-        dsl._Duration,
         dsl._Attribution,
         dsl._Ranking,
         dsl._CohortDomain,
@@ -1027,8 +790,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     if key == "pairing"
                     else ("dsl.CompositePredicate",)
                     if key == "predicate"
-                    else ("AnyAnchor", "EveryAnchor")
-                    if key == "rule" and owner is dsl._InstanceRetention
                     else ("AnyInstance", "AtLeast", "AllInstances")
                     if key == "rule"
                     else ("SubjectBinding",)
@@ -1036,9 +797,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     else ("dsl.path",)
                     if key == "via"
                     else ("dsl.member", "LogicalCategoryRelation")
-                    if key == "by" and owner is dsl.LogicalAnalysisDomain and name == "observe"
-                    else ("dsl.elapsed", "dsl.calendar_days")
-                    if key == "within" and owner is dsl._AnchorDomain
+                    if key == "by" and owner is dsl.LogicalAnalysisDomain and (name == "observe")
                     else ("RowMethod",)
                     if key == "method" and name == "aggregate"
                     else (),
@@ -1093,10 +852,7 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
         "dsl.LogicalNumericRelation.where",
         "dsl.MaterializedNumericRelation.where",
     ),
-    "LogicalSelectedBooleanRelation": (
-        "dsl.LogicalBooleanRelation.where",
-        "dsl.Retention.known_true",
-    ),
+    "LogicalSelectedBooleanRelation": ("dsl.LogicalBooleanRelation.where",),
     "LogicalSelectedTemporalRelation": ("dsl.LogicalTemporalRelation.where",),
     "LogicalRatioRelation": ("dsl.LogicalAnalysisDomain.observe",),
     "LogicalRolledNumericRelation": (

@@ -7,7 +7,6 @@ from typing import Literal
 
 from marivo.analysis.core.model import DomainKind
 from marivo.analysis.methods.physical import (
-    DurationType,
     FixedShape,
     Implementation,
     NoTime,
@@ -21,140 +20,36 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 
 
-def implementations(method: MethodKey) -> tuple[Implementation, ...]:
+def consumers(method: MethodKey) -> tuple[Implementation, ...]:
     from marivo.analysis.methods.builtin import NUMERIC_CHECKS
 
-    shapes: list[SourceShape | FixedShape] = []
     units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
-    for form in ("table", "parquet"):
-        for unit in ("us",) if form == "table" else units:
-            for zone in ("UTC", "America/New_York"):
-                shapes.append(
-                    SourceShape(
-                        "duckdb",
-                        "table" if form == "table" else "parquet",
-                        "native" if form == "table" else "parquet",
-                        TimeShape("instant", unit, zone),
-                    )
-                )
-    shapes.extend(
-        FixedShape(TimeShape("instant", "us", zone)) for zone in ("UTC", "America/New_York")
-    )
-    return tuple(
-        Implementation(
-            QualificationKey(
-                method,
-                (key_type,),
-                ("occurrence" if isinstance(shape, FixedShape) else "entity",),
-                shape,
-                "artifact_python" if isinstance(shape, FixedShape) else "ibis",
-            ),
-            NUMERIC_CHECKS,
-            ("subject", "occurrences"),
-            "exact",
-            ResourceRequirements(
-                "stream", "caller" if isinstance(shape, FixedShape) else "producer", None
-            ),
-            Qualified(
-                f"r7.occurrence.prepare.{'artifact_python' if isinstance(shape, FixedShape) else 'ibis'}@v1",
-                "analysis.materialization.domain_preparation",
-                "tests/test_analysis_domain_preparation_r72.py",
-            ),
-            contract_version=1,
-        )
-        for shape in shapes
-        for key_type in (
-            (ScalarType("int64"),)
-            if isinstance(shape, FixedShape)
-            else (ScalarType("int64"), ScalarType("string"))
-        )
-    )
-
-
-def sqlite_implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    """Bind native int64/string Subject UTC-us capture; do not fan out consumers."""
-    return tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
-            numeric_specialization="consumer"
-            if item.key.input_types == (ScalarType("string"),)
-            else "exact",
-            qualification=Qualified(
-                "r94.c18.sqlite.occurrence_prepare_string_subject_us_utc@v1"
-                if item.key.input_types == (ScalarType("string"),)
-                else "r93.c11.sqlite.occurrence_prepare_int64_us_utc@v1",
-                "analysis.materialization.domain_preparation",
-                "tests/test_r94_retention_states.py"
-                if item.key.input_types == (ScalarType("string"),)
-                else "tests/test_r93_journey_consumers.py",
-            ),
-        )
-        for item in implementations(method)
-        if isinstance(item.key.shape, SourceShape)
-        and item.key.shape
-        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
-        and item.key.input_types in ((ScalarType("int64"),), (ScalarType("string"),))
-    )
-
-
-def remote_implementations(method: MethodKey) -> tuple[Implementation, ...]:
-    """Connect native int64 UTC-us preparations under independent-read authority."""
-    backends: tuple[Literal["postgres", "mysql", "trino", "clickhouse"], ...] = (
-        "postgres",
-        "mysql",
-        "trino",
-        "clickhouse",
-    )
-    return tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend=backend)),
-            numeric_specialization="consumer",
-            qualification=Qualified(
-                f"r93.{backend}.occurrence_prepare_int64_us_utc@v1",
-                "analysis.materialization.domain_preparation",
-                "tests/test_r93_remote_domain_consumers.py",
-            ),
-        )
-        for backend in backends
-        for item in implementations(method)
-        if item.key.shape
-        == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
-        and isinstance(item.key.shape, SourceShape)
-        and item.key.input_types == (ScalarType("int64"),)
-    )
-
-
-def consumers(method: MethodKey) -> tuple[Implementation, ...]:
     bases = tuple(
-        item
-        for item in implementations(MethodKey("occurrence.prepare"))
-        if item.key.input_types == (ScalarType("int64"),)
+        Implementation(
+            QualificationKey(method, (ScalarType("int64"),), ("entity",), shape, "ibis_python"),
+            NUMERIC_CHECKS,
+            ("subject",),
+            "exact",
+            ResourceRequirements("stream", "producer", None),
+            Qualified(
+                "prepared_observation.source@v1",
+                "analysis.materialization.graph_preparation",
+                "tests/analysis/discover/test_analysis_deviation.py",
+            ),
+        )
+        for form in ("table", "parquet")
+        for unit in (("us",) if form == "table" else units)
+        for zone in ("UTC", "America/New_York")
+        for shape in (
+            SourceShape(
+                "duckdb",
+                form,
+                "native" if form == "table" else "parquet",
+                TimeShape("instant", unit, zone),
+            ),
+        )
     )
     if method.name == "map_correspond":
-        occurrence_images = tuple(
-            replace(
-                item,
-                key=replace(
-                    item.key,
-                    method=method,
-                    input_domains=("occurrence",),
-                    route="artifact_python"
-                    if isinstance(item.key.shape, FixedShape)
-                    else "ibis_python",
-                ),
-                parts=("subject",),
-                numeric_specialization="consumer",
-                qualification=Qualified(
-                    f"r72.subject_image.{item.key.shape}@v1",
-                    "analysis.materialization.graph_local_execution",
-                    "tests/test_analysis_domain_preparation_r72.py",
-                ),
-            )
-            for item in bases
-        )
-        units: tuple[Literal["s", "ms", "us", "ns"], ...] = ("s", "ms", "us", "ns")
         times: tuple[NoTime | TimeShape, ...] = (
             NoTime(),
             *(
@@ -174,7 +69,6 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
         )
         image_domains: tuple[DomainKind, ...] = ("entity", "group")
         return (
-            *occurrence_images,
             *(
                 Implementation(
                     QualificationKey(
@@ -184,7 +78,7 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                         shape,
                         "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
                     ),
-                    bases[0].checks,
+                    NUMERIC_CHECKS,
                     ("subject",),
                     "exact",
                     ResourceRequirements(
@@ -234,7 +128,6 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 ScalarType("boolean"),
                 ScalarType("string"),
                 ScalarType("timestamp"),
-                DurationType("us"),
             )
             if isinstance(item.key.shape, SourceShape)
         )

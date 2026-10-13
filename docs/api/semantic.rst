@@ -17,7 +17,6 @@ case-insensitive filesystems.
 .. autofunction:: dimension
 .. autofunction:: measure
 .. autofunction:: metric
-.. autofunction:: event
 .. autofunction:: relationship
 .. autofunction:: time_dimension
 .. autofunction:: domain
@@ -37,29 +36,6 @@ Loaded definition reading
 
    SemanticDefinition
    SemanticDefinitionReadError
-
-Event helpers
--------------
-
-``event`` is the only Event declaration entrypoint. Filtered Event bodies
-return a restricted boolean expression; unfiltered bodies explicitly return
-``all_rows()``.
-
-.. autofunction:: participant
-.. autofunction:: participant_role
-.. autofunction:: all_rows
-
-Business order and lifecycle
-----------------------------
-
-``ms.business_order`` declares one same-Subject order authority. Loading
-validates exact Event roles, source-owned sequence fields, and acyclic
-precedence. Source values and Event history remain for R7 verification.
-
-.. autofunction:: event_sequence
-.. autofunction:: precedes
-.. autofunction:: business_order
-.. autofunction:: state_model
 
 Aggregation & measure helpers
 -----------------------------
@@ -199,9 +175,6 @@ Details types
    MeasureDetails
    MetricDetails
    RelationshipDetails
-   EventDetails
-   BusinessOrderDetails
-   StateModelDetails
    TimeDimensionDetails
    DomainDetails
    DatasourceDetails
@@ -244,9 +217,6 @@ routing and boundaries only; it does not duplicate these API recipes.
    CatalogCollection
    CatalogEntry
    SemanticKind
-   EventSequence
-   EventPrecedence
-   BusinessOrderEntry
    PeriodCalendarEntry
    CalendarPeriodPage
    TemporalSetEntry

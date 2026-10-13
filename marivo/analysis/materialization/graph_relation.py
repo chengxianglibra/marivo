@@ -35,19 +35,15 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
-    AnchorObserve,
     AssociationScore,
     AttachCategory,
     BindProject,
     CellCompare,
     CellDerive,
     ComparisonRead,
-    FunnelAxesPrepare,
-    JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
-    OccurrencePrepare,
     OriginalReduce,
     PartsTransport,
     RowState,
@@ -167,13 +163,6 @@ def _retained_definition(
     """
     from uuid import uuid4
 
-    # Capture source identities are part of the frozen R7 authority and cannot be renamed.
-    if any(
-        isinstance(node, MethodNode)
-        and isinstance(node.parameters, (OccurrencePrepare, FunnelAxesPrepare))
-        for node in retained_nodes(root)
-    ):
-        return root
     known: dict[str, Node] = {}
     for original in retained_nodes(root):
         if shared is not None and original.identity in shared:
@@ -850,10 +839,6 @@ class Relation:
                 field_kind = "dimension"
             elif kind == "time_dimension":
                 field_kind = "time_dimension"
-        elif isinstance(definition, JourneyRead):
-            field_kind = (
-                "measure" if definition.field in ("duration", "observed_duration") else None
-            )
         elif isinstance(definition, PartsTransport):
             field_kind = definition.field_kind
         dependencies = (dependency,) if dependency is not None else dependencies
@@ -875,7 +860,6 @@ class Relation:
                 tuple(part_role(part) for part in self.root.signature.parts),
                 self.root.signature.quantity is not None
                 or field_kind is not None
-                or isinstance(definition, JourneyRead)
                 or (isinstance(definition, PartsTransport) and definition.keep_quantity),
                 (predicate,),
                 field_kind,
@@ -974,10 +958,6 @@ class Relation:
         resolver: RelationshipResolver | None = None,
     ) -> Relation:
         live = self._live()
-        relative = any(
-            isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
-            for node in topology(self.root)
-        )
         graph = _observe_component(
             live.graph,
             metric,
@@ -988,7 +968,6 @@ class Relation:
             coordinates=coordinates,
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
-            relative=relative,
             target_keys=target_keys,
             classifications=classifications,
             classification_coordinates=classification_coordinates,
@@ -1039,10 +1018,6 @@ class Relation:
     ) -> Relation:
         """Observe an ordered multi-root quantity under explicitly bound routes."""
         live = self._live()
-        relative = any(
-            isinstance(node, MethodNode) and isinstance(node.parameters, AnchorObserve)
-            for node in topology(self.root)
-        )
         if any(
             isinstance(record.node, LinearNodeV1) and record.node_id in metric_contract.graph.roots
             for record in metric_contract.graph.nodes
@@ -1057,7 +1032,6 @@ class Relation:
                 coordinates=coordinates,
                 sidecar=live.sidecar,
                 report_timezone=live.report_timezone,
-                relative=relative,
                 target_keys=target_keys,
                 classifications=classifications,
                 classification_coordinates=classification_coordinates,
@@ -1074,7 +1048,6 @@ class Relation:
             coordinates=coordinates,
             sidecar=live.sidecar,
             report_timezone=live.report_timezone,
-            relative=relative,
             target_keys=target_keys,
             classifications=classifications,
             classification_coordinates=classification_coordinates,
@@ -1107,8 +1080,6 @@ class Relation:
     def comparison_error(self) -> str | None:
         """Return the static numerical qualification failure, if any."""
         quantity = self.root.signature.quantity
-        if quantity is not None and quantity.method_version == "history.read@v1":
-            return "History owned fields currently qualify selection and current-row statistics without comparison endpoints"
         if isinstance(self.root.value_type, DurationType) and isinstance(
             quantity, RowStatisticQuantity
         ):
@@ -1457,16 +1428,6 @@ class Relation:
         *,
         coordinates: tuple[Coordinate, ...] = (),
     ) -> Relation:
-        from marivo.analysis.core.model import HistoryViewPart
-
-        if isinstance(self.root.value_type, DurationType) and any(
-            isinstance(part, HistoryViewPart) and part.request.kind == "dwell"
-            for part in self.root.signature.parts
-        ):
-            raise _reject(
-                "Dwell Duration summaries cannot be averaged or pooled; "
-                "aggregate the completed interval observed_duration rows instead"
-            )
         quantity = self.root.signature.quantity
         if (
             isinstance(quantity, DerivedQuantity)

@@ -18,8 +18,7 @@ from marivo.render import Card, RenderableResult
 
 Scalar: TypeAlias = str | int | float | bool | Decimal | date | datetime | None
 Number: TypeAlias = int | float | Decimal
-FindingType: TypeAlias = Literal["association", "contribution", "forecast_point", "funnel_delta"]
-CoordinatePresence: TypeAlias = Literal["matched", "current_only", "baseline_only"]
+FindingType: TypeAlias = Literal["association", "forecast_point"]
 
 
 def _text(value: str, *, limit: int = 4096) -> None:
@@ -220,21 +219,7 @@ class ForecastFindingSubjectV2(_Value):
     kind: Literal["graph-forecast-v2"] = "graph-forecast-v2"
 
 
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class FunnelFindingSubjectV1(_Value):
-    subject_entity_ref: RefPayloadV1
-    pattern_fingerprint: str
-    kind: Literal["event_funnel"] = "event_funnel"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if self.subject_entity_ref.kind is not SemanticKind.ENTITY:
-            raise invalid("Funnel Finding subject must identify an Entity")
-
-
-FindingSubjectV1: TypeAlias = (
-    AssociationFindingSubjectV2 | ForecastFindingSubjectV2 | FunnelFindingSubjectV1
-)
+FindingSubjectV1: TypeAlias = AssociationFindingSubjectV2 | ForecastFindingSubjectV2
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -271,21 +256,6 @@ class AssociationLagV1(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class DefinedFindingRatioV1(_Value):
-    value: Number
-    kind: Literal["defined"] = "defined"
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class UndefinedFindingShareV1(_Value):
-    reason: Literal["zero_total_delta", "empty_positive_pool", "empty_negative_pool"]
-    kind: Literal["undefined"] = "undefined"
-
-
-FindingShareV1: TypeAlias = DefinedFindingRatioV1 | UndefinedFindingShareV1
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
 class AssociationFindingValueV1(_Value):
     method: Literal["pearson", "spearman", "kendall"]
     coefficient: Number
@@ -305,55 +275,6 @@ class AssociationFindingValueV1(_Value):
             raise invalid("inconsistent Association pair counts")
         if not -1 <= self.coefficient <= 1:
             raise invalid("Association coefficient outside [-1, 1]")
-
-
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ContributionFindingValueV1(_Value):
-    method: str
-    active_axis_mask: tuple[bool, ...]
-    other_mask: tuple[bool, ...]
-    contribution_kind: Literal["loss", "denominator_mix"]
-    current_value: Number
-    baseline_value: Number
-    overall_delta: Number
-    contribution: Number
-    share_of_total_delta: FindingShareV1
-    share_of_positive_pool: FindingShareV1
-    share_of_negative_pool: FindingShareV1
-    contribution_rank: int
-    status: Literal["ok", "zero_total_delta"]
-    causal_claim: Literal["none"] = "none"
-    kind: Literal["contribution"] = "contribution"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        if self.method != "funnel_ratio_mix@v1":
-            raise invalid("unregistered Funnel contribution method")
-        _count(self.contribution_rank, minimum=1)
-        if len(self.active_axis_mask) != len(self.other_mask) or any(
-            other and not active
-            for active, other in zip(self.active_axis_mask, self.other_mask, strict=True)
-        ):
-            raise invalid("inconsistent contribution masks")
-        for share, reason in (
-            (self.share_of_total_delta, "zero_total_delta"),
-            (self.share_of_positive_pool, "empty_positive_pool"),
-            (self.share_of_negative_pool, "empty_negative_pool"),
-        ):
-            if isinstance(share, UndefinedFindingShareV1) and share.reason != reason:
-                raise invalid("share unavailable reason does not match its pool")
-        if (self.overall_delta == 0) != (self.status == "zero_total_delta") or (
-            self.overall_delta == 0
-        ) != isinstance(self.share_of_total_delta, UndefinedFindingShareV1):
-            raise invalid("contribution zero-total status mismatch")
-        if any(
-            isinstance(share, DefinedFindingRatioV1) and share.value < 0
-            for share in (
-                self.share_of_positive_pool,
-                self.share_of_negative_pool,
-            )
-        ):
-            raise invalid("negative contribution pool share")
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -378,45 +299,7 @@ class ForecastPointFindingValueV1(_Value):
             raise invalid("invalid Forecast interval")
 
 
-@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class FunnelDeltaFindingValueV1(_Value):
-    step_key: str
-    coordinate_presence: CoordinatePresence
-    current_cohort_count: int
-    baseline_cohort_count: int
-    current_resolved_cohort_count: int
-    baseline_resolved_cohort_count: int
-    current_entry_count: int
-    baseline_entry_count: int
-    current_resolved_entry_count: int
-    baseline_resolved_entry_count: int
-    current_reached_count: int
-    baseline_reached_count: int
-    current_lost_count: int
-    baseline_lost_count: int
-    current_coverage_censored_count: int
-    baseline_coverage_censored_count: int
-    current_loss_rate_from_previous: Number
-    baseline_loss_rate_from_previous: Number
-    loss_rate_delta: Number
-    calculation_status: Literal["ok"] = "ok"
-    kind: Literal["funnel_delta"] = "funnel_delta"
-
-    def __post_init__(self) -> None:
-        _Value.__post_init__(self)
-        for field in fields(self):
-            if field.name.endswith("_count"):
-                _count(getattr(self, field.name))
-        if self.current_coverage_censored_count != 0 or self.baseline_coverage_censored_count != 0:
-            raise invalid("censored Funnel row is ineligible for a Finding")
-
-
-FindingValueV1: TypeAlias = (
-    AssociationFindingValueV1
-    | ContributionFindingValueV1
-    | ForecastPointFindingValueV1
-    | FunnelDeltaFindingValueV1
-)
+FindingValueV1: TypeAlias = AssociationFindingValueV1 | ForecastPointFindingValueV1
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
@@ -444,11 +327,7 @@ class Finding(_Value):
         if self.epistemic_kind != expected:
             raise invalid("Finding epistemic kind does not match its producer")
         subject = (
-            "graph-association-v2"
-            if self.finding_type == "association"
-            else "graph-forecast-v2"
-            if self.finding_type == "forecast_point"
-            else "event_funnel"
+            "graph-association-v2" if self.finding_type == "association" else "graph-forecast-v2"
         )
         if self.subject.kind != subject:
             raise invalid("Finding subject does not match its value family")

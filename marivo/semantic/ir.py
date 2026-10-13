@@ -46,8 +46,6 @@ __all__ = [
     "AggregateFoldValue",
     "AggregationTargetKind",
     "AiContextIR",
-    "BusinessOrderDeclarationIR",
-    "BusinessOrderIR",
     "Composition",
     "CsvSourceIR",
     "CumulativeComposition",
@@ -63,15 +61,9 @@ __all__ = [
     "EntityProvenance",
     "EntitySourceIR",
     "EntityVersioningIR",
-    "EventIR",
-    "EventParticipantIR",
-    "EventPrecedenceIR",
-    "EventSequenceDeclarationIR",
-    "EventSequenceIR",
     "HourPrefixParse",
     "JoinKey",
     "JsonSourceIR",
-    "LifecycleStateIR",
     "LinearComposition",
     "LinearTerm",
     "MeasureIR",
@@ -87,10 +79,6 @@ __all__ = [
     "SemiAdditive",
     "SnapshotVersioningIR",
     "SourceLocation",
-    "StateInceptionIR",
-    "StateModelIR",
-    "StateTransitionIR",
-    "StateTriggerIR",
     "StrptimeParse",
     "TableSourceIR",
     "TemporalSetIR",
@@ -499,167 +487,6 @@ class WorkScheduleIR:
     ai_context: AiContextIR
     python_symbol: str
     location: SourceLocation
-
-
-@dataclass(frozen=True)
-class EventParticipantIR:
-    """One normalized participant role owned by an Event."""
-
-    name: str
-    path: tuple[str, ...] | None
-    cardinality: Literal["one", "optional_one"]
-
-
-@dataclass(frozen=True)
-class EventIR:
-    """Executable occurrence semantics over one existing Entity."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    source_entity: str
-    identity: tuple[str, ...]
-    occurred_at: str
-    participants: tuple[EventParticipantIR, ...]
-    predicate_kind: Literal["all_rows", "filtered"]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-    body_ast_hash: str
-
-
-@dataclass(frozen=True, slots=True)
-class EventSequenceDeclarationIR:
-    """An order field before its subject role is resolved."""
-
-    event_ref: str
-    value_ref: str
-    order: Literal["integer"] | tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class EventSequenceIR:
-    """Declared order field on one Event occurrence source."""
-
-    event_ref: str
-    value_ref: str
-    order: Literal["integer"] | tuple[str, ...]
-    participant_role: str
-
-
-@dataclass(frozen=True, slots=True)
-class EventPrecedenceIR:
-    """One same-subject precedence edge between Event roles."""
-
-    before_event: str
-    before_role: str
-    after_event: str
-    after_role: str
-
-
-@dataclass(frozen=True, slots=True)
-class BusinessOrderDeclarationIR:
-    """Authoring-time order awaiting participant role resolution."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    subject: str
-    sequences: tuple[EventSequenceDeclarationIR, ...]
-    conflicts: tuple[EventPrecedenceIR, ...]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-
-
-@dataclass(frozen=True, slots=True)
-class BusinessOrderIR:
-    """Canonical named business ordering authority."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    subject: str
-    sequences: tuple[EventSequenceIR, ...]
-    conflicts: tuple[EventPrecedenceIR, ...]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-
-
-@dataclass(frozen=True)
-class LifecycleStateIR:
-    """One closed state definition owned by a StateModel."""
-
-    name: str
-    initial: bool
-    terminal: bool
-
-
-@dataclass(frozen=True)
-class StateTriggerDeclarationIR:
-    """Authoring-time Event trigger before catalog role resolution."""
-
-    event_ref: str
-    participant_role: str | None
-
-
-@dataclass(frozen=True)
-class StateTriggerIR:
-    """Canonical Event and participant-role trigger."""
-
-    event_ref: str
-    participant_role: str
-
-
-@dataclass(frozen=True)
-class StateInceptionIR:
-    """Canonical transition from unseeded history into the initial state."""
-
-    trigger: StateTriggerIR
-
-
-@dataclass(frozen=True)
-class StateTransitionIR:
-    """Canonical deterministic transition between modeled states."""
-
-    from_state: str
-    trigger: StateTriggerIR
-    to_state: str
-
-
-@dataclass(frozen=True)
-class StateModelDeclarationIR:
-    """Authoring-time StateModel awaiting canonical trigger resolution."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    subject: str
-    states: tuple[LifecycleStateIR, ...]
-    inceptions: tuple[StateTriggerDeclarationIR, ...]
-    transitions: tuple[tuple[str, StateTriggerDeclarationIR, str], ...]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-    business_order: str | None = None
-
-
-@dataclass(frozen=True)
-class StateModelIR:
-    """Canonical finite normative lifecycle for one subject Entity."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    subject: str
-    states: tuple[LifecycleStateIR, ...]
-    inceptions: tuple[StateInceptionIR, ...]
-    transitions: tuple[StateTransitionIR, ...]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-    business_order: str | None = None
 
 
 @dataclass(frozen=True)

@@ -8,9 +8,6 @@ from typing import Literal
 
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorObserve,
-    AnchorRetention,
     AssociationFit,
     AssociationRead,
     AssociationScore,
@@ -25,31 +22,16 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    FunnelAttribute,
-    FunnelAxesPrepare,
-    FunnelCompare,
-    FunnelRead,
-    FunnelReduce,
-    HistoryAxesPrepare,
-    HistoryRead,
-    HistoryReplay,
-    HistoryView,
-    JourneyCompleted,
-    JourneyDuration,
-    JourneyMatch,
-    JourneyRead,
     MapCorrespond,
     ObserveCount,
     ObserveMetric,
     ObserveWeightedMean,
     OccurrenceCombine,
-    OccurrencePrepare,
     OriginalRatio,
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
-    RetentionBySubject,
     RowState,
     RuleParameters,
     TimeProduct,
@@ -93,13 +75,7 @@ PARTS: tuple[PartRole, ...] = (
     "grid_cells",
     "subject_map",
     "table_fits",
-    "retention",
-    "anchor",
-    "history",
-    "history_view",
-    "funnel_state",
     "finding_policy",
-    "occurrences",
     "basis",
     "allocation",
     "reconciliation",
@@ -185,7 +161,6 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 NUMERIC_CHECKS,
                 (
                     *PARTS,
-                    *(("journey",) if domain == "journey" else ()),
                     "current_endpoint",
                     "baseline_endpoint",
                     "correspondence",
@@ -198,12 +173,14 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 Qualified(
                     f"r65.{method}.{domain}.{shape}",
                     "analysis.materialization.graph_display",
-                    "tests/test_r93_remote_domain_consumers.py"
-                    if domain in ("anchor", "journey")
-                    else "tests/test_analysis_display_r65.py",
+                    "tests/test_analysis_display_r65.py",
                 ),
             )
-            for domain in ("entity", "group", "singleton", "anchor", "journey")
+            for domain in (
+                "entity",
+                "group",
+                "singleton",
+            )
             for shape in (
                 SourceShape("duckdb", "table", "native", NoTime()),
                 SourceShape("duckdb", "parquet", "parquet", NoTime()),
@@ -211,8 +188,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
                 FixedShape(NoTime()),
             )
-            if domain not in ("anchor", "journey")
-            or (method.name == "display.rank" and isinstance(shape, FixedShape))
+            if True
         )
     if method.name.startswith("reference."):
         shapes: tuple[SourceShape | FixedShape, ...] = (
@@ -1338,50 +1314,6 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 for form in ("csv", "json")
             )
         return declarations
-    if method.name in ("anchor.retention", "retention.by_subject"):
-        from marivo.analysis.methods.retention_physical import implementations as retention
-
-        return retention(method)
-    if method.name.startswith("anchor."):
-        from marivo.analysis.methods.anchor_physical import implementations as anchors
-
-        return anchors(method)
-    if method.name.startswith("funnel.") or method.name == "funnel_ratio_mix":
-        from marivo.analysis.methods.funnel_physical import (
-            implementations as funnel_implementations,
-        )
-
-        return funnel_implementations(method)
-    if method.name.startswith("history.") and method.name != "history.replay":
-        from marivo.analysis.methods.history_view_physical import implementations as history_views
-
-        return history_views(method)
-    if method.name == "history.replay":
-        from marivo.analysis.methods.history_physical import (
-            implementations as history_implementations,
-        )
-
-        return history_implementations(method)
-    if method.name.startswith("journey."):
-        from marivo.analysis.methods.journey_physical import (
-            implementations as journey_implementations,
-        )
-
-        return journey_implementations(method)
-    if method.name == "occurrence.prepare":
-        from marivo.analysis.methods.domain_preparation import (
-            implementations as domain_implementations,
-        )
-        from marivo.analysis.methods.domain_preparation import (
-            remote_implementations,
-            sqlite_implementations,
-        )
-
-        return (
-            domain_implementations(method)
-            + sqlite_implementations(method)
-            + remote_implementations(method)
-        )
     if method.name in ("cell.compare", "comparison.read"):
         producer: Literal["cell.difference", "parts_transport"] = (
             "cell.difference" if method.name == "cell.compare" else "parts_transport"
@@ -1431,45 +1363,12 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for item in implementations(MethodKey("cell.difference"))
             if not prepared_numeric(item)
         )
-        if method.name == "cell.ratio":
-            comparisons += (
-                Implementation(
-                    QualificationKey(
-                        method,
-                        (DurationType("us"), DurationType("us")),
-                        ("journey", "journey"),
-                        FixedShape(NoTime()),
-                        "artifact_python",
-                    ),
-                    (
-                        "source.unique_key@v1",
-                        "source.exact_pairing@v1",
-                        "source.finite_numeric@v1",
-                        "source.complete_coverage@v1",
-                    ),
-                    ("subject", "current_endpoint", "baseline_endpoint", "correspondence"),
-                    "finite_float64",
-                    ResourceRequirements("complete", "caller", None),
-                    Qualified(
-                        "r93.c11.fixed.journey_duration_ratio_us@v1",
-                        "analysis.materialization.graph_local_execution",
-                        "tests/test_r93_journey_consumers.py",
-                    ),
-                    numeric_specialization="exact",
-                ),
-            )
         return comparisons
-    from marivo.analysis.methods.anchor_physical import consumers as anchor_consumers
+
     from marivo.analysis.methods.domain_preparation import consumers
-    from marivo.analysis.methods.history_view_physical import consumers as history_consumers
-    from marivo.analysis.methods.journey_physical import consumers as journey_consumers
-    from marivo.analysis.methods.retention_physical import consumers as retention_consumers
 
     declarations = (
-        *retention_consumers(method),
-        *anchor_consumers(method),
         *consumers(method),
-        *journey_consumers(method),
         *tuple(
             replace(item, contract_version=4)
             if method.name.startswith("state_rollup")
@@ -1557,10 +1456,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             }.values()
         )
     keys = {item.key for item in declarations}
-    declarations = (
-        *declarations,
-        *(item for item in history_consumers(method) if item.key not in keys),
-    )
+    declarations = (*declarations,)
     if method.name == "parts_transport":
         declarations = tuple(
             replace(
@@ -2167,15 +2063,7 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         # observation consumes their complete keys and its own amount column.
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
-        key.method.name == "anchor.observe"
-        and key.input_domains == implementation.key.input_domains == ("anchor", "entity")
-        and key.input_types[0] == implementation.key.input_types[0]
-        and len(key.input_types) == 2
-        and key.input_types[1] in (ScalarType("int64"), ScalarType("string"))
-    ):
-        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
-    if (
-        key.input_domains == implementation.key.input_domains == ("anchor",)
+        key.input_domains == implementation.key.input_domains == ()
         and len(key.input_types) == 1
         and (
             key.method.name == "map_correspond"
@@ -2190,15 +2078,6 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
             key=replace(implementation.key, input_types=key.input_types),
             precision="exact",
         )
-    if (
-        key.method.name == "occurrence.prepare"
-        and key.input_domains == implementation.key.input_domains == ("entity",)
-        and len(key.input_types) == 1
-        and isinstance(implementation.key.shape, SourceShape)
-    ):
-        # AnalysisDomain projections carry an upstream scalar type but no scalar column.
-        # Preparation consumes complete member keys, independently of that marker.
-        return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
         key.input_domains == implementation.key.input_domains == ("entity", "entity")
         and len(key.input_types) == 2
@@ -2295,9 +2174,9 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
         return replace(implementation, key=replace(implementation.key, input_types=key.input_types))
     if (
         key.method.name == "domain.cohort"
-        and implementation.key.input_domains == ("entity", "journey")
+        and implementation.key.input_domains == ("entity",)
         and 2 <= len(key.input_types) <= 64
-        and key.input_domains == ("entity", *("journey",) * (len(key.input_types) - 1))
+        and key.input_domains == ("entity", *() * (len(key.input_types) - 1))
         and key.input_types[0] == implementation.key.input_types[0]
         and all(
             value
@@ -2410,17 +2289,6 @@ def specialize_numeric(implementation: Implementation, key: QualificationKey) ->
 
 def admit(implementation: Implementation, params: RuleParameters) -> None:
     """Admit a registry-selected consumer's exact parameter and physical restrictions."""
-    if isinstance(params, (ObserveMetric, ObserveCount)) and params.capture_versions:
-        reject(
-            "relative observation through anchor.observe",
-            "a capture template submitted as an executable Metric node",
-            "Use AnchorDomain.observe so bounded version resolution owns the candidate input.",
-        )
-    from marivo.analysis.methods.anchor_physical import admit_observation
-    from marivo.analysis.methods.funnel_physical import admit_axes
-
-    admit_axes(implementation, params)
-    admit_observation(implementation, params)
     _admit_distribution(implementation, params)
     if isinstance(
         params,
@@ -2433,25 +2301,7 @@ def admit(implementation: Implementation, params: RuleParameters) -> None:
             TimeRunRead,
             DeviationFit,
             DeviationRead,
-            AnchorBind,
-            AnchorObserve,
-            AnchorRetention,
-            RetentionBySubject,
-            OccurrencePrepare,
             PreparedObservation,
-            FunnelAxesPrepare,
-            FunnelReduce,
-            FunnelCompare,
-            FunnelRead,
-            FunnelAttribute,
-            HistoryReplay,
-            HistoryView,
-            HistoryRead,
-            HistoryAxesPrepare,
-            JourneyMatch,
-            JourneyDuration,
-            JourneyCompleted,
-            JourneyRead,
         ),
     ):
         return

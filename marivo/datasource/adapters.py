@@ -21,7 +21,7 @@ from itertools import islice
 from math import isfinite
 from pathlib import Path
 from threading import Event, Lock, get_ident
-from typing import TYPE_CHECKING, Literal, Protocol, cast, runtime_checkable
+from typing import Literal, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 import ibis
@@ -58,9 +58,6 @@ from marivo.datasource.ir import (
     TableSourceIR,
 )
 from marivo.datasource.table_source import table_source_expression
-
-if TYPE_CHECKING:
-    from marivo.analysis.domains.completeness import EventCoverageProvider
 
 DURATION_UNIT_METADATA_KEY = b"marivo:duration_unit"
 TIMESTAMP_UNIT_METADATA_KEY = b"marivo:timestamp_unit"
@@ -883,7 +880,6 @@ class SourceSession:
         self._cursor_thread: int | None = None
         self.domain_authority: dict[str, object] | None = None
         self.domain_time_units: dict[tuple[str, str], str] = {}
-        self._domain_coverage_provider: EventCoverageProvider | None = None
         self._checkpoint: Callable[[], None] = lambda: None
         self._seconds_remaining: Callable[[], float | None] = lambda: None
 

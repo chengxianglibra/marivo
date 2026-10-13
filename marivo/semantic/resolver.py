@@ -13,7 +13,6 @@ from marivo.datasource.ir import QueryParamScalar, QueryParamScalarList
 from marivo.datasource.source import AuthoringScope
 from marivo.refs import (
     EntityKind,
-    EventKind,
     FieldKind,
     MeasureKind,
     MetricKind,
@@ -149,18 +148,3 @@ class SemanticResolver:
     ) -> ir.Value:
         ref = _require_kind(self.catalog, ref_value, expected=(SemanticKind.METRIC,))
         return self._materializer.metric_on(ref, *tables)
-
-    def event(
-        self,
-        event_ref: Ref[EventKind],
-        *,
-        participants: tuple[str, ...],
-    ) -> ibis.Table:
-        """Materialize one Event occurrence relation for participant roles."""
-        ref = _require_kind(self.catalog, event_ref, expected=(SemanticKind.EVENT,))
-        return self._materializer.event(ref, participants=participants)
-
-    def event_occurrences(self, event_ref: Ref[EventKind]) -> ibis.Table:
-        """Materialize one Event's exact source occurrences without participant joins."""
-        ref = _require_kind(self.catalog, event_ref, expected=(SemanticKind.EVENT,))
-        return self._materializer.event_occurrences(ref)

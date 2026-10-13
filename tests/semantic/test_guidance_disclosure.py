@@ -245,7 +245,6 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
         ("time_dimension", "sales.orders.log_date"),
         ("measure", "sales.orders.amount"),
         ("metric", "sales.revenue"),
-        ("event", "sales.order_created"),
     ),
 )
 def test_decorator_help_example_loads_the_declared_object(
@@ -283,7 +282,6 @@ def test_decorator_help_example_loads_the_declared_object(
         "time_dimension": ms.ref.time_dimension,
         "measure": ms.ref.measure,
         "metric": ms.ref.metric,
-        "event": ms.ref.event,
     }[target]
     entry = ms.load(workspace_dir=tmp_path).require(factory(path))
     assert entry.path == path

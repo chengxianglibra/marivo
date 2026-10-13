@@ -12,6 +12,7 @@ import pytest
 
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods import builtin
+from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     DecimalType,
     NoTime,
@@ -78,8 +79,8 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
         for typ in (ScalarType(other_scalar), DecimalType(20, 2)):
             requested = replace(entry.key, input_types=(typ,))
             assert builtin.specialize_numeric(entry, requested).key != requested
-        requested = replace(entry.key, input_domains=("occurrence",))
-        assert builtin.specialize_numeric(entry, requested).key != requested
+        with pytest.raises(MethodRegistrationError):
+            replace(entry.key, input_domains=("occurrence",))
     for name in (
         "deviation.mad",
         "metric.mean",

@@ -82,8 +82,7 @@ evidence and obligations to exact Session/owner/input/scope identities.
 
 A domain has complete typed instance keys. Entity identity K is all ordered
 primary-key components; snapshot and validity coordinates identify historical
-representations and do not replace K. Group, singleton, time, Journey, interval
-and Anchor domains retain their own complete keys and realization bindings.
+representations and do not replace K. Entity, group and singleton domains retain their own complete keys and realization bindings; time grids add explicit coordinates.
 
 A quantity owns its unit, computation/contribution identity and state policy.
 Observed Metric, derived quantity, current-row statistic and rolled quantity
@@ -118,7 +117,7 @@ The six reusable meta-rule families are:
 | PartsTransport | Project/select views while preserving or restricting their actual state |
 
 Concrete methods remain distinct versioned identities. Shared rules coexist
-with dedicated History, Journey, funnel, Anchor, retention, deviation, runs,
+with dedicated deviation, runs,
 association, forecast, display and allocation rules. Domain algorithms are not
 automatically reducible to the six generic rules.
 
@@ -223,7 +222,7 @@ does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
 | Fixed-only / artifact_python | Controlled retained Arrow/Parquet data enters local pandas/NumPy/SciPy consumers |
 | Mixed live source and fixed Artifact | Reject before Run admission or either business input is read |
 
-A fixed member domain followed by a new live Metric/property/Event dependency
+A fixed member domain followed by a new live Metric/property dependency
 is mixed. A Logical continuation over only FixedLeaves remains fixed-only.
 Materialized method calls do not replay origin or reconnect its source.
 
@@ -241,8 +240,8 @@ execution. `operators-and-frames.md` owns these layouts and numeric semantics;
 normalization remains available for other specialized list/struct states; it does
 not relax exact Arrow carrier contracts.
 
-Native relational operations stay in governed Ibis expressions. Matching,
-History replay, exact retained-state reduction and statistical kernels use
+Native relational operations stay in governed Ibis expressions. Exact
+retained-state reduction and statistical kernels use
 their registered consumers. Source preparation may materialize full vectors;
 batch transport is not proof of a streaming statistical algorithm. Route choice
 is complete before execution; a failure never triggers another implementation.
@@ -385,8 +384,7 @@ keys. Every bucket remains, including empty buckets; `by` never removes time or
 introduces an independent time axis. Time-dependent classifications must use the
 observation's exact grid and complete member/time keys. The public `each`,
 `grid.window`, and standalone time-domain result types are removed without aliases.
-Existing result grouping and original `rollup` express time coarsening. Relative
-Anchor observation keeps its per-Anchor window contract.
+Existing result grouping and original `rollup` express time coarsening.
 
 `group_by` on numeric, ratio and statistic results binds classification; `rollup` merges sufficient original state;
 `aggregate` creates a new current-row statistic. Means retain sum/count, ratios
@@ -404,11 +402,7 @@ and use method-specific Cell policies. References remain frozen. Ranking and
 tables are display operations; attribution is an algebraic allocation with
 complete endpoint/partition proof and independent reconciliation.
 
-Domain methods preserve canonical matching/replay state. Journey reducers do
-not rematch; History views do not replay; Anchor windows retain every original
-contribution use; retention distinguishes positive, negative and unknown
-follow-up. Statistical selection preserves original fit/classification/search/
-training scope. Their equations and conditional continuations are owned by
+Statistical selection preserves original fit/classification/search/training scope. Their equations and conditional continuations are owned by
 [Operators and Frames](operators-and-frames.md).
 
 ## Local execution optimization

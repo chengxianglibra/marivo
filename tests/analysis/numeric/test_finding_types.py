@@ -68,13 +68,6 @@ def _finding(value: t.FindingValueV1) -> t.Finding:
     subject: t.FindingSubjectV1 = t.ForecastFindingSubjectV2(quantity=quantity)
     if isinstance(value, t.AssociationFindingValueV1):
         subject = t.AssociationFindingSubjectV2(quantity_a=quantity, quantity_b=quantity)
-    elif isinstance(value, (t.FunnelDeltaFindingValueV1, t.ContributionFindingValueV1)):
-        subject = t.FunnelFindingSubjectV1(
-            subject_entity_ref=RefPayloadV1(
-                schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path="sales.customers"
-            ),
-            pattern_fingerprint="a" * 64,
-        )
     item = t.Finding(
         finding_id="pending",
         artifact_ref=ArtifactRef(ref="artifact"),
@@ -115,48 +108,6 @@ def _forecast_exact() -> t.ForecastPointFindingValueV1:
     )
 
 
-def _contribution() -> t.ContributionFindingValueV1:
-    return t.ContributionFindingValueV1(
-        method="funnel_ratio_mix@v1",
-        active_axis_mask=(True,),
-        other_mask=(False,),
-        contribution_kind="loss",
-        current_value=12,
-        baseline_value=10,
-        overall_delta=2,
-        contribution=2,
-        share_of_total_delta=t.DefinedFindingRatioV1(value=1.0),
-        share_of_positive_pool=t.DefinedFindingRatioV1(value=1.0),
-        share_of_negative_pool=t.UndefinedFindingShareV1(reason="empty_negative_pool"),
-        contribution_rank=1,
-        status="ok",
-    )
-
-
-def _funnel() -> t.FunnelDeltaFindingValueV1:
-    return t.FunnelDeltaFindingValueV1(
-        step_key="payment",
-        coordinate_presence="matched",
-        current_cohort_count=10,
-        baseline_cohort_count=10,
-        current_resolved_cohort_count=10,
-        baseline_resolved_cohort_count=10,
-        current_entry_count=10,
-        baseline_entry_count=10,
-        current_resolved_entry_count=10,
-        baseline_resolved_entry_count=10,
-        current_reached_count=8,
-        baseline_reached_count=7,
-        current_lost_count=2,
-        baseline_lost_count=3,
-        current_coverage_censored_count=0,
-        baseline_coverage_censored_count=0,
-        current_loss_rate_from_previous=0.2,
-        baseline_loss_rate_from_previous=0.3,
-        loss_rate_delta=-0.1,
-    )
-
-
 @pytest.mark.parametrize(
     "value",
     [
@@ -169,7 +120,6 @@ def _funnel() -> t.FunnelDeltaFindingValueV1:
             lag=t.NoAssociationLagV1(),
         ),
         _forecast_exact(),
-        _contribution(),
         t.ForecastPointFindingValueV1(
             model="drift@v1",
             interval_level=0.95,
@@ -179,7 +129,6 @@ def _funnel() -> t.FunnelDeltaFindingValueV1:
             interval_upper=14.0,
             training_row_count=20,
         ),
-        _funnel(),
     ],
 )
 def test_four_closed_variants_round_trip_and_exclude_store_envelope(
@@ -284,14 +233,6 @@ def test_body_codec_rejects_unknown_and_duplicated_ownership(
 def test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numeric_types() -> None:
     with pytest.raises(IntegrityError):
         replace(_forecast_exact(), forecast_value=float("nan"))
-    with pytest.raises(IntegrityError):
-        replace(_contribution(), contribution_kind="metric")
-    with pytest.raises(IntegrityError):
-        replace(_contribution(), active_axis_mask=(False,), other_mask=(True,))
-    with pytest.raises(IntegrityError):
-        replace(_contribution(), contribution_rank=True)
-    with pytest.raises(IntegrityError):
-        replace(_funnel(), current_coverage_censored_count=1)
     with pytest.raises(IntegrityError):
         replace(_finding(_forecast_exact()), epistemic_kind="algebraic")
     with pytest.raises(IntegrityError):

@@ -11,8 +11,6 @@ from typing import Literal, TypedDict
 
 import pytest
 
-import marivo.analysis as mv
-from marivo.analysis.core.domain_captures import DomainPreparationError, EntryAxisCapture
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -22,13 +20,9 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.core.rules import (
-    AnchorObserve,
     DirectMetricDefinition,
     EntityObservationTarget,
-    FunnelAxesPrepare,
-    FunnelReduce,
     ObserveMetric,
-    OccurrenceFilter,
     PartsTransport,
     RowState,
 )
@@ -59,9 +53,6 @@ from marivo.refs import RefPayloadV1, ref
 from marivo.semantic.ir import (
     TargetDimensionContract,
     TargetEntityContract,
-    TargetRelationshipContract,
-    TargetSnapshotVersion,
-    TargetValidityVersion,
 )
 from marivo.semantic.metric_graph import (
     AggregateNodeV1,
@@ -342,181 +333,6 @@ def _entity(name: str) -> TargetEntityContract:
     )
 
 
-def _axis(logical_type: Literal["string", "int64"], history: str = "direct") -> EntryAxisCapture:
-    subject = _entity("sales.subjects")
-    if history == "direct":
-        return EntryAxisCapture(
-            _dimension("sales.subjects", "region", logical_type),
-            subject,
-            (),
-            (subject,),
-            ("subjects",),
-        )
-    target = _entity("sales.history")
-    day = RefPayloadV1.from_ref(ref.time_dimension("sales.history.day"))
-    version = (
-        TargetSnapshotVersion(day, "day", "date", "UTC", None)
-        if history == "snapshot"
-        else TargetValidityVersion(
-            day,
-            RefPayloadV1.from_ref(ref.time_dimension("sales.history.end")),
-            "day",
-            "end",
-            "closed_open",
-            (None,),
-            "UTC",
-        )
-    )
-    target = replace(target, version=version)
-    path = TargetRelationshipContract(
-        RefPayloadV1.from_ref(ref.relationship("sales.history_path")),
-        subject.ref,
-        target.ref,
-        "history",
-        (("id", "id"),),
-        "many_to_one",
-        False,
-        False,
-    )
-    return EntryAxisCapture(
-        _dimension("sales.history", "region", logical_type),
-        subject,
-        (path,),
-        (subject, target),
-        ("subjects", "history"),
-    )
-
-
-@pytest.mark.parametrize(
-    "kind,case,accepted",
-    [
-        # Both public rule parameter types exercise the shared admission path
-        # with one accepted and one refused shape. The remaining boundary
-        # matrix is specific to the shared rule and runs once.
-        ("prepare", "string", True),
-        ("prepare", "empty", False),
-        ("reduce", "string", True),
-        ("reduce", "int64", True),
-        ("reduce", "pair", True),
-        ("reduce", "reverse", True),
-        ("reduce", "strings", True),
-        ("reduce", "integers", True),
-        ("reduce", "triple", True),
-        ("reduce", "long_direct", True),
-        ("reduce", "empty", False),
-        ("reduce", "mixed_history", True),
-        ("reduce", "two_history", True),
-        ("reduce", "snapshot", True),
-        ("reduce", "validity", True),
-        ("reduce", "int_history", True),
-        ("reduce", "subject_version", False),
-        ("reduce", "timestamp", False),
-        ("reduce", "zone", False),
-        ("reduce", "closure", False),
-        ("reduce", "open_end", False),
-        ("reduce", "long_path", True),
-    ],
-)
-def test_sqlite_funnel_parameter_boundaries(kind: str, case: str, accepted: bool) -> None:
-    axis = _axis(
-        "string",
-        "snapshot"
-        if case in ("snapshot", "timestamp", "zone", "subject_version", "long_path")
-        else "validity"
-        if case in ("validity", "closure", "open_end")
-        else "direct",
-    )
-    if case == "int_history":
-        axis = _axis("int64", "snapshot")
-    elif case in ("timestamp", "zone", "closure", "open_end"):
-        target = axis.entities[-1]
-        version = target.version
-        assert version is not None
-        if case == "timestamp":
-            target = replace(target, columns=(("id", "int64"), ("day", "timestamp")))
-        elif case == "zone":
-            version = replace(version, timezone="Asia/Tokyo")
-        elif case == "closure":
-            assert isinstance(version, TargetValidityVersion)
-            version = replace(version, interval="closed_closed")
-        else:
-            assert isinstance(version, TargetValidityVersion)
-            version = replace(version, open_end=("9999-12-31",))
-        axis = replace(axis, entities=(axis.subject, replace(target, version=version)))
-    elif case == "subject_version":
-        subject = replace(axis.subject, version=axis.entities[-1].version)
-        axis = replace(axis, subject=subject, entities=(subject, axis.entities[-1]))
-    elif case == "long_path":
-        middle = _entity("sales.middle")
-        first = replace(axis.path[0], to_entity_ref=middle.ref)
-        last = replace(axis.path[0], from_entity_ref=middle.ref)
-        axis = replace(
-            axis,
-            path=(first, last),
-            entities=(axis.subject, middle, axis.entities[-1]),
-            source_ids=("subjects", "middle", "history"),
-        )
-    axes = (
-        (_axis("int64"), axis)
-        if case == "pair"
-        else (axis, _axis("int64"))
-        if case == "reverse"
-        else (axis, _axis("string"))
-        if case == "strings"
-        else (_axis("int64"), _axis("int64"))
-        if case == "integers"
-        else (axis, _axis("int64"), _axis("string"))
-        if case == "triple"
-        else tuple(_axis("string" if i % 2 else "int64") for i in range(17))
-        if case == "long_direct"
-        else (axis, _axis("string", "snapshot"))
-        if case == "mixed_history"
-        else (_axis("string", "snapshot"), _axis("string", "validity"))
-        if case == "two_history"
-        else ()
-        if case == "empty"
-        else (_axis("int64"),)
-        if case == "int64"
-        else (axis,)
-    )
-    axes = tuple(
-        replace(
-            a,
-            dimension=replace(
-                a.dimension,
-                ref=RefPayloadV1.from_ref(ref.dimension(f"{a.dimension.entity_ref.path}.axis_{i}")),
-            ),
-        )
-        for i, a in enumerate(axes)
-    )
-    name: MethodName = "funnel.entry_axes" if kind == "prepare" else "funnel.reduce"
-    item = next(
-        i
-        for i in REGISTRY.lookup(MethodKey(name)).implementations
-        if isinstance(i.key.shape, SourceShape) and i.key.shape.backend == "sqlite"
-    )
-    params = (
-        FunnelAxesPrepare("start", "end", axes, "event")
-        if kind == "prepare"
-        else FunnelReduce(_domain(), "scope", axes, "subjects")
-    )
-    if accepted:
-        builtin.admit(item, params)
-    else:
-        with pytest.raises(
-            MethodRegistrationError,
-            match="unversioned Subject through to-one UTC DATE history paths",
-        ):
-            builtin.admit(item, params)
-
-
-def test_funnel_axis_types_reject_at_capture_owner() -> None:
-    axis = _axis("string")
-    for logical_type in ("float64", "boolean", "date32[day]"):
-        with pytest.raises(DomainPreparationError, match="string/int64 entry-axis path"):
-            replace(axis, dimension=replace(axis.dimension, logical_type=logical_type))
-
-
 def _observation() -> ObserveMetric:
     metric = ref.metric("sales.total")
     entity = ref.entity("sales.facts")
@@ -563,73 +379,6 @@ def _observation() -> ObserveMetric:
         "int64",
         temporal=observation_temporal(event),
     )
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "accepted",
-        "type",
-        "method",
-        "empty",
-        "fold",
-        "distinct",
-        "coordinates",
-        "filters",
-        "multiple",
-        "composition",
-    ],
-)
-def test_sqlite_anchor_observation_parameter_boundaries(case: str) -> None:
-    item = next(
-        i
-        for i in REGISTRY.lookup(MethodKey("anchor.observe")).implementations
-        if isinstance(i.key.shape, SourceShape) and i.key.shape.backend == "sqlite"
-    )
-    observation = _observation()
-    if case == "type":
-        observation = replace(observation, amount_type="float64")
-    elif case == "method":
-        observation = replace(observation, method="mean")
-    elif case == "empty":
-        observation = replace(observation, metric=replace(observation.metric, empty_rule="null"))
-    elif case == "fold":
-        observation = replace(observation, fold="last")
-    elif case == "distinct":
-        observation = replace(observation, distinct_columns=("amount",))
-    elif case == "coordinates":
-        observation = replace(
-            observation, coordinates=(_dimension("sales.facts", "region", "string"),)
-        )
-    elif case == "filters":
-        observation = replace(
-            observation,
-            filters=(
-                OccurrenceFilter(_dimension("sales.facts", "region", "string"), "==", "east"),
-            ),
-        )
-    observations = (observation, observation) if case == "multiple" else (observation,)
-    params = AnchorObserve(
-        mv.elapsed(mv.duration(seconds=10)),
-        observations,
-        Signature(_domain(), observation.quantity),
-    )
-    if case == "composition":
-        from marivo.analysis.core.rules import OriginalRatio
-
-        params = replace(
-            params,
-            composition=OriginalRatio(
-                observation.quantity, ref.metric("sales.total"), ref.metric("sales.other")
-            ),
-        )
-    if case in ("accepted", "type", "empty", "filters"):
-        builtin.admit(item, params)
-    else:
-        with pytest.raises(
-            MethodRegistrationError, match="count or additive int64/float64 Anchor sums"
-        ):
-            builtin.admit(item, params)
 
 
 @pytest.mark.parametrize("case", ["distinct", "start", "end"])

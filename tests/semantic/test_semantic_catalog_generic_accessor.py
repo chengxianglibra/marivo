@@ -79,8 +79,6 @@ def test_items_matches_named_property_for_every_kind(tmp_path) -> None:
         SemanticKind.TIME_DIMENSION: catalog.time_dimensions,
         SemanticKind.METRIC: catalog.metrics,
         SemanticKind.RELATIONSHIP: catalog.relationships,
-        SemanticKind.EVENT: catalog.events,
-        SemanticKind.STATE_MODEL: catalog.state_models,
         SemanticKind.PERIOD_CALENDAR: catalog.period_calendars,
         SemanticKind.TEMPORAL_SET: catalog.temporal_sets,
         SemanticKind.WORK_SCHEDULE: catalog.work_schedules,

@@ -6,14 +6,10 @@ import contextlib
 import io
 import json
 import os
-import shutil
 import sys
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 
-from tests.analysis.journey import anchors_worker, funnel_public_recovery_worker, retention_worker
-from tests.analysis.lifecycle import history_public_recovery_worker
 from tests.analysis.statistics import recovery_worker
 from tests.packaging import (
     association_edges_journey,
@@ -24,7 +20,7 @@ from tests.packaging import (
 )
 from tests.support.json import Json, checked, encode, obj
 
-JOURNEYS = tuple(f"a{number:02}" for number in range(1, 14))
+JOURNEYS = tuple(f"a{number:02}" for number in (1, 2, 3, 4, 5, 6, 7, 8, 11, 12))
 
 
 def _printed(operation: Callable[[], None]) -> dict[str, Json]:
@@ -76,62 +72,10 @@ def run(root: Path, journey: str, phase: str) -> dict[str, Json]:
     elif journey == "a05":
         _project(root)
         result = versioned_journey.run(root, phase)
-    elif journey == "a09":
-        _project(root)
-        result = (
-            funnel_public_recovery_worker.produce(root, "parquet")
-            if phase == "produce"
-            else funnel_public_recovery_worker.recover(root, phase)
-        )
-        if phase == "produce":
-            (root / "source.duckdb").unlink()
-            shutil.rmtree(root / "models")
-            for path in root.glob("*.parquet"):
-                path.unlink()
-    elif journey == "a10":
-        result = {}
-        for risk in ("views", "captured_observations"):
-            project = root / risk
-            _project(project)
-            result[risk] = (
-                history_public_recovery_worker.produce(project, risk)
-                if phase == "produce"
-                else history_public_recovery_worker.recover(project, risk, phase)
-            )
-            if phase == "produce":
-                (project / "source.duckdb").unlink()
-                shutil.rmtree(project / "models")
     elif journey == "a11":
         result = recovery_worker.run(root, phase, "parquet")
     else:
-        assert journey == "a13"
-        result = {}
-        for kind in ("anchors", "retention"):
-            project = root / kind
-            _project(project)
-            if phase == "produce":
-                config: dict[str, Json] = {
-                    "subject": "c",
-                    "occurrence": "c",
-                    "form": "parquet",
-                    "unit": "us",
-                    "zone": "America/New_York",
-                }
-                if kind == "anchors":
-                    config["all_K"] = True
-                (project / "config.json").write_bytes(encode(config))
-            if kind == "anchors":
-                result[kind] = _printed(
-                    partial(anchors_worker.produce, project)
-                    if phase == "produce"
-                    else partial(anchors_worker.offline, project, phase == "cold")
-                )
-            else:
-                result[kind] = _printed(
-                    partial(retention_worker.produce, project)
-                    if phase == "produce"
-                    else partial(retention_worker.offline, project, phase == "cold")
-                )
+        raise AssertionError(f"Unknown installed journey: {journey}")
     return {"journey": journey, "phase": phase, "pid": os.getpid(), "result": result}
 
 

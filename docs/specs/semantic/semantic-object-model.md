@@ -18,68 +18,6 @@ There is no public named `ms.statistical_weight` or current-row
 `ms.weighted_mean` and `mv.runtime_metric.weighted_mean` retain their governed
 Metric-component meaning.
 
-### Business order and simultaneous events
-
-`ms.business_order(*, name: str, subject: Ref[EntityKind],
-sequences: tuple[EventSequence, ...] = (),
-conflicts: tuple[EventPrecedence, ...] = (),
-domain: Ref[DomainKind] | None = None,
-ai_context: AiContextValue) -> Ref[BusinessOrderKind]` is one named order
-authority. `ai_context.business_definition` must contain a nonempty business
-rationale, and at least one sequence or precedence is required. The exact
-identity is `ms.ref.business_order(path)`; `catalog.business_orders` and
-`catalog.require(ref)` expose its resolved facts and dependency fingerprint.
-`ms.event_sequence(event: Ref[EventKind], value: Ref[DimensionKind], *,
-order: Literal["integer"] | tuple[str, ...]) -> EventSequence` binds an
-explicit integer or ordered enum contract on that Event's occurrence Entity.
-The enum tuple has at least two distinct nonempty strings. All listed sequence
-fields for one Subject must use the same order contract and must not directly
-alias an occurrence identity field. `ms.precedes(before: ParticipantRoleHandle,
-after: ParticipantRoleHandle) -> EventPrecedence` declares one acyclic,
-same-Subject precedence for simultaneous roles. `ms.load()` checks Event
-source and time roles, complete occurrence identity, participant paths and
-complete Subject K; each order role must resolve uniquely with cardinality
-`one` to that Subject. Duplicate, self-referential, and cyclic precedence
-fails loading. `ms.state_model(..., business_order:
-Ref[BusinessOrderKind] | None = None)` binds the default order for that model;
-its Subject and every trigger Event must belong to the order definition.
-The canonical IR, fingerprints, catalog detail, and scoped readiness preserve
-the exact order, role, field, and dependency refs.
-
-At Analysis consumption, different instants order by time. Declared sequences
-and closed precedence resolve otherwise ambiguous occurrences. Runtime checks
-sequence type, uniqueness/comparability, enum values and actual required
-participant mapping. A deterministic occurrence-ID order is physical enumeration,
-not business evidence.
-
-Only the closed method cases in
-[Ordering, Matching and Reach](../analysis/operators-and-frames.md#ordering-matching-and-reach)
-may consume a remaining partial order. There is no generic confluence callback
-or permutation search. If assignment, trace, violation, interval or continuation
-facts depend on unresolved order, the method rejects with a business-order repair.
-
-This document defines the object contracts of
-`marivo.semantic` (`ms`): the business objects a coding agent declares in Python
-so that downstream analysis can reference stable, validated semantics. It is the
-authority for *what each object is and what fields it carries*; the process of
-building them is in [authoring-workflow.md](authoring-workflow.md), and how they
-are loaded, read, and validated is in
-[loading-validation-introspection.md](loading-validation-introspection.md).
-
-See also:
-
-- [overview.md](overview.md) — design goals and where the object model sits.
-- [datasource-layer.md](datasource-layer.md) — the refs and evidence entities
-  build on.
-- `marivo.help("semantic.<constructor>")` — the current callable contract.
-- [Analysis Design](../analysis/python-analysis-design.md) — member domains,
-  observation scopes, algebraic state and coordinate transitions.
-
-Python files under `models/semantic/<domain>/` are the source of truth. An
-object is declared once, is statically readable, and is referenced everywhere
-downstream by a typed ref — never re-derived from a column name, table name, or
-natural-language guess.
-
 ## Common contracts
 
 These rules hold for every object type.
@@ -104,8 +42,7 @@ These rules hold for every object type.
   and exactly one final `return <ibis expression>`. Local names cannot shadow
   parameters or existing symbols, be reassigned, or be used before definition.
   Each binding is evaluated once in source order. Local renaming preserves
-  identity; expression and binding-order changes do not. Events retain their
-  separate single-return predicate grammar. Ibis is the only expression language; SQL is
+  identity; expression and binding-order changes do not. Ibis is the only expression language; SQL is
   metadata (provenance), never an executable body. Other statements, writes, control flow, and local callable aliases are
   rejected at decoration time. Refs remain data-only; nested field expressions
   use `ms.bind(field_ref, entity_alias)` rather than calling the ref.
@@ -221,7 +158,7 @@ def regional_orders(raw):
 A persisted SQL view is exposed with `md.table(...)`. Custom SQL remains the
 terminal datasource path and does not produce an Entity.
 - `K` must be complete, non-empty, and non-null when the Entity supplies a
-  Population, Event participant subject, or StateModel subject. An Entity without
+  member-domain input. An Entity without
   a declared key may remain a computation source; it cannot become identity
   authority through observed uniqueness or a guessed Dimension.
 - One identity tuple always denotes the same Entity instance. There is no second
@@ -716,7 +653,6 @@ component graph or fold license.
 | Entity, field, relationship and time declarations | Complete identity/version grain, owner, directed keys/cardinality and source-time interpretation | Bind exact members, versions, path and physical types; declarations do not prove total matching or completeness |
 | Measure and decorator Metric | Unit, additivity and restricted Ibis expression | Admit only declared transformations and enforce the actual null/empty/Cell policy |
 | Metric builders and normalized graph | Ordered component occurrences, roots, filters, folds, roles and sufficient-state requirements | Reduce each occurrence independently, combine on full target keys and retain the required state |
-| BusinessOrder, Event and StateModel | Participant/Subject identity, occurrence time, order and normative transition meaning | Capture exact definitions; execute matching/replay and method-owned ambiguity checks |
 | Analysis invocation | Explicit scopes, assumptions and bound operation choices | Keep declarations, constructor guarantees, assumptions and completed checks as separate evidence |
 
 A decorator body is executable Ibis, not a source for inferring hidden component
@@ -941,28 +877,12 @@ Incorrect declarations do not promise detection. Necessary consumer indexes
 reject encountered duplicates, and required lookups reject missing operands.
 An allowed absent match needs its consumer's explicit result semantics.
 
-## Event and StateModel boundaries
-
-Event keeps its existing occurrence identity, business `occurred_at` axis,
-restricted occurrence predicate, and named participant paths with `one` or
-`optional_one` cardinality. Occurrence identity is distinct from the participant
-Entity's `K`. A subject-consuming operation requires the exact participant
-Entity identity and any temporal resolution needed to reproduce it; occurrence
-keys never substitute for subject membership.
-
-StateModel keeps its exact subject Entity, closed states, inception, and
-deterministic transitions through cardinality-one Event roles. It defines which
-transitions are valid, not whether source history is complete or which members
-belong to this analysis. Population windows, sampling, replay windows, censoring,
-and scoped completeness assumptions remain Analysis/source-evidence concerns.
-No semantic Population, Sample, or `complete=True` authoring field is introduced.
-
 ## Bounded acceptance cases for the amendment
 
 1. A snapshot Entity with `K=(user_id,)` admits repeated users across dates,
    trusts `(user_id, snapshot)` row uniqueness, resolves one exact snapshot,
    and uses the consuming operation's empty result when it is absent. A physically
-   partitioned non-versioned Event Entity acquires no snapshot semantics.
+   partitioned non-versioned fact Entity acquires no snapshot semantics.
 2. A validity Entity derives `(K, valid_from)` row uniqueness and applies the
    declared interval selection without source-data preflight. No identity key
    is constructed by removing columns.
@@ -978,9 +898,6 @@ No semantic Population, Sample, or `complete=True` authoring field is introduced
 6. Merging mean/weighted/ratio state matches direct governed computation after
    row selection, including empty, all-null, and zero-denominator inputs. A ratio
    with a distinct or temporal component cannot inherit additive permission.
-7. Event participant and StateModel subject identity equal Population `K`; no
-   source-only Entity with an absent key becomes a subject. Declared snapshot or
-   StateModel meaning does not create runtime completeness evidence.
 
 ## Historical SQL context and verification
 
@@ -1113,62 +1030,11 @@ The withdrawn ms.statistical_weight, mv.statistical_weight and dependent
 current-row weighted mean remain excluded. Composition does not reinterpret direct
 distinct/quantile display values as membership/distribution sufficient state.
 
-## Event and StateModel handoff
-
-Semantic owns authored facts. The
-[Analysis domain contract](../analysis/python-analysis-design.md#observation-and-composition)
-owns invocation binding; [domain rules](../analysis/operators-and-frames.md#domain-methods)
-own admissible tie cases and actual consumed-value checks.
-
-An Event capture binds its Ref/fingerprint, occurrence Entity definition/version
-and complete K, occurred_at field/time authority, datasource/source definition,
-exact participant role and governed to-one path to complete Subject K. Snapshot
-or validity representations are selected under the consuming temporal authority;
-overlapping versions, missing participants and to-many mappings reject. Repeated
-Event references in a pattern use one explicit input leaf per distinct capture;
-step identity does not create another source read.
-
-`business_order` is supplied only to Analysis match and Event-role anchors;
-Journey anchors inherit their assignment's authority. Replay consumes the
-StateModel's authored `business_order` and has no override parameter. Captures
-retain the order Ref/fingerprint, Subject, exact covered Events/roles, ordered
-sequence fields and enum/integer contract, precedence edges and transitive
-dependency fingerprints. None of these refs is stored solely in a Python
-closure or descriptive lineage. StateModel captures additionally preserve
-ordered declared states, terminal states, inception triggers and legal transitions.
-
-Different instants order by occurrence time. Sequence values order only within
-the declared simultaneous-event authority: integer excludes bool; ordered enums
-must occur in the declared tuple; sequence values must be unique/comparable
-across captured occurrences of each Subject in the covered Events. Precedence
-and sequence facts must agree; contradiction,
-cycle or an actual unknown enum is an error. Occurrence IDs, names, physical row
-order and declaration order never fill missing business evidence. Runtime
-validates exact Event/participant/source/version binding before consumption.
-Static readiness remains an advisory until those values are checked.
-
-Completeness is an Analysis invocation/source fact, not an Event or StateModel
-field. Existing BoundedCompletenessDeclarationV1 and
-SourceOriginCompletenessDeclarationV1 retain their exact bindings and rationale;
-observed coverage never writes back to the Catalog. The Domain/DAG carries
-every Event, StateModel, order and coverage dependency needed by one invocation.
-Named statistical_weight and other withdrawn APIs remain withdrawn.
-
-
 ## Immutable domain captures
 
-The private unified graph now freezes complete Event, StateModel and BusinessOrder
-IR with exact definition/version/dependency fingerprints, role and source input
-identity. Repeated StateModel trigger occurrences share the explicit Event capture;
-no live callable, current catalog reload or occurrence-ID order repairs a frozen
-binding. Actual participant joins must be single-valued at the captured occurrence
-time and complete typed Subject key. Historical validity/snapshot selection uses
-that same captured time. The 2026-10-01 precision amendment accepts native time
-conversion loss and supersedes the earlier lossless-source requirement; its sole
-owner is [occurrence time](../analysis/timezone-and-calendar-design.md#occurrence-and-relative-window-time).
-Semantic definitions are not themselves coverage receipts or Runtime passes.
-Public domain construction and execution use the unified typed graph and
-registered consumers; frozen declarations alone grant no runtime capability.
+The private unified graph freezes governed Entity, Dimension and Metric
+contracts with exact definition and dependency fingerprints. Frozen declarations
+do not establish source completeness or physical execution qualification.
 
 Analysis owns the closed time-key alignment family and its output coordinates;
 see the [comparison contract](../analysis/timezone-and-calendar-design.md#period-correspondence).

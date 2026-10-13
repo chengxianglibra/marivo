@@ -30,14 +30,11 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
             qualification=Qualified(
                 "r8-" + method.name.replace(".", "-") + "-" + item.key.route + "-v1",
                 "analysis.materialization.statistical_execution",
-                "tests/test_r93_duration_ratio_unknown.py"
-                if item.key.input_domains[0] == "journey"
-                else "tests/test_analysis_statistics_r84.py",
+                "tests/test_analysis_statistics_r84.py",
             ),
         )
         for item in numeric_implementations(MethodKey("deviation.read"))
         if item.key.input_domains[0] != "singleton"
-        and (item.key.input_domains[0] != "journey" or association)
         and (not isinstance(item.key.shape, SourceShape) or item.key.shape.backend == "duckdb")
     )
     if method.name not in (

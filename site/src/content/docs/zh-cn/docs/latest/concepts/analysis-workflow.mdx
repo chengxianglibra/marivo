@@ -185,7 +185,7 @@ Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用
 ## 明确来源与已保存结果边界
 
 再次执行 live 定义会读取当前来源。使用 `session.artifact(ref)`恢复某个确切的历史结果。
-fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上新增 live Metric、字段或 Event
+fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上新增 live Metric 或字段
 依赖会形成 mixed 工作，并在读取任何业务输入之前拒绝。
 
 继续阅读[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)、

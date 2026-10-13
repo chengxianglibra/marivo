@@ -275,7 +275,7 @@ def test_mapping_subject_image_full_tuple_union_and_missing_side() -> None:
     customer = ms.ref.entity("sales.customer")
     order_key = (Coordinate(order, "order_id", "identity"),)
     customer_key = (Coordinate(customer, "customer_id", "identity"),)
-    orders = DomainSignature(bound, "journey", order_key, order_key, "orders")
+    orders = DomainSignature(bound, "entity", order_key, order_key, "orders")
     customers = DomainSignature(bound, "entity", customer_key, customer_key, "customers")
     subject = SubjectPart(bound, customer, order_key, customer_key, False, True, "v1")
     mapped = derive((Signature(orders, parts=(subject,)),), MapCorrespond("subjects", customers))

@@ -15,9 +15,6 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
     names = set(dir(session))
     for advertised in (
         "members",
-        "anchors",
-        "events",
-        "lifecycle",
         "source_bindings",
         "runs",
         "get_run",
@@ -54,12 +51,3 @@ def test_dir_advertises_intents_and_hides_plumbing(tmp_path, monkeypatch):
         "_evidence_store",
     ):
         assert hidden not in names, f"plumbing leaked into dir(): {hidden}"
-
-
-def test_session_namespaces_are_typed_helpers_only(authoring_evidence_project, monkeypatch):
-    session = _session(authoring_evidence_project, monkeypatch)
-
-    assert not callable(session.events)
-    assert callable(session.events.match)
-    assert not callable(session.lifecycle)
-    assert callable(session.lifecycle.replay)

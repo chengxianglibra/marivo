@@ -132,7 +132,7 @@ def surface_snapshot() -> list[dict[str, object]]:
         signatures = {"__call__": str(inspect.signature(value))} if callable(value) else {}
         if inspect.isclass(value):
             for member_name, member in inspect.getmembers(value, inspect.isfunction):
-                if not member_name.startswith("_"):
+                if not member_name.startswith("_") and member.__module__.startswith("marivo."):
                     signatures[member_name] = str(inspect.signature(member))
         result.append(
             {

@@ -14,8 +14,6 @@ from tests.packaging.installer_helpers import InstallerEnv, InstallerToolchain
 from tests.packaging.wheel_support import InstalledWheel, prepare_wheel
 from tests.shared_fixtures import (
     DSL_NAMES,
-    FUNNEL_BASE_EVENTS,
-    FUNNEL_BASE_ORDERS,
     DslCase,
     DslCaseFactory,
     DslNames,
@@ -23,10 +21,8 @@ from tests.shared_fixtures import (
     analysis_dsl_project_files,
     analysis_dsl_rows,
     authoring_evidence_template,
-    lifecycle_project_files,
     sales_orders_template,
     seed_analysis_dsl_database,
-    seed_lifecycle_backend,
 )
 from tests.support.source_trace import SourceTrace
 
@@ -265,65 +261,6 @@ def semantic_project_factory(tmp_path):
         return project
 
     return _make
-
-
-@pytest.fixture
-def funnel_session_factory(
-    semantic_project_factory: Any,
-    monkeypatch: pytest.MonkeyPatch,
-) -> Any:
-    """Return a factory for named sessions over the commerce funnel project."""
-    import marivo.analysis.session as session_attach
-
-    def _build(name: str) -> Any:
-        project = semantic_project_factory(lifecycle_project_files())
-        backend = seed_lifecycle_backend(
-            events=FUNNEL_BASE_EVENTS,
-            orders=FUNNEL_BASE_ORDERS,
-            watermark_events=frozenset(
-                {
-                    "commerce.order_created",
-                    "commerce.payment_captured",
-                    "commerce.order_closed",
-                }
-            ),
-        )
-        monkeypatch.chdir(project.workspace_dir)
-        monkeypatch.setenv("TZ", "UTC")
-        return session_attach.get_or_create(
-            name=name,
-            report_timezone="UTC",
-            backends={"warehouse": lambda: backend},
-        )
-
-    return _build
-
-
-@pytest.fixture
-def funnel_session(funnel_session_factory: Any) -> Any:
-    """Yield one isolated session for funnel comparison and attribution."""
-    import marivo.analysis.session as session_attach
-
-    session = funnel_session_factory("funnel-phase-four")
-    try:
-        yield session
-    finally:
-        session.close()
-        session_attach._reset_process_state()
-
-
-@pytest.fixture
-def cart_step() -> Any:
-    from tests.shared_fixtures import pattern_step_for_tests
-
-    return pattern_step_for_tests("cart")
-
-
-@pytest.fixture
-def payment_step() -> Any:
-    from tests.shared_fixtures import pattern_step_for_tests
-
-    return pattern_step_for_tests("payment")
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Closed, canonical v10 graph metadata; no legacy Artifact or journey codecs."""
+"""Closed, canonical v10 graph metadata."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
 from marivo.analysis.core.model import (
     Evidence,
     Fact,
-    OccurrencePart,
     PartRole,
     Signature,
 )
@@ -228,20 +227,6 @@ class MethodState:
         required = (
             ()
             if self.kind == "none"
-            else ("subject", "retention")
-            if self.kind in ("anchor_retention", "subject_retention")
-            else ("history",)
-            if self.kind == "canonical_history"
-            else ("history_view",)
-            if self.kind == "history_view"
-            else ("entry_axes",)
-            if self.kind == "entry_axes"
-            else ("funnel_state",)
-            if self.kind in ("funnel_components", "funnel_comparison", "funnel_allocation")
-            else ("subject", "journey")
-            if self.kind == "journey_assignment"
-            else ("subject", "occurrences")
-            if self.kind == "occurrence_inputs"
             else ("subject", "cohort_decision")
             if self.kind == "cohort"
             else ("fixed_reference", "reference_proof", "stratum_values", "strata")
@@ -420,25 +405,6 @@ def record_semantic_versions(
         if isinstance(node, (SourceLeaf, SourceRecord))
     ]
     for node in nodes:
-        captures = tuple(
-            part
-            for part in (
-                node.derivation.output if isinstance(node, MethodRecord) else node.signature
-            ).parts
-            if isinstance(part, OccurrencePart)
-        )
-        for capture in captures:
-            versions.extend((event.ref.path, event.fingerprint) for event in capture.events)
-            versions.extend(
-                (event.source.ref.path, event.source.dependency_fingerprint)
-                for event in capture.events
-            )
-            if capture.order is not None:
-                versions.append((capture.order.ref.path, capture.order.fingerprint))
-                versions.extend(capture.order.dependencies)
-            if capture.model is not None:
-                versions.append((capture.model.ref.path, capture.model.fingerprint))
-                versions.extend(capture.model.dependencies)
         if isinstance(node, (MethodNode, MethodRecord)) and isinstance(
             node.parameters, PreparedObservation
         ):
@@ -450,13 +416,6 @@ def record_semantic_versions(
     return (
         tuple(dict.fromkeys(versions))
         if any(
-            isinstance(part, OccurrencePart)
-            for node in nodes
-            for part in (
-                node.derivation.output if isinstance(node, MethodRecord) else node.signature
-            ).parts
-        )
-        or any(
             isinstance(node, (MethodNode, MethodRecord))
             and isinstance(node.parameters, PreparedObservation)
             for node in nodes

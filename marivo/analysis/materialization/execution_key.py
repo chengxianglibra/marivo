@@ -8,15 +8,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TypeAlias
 
-from pydantic import TypeAdapter
-
 from marivo._temporal import (
     ContainmentRecord,
     CorrespondenceRecord,
     PeriodCalendarSnapshotV1,
     PeriodRecord,
 )
-from marivo.analysis.anchors import AnyAnchor, CalendarWindow, Duration, ElapsedWindow, EveryAnchor
 from marivo.analysis.compiler.graph_plan import (
     ArtifactReadStage,
     GraphPlan,
@@ -24,15 +21,8 @@ from marivo.analysis.compiler.graph_plan import (
     SourceInputStage,
     SourceMethodStage,
 )
-from marivo.analysis.core import history_types
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core import time_alignment as time_alignment_model
-from marivo.analysis.core.domain_captures import (
-    EntryAxisCapture,
-    EventCapture,
-    OrderCapture,
-    StateModelCapture,
-)
 from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
 from marivo.analysis.core.predicates import DurationLiteral
 from marivo.analysis.core.time_grid import (
@@ -43,10 +33,6 @@ from marivo.analysis.core.time_grid import (
     TimeCell,
 )
 from marivo.analysis.datasets.descriptors import _canonical_digest, _is_stable_identifier
-from marivo.analysis.domains.completeness import (
-    BoundedCompletenessDeclarationV1,
-    SourceOriginCompletenessDeclarationV1,
-)
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.methods import physical as method_physical
 from marivo.analysis.methods.semantics import MethodKey
@@ -67,10 +53,6 @@ _DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
 _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v3"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
 
-_CAPTURE_WIRE: TypeAdapter[EntryAxisCapture | EventCapture | OrderCapture | StateModelCapture] = (
-    TypeAdapter(EntryAxisCapture | EventCapture | OrderCapture | StateModelCapture)
-)
-
 _WIRE_TAGS: dict[type[object], str] = {
     core_model.ComparisonPart: "comparison_part",
     core_model.PairInputsPart: "r8_pair_inputs_part",
@@ -86,33 +68,8 @@ _WIRE_TAGS: dict[type[object], str] = {
     core_model.SubjectMapPart: "r8_subject_map_part",
     core_model.TableFitsPart: "r8_table_fits_part",
     core_model.TableFitColumn: "r8_table_fit_column",
-    AnyAnchor: "any_anchor",
-    EveryAnchor: "every_anchor",
-    core_model.InstanceRetentionPart: "instance_retention_part",
-    core_model.SubjectRetentionPart: "subject_retention_part",
-    Duration: "duration",
-    ElapsedWindow: "elapsed_window",
-    CalendarWindow: "calendar_window",
-    core_model.AnchorDomainPart: "anchor_domain_part",
-    core_model.AnchorObservationPart: "anchor_observation_part",
-    BoundedCompletenessDeclarationV1: "bounded_completeness",
-    SourceOriginCompletenessDeclarationV1: "origin_completeness",
     DurationLiteral: "duration_literal",
-    core_model.EntryAxesPart: "entry_axes_part",
-    core_model.FunnelPart: "funnel_part",
-    core_model.FunnelComparisonPart: "funnel_comparison_part",
-    core_model.FunnelAllocationPart: "funnel_allocation_part",
     core_model.FindingPolicyPart: "finding_policy_part",
-    core_model.HistoryPart: "history_part",
-    core_model.HistoryViewPart: "history_view_part",
-    history_types.StateAt: "history_state_at",
-    history_types.Distribution: "history_distribution",
-    history_types.Transitions: "history_transitions",
-    history_types.Violations: "history_violations",
-    history_types.Intervals: "history_intervals",
-    history_types.Dwell: "history_dwell",
-    core_model.JourneyPart: "journey_part",
-    core_model.OccurrencePart: "occurrence_part",
     core_model.AttributionPart: "attribution_part",
     PeriodCalendarSnapshotV1: "calendar_snapshot",
     PeriodRecord: "calendar_period",
@@ -220,8 +177,6 @@ def _wire(value: object, identities: dict[str, str] | None = None) -> _Canonical
         return value
     if type(value) is tuple:
         return tuple(_wire(item, identities) for item in value)
-    if isinstance(value, (EntryAxisCapture, EventCapture, OrderCapture, StateModelCapture)):
-        return ("r7_capture", type(value).__name__, _CAPTURE_WIRE.dump_json(value).decode())
     tag = _WIRE_TAGS.get(type(value))
     if tag is None or not is_dataclass(value):
         raise _key_error("a closed canonical graph contract value", type(value).__name__)

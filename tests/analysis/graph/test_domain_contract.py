@@ -1,4 +1,4 @@
-"""Current statistic actions and typed Journey count registrations."""
+"""Current statistic actions and non-scalar units."""
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -28,21 +28,3 @@ def test_registered_templates_and_non_scalar_units_keep_their_actions(
 
     with pytest.raises(AnalysisError, match="identical"):
         statistic.compare(statistic)
-
-
-def test_retained_journey_count_keys_stay_fixed_and_typed() -> None:
-    from marivo.analysis.methods.journey_physical import consumers
-    from marivo.analysis.methods.physical import DurationType, FixedShape, NoTime, ScalarType
-    from marivo.analysis.methods.semantics import MethodKey
-
-    for method in ("row.count", "row.count_defined"):
-        declarations = consumers(MethodKey(method))
-        assert {item.key.input_types for item in declarations} == {
-            (ScalarType("string"),),
-            (ScalarType("timestamp"),),
-            (DurationType("us"),),
-        }
-        assert all(item.key.shape == FixedShape(NoTime()) for item in declarations)
-        assert all(item.key.input_domains == ("journey",) for item in declarations)
-        assert all(item.key.route == "artifact_python" for item in declarations)
-        assert all(item.precision == "checked_int64" for item in declarations)

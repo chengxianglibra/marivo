@@ -205,11 +205,6 @@ def _manifest() -> Manifest:
         "statistical_execution",
         "runs_execution",
         "deviation_execution",
-        "retention_execution",
-        "history_views",
-        "funnel_execution",
-        "journey_views",
-        "journey_execution",
     )
     add(
         "analysis/materialization/graph_local_execution",
@@ -220,10 +215,7 @@ def _manifest() -> Manifest:
     add(
         "analysis/materialization/graph_preparation",
         ("_execute",),
-        tuple(
-            f"marivo.analysis.materialization.{module}.execute"
-            for module in (*local_executors, "history_execution")
-        ),
+        tuple(f"marivo.analysis.materialization.{module}.execute" for module in local_executors),
         typed,
     )
     add(

@@ -7,12 +7,11 @@ import copy
 import hashlib
 import inspect
 import json
-import math
 import textwrap
 from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from types import CellType, FunctionType, MappingProxyType, ModuleType
+from types import CellType, MappingProxyType, ModuleType
 from typing import Literal, TypeAlias, cast
 
 import ibis
@@ -39,7 +38,6 @@ from marivo.semantic.errors import (
 from marivo.semantic.validator import (
     _return_expr,
     validate_entity_table_body_ast,
-    validate_event_body_ast,
     validate_metric_body_ast,
 )
 
@@ -50,7 +48,7 @@ _FIELD_KINDS = frozenset(
         SemanticKind.MEASURE,
     }
 )
-EventConstant: TypeAlias = str | int | float | bool
+ScalarConstant: TypeAlias = str | int | float | bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,91 +369,6 @@ def _is_bind_target(node: ast.expr, symbols: Mapping[str, object]) -> bool:
     return False
 
 
-def _event_constant_value(
-    name: str,
-    value: object,
-    *,
-    owning_ref: Ref[SemanticKindTag],
-) -> EventConstant:
-    if type(value) not in {str, int, float, bool}:
-        raise SemanticLoadError(
-            kind=ErrorKind.INVALID_EVENT_PREDICATE,
-            message=(
-                f"Event predicate {owning_ref.key!r} uses unsupported external name {name!r}."
-            ),
-            refs=(owning_ref.key,),
-            expected="a closed immutable str, int, float, or bool constant",
-            received=f"{name}={type(value).__name__}",
-            hint="Replace the external value with an immutable scalar constant or a literal.",
-        )
-    if type(value) is float and not math.isfinite(value):
-        raise SemanticLoadError(
-            kind=ErrorKind.INVALID_EVENT_PREDICATE,
-            message=(
-                f"Event predicate {owning_ref.key!r} uses non-finite external constant {name!r}."
-            ),
-            refs=(owning_ref.key,),
-            expected="a finite float constant",
-            received=repr(value),
-            hint="Replace the value with one finite immutable scalar constant.",
-        )
-    return cast("EventConstant", value)
-
-
-def _event_closed_constants(
-    function: ast.FunctionDef,
-    *,
-    symbols: Mapping[str, object],
-    owning_ref: Ref[SemanticKindTag],
-) -> dict[str, EventConstant]:
-    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return)]
-    if len(returns) != 1 or returns[0].value is None:
-        return {}
-    value = returns[0].value
-    if (
-        isinstance(value, ast.Call)
-        and isinstance(value.func, ast.Attribute)
-        and isinstance(value.func.value, ast.Name)
-        and value.func.value.id == "ms"
-        and value.func.attr == "all_rows"
-    ):
-        return {}
-    allowed_name_nodes: set[int] = set()
-    for node in ast.walk(value):
-        if not isinstance(node, ast.Call) or not (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "ms"
-            and node.func.attr == "bind"
-            and len(node.args) == 2
-            and isinstance(node.args[0], ast.Name)
-            and isinstance(node.args[1], ast.Name)
-        ):
-            continue
-        allowed_name_nodes.update((id(node.func.value), id(node.args[0]), id(node.args[1])))
-    constants: dict[str, EventConstant] = {}
-    for node in ast.walk(value):
-        if not isinstance(node, ast.Name) or id(node) in allowed_name_nodes:
-            continue
-        if node.id not in symbols:
-            raise SemanticLoadError(
-                kind=ErrorKind.INVALID_EVENT_PREDICATE,
-                message=(
-                    f"Event predicate {owning_ref.key!r} uses unresolved external name {node.id!r}."
-                ),
-                refs=(owning_ref.key,),
-                expected="a closed immutable str, int, float, or bool constant",
-                received=node.id,
-                hint="Define one immutable scalar constant in the Event module or use a literal.",
-            )
-        constants[node.id] = _event_constant_value(
-            node.id,
-            symbols[node.id],
-            owning_ref=owning_ref,
-        )
-    return constants
-
-
 def _closure_cell(value: object) -> CellType:
     def capture() -> object:
         return value
@@ -464,38 +377,6 @@ def _closure_cell(value: object) -> CellType:
     if closure is None:
         raise AssertionError("captured value did not create a closure cell")
     return closure[0]
-
-
-def _freeze_event_callable(
-    fn: Callable[..., object],
-    constants: Mapping[str, EventConstant],
-) -> Callable[..., object]:
-    if not constants:
-        return fn
-    frozen_globals = dict(fn.__globals__)
-    frozen_globals.update(
-        (name, value) for name, value in constants.items() if name in frozen_globals
-    )
-    closure = fn.__closure__
-    if closure is not None:
-        frozen_cells = tuple(
-            _closure_cell(constants[name]) if name in constants else cell
-            for name, cell in zip(fn.__code__.co_freevars, closure, strict=True)
-        )
-    else:
-        frozen_cells = None
-    frozen = FunctionType(
-        fn.__code__,
-        frozen_globals,
-        fn.__name__,
-        fn.__defaults__,
-        frozen_cells,
-    )
-    frozen.__kwdefaults__ = fn.__kwdefaults__
-    frozen.__annotations__ = dict(fn.__annotations__)
-    frozen.__module__ = fn.__module__
-    frozen.__qualname__ = fn.__qualname__
-    return frozen
 
 
 class _BindingCollector(ast.NodeVisitor):
@@ -619,7 +500,7 @@ class _NormalizedBody(ast.NodeTransformer):
         symbols: Mapping[str, object],
         parameter_positions: Mapping[str, int],
         binding_indexes: Mapping[tuple[SemanticKind, str, int], int],
-        constant_bindings: Mapping[str, EventConstant],
+        constant_bindings: Mapping[str, ScalarConstant],
         symbol_tokens: Mapping[str, str] | None = None,
     ) -> None:
         self._symbols = symbols
@@ -709,7 +590,7 @@ def _normalized_body_hash(
     symbols: Mapping[str, object],
     parameter_positions: Mapping[str, int],
     binding_indexes: Mapping[tuple[SemanticKind, str, int], int],
-    constant_bindings: Mapping[str, EventConstant],
+    constant_bindings: Mapping[str, ScalarConstant],
     symbol_tokens: Mapping[str, str] | None = None,
 ) -> str:
     normalized = copy.deepcopy(function)
@@ -1069,7 +950,6 @@ def compile_expression_body(
         "time_dimension",
         "measure",
         "metric",
-        "event",
         "entity_table",
     ]
     | None = None,
@@ -1084,13 +964,12 @@ def compile_expression_body(
         )
     body_kind_by_ref: dict[
         SemanticKind,
-        Literal["dimension", "time_dimension", "measure", "metric", "event"],
+        Literal["dimension", "time_dimension", "measure", "metric"],
     ] = {
         SemanticKind.DIMENSION: "dimension",
         SemanticKind.TIME_DIMENSION: "time_dimension",
         SemanticKind.MEASURE: "measure",
         SemanticKind.METRIC: "metric",
-        SemanticKind.EVENT: "event",
     }
     resolved_kind = body_kind if body_kind is not None else body_kind_by_ref.get(owning.kind)
     if resolved_kind is None or (
@@ -1101,7 +980,7 @@ def compile_expression_body(
             message=f"Ref {owning.key!r} cannot own an expression body.",
             refs=(owning.key,),
             expected=(
-                "dimension, time_dimension, measure, metric, or event"
+                "dimension, time_dimension, measure, or metric"
                 if body_kind != "entity_table"
                 else "entity"
             ),
@@ -1150,13 +1029,8 @@ def compile_expression_body(
     try:
         _, function = _load_function_ast(fn)
     except SemanticLoadError:
-        if body_kind == "event":
-            validate_event_body_ast(fn)
         raise
-    if body_kind == "event":
-        validate_event_body_ast(fn, _function=function)
-    else:
-        validate_metric_body_ast(fn, "base", body_kind=body_kind, _function=function)
+    validate_metric_body_ast(fn, "base", body_kind=body_kind, _function=function)
     if function.args.vararg is not None or function.args.kwarg is not None:
         raise SemanticLoadError(
             kind=ErrorKind.COMPILE_ERROR,
@@ -1184,15 +1058,6 @@ def compile_expression_body(
         )
     parameter_positions = {parameter.arg: index for index, parameter in enumerate(parameters)}
     symbols = _resolved_symbols(fn)
-    event_constants = (
-        _event_closed_constants(
-            function,
-            symbols=symbols,
-            owning_ref=owning,
-        )
-        if body_kind == "event"
-        else {}
-    )
     collector = _BindingCollector(
         symbols=symbols,
         parameter_positions=parameter_positions,
@@ -1227,29 +1092,15 @@ def compile_expression_body(
         },
         bindings=description_bindings,
     )
-    if body_kind == "event":
-        invalid = tuple(
-            binding.to_ref()
-            for binding in collector.bindings
-            if binding.field_ref.kind is not SemanticKind.DIMENSION
-        )
-        if invalid:
-            raise SemanticLoadError(
-                kind=ErrorKind.INVALID_EVENT_PREDICATE,
-                message="Event predicates may bind categorical Dimensions only.",
-                refs=(owning.key, *(ref.key for ref in invalid)),
-                expected="Ref[dimension] bindings on the Event source Entity",
-                received=", ".join(ref.kind.value for ref in invalid),
-            )
     return ExpressionBody(
         description=description,
-        callable=_freeze_event_callable(fn, event_constants) if body_kind == "event" else fn,
+        callable=fn,
         body_ast_hash=_normalized_body_hash(
             function,
             symbols=symbols,
             parameter_positions=parameter_positions,
             binding_indexes=collector.index_by_key,
-            constant_bindings=event_constants,
+            constant_bindings={},
         ),
         parameter_count=len(parameters),
         bindings=tuple(collector.bindings),

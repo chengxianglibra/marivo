@@ -40,7 +40,7 @@ label. `session.members(...)` is the canonical member-domain entry.
 
 The algebra has an active production role. It defines what a method means and
 which state, evidence and input bindings a successor needs. It does not replace
-specialized matching, replay or statistical algorithms, and its local laws do
+specialized statistical algorithms, and its local laws do
 not authorize arbitrary graph rewriting.
 
 ## Contract and qualification boundaries

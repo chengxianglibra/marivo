@@ -12,7 +12,6 @@ import ibis
 import pyarrow as pa
 
 from marivo._temporal import BeforeEndBoundary
-from marivo.analysis.anchors import CalendarWindow
 from marivo.analysis.compiler.graph_lowering import (
     ComponentColumn,
     CoordinateColumn,
@@ -31,29 +30,19 @@ from marivo.analysis.core.graph import (
     topology,
 )
 from marivo.analysis.core.model import (
-    AnchorDomainPart,
     Binding,
     ConditionCellsPart,
     Coordinate,
     CoveragePart,
     DomainSignature,
     FitInputsPart,
-    FunnelAllocationPart,
-    FunnelComparisonPart,
-    FunnelPart,
-    HistoryViewPart,
-    InstanceRetentionPart,
     PairInputsPart,
     RunCellsPart,
     SubjectPart,
-    SubjectRetentionPart,
     TrainingInputsPart,
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
-    AnchorBind,
-    AnchorObserve,
-    AnchorRetention,
     AssociationFit,
     AssociationRead,
     AttributionDerive,
@@ -68,7 +57,6 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
-    RetentionBySubject,
     RowState,
     TimeProduct,
     TimeRuns,
@@ -594,10 +582,6 @@ class MemberGraph:
                         )
                     )
                     or (
-                        isinstance(node.parameters, AnchorBind)
-                        and node.inputs[0].node.signature.domain.kind == "journey"
-                    )
-                    or (
                         isinstance(node.parameters, RowState)
                         and isinstance(node.inputs[0].node, MethodNode)
                         and isinstance(node.inputs[0].node.parameters, PreparedObservation)
@@ -626,32 +610,6 @@ class MemberGraph:
                             for ancestor in topology(node.inputs[0].node)
                         )
                     )
-                    or (
-                        isinstance(node.parameters, AnchorObserve)
-                        and (
-                            isinstance(node.parameters.window, CalendarWindow)
-                            or any(
-                                isinstance(ancestor, SourceLeaf)
-                                and ancestor.definition.shape.backend != "duckdb"
-                                for ancestor in topology(node)
-                            )
-                            or any(
-                                isinstance(p, AnchorDomainPart) and p.journey is not None
-                                for p in node.inputs[0].node.signature.parts
-                            )
-                        )
-                    )
-                    or (
-                        isinstance(node.parameters, PartsTransport)
-                        and node.parameters.mode == "cohort"
-                        and node.parameters.opportunity_domain is not None
-                        and node.parameters.opportunity_domain.kind == "journey"
-                    )
-                    or (
-                        node.inputs[0].node.signature.domain.kind
-                        in ("journey", "interval", "anchor")
-                        and isinstance(node.parameters, (MapCorrespond, PartsTransport, RowState))
-                    )
                     or any(
                         isinstance(
                             p,
@@ -661,31 +619,10 @@ class MemberGraph:
                                 PairInputsPart,
                                 TrainingInputsPart,
                                 FitInputsPart,
-                                FunnelPart,
-                                FunnelComparisonPart,
-                                FunnelAllocationPart,
-                                InstanceRetentionPart,
-                                SubjectRetentionPart,
-                                HistoryViewPart,
                             ),
                         )
                         for e in node.inputs
                         for p in e.node.signature.parts
-                    )
-                    or (
-                        isinstance(node.parameters, AnchorRetention)
-                        and (
-                            isinstance(node.parameters.window, CalendarWindow)
-                            or any(
-                                isinstance(ancestor, SourceLeaf)
-                                and ancestor.definition.shape.backend != "duckdb"
-                                for ancestor in topology(node)
-                            )
-                            or any(
-                                isinstance(p, AnchorDomainPart) and p.journey is not None
-                                for p in node.inputs[0].node.signature.parts
-                            )
-                        )
                     )
                     or isinstance(
                         node.parameters,
@@ -696,7 +633,6 @@ class MemberGraph:
                             AssociationRead,
                             ForecastFit,
                             ForecastRead,
-                            RetentionBySubject,
                             PreparedObservation,
                         ),
                     )
@@ -714,22 +650,6 @@ class MemberGraph:
                         "deviation.zscore",
                         "deviation.mad",
                         "deviation.read",
-                        "funnel.reduce",
-                        "funnel.compare",
-                        "funnel.read",
-                        "funnel_ratio_mix",
-                        "history.replay",
-                        "history.in_state",
-                        "history.distribution",
-                        "history.transitions",
-                        "history.violations",
-                        "history.intervals",
-                        "history.dwell",
-                        "history.read",
-                        "journey.match",
-                        "journey.duration",
-                        "journey.completed",
-                        "journey.read",
                         "cell.relative_change",
                         "cell.ratio",
                         "reference.share",

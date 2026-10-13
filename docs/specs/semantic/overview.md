@@ -17,7 +17,7 @@ matches your task.
 |---|---|
 | [overview.md](overview.md) | Design goals, architecture, and principles (this file). |
 | [datasource-layer.md](datasource-layer.md) | `marivo.datasource` — connections, typed specs, file sources, secrets, discovery/evidence. |
-| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — identity/versioning, dimensions, measures, Metric graphs and intrinsic aggregation, Relationships, Event/StateModel boundaries, provenance, `ai_context`. |
+| [semantic-object-model.md](semantic-object-model.md) | `marivo.semantic` object contracts — identity/versioning, dimensions, measures, Metric graphs and intrinsic aggregation, Relationships, provenance, `ai_context`. |
 | [authoring-workflow.md](authoring-workflow.md) | Agent-native exploration, coherent-slice authoring, scoped readiness, and targeted runtime/source-health probes. |
 | [loading-validation-introspection.md](loading-validation-introspection.md) | The runtime — loader/registry, catalog reader, result contract, materialization, multi-stage validation, readiness/richness. |
 
@@ -132,10 +132,10 @@ allocation. Shared intrinsic resolvers derive these requirements instead of
 adding author-set `rollup_safe`, `membership_stable`, or generic allocation
 switches.
 
-Event and StateModel retain business occurrence and normative transition
-meaning. Member-domain selection, sampling, censoring, and scoped completeness
-assumptions belong to Analysis and source evidence. Neither an Event declaration,
-a StateModel, nor a snapshot declaration establishes observed source completeness.
+Occurrence facts use ordinary Entities and descriptive states use Dimensions.
+Snapshot and validity declarations do not establish observed source completeness.
+Dedicated Event, journey, lifecycle, funnel, Anchor and retention capabilities
+are outside the current library surface.
 
 If an analysis needs a new business object, extend the semantic layer first, then
 let analysis consume it — business definitions never hide in one-off scripts.

@@ -89,14 +89,14 @@ Every source dependency needed after local selection is collected from the
 Logical DAG and prepared before that selection consumes rows. Prepared
 observation retains per-Subject support, components, path/version facts, axes,
 time envelope and full keys. Local consumers restrict that capture by the
-selected Subject/Anchor image. A population scalar cannot replace this support.
-No selected-ID upload, source-after-local query, rematch or implicit second
+selected Subject image. A population scalar cannot replace this support.
+No selected-ID upload, source-after-local query or implicit second
 selection is admitted.
 
 Fixed execution reads controlled local Arrow/Parquet data into registered
 pandas/NumPy/SciPy methods. It does not open DuckDB to scan retained Parquet,
 load current Semantic/calendar definitions or reconnect historical sources.
-A fixed member domain does not fix a new live Metric/property/Event dependency.
+A fixed member domain does not fix a new live Metric/property dependency.
 
 Independent native queries have no shared transaction-snapshot guarantee.
 A completed source check proves its own query, not a later calculation.
@@ -206,48 +206,19 @@ statistic state, coverage, correspondence/endpoints and references as required.
 Coordinate recovery preserves the numeric relation family, complete coordinate
 rows and original state. Domain/statistical selection can restrict current rows
 while retaining original assignment, trace, fit, classification, search, training,
-Omega or reconciliation scope. The tables below describe semantic layouts;
+or reconciliation scope. The tables below describe semantic layouts;
 the typed protocol and method-state consumers own their exact field schemas.
 
 
 | Method key / parameters | Output/state kind | Required retained parts and continuation condition |
 | --- | --- | --- |
-| occurrence.prepare@v1 / Event captures, Subject input, time bounds, order, coverage | occurrence_inputs | exact occurrences, participants, order facts, coverage and capture authority; reusable only for the bound downstream methods |
-| journey.match@v1 / pattern, policy, start/follow-up bounds | journey_assignment | complete Journey domain, dense assignment/reach, exact steps, SubjectBinding, input/order/coverage facts |
-| journey.duration@v1 / exact from/to steps | journey_duration | full Journey domain, status/endpoints/follow-up, assignment/reach and SubjectBinding |
-| journey.dropped_before@v1 / exact noninitial step | journey_truth | full opportunity/reach and coverage; first_per_subject only |
-| funnel.reduce@v1 / axes | funnel_components | assignment binding, step/axis domain, seven counts, three rate Cells, entry-time axes and complete-partition evidence |
-| funnel.compare@v1 / ordered current/baseline | funnel_comparison | both endpoint components/domains and funnel-period compatibility; read preserves the bound endpoint roles |
-| funnel_ratio_mix@v1 / target, axes, mode, Top-K | funnel_allocation | both full component partitions, target, common mapping/masks, all resolutions, allocated sides/error bounds and original reconciliation scope |
-| history.replay@v1 / full members + occurrence preparation, model, from_inception, report window | canonical_history | exact full Subject domain/classification, inception/known-prefix/coverage, clipped intervals with original boundaries, all legal transitions and occurrence violations |
-| history.in_state@v1 / state, checkpoint | history_truth | full Subject ledger, state/interval and end-left-limit authority; missing interval is not missing Subject |
-| history.distribution@v1 / checkpoints, axes | state_distribution | checkpoint/state/actual-axis target domain, checkpoint axes, exact Subject classifications and count components |
-| history.transitions@v1 / report window | transition_summary | complete declared pair domain and all legal trace entries, self/zero-duration included |
-| history.violations@v1 / report window | violation_rows | exact violation occurrences/time/kind/state, model and SubjectBinding |
-| history.intervals@v1 / report window | interval_rows | original/clipped boundary causes, statuses, exact observed ticks, SubjectBinding |
-| history.dwell@v1 / completed_window_fragment_duration@v1 | dwell_statistics | complete state domain, classified interval counts, exact completed ticks/order statistics and tick sum/count |
-| anchor.bind@v1 / Event role or Journey starts, population, during, order | anchor_domain | full Anchor keys/starts, source assignment or occurrence input, exact Subject map, frozen order/coverage |
-| anchor.observe@v1 / Metric/RuntimeMetricExpr, relationship path tuples, relative window | anchor_observation | per-Anchor Metric components and Cells, exact windows, contribution-use keys, coverage and root/path definitions |
-| anchor.retention@v1 / returning role, relative window, coverage | anchor_retention | original Omega, K+/K-/K?, windows, exact return uses/absence facts and Anchor-to-Subject mapping |
-| retention.by_subject@v1 / any_anchor or every_anchor | subject_retention | original instance status fibers, explicit Subject-image Omega, quantified truth and bounds |
-| existing parts_transport@v1 / bound selection, completed, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |
+| existing parts_transport@v1 / bound selection, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |
 | existing row.mean@v1 / Duration current rows | row_statistic | exact checked tick sum/count, unit, complete selected domain and final rounding policy |
 
 ### Domain continuation conditions
 
 | Producer/view | Permitted continuation and exact condition |
 | --- | --- |
-| journey.match | duration and SubjectBinding views require assignment/reach/map; funnel and dropped_before additionally require first_per_subject |
-| journey.duration / completed view | owned relations, exact where/Subject image and Duration row.mean require the selected full Journey keys and transported endpoint/unit state |
-| funnel.reduce | owned read and period compare require full components; compare additionally needs both compatible complete endpoints; attribute needs complete axis partitions, with explicit Logical same-assignment expansion or already retained fixed axes |
-| funnel.compare / funnel_ratio_mix | read and contribution selection/table retain endpoint/allocation/scope parts; selected views lose complete-partition K; no arbitrary rate rollup or Subject reconstruction |
-| history.replay | each named History method requires the Subject ledger and its specific trace/interval/checkpoint parts from the table; no bag replay/merge |
-| history.in_state | decidable where/members uses the Entity domain and known-state proof, without an instance through binding |
-| history.distribution / transitions / dwell | owned read/selection/table retain full state/pair/count/statistic scope; no default Subject map or summary-value rollup |
-| history.violations / intervals | owned read/where and members require the total model SubjectBinding; interval Duration row.mean also requires exact observed ticks/unit |
-| anchor.bind | observe/retention require the frozen instance keys/windows/map and all explicitly captured downstream Metric/return parts; an unseen live dependency is mixed |
-| anchor.observe | existing Metric read/selection/table rules apply per Anchor with original components/use bindings; removing Anchor coordinates grants no original rollup without an independently admitted disjoint/allocation proof |
-| anchor.retention / retention.by_subject | status views and known-true members retain original Omega/coverage/map; subject quantification requires complete fibers; bounds have no arithmetic/rollup K |
 | parts_transport / row.mean | transport preserves only capabilities justified by surviving rekeyed parts; mean retains exact sum/count/unit for its existing row-statistic continuations, never original Metric state |
 
 A missing required part removes its continuation and an attempted successor
@@ -255,28 +226,13 @@ fails at the earliest known boundary. Materialized receivers construct Logical
 fixed work; successor derivation/admission still validate the request.
 A serialized list of actions is not authority for K.
 
-### Domain capture layouts
+### Retained member layouts
 
 | Part role | Complete row key | Required payload beyond the key |
 | --- | --- | --- |
-| occurrences | Event binding + complete occurrence K | exact Subject K, occurred_at; closed no-sequence/integer-sequence/enum-sequence schema variant |
-| coverage | exact Event/source/version + Subject/interval binding | observed/declared/mixed/unknown basis, origin or bounded claim, exclusive extent, known prefix, capture authority |
-| assignments | Journey K + exact step key | assigned occurrence/time Cells, reach truth/reason and input binding |
 | subjects | exact instance K | exact complete Subject K and role/definition binding; total single-valued map |
-| duration | Journey K + exact step-pair binding | closed status, started/completed/follow-up Cells, completed/observed ticks and unit |
-| funnel_components | step + complete historical-axis tuple | seven exact counts, first/previous denominator roles, full target scope and coverage |
-| subject_history | complete input Subject K | inception/NotStarted/Unknown classification, known prefix, origin and follow-up authority |
-| transitions | Subject K + canonical transition ordinal | occurrence key, instant, from/to state, legal/inception disposition, report-window inclusion |
-| violations | exact trigger occurrence K | instant, known state, illegal/terminal kind and model binding |
-| intervals | Subject K + original canonical interval ordinal | original/clipped start/end and causes, state, completed/right/coverage censor, left clipping and observed ticks |
-| checkpoint_axes | Subject K + exact checkpoint | exact historical Dimension tuple and version/path facts |
-| metric_candidates | Metric component/root + original contribution K + exact time/version key | exact value/state and null/empty policy, path allocation, historical axes, support mapping and candidate scope |
-| anchor_uses | Anchor K + component/return occurrence K | exact per-Anchor window, component state or return truth, coverage and use binding |
-| retention_status | original Omega instance K | exactly one true/false/unknown tag and its proof/coverage binding |
-| allocation | full resolution/axis/mask/kind key | exact endpoint counts, target/side/contribution values with bounds, common Top-K mapping and original scope |
 
-Original interval ordinals stay bound to the saved trace after clipping or
-selection. No summary can reconstruct Subject/occurrence membership.
+No summary can reconstruct member identity without its retained map.
 Statistical fit_inputs, fit_state, grid_cells, condition_cells, run_cells,
 pair_inputs, association_state, training_inputs, forecast_state and future_cells
 are specified by [the method owner](operators-and-frames.md#requiredparts-transformations-and-closed-failures).
@@ -423,8 +379,8 @@ if isinstance(run, mv.SucceededRun):
 Recovery returns the concrete Materialized family from saved metadata, types
 and required data. It preserves original time/report/calendar authority,
 versions, primary values and parts. It does not select the original producer,
-replay its method validation, load current models, read sources, rematch,
-replay History, refit statistics, resegment runs or reforecast. Recovery cannot
+replay its method validation, load current models, read sources, refit statistics,
+resegment runs or reforecast. Recovery cannot
 establish freshness or suitability for a new question.
 
 Inspection uses frozen graph records and signatures. A new continuation uses

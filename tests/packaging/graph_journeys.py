@@ -92,15 +92,22 @@ def _observations(
     metric = ms.ref.metric("operations.energy_total")
     via = ms.ref.relationship("operations.reading_device")
     current = members.observe(
-        metric, during=mv.time_scope(start="2026-08-01", end="2026-09-01"), via=via
+        metric,
+        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
+        via=via,
+        by=(mv.member(),),
     )
     baseline = members.observe(
-        metric, during=mv.time_scope(start="2026-07-01", end="2026-08-01"), via=via
+        metric,
+        during=mv.time_scope(start="2026-07-01", end="2026-08-01"),
+        via=via,
+        by=(mv.member(),),
     )
     count = members.observe(
         ms.ref.metric("operations.reading_count"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
         via=via,
+        by=(mv.member(),),
     )
     assert isinstance(current, mv.LogicalNumericRelation)
     assert isinstance(baseline, mv.LogicalNumericRelation)
@@ -131,7 +138,7 @@ def _produce(
                 ),
                 mv.path(ms.ref.relationship("operations.reading_device")),
             ),
-            coordinates=(ms.ref.dimension("operations.reading.sensor"),),
+            by=(mv.member(), ms.ref.dimension("operations.reading.sensor")),
         ).execute()
         extras = []
     else:
