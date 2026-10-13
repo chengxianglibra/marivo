@@ -45,7 +45,7 @@ change.show()
 
 单独执行 `session.members(entity).execute()` 会读取并保存完整成员主键集合，
 可能扫描整个 Entity 来源，不设默认行数截断。主键唯一性和没有历史版本
-都不会限制成员数量。整张执行图共享 600 秒预算；`show(n=...)` 只限制展示。
+都不会限制成员数量。执行图没有默认执行期限；`show(n=...)` 只限制展示。
 
 成员类型的规范入口是 `marivo.help("analysis.LogicalAnalysisDomain")`；
 接收者方法可以用 `marivo.help(customers.execute)` 查询。

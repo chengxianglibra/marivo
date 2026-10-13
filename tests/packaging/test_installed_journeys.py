@@ -54,7 +54,7 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
             "composition_refuses or required_part_missing",
         ),
         ("tests/analysis/graph/test_premise_verification.py", ""),
-        ("tests/analysis/materialization/test_local_graph_interrupts.py", ""),
+        ("tests/analysis/materialization/test_native_graph_failures.py", ""),
         (
             "tests/analysis/materialization/test_producer_recovery.py",
             "duckdb or sqlite or file_producer or http_source",

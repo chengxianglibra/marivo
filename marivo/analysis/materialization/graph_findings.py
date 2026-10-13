@@ -16,7 +16,6 @@ from marivo.analysis.evidence._dataset_codec import (
     decode_finding_body,
 )
 from marivo.analysis.materialization.contracts import parse_timestamp
-from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     ExchangeResult,
@@ -148,7 +147,6 @@ def collection(
     ).fetchall()
     actual = []
     for ordinal, row in enumerate(rows):
-        check()
         if row["finding_ordinal"] != ordinal:
             raise invalid("Finding ordered collection has a gap or duplicate")
         finding = decode_finding_body(

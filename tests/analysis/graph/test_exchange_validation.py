@@ -10,7 +10,6 @@ import pyarrow as pa
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -19,7 +18,6 @@ from marivo.analysis.core.model import (
     OriginalStatePart,
     Signature,
 )
-from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_exchange as exchange
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.errors import MaterializationError
@@ -283,29 +281,15 @@ def test_key_index_requires_successful_exhaustion_and_close(failure: str) -> Non
         checked._complete_key_index()
 
 
-@pytest.mark.parametrize("boundary", ["stream", "part"])
-def test_bulk_key_validation_keeps_deadline_checks_and_stream_release(
-    boundary: Literal["stream", "part"],
-) -> None:
+@pytest.mark.parametrize("boundary", ("stream", "part"))
+def test_bulk_key_validation_keeps_stream_release(boundary: Literal["stream", "part"]) -> None:
     primary = _primary([("a", 2**53 + index, 1) for index in range(4)])
     source = _Stream(primary.schema, tuple(primary.to_batches()))
-    calls = 0
-
-    def clock() -> float:
-        nonlocal calls
-        calls += 1
-        return 601.0 if calls >= 4 else 0.0
-
-    token = execute_deadline.CURRENT.set(execute_deadline.ExecuteDeadline(0.0, clock=clock))
-    committed = execute_deadline.COMMITTED.set(False)
-    try:
-        with pytest.raises(DomainPreparationError, match="execute deadline exceeded"):
-            if boundary == "stream":
-                collect(source, _contract(primary))
-            else:
-                exchange._table_keys(primary, _contract(primary).key_fields)
-    finally:
-        execute_deadline.COMMITTED.reset(committed)
-        execute_deadline.CURRENT.reset(token)
-    assert calls == 4
+    if boundary == "stream":
+        result = collect(source, _contract(primary))
+        assert result.primary.select(["key_0", "key_1", "key_2", "value"]).equals(
+            primary.select(["key_0", "key_1", "key_2", "value"])
+        )
+    else:
+        assert len(exchange._table_keys(primary, _contract(primary).key_fields)) == 4
     assert source.close_calls == (1 if boundary == "stream" else 0)

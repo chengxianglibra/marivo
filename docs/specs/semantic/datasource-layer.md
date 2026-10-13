@@ -496,9 +496,9 @@ md.test(spec.ref).show()  # validated live round trip
   missing or empty datasource directories remain valid empty inputs.
 - `md.test(ref, timeout_seconds=30)` returns a `DatasourceTestResult` and
   triggers post-validation secret caching. Its connect handshake and
-  Ibis-compiled literal round-trip share a Marivo-side wall-clock deadline.
-  Timeout returns a structured failure; a local SQLite connection opens on
-  the caller's worker thread and its synchronous open cannot be interrupted.
+  Ibis-compiled literal round-trip run synchronously on the caller thread.
+  They request independent native connection and query timeouts; unsupported
+  query limits are skipped. There is no complete-call deadline.
   Live backends remain private to the datasource adapter.
 
 `DatasourceTestResult.show()` is the authoritative connection-test stop point.
@@ -575,8 +575,8 @@ reacquired.
 
 Scope and explicit columns are required. `md.unpruned(max_rows=...,
 timeout_seconds=...)` is the deliberate broad-read escape within acquisition.
-Both guards are positive and enforceable; unsupported timeout blocks before
-execution. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
+Both values must be positive. Row limits remain enforced; query timeouts
+request native settings and are skipped when unsupported. `LIMIT` bounds returned rows, not bytes scanned, and a partition may
 still be large.
 
 Scope `show()` / `render()` cards expose only the scope kind, positive guards,
@@ -585,7 +585,7 @@ and point to `.values` for the exact mapping; unpruned scope is labeled as a
 broad read.
 
 Read-only ClickHouse acquisition uses the server setting `readonly=1` together
-with the bounded execution timeout. Connection, source-resolution, timeout, and
+with optional native query timeout settings and throwing overflow. Connection, source-resolution, timeout, and
 post-execution failures surface as `DatasourceAuthoringError` values with
 `query_executed`, a sanitized backend summary, and one focused repair; they do
 not escape as raw driver exceptions.
@@ -602,13 +602,14 @@ timezones, aggregation, units, additivity, relationship cardinality, null
 semantics, and business meaning remain agent-owned. Marivo does not classify a
 high null rate as a business-quality failure or filter nulls implicitly.
 
-Bounded acquisition opens its isolated reader with the requested scope timeout
-before entering the provider's authoring timeout guard. PostgreSQL configures
-`statement_timeout` through connection options, and Trino configures
-`query_max_run_time` through connection session properties. This uses the same
-connection setup as terminal diagnostics; it does not add control SQL or alter
-shared connections. A provider without an enforceable acquisition timeout
-continues to reject sampling before business submission.
+Acquisition opens an isolated reader with requested native query settings.
+PostgreSQL uses `statement_timeout`, Trino uses `query_max_run_time`, ClickHouse
+uses `max_execution_time` and throwing overflow, and MySQL uses its native
+read-only SELECT limit. Their server-defined coverage is not a total
+execution-and-fetch deadline. DuckDB and SQLite do not simulate query timeouts;
+unsupported limits do not block reads. Reader cleanup and row/scope constraints
+remain mandatory. Shared connections are not altered.
+
 
 Reacquire evidence only when a required column or value was not captured, or
 when datasource/source/scope identity no longer matches. Snapshot age alone is
@@ -684,39 +685,21 @@ Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
 secret at connection time and send credentials only inside the declared
 `http_scope`; see the credential section above for the declaration contract.
 
-The user separately approved MySQL certified-authoring SELECT deadlines on
-2026-10-05. Exactly two provider statements install and read back the
-session-level max_execution_time value on an isolated certification connection.
-Their purpose is closed to semantic.certified_preview.deadline and their integer
-parameter is bounded to 1..4294967295 milliseconds. Denied or mismatched facts
-reject before certification collection; the connection closes rather than
-resetting a shared session. Native certified-source read failures surface as
-structured SemanticRuntimeError with backend diagnostics, authored timeout and
-actual source-submission facts. Integer DB-API error codes remain available as
-sanitized diagnostic fields. No failed capture publishes or replaces a certified
-snapshot; already typed datasource/semantic failures preserve their original
-repair. On 2026-10-06 the user separately authorized owned-query KILL for
-`sample` and `raw_sql` deadlines. Their isolated reader has its own bounded
-control connection; `datasource.authoring.deadline` may cancel only that
-reader's current native thread ID. The timer covers execution and fetch, joins
-before cleanup, and closes both connections. The reader identity and duplicated
-socket are captured before submission; cancellation does not call driver metadata
-methods across threads while a native read is active. These purposes do not use or
-extend the certification-only SET/read controls. Independent server termination
-and absence of publication after failure remain separate acceptance proofs.
+MySQL isolated authoring readers install and read back the native session
+`max_execution_time` through two provider-owned statements. Their purpose is
+`datasource.native_query_timeout` and the positive integer setting fits the
+server's millisecond range. Ordinary preview, sample, raw SQL and certification
+share that configuration. A server that lacks the variable skips the setting;
+denied or mismatched configuration fails before business reads. The setting
+covers only eligible read-only SELECT statements. Marivo does not create a
+control connection, send KILL, duplicate/shut down sockets or run a timer.
 
-On 2026-10-06 the user approved a closed ClickHouse owned-query cancellation
-operation. It binds the submitting SourceSession's issued query ID and
-authenticated reader user in `KILL QUERY ... SYNC`, through a separate bounded
-control connection with the same authentication. The reader requires
-`SELECT(query, query_id, user) ON system.processes`; this column permission also
-permits general query-metadata visibility. Operators configure it explicitly.
-Marivo does not grant permissions or issue product `currentUser()` probes.
-This permission and lifecycle boundary applies to the exact issued query and
-authenticated reader. Runtime regression coverage includes pending, initial-
-response and fetch phases, permission refusal, and a retained resource
-obligation when control-close acknowledgement is unavailable; see
-[Runtime test coverage](../../testing/runtime-coverage.md).
+ClickHouse readers use native query settings with throwing overflow so timed-out
+partial data cannot become a successful typed result. Marivo neither requires
+query-cancellation permissions on system.processes nor creates a control client.
+Native errors retain diagnostics and actual submission facts. Cleanup releases
+owned readers and cursors; connection closure alone never proves remote query
+termination. Failed reads do not publish or replace a certified snapshot.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
 timeout_seconds: int = 30, include_types: bool = True,
@@ -725,7 +708,7 @@ terminal SQL escape hatch for questions outside its governed Analysis capability
 Backend-returning connection entry points are removed; `md.raw_sql` is the only
 public raw SQL terminal entry.
 It submits SQL text verbatim with a required nonempty reason, positive
-enforceable timeout. The input is not parsed to classify
+requested native timeout; unsupported query timeouts are skipped. The input is not parsed to classify
 SQL as a diagnostic. Read-only protection relies on connection and backend permissions
 and is best effort where the backend cannot guarantee it.
 The result retains all rows returned by the query, plus columns, types and
@@ -750,8 +733,7 @@ Ibis expressions. An adapter may submit the unmodified compiled result of a
 bound Ibis expression through a native driver; it records the expression
 identity, purpose and actual submission. The user-authored text submitted by
 `md.raw_sql` is the explicit terminal exception, not an implementation route
-for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; unavailable timeout
-or required timezone facts block the affected execution cell. A required governed operation
+for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; required timezone or complete-result facts block the affected execution cell. A required governed operation
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
 SQLite transactions have separate internal persistence authority.
 
@@ -819,7 +801,7 @@ logs; explicitly requested connection probes log their SQL without caching secre
 
 `md.credential_scope(resolver=host)` supplies a `CredentialResolver` for
 Marivo-owned acquisitions. Requests contain project root, datasource, exact
-reference, sorted field names, deadline and cancellation state. The host returns
+reference and sorted field names. The host owns credential-service timeouts and returns
 `md.SecretValue`; displays and serialization do not reveal it. Explicit resolvers
 never fall back to environment variables or the plaintext default cache, and
 injected values are not cached. An explicit conflicting resolver is rejected

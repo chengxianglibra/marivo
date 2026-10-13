@@ -91,9 +91,7 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
                 admin.command(drop)
 
 
-@pytest.mark.parametrize(
-    "backend", source_params(("duckdb", "sqlite", "postgres", "clickhouse", "trino"))
-)
+@pytest.mark.parametrize("backend", source_params(("postgres", "clickhouse", "trino")))
 def test_native_sample_timeout_prevents_snapshot_publication(
     backend: str,
     tmp_path: Path,

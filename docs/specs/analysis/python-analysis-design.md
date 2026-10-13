@@ -14,7 +14,7 @@ the shared Help coordinator.
 
 | Owner | Responsibility |
 | --- | --- |
-| Datasource | Connections, physical sources/schema, Ibis compilation, batch transport, cancellation and source-health evidence |
+| Datasource | Connections, physical sources/schema, Ibis compilation, batch transport, native settings, cleanup and source-health evidence |
 | Semantic | Entity identity/versioning, field and relationship meaning, Metric equations, source-time roles, units, intrinsic aggregation and business order |
 | Analysis DSL | Explicit membership, observation scope, coordinates, comparisons, predicates, references and requested result views |
 | Analysis algebra | Bound domains/quantities, Cell policies, sufficient parts, premises, transported facts and pending obligations |
@@ -72,8 +72,8 @@ perform source or retained-row reads.
 Executing `session.members(entity_ref)` alone reads and saves the complete
 member key set. It may scan the entire Entity source and has no default row
 truncation. Primary-key uniqueness and unversioned identity establish grain,
-not a bound on member count. `show(n=...)` limits display only. Execution uses
-the shared 600-second graph budget described by the Runtime owner.
+not a bound on member count. `show(n=...)` limits display only. Execution has no default graph deadline; datasource-declared native settings
+retain their backend semantics.
 
 ## Domains, quantities and Cells
 
@@ -226,7 +226,7 @@ A fixed member domain followed by a new live Metric/property dependency
 is mixed. A Logical continuation over only FixedLeaves remains fixed-only.
 Materialized method calls do not replay origin or reconnect its source.
 
-Backend, table form, exact type, domain, time shape, method and cancellation
+Backend, table form, exact type, domain, time shape, method and complete-read/cleanup
 authority all participate in admission. DuckDB tables, local Parquet, local
 CSV/JSON adapters, SQLite, PostgreSQL, MySQL, Trino and ClickHouse do not inherit
 one another's method qualifications. A backend name or successfully compiled

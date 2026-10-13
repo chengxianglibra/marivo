@@ -1,4 +1,4 @@
-"""Public acquisition deadline, owned cancellation and independent termination proof."""
+"""Native MySQL SELECT timeout, reader cleanup and absence of publication."""
 
 import json
 import os
@@ -12,6 +12,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import adapters
 from marivo.datasource.adapters import SourceSession
+from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -21,7 +22,7 @@ from tests.support.execution_logs import execution_records
 
 
 @pytest.mark.runtime
-def test_mysql_sample_deadline_releases_owned_server_query(
+def test_mysql_sample_native_timeout_releases_reader_without_kill(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -56,12 +57,14 @@ def test_mysql_sample_deadline_releases_owned_server_query(
             inspection = md.inspect(ms.ref.datasource("warehouse"), md.table(view))
             native = adapters._native_cursor
             owners: list[SourceSession] = []
+            identities: list[int] = []
             original = SourceSession.batches
 
             def batches(
                 owner: SourceSession, read: adapters.CompiledRead, *, chunk_size: int
             ) -> adapters.SourceBatchStream:
                 owners.append(owner)
+                identities.append(owner._backend.con.thread_id())
                 return original(owner, read, chunk_size=chunk_size)
 
             monkeypatch.setattr(SourceSession, "batches", batches)
@@ -79,29 +82,16 @@ def test_mysql_sample_deadline_releases_owned_server_query(
                 and error.value.effect_observed.query_executed
             )
             assert owners and all(owner._closed for owner in owners)
-            identities = [owner._backend._marivo_authoring_thread_id for owner in owners]
-            controls = [
-                item
-                for owner in owners
-                for item in owner._backend._marivo_authoring_cancel_submissions
+            settings = [item for owner in owners for item in provider_statement_log(owner._backend)]
+            assert [item.statement_id for item in settings] == [
+                "mysql.authoring.install_select_deadline",
+                "mysql.authoring.read_select_deadline",
             ]
-            assert len(controls) == 1
-            assert controls[0].sql == f"KILL QUERY {identities[0]}"
-            assert (
-                controls[0].purpose == "datasource.authoring.deadline"
-                and controls[0].state == "succeeded"
-            )
+            assert all(item.state == "succeeded" for item in settings)
+            assert all(item.purpose == "datasource.native_query_timeout" for item in settings)
             records = execution_records(tmp_path)
-            logged = [r for r in records if r.get("purpose") == "datasource.authoring.deadline"]
-            assert [r["event"] for r in logged] == ["query.submitted", "query.completed"]
-            assert logged[0]["sql"] == controls[0].sql
-            source_sql = {submission.sql for owner in owners for submission in owner.submissions}
-            source_records = [
-                r for r in records if r["event"] == "query.submitted" and r["sql"] in source_sql
-            ]
-            assert source_records and all(
-                r["operation_id"] == logged[0]["operation_id"] for r in source_records
-            )
+            assert not any("KILL QUERY" in str(record.get("sql", "")) for record in records)
+            assert all(owner._backend_disconnected for owner in owners)
             with mysql.connection(admin=True) as observer, observer.cursor() as cursor:
                 for identity in identities:
                     until = time.monotonic() + 3
@@ -117,7 +107,7 @@ def test_mysql_sample_deadline_releases_owned_server_query(
                         time.sleep(0.02)
             assert not list((tmp_path / ".marivo/authoring/snapshots").glob("*.json"))
             receipt = {
-                "native_reader_ids": identities,
+                "native_settings": [item.sql for item in settings],
                 "elapsed_seconds": elapsed,
                 "query_executed": True,
                 "independent_server_termination": True,

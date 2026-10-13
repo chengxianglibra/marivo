@@ -18,7 +18,6 @@ from marivo.analysis.core.model import CoveragePart, ObservedQuantity
 from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows, logical_schema
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.materialization.execute_deadline import check
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_lowering import LoweredLocal
@@ -78,7 +77,6 @@ def partial_primary(
     keyed = {tuple(r[k] for k in contract.key_fields): r for r in cell_rows(coverage)}
     original: list[dict[str, object]] = []
     for row in cell_rows(primary):
-        check()
         key = tuple(row[k] for k in contract.key_fields)
         support = keyed[key]
         cell = cells.get(str(key[position]))
@@ -121,7 +119,6 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
     rows = cell_rows(source.primary)
     known: list[bool] = []
     for row in rows:
-        check()
         known.append(
             complete(cells[str(row[source.contract.key_fields[position]])], params.business_windows)
         )

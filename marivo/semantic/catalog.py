@@ -3925,18 +3925,17 @@ def _certification_capture(
     columns = tuple(dict.fromkeys(cast("str", field.source_column) for field in fields))
     connections = resolver.connections
     profile = require_profile_for_backend_type(bindings.backend)
-    timeout_guard = profile.certification_timeout or profile.authoring_timeout
-    if timeout_guard is None:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Certified artifact preview requires an adapter-enforced authoring timeout.",
-            cls=SemanticRuntimeError,
-            refs=(ref.key,),
-            details={"query_executed": False, "backend": bindings.backend},
-        )
+    timeout_guard = profile.native_query_timeout
     with connections.terminal_scope(bindings.timeout_seconds):
         backend = connections.session_backend(bindings.datasource_id)
-        with cr.backend_errors(backend), timeout_guard(backend, bindings.timeout_seconds):
+        with (
+            cr.backend_errors(backend),
+            (
+                timeout_guard(backend, bindings.timeout_seconds)
+                if timeout_guard is not None
+                else nullcontext()
+            ),
+        ):
             table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
             source_owner = connections.source_session(
                 bindings.datasource_id, registry.datasources[bindings.datasource_id]
@@ -5627,15 +5626,7 @@ class SemanticCatalog(RenderableResult):
         from marivo.datasource.timezone import system_timezone_name
 
         profile = require_profile_for_backend_type(bindings.backend)
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                "catalog.preview() requires an adapter-enforced authoring timeout.",
-                cls=SemanticRuntimeError,
-                refs=(ref_str,),
-                details={"query_executed": False, "backend": bindings.backend},
-            )
+        timeout = profile.native_query_timeout
 
         def execute_preview() -> PreviewResult:
             from functools import partial
@@ -5850,7 +5841,14 @@ class SemanticCatalog(RenderableResult):
         )
         with connection_scope:
             backend = connections.session_backend(bindings.datasource_id)
-            with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
+            with (
+                cr.backend_errors(backend),
+                (
+                    timeout(backend, bindings.timeout_seconds)
+                    if timeout is not None
+                    else nullcontext()
+                ),
+            ):
                 result = execute_preview()
         return _attach_preview_scope(
             result,
@@ -5973,15 +5971,7 @@ class SemanticCatalog(RenderableResult):
                 if group_key[0] in {"row", "metric"}:
                     bindings = group_items[0].bindings
                     profile = require_profile_for_backend_type(bindings.backend)
-                    timeout = profile.authoring_timeout
-                    if timeout is None:
-                        _raise(
-                            ErrorKind.MATERIALIZE_FAILED,
-                            "catalog.preview() requires an adapter-enforced authoring timeout.",
-                            cls=SemanticRuntimeError,
-                            refs=tuple(item.ref.path for item in group_items),
-                            details={"query_executed": False, "backend": bindings.backend},
-                        )
+                    timeout = profile.native_query_timeout
                     connection_scope = (
                         connections.terminal_scope(bindings.timeout_seconds)
                         if bindings.backend in {"trino", "postgres", "mysql"}
@@ -5989,7 +5979,14 @@ class SemanticCatalog(RenderableResult):
                     )
                     with connection_scope:
                         backend = connections.session_backend(bindings.datasource_id)
-                        with cr.backend_errors(backend), timeout(backend, bindings.timeout_seconds):
+                        with (
+                            cr.backend_errors(backend),
+                            (
+                                timeout(backend, bindings.timeout_seconds)
+                                if timeout is not None
+                                else nullcontext()
+                            ),
+                        ):
                             if group_key[0] == "row":
                                 raw_results = self._preview_row_group(
                                     tuple(group_items),

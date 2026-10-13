@@ -43,7 +43,6 @@ from marivo.analysis.methods.semantics import MethodKey
 
 def payload_digest(root: Path, directory: Path, receipt: LocalReceipt) -> str:
     """Bind an immutable part receipt to all its exact persisted file bytes."""
-    from marivo.analysis.materialization.execute_deadline import check
 
     digest = hashlib.sha256()
     for entry in receipt.file_manifest:
@@ -51,7 +50,6 @@ def payload_digest(root: Path, directory: Path, receipt: LocalReceipt) -> str:
         digest.update(entry.relative_path.encode())
         with path.open("rb") as stream:
             while block := stream.read(1024 * 1024):
-                check()
                 digest.update(block)
     return digest.hexdigest()
 
@@ -94,18 +92,14 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
 
 
 def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
-    from marivo.analysis.materialization.execute_deadline import check
 
-    check()
     parquet, _path = _open_payload(root, receipt)
     try:
         schema = parquet.schema_arrow
         batches = []
         for batch in parquet.iter_batches(batch_size=1024):
-            check()
             batches.append(batch)
         table = pa.Table.from_batches(batches, schema=schema)
-        check()
         return table
     except (OSError, pa.ArrowException):
         raise invalid("committed Parquet could not be read completely") from None

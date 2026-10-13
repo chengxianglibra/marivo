@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 import textwrap
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
@@ -20,6 +19,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import backends
 from marivo.datasource.engines import require_profile_for_backend_type
+from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import (
     DatasourceIR,
     EntitySourceIR,
@@ -108,7 +108,7 @@ def _probe(
     )
     probe = _Probe(SemanticCatalog(project), backend_kind)
     profile = require_profile_for_backend_type(backend_kind)
-    timeout = profile.authoring_timeout
+    timeout = profile.native_query_timeout
     assert timeout is not None
     monkeypatch.setenv("MARIVO_PREVIEW_TEST_USER", "preview_reader")
 
@@ -122,14 +122,6 @@ def _probe(
         backend.name = backend_kind
         backend.con = driver
 
-        def disconnect() -> None:
-            # The MySQL driver owns the control attached during bounded construction.
-            control = getattr(backend, "_marivo_authoring_cancel_control", None)
-            if control is not None:
-                control.disconnect()
-                backend._marivo_authoring_cancel_control = None
-
-        backend.disconnect.side_effect = disconnect
         probe.created.append(backend)
         probe.drivers.append(driver)
         probe.connect_kwargs.append(dict(kwargs))
@@ -147,7 +139,7 @@ def _probe(
             finally:
                 probe.active_backend = None
 
-    prepared_profile = replace(profile, connect=connect, authoring_timeout=guarded)
+    prepared_profile = replace(profile, connect=connect, native_query_timeout=guarded)
     monkeypatch.setattr(
         backends, "require_profile_for_backend_type", lambda _kind: prepared_profile
     )
@@ -191,14 +183,12 @@ def _probe(
             }
         )
 
-    def duplicate_socket(_descriptor: int, _family: int, _kind: int) -> MagicMock:
-        owned = MagicMock(spec=socket.socket)
-        probe.sockets.append(owned)
-        return owned
-
     monkeypatch.setattr(service, "bind_source", bind)
     monkeypatch.setattr(service, "collect_source", collect)
-    monkeypatch.setattr("marivo.datasource.engines.mysql.socket.fromfd", duplicate_socket)
+    monkeypatch.setattr(
+        "marivo.datasource.engines.mysql.execute_provider_statement",
+        lambda *_args, **_kwargs: ({"@@session.max_execution_time": 30000},),
+    )
     try:
         yield probe
     finally:
@@ -248,11 +238,9 @@ def test_preview_prepares_deadline_before_source_resolution(
             assert probe.drivers[1].read_only and not probe.drivers[1].autocommit
             assert probe.drivers[1].rollbacks == 1
         else:
-            assert len(probe.created) == 3
-            assert probe.created[1]._marivo_authoring_thread_id == probe.drivers[1].identity
-            assert probe.created[1]._marivo_authoring_cancel_control is None
-            assert len(probe.sockets) == 1
-            probe.sockets[0].__exit__.assert_called_once()
+            assert len(probe.created) == 2
+            assert not hasattr(probe.created[1], "_marivo_authoring_cancel_control")
+            assert probe.created[1]._marivo_configured_query_timeout_seconds == 30
 
 
 @pytest.mark.parametrize("backend_kind", ("trino", "postgres", "mysql"))
@@ -280,8 +268,6 @@ def test_preview_releases_remote_connections_and_restores_cache_after_failure(
             bounded.disconnect.assert_called_once_with()
         if backend_kind == "postgres":
             assert probe.drivers[1].rollbacks == 1
-        elif backend_kind == "mysql":
-            probe.sockets[0].__exit__.assert_called_once()
 
 
 def test_batch_groups_use_their_own_deadlines_and_preserve_order(
@@ -322,7 +308,9 @@ def test_preview_keeps_real_timeout_preflight_and_releases_rejected_connection(
 ) -> None:
     with _probe(backend_kind, semantic_project_factory, monkeypatch) as probe:
         probe.corrupt_configuration = True
-        with pytest.raises(RuntimeError, match=r"no configured|isolated owned reader"):
+        with pytest.raises(
+            (RuntimeError, DatasourceSourceCapabilityError), match=r"no configured|isolated reader"
+        ):
             _preview(probe, "single", md.unpruned(max_rows=10, timeout_seconds=30))
         assert not probe.resolved and not probe.collected
         for backend in probe.created:

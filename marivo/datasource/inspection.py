@@ -687,16 +687,6 @@ def _preflight_sample(
             scope_state=state,
         )
 
-    if not inspection.execution_capabilities.timeout_enforced:
-        raise _authoring_error(
-            code="timeout_not_enforceable",
-            stage="preflight",
-            expected="an adapter-enforced acquisition timeout",
-            received=f"timeout_seconds={scope.timeout_seconds}",
-            reason="the datasource adapter cannot enforce the requested acquisition timeout",
-            scope_state=state,
-        )
-
 
 def _validate_scope_values(scope: AuthoringScope) -> None:
     for field, guard_value in (
@@ -809,7 +799,7 @@ def _execution_capabilities(profile: EngineProfile) -> ExecutionCapabilities:
     return ExecutionCapabilities(
         partition_predicate_supported=capabilities.partition_predicate_supported,
         transformed_partition_supported=capabilities.transformed_partition_supported,
-        timeout_enforced=profile.authoring_timeout is not None,
+        timeout_enforced=profile.native_query_timeout is not None,
         byte_estimate_supported=capabilities.byte_estimate_supported,
     )
 

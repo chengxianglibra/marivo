@@ -6,7 +6,6 @@ import re
 import sqlite3
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from threading import Timer
 from typing import TYPE_CHECKING
 
 import ibis.expr.datatypes as dt
@@ -345,27 +344,13 @@ def identity_strptime(value: str) -> str:
     return value
 
 
-@contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
-    connection = getattr(backend, "con", None)
-    interrupt = getattr(connection, "interrupt", None)
-    if not callable(interrupt):
-        raise RuntimeError("sqlite backend does not expose connection.interrupt()")
-    timer = Timer(timeout_seconds, interrupt)
-    try:
-        timer.start()
-        yield
-    finally:
-        timer.cancel()
-
-
 PROFILE = EngineProfile(
     name="sqlite",
     aliases=("sqlite3",),
     authoring_func="sqlite",
     required_modules=("ibis.backends.sqlite",),
     connect=connect,
-    connection_thread="caller",
+    thread_affine=True,
     apply_read_only_kwargs=apply_read_only_kwargs,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
@@ -374,7 +359,7 @@ PROFILE = EngineProfile(
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,
-        timeout_enforced=True,
+        timeout_enforced=False,
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_strptime,
@@ -382,5 +367,5 @@ PROFILE = EngineProfile(
     exact_count_distinct=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
-    authoring_timeout=authoring_timeout,
+    native_query_timeout=None,
 )

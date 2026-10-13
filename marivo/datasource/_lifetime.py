@@ -1,4 +1,4 @@
-"""One owner for releasing a live backend, including late worker results."""
+"""One owner for releasing a live backend, on the connection owner thread."""
 
 from __future__ import annotations
 
@@ -20,8 +20,7 @@ class BackendLease:
         return self._closed
 
     def close(self, *, suppress_errors: bool = True) -> bool:
-        # A timed-out round-trip must release SQLite on its original worker.
-        # The worker's finally block retries cleanup when the driver returns.
+        # SQLite connections must be released on their original caller thread.
         if suppress_errors and self._owner_thread is not None and self._owner_thread != get_ident():
             return False
         with self._lock:

@@ -94,7 +94,7 @@ orders_source = md.table("orders", columns={"order_key": physical_name})
 
 ## 限制行数据证据
 
-被检查的表包含物理 `created_at`列。使用明确且为正的行数和超时限制。
+被检查的表包含物理 `created_at`列。使用明确且为正的行数限制及请求的原生查询超时。
 
 {/* example: bounded-source-preview */}
 
@@ -244,8 +244,11 @@ HTTP scope 约束声明的端点；header/token secret 仍是环境引用。
 
 在 `md.credential_scope(resolver=host)` 中获取资源。宿主实现
 `resolve(request: md.CredentialRequest) -> md.SecretValue`；请求包含项目、数据源、引用、
-字段、截止时间和取消状态。显式宿主解析器不会回退到环境变量或缓存，也不会保存注入的凭据。
+字段。凭据服务超时由宿主管理。显式宿主解析器不会回退到环境变量或缓存，也不会保存注入的凭据。
 Catalog 和 Session 保留自己的解析器；显式切换到冲突的 scope 会返回有类型的修复指引。
 
 `md.raw_sql()` 把查询返回的全部行保留在客户端内存中。用 SQL 的过滤、聚合和 LIMIT 控制
 结果大小。显示另有字节预算；显示省略不会改变保留的查询结果。
+
+查询超时只使用后端原生配置，不支持则跳过。连接、网络和查询超时的含义由各自后端定义，
+不保证整个调用或完整取数的总时长。Marivo 不计时或发送 kill query；清理和失败原子性仍保留。

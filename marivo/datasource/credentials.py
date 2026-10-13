@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from threading import Event
 from typing import NoReturn, Protocol, SupportsIndex
 
 from marivo._errors import MarivoError
@@ -72,7 +70,7 @@ class CredentialRequest:
     """Read-only reference and operation facts passed to a host resolver.
 
     Marivo supplies reference, bound project_root, datasource, sorted fields,
-    and deadline_monotonic. The cancelled property follows the operation.
+    and field identities. Hosts own credential-service timeouts.
     Hosts consume requests; they do not need to construct them.
 
     Example:
@@ -87,14 +85,6 @@ class CredentialRequest:
     project_root: Path
     datasource: str
     fields: tuple[str, ...]
-    deadline_monotonic: float | None = None
-    _cancel: Event = field(default_factory=Event, repr=False, compare=False)
-
-    @property
-    def cancelled(self) -> bool:
-        return self._cancel.is_set() or (
-            self.deadline_monotonic is not None and time.monotonic() >= self.deadline_monotonic
-        )
 
     def __repr__(self) -> str:
         return (
@@ -125,7 +115,7 @@ class CredentialResolver(Protocol):
         """Read one reference using the request's bound project and operation.
 
         Args:
-            request: Marivo-owned reference, datasource, fields and budget.
+            request: Marivo-owned reference, datasource and fields.
 
         Returns:
             Non-empty secret material, or raises DatasourceCredentialError.
@@ -186,26 +176,6 @@ def check_binding(resolver: CredentialResolver | None) -> None:
 @dataclass(repr=False)
 class CredentialOperation:
     project_root: Path
-    deadline: float | None
-    cancel: Event = field(default_factory=Event)
-    request: CredentialRequest | None = None
-
-    @property
-    def cancelled(self) -> bool:
-        return self.cancel.is_set() or (
-            self.deadline is not None and time.monotonic() >= self.deadline
-        )
-
-    def timeout_error(self) -> DatasourceCredentialError | None:
-        request = self.request
-        if request is None:
-            return None
-        return DatasourceCredentialError(
-            reason="timeout",
-            reference=request.reference,
-            datasource=request.datasource,
-            fields=request.fields,
-        )
 
 
 _OPERATION: ContextVar[CredentialOperation | None] = ContextVar(
@@ -217,22 +187,12 @@ _OPERATION: ContextVar[CredentialOperation | None] = ContextVar(
 def operation_context(
     *,
     project_root: Path | None = None,
-    timeout_seconds: int | None = None,
 ) -> Iterator[CredentialOperation]:
     parent = _OPERATION.get()
-    deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
-    if parent is not None and (
-        deadline is None or (parent.deadline is not None and parent.deadline <= deadline)
-    ):
+    if parent is not None:
         yield parent
         return
-    operation = CredentialOperation(
-        project_root=parent.project_root
-        if parent is not None
-        else (project_root or resolve_project_root()).resolve(),
-        deadline=deadline,
-        cancel=parent.cancel if parent is not None else Event(),
-    )
+    operation = CredentialOperation(project_root=(project_root or resolve_project_root()).resolve())
     token = _OPERATION.set(operation)
     try:
         yield operation
@@ -260,37 +220,23 @@ def resolve_reference(
         project_root=operation.project_root,
         datasource=datasource,
         fields=fields,
-        deadline_monotonic=operation.deadline,
-        _cancel=operation.cancel,
     )
-    operation.request = request
     try:
-        if request.cancelled:
-            raise DatasourceCredentialError(
-                reason="timeout", reference=reference, datasource=datasource, fields=fields
-            )
-        try:
-            value = resolver.resolve(request)
-        except DatasourceCredentialError as exc:
-            # Rebuild from Marivo facts; never trust provider messages or causes.
-            raise DatasourceCredentialError(
-                reason=exc.reason, reference=reference, datasource=datasource, fields=fields
-            ) from None
-        except Exception:
-            raise DatasourceCredentialError(
-                reason="unavailable", reference=reference, datasource=datasource, fields=fields
-            ) from None
-        if request.cancelled:
-            raise DatasourceCredentialError(
-                reason="timeout", reference=reference, datasource=datasource, fields=fields
-            )
-        if not isinstance(value, SecretValue):
-            raise DatasourceCredentialError(
-                reason="invalid-response", reference=reference, datasource=datasource, fields=fields
-            )
-        return value
-    finally:
-        operation.request = None
+        value = resolver.resolve(request)
+    except DatasourceCredentialError as exc:
+        # Retain host reasons without exposing host messages or secret causes.
+        raise DatasourceCredentialError(
+            reason=exc.reason, reference=reference, datasource=datasource, fields=fields
+        ) from None
+    except Exception:
+        raise DatasourceCredentialError(
+            reason="unavailable", reference=reference, datasource=datasource, fields=fields
+        ) from None
+    if not isinstance(value, SecretValue):
+        raise DatasourceCredentialError(
+            reason="invalid-response", reference=reference, datasource=datasource, fields=fields
+        )
+    return value
 
 
 _SECRET_ATTR = "_marivo_injected_credentials"

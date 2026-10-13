@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shutil
-from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -26,20 +25,6 @@ def backend_reservation(run_ref: str, domain: str) -> ResourceRecord:
         ownership_nonce=nonce,
         cleanup_capability_id=_READ_CAPABILITY,
         safe_locator=f"execution/{nonce}",
-    )
-
-
-def mysql_control_reservation(run_ref: str, domain: str) -> ResourceRecord:
-    """Reserve an owned control whose release needs a live acknowledgement."""
-    return replace(
-        backend_reservation(run_ref, domain), cleanup_capability_id=_MYSQL_CONTROL_CAPABILITY
-    )
-
-
-def clickhouse_control_reservation(run_ref: str, domain: str) -> ResourceRecord:
-    """Reserve the reader's control client and private HTTP pool until release."""
-    return replace(
-        backend_reservation(run_ref, domain), cleanup_capability_id=_CLICKHOUSE_CONTROL_CAPABILITY
     )
 
 

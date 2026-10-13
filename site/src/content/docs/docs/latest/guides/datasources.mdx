@@ -96,7 +96,7 @@ Use authoritative schema facts for types and keys. Read bounded rows only for an
 
 ## Bound row evidence
 
-The inspected table has a physical `created_at` column. Use explicit positive row and timeout guards.
+The inspected table has a physical `created_at` column. Use explicit positive row limits and requested native query timeouts.
 
 {/* example: bounded-source-preview */}
 
@@ -250,7 +250,7 @@ read and Analysis qualification rules still apply.
 
 Wrap acquisition in `md.credential_scope(resolver=host)`. The host implements
 `resolve(request: md.CredentialRequest) -> md.SecretValue`; requests include
-project, datasource, exact reference, fields and deadline/cancellation facts.
+project, datasource, exact reference and fields. The host manages credential-service timeouts.
 An explicit host resolver never falls back to environment/cache credentials or
 stores injected secrets. Catalog and Session owners retain their resolver;
 conflicting explicit scopes fail with a typed repair.
@@ -258,3 +258,8 @@ conflicting explicit scopes fail with a typed repair.
 `md.raw_sql()` retains the complete returned query result in client memory.
 Author predicates, aggregation and LIMIT in SQL to control size. Its display is
 bounded separately; display omissions do not change retained query rows.
+
+Query timeouts use backend-native settings and are skipped when unsupported.
+Connection, network and query settings retain their own backend meanings; they
+do not impose a total-call or complete-fetch deadline. Marivo does not run timers
+or send kill query commands; cleanup and failure atomicity remain active.

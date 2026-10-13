@@ -77,7 +77,9 @@ Prefer physical metadata when it answers the modeling question. Acquire bounded
 rows or profiles only for a concrete unresolved question. Governed `md.raw_sql`
 is available for source-specific questions inspection cannot answer; its rows
 remain terminal evidence. Every user-data read needs explicit positive row and
-timeout budgets; a returned-row limit is not a scan bound. Reuse evidence only
+timeout requests; a returned-row limit is not a scan bound. When native timeout
+settings are unsupported, disclose the missing time bound and continue within the
+row and scope limits. Do not promise an end-to-end deadline. Reuse evidence only
 when its source, schema, and scope identity still answer the current question.
 Record unknown or conflicting facts instead of guessing.
 

@@ -432,7 +432,7 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
 
 
 @contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     if getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds:
         raise RuntimeError("postgres terminal connection has no configured statement timeout")
     connection = backend.con
@@ -470,5 +470,5 @@ PROFILE = EngineProfile(
     exact_quantile=True,
     quantile=None,
     percentile_uses_approx_quantile=False,
-    authoring_timeout=authoring_timeout,
+    native_query_timeout=native_query_timeout,
 )

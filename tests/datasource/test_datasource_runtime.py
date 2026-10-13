@@ -204,7 +204,11 @@ def test_cached_backend_release_records_only_successful_disconnect(
     source.submissions.append(submission)
     lease = service._leases["warehouse"]
 
-    service.close_all()
+    if fails:
+        with pytest.raises(RuntimeError, match="connection release failed"):
+            service.close_all()
+    else:
+        service.close_all()
     service.close_all()
 
     assert backend.disconnect_calls == 1

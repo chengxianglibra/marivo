@@ -21,9 +21,7 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import ROWS, source_case, source_params
 
 
-@pytest.mark.parametrize(
-    "backend", source_params(("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"))
-)
+@pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
 def test_terminal_native_timeout_is_not_analysis_cancellation(
     backend: str,
     tmp_path: Path,

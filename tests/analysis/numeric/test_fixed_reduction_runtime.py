@@ -16,8 +16,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_lowering import LoweredLocal
-from marivo.analysis.core.domain_captures import DomainPreparationError
-from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_local_execution as local
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import ExchangePart, ExchangeResult
@@ -174,9 +172,7 @@ def test_group_failure_has_no_retry_or_partial_publication(
             if fault == "cancel":
                 raise KeyboardInterrupt()
             if fault == "timeout":
-                deadline = execute_deadline.CURRENT.get()
-                assert deadline is not None
-                object.__setattr__(deadline, "start", deadline.start - 601)
+                raise RuntimeError("injected local stage failure")
             parts = list(source.parts)
             if fault == "missing":
                 parts = [p for p in parts if p.role != "original_state"]
@@ -205,13 +201,7 @@ def test_group_failure_has_no_retry_or_partial_publication(
             return execute(group, replace(source, parts=tuple(parts)), binding)
 
         monkeypatch.setattr(local, "_reduction_group_result", grouped)
-        error = (
-            KeyboardInterrupt
-            if failure == "cancel"
-            else DomainPreparationError
-            if failure == "timeout"
-            else MaterializationError
-        )
+        error = KeyboardInterrupt if failure == "cancel" else MaterializationError
         with pytest.raises(error):
             chain.execute()
         assert attempts == [2]

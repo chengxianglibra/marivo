@@ -122,13 +122,13 @@ def _connection_timeout_repair(
     """Return the canonical next-step repair for a connection timeout stage."""
     if stage == "connection_timeout":
         action = (
-            "The connection handshake did not complete within the deadline; "
+            "The driver reported a native connection timeout; "
             "verify the host/gateway is reachable, then retry with a larger "
             "timeout_seconds."
         )
     else:
         action = (
-            "The Ibis literal round-trip did not complete within the deadline; "
+            "The backend reported a native probe timeout; "
             "verify the backend responds to queries, then retry with a larger "
             "timeout_seconds."
         )
@@ -401,10 +401,10 @@ class DatasourceConnectionError(DatasourceError):
 
 
 class DatasourceConnectionTimeoutError(DatasourceConnectionError):
-    """A datasource connection phase exceeded its bounded wall-clock deadline.
+    """A driver or backend reported a native timeout during a connection probe.
 
-    Raised when either the backend-connect handshake or the Ibis literal
-    round-trip exceeds ``timeout_seconds``. Carries the failed ``stage``
+    Raised for a native timeout reported by the connect handshake or literal
+    probe; elapsed time does not determine this error. Carries the failed ``stage``
     (``connection_timeout`` vs ``connection_roundtrip_timeout``), the configured
     timeout, the measured elapsed time, and the datasource name so callers can
     distinguish the two phases without parsing the message text.
@@ -429,11 +429,13 @@ class DatasourceConnectionTimeoutError(DatasourceConnectionError):
         resolved_location = location or f"md.test({datasource_name!r})"
         super().__init__(
             message=(
-                f"datasource {datasource_name!r} {stage} exceeded the "
-                f"{timeout_seconds}s deadline after {elapsed_ms}ms"
+                f"datasource {datasource_name!r} reported native {stage}; "
+                f"requested timeout={timeout_seconds}s, elapsed={elapsed_ms}ms"
             ),
-            expected=f"the {phase} to complete within timeout_seconds",
-            received=(f"no result after {elapsed_ms}ms (timeout_seconds={timeout_seconds})"),
+            expected=f"the {phase} to complete under the configured native settings",
+            received=(
+                f"native timeout reported after {elapsed_ms}ms (requested timeout_seconds={timeout_seconds})"
+            ),
             location=resolved_location,
             repair=_connection_timeout_repair(stage),
         )

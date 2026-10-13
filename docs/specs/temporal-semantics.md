@@ -631,7 +631,7 @@ profiles, historical samples, or the returned display slice.
 
 The calendar preview's `limit=` controls only rendered example rows. It cannot
 reduce certification coverage. The certification read uses the supplied
-scope's timeout and row budget, reads one sentinel row beyond that budget
+scope's row budget and requested native query timeout, reads one sentinel row beyond that budget
 to detect truncation, and must observe scope exhaustion. Rows outside declared
 coverage may exist and are excluded deterministically before validation, but the
 acquired physical scope itself must fit the chosen acquisition budget. A larger
@@ -662,7 +662,8 @@ same contract remain available for artifacts that reference them. Authors do
 not invent or synchronize a second human revision identifier.
 
 V1 requires exactly one row per covered civil date.
-Acquisition remains bounded by the ordinary datasource scope and timeout; the
+Acquisition retains the ordinary datasource scope and row limits; unsupported
+native query timeouts are skipped. The
 semantic API does not add a second hard-coded row-limit policy.
 
 ## Normalized snapshot contract

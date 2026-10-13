@@ -225,18 +225,9 @@ def _mixed_fit_table() -> tuple[ExchangeResult, ExchangeResult]:
     return result, scored
 
 
-def test_mixed_table_verification_preserves_execute_deadline() -> None:
-    from marivo.analysis.core.domain_captures import DomainPreparationError
-    from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
-
+def test_mixed_table_verification_has_no_execution_clock() -> None:
     result, _ = _mixed_fit_table()
-    token = CURRENT.set(ExecuteDeadline(0.0, clock=lambda: 601.0))
-    try:
-        with pytest.raises(DomainPreparationError) as raised:
-            execution.validate_table_fits(result.contract, result.primary, result.parts)
-        assert raised.value.constraint_id == "r7.execute_timeout"
-    finally:
-        CURRENT.reset(token)
+    execution.validate_table_fits(result.contract, result.primary, result.parts)
 
 
 @pytest.mark.parametrize(

@@ -173,8 +173,7 @@ class Session:
         Example: ``customers = session.members(ms.ref.entity('sales.customer'))``.
         Constraints: execute() reads and saves the complete member key set; may scan
         the entire Entity source, no default row truncation. PK uniqueness,
-        unversioned identity and show(n=...) do not bound size. Shared 600-second
-        graph budget.
+        unversioned identity and show(n=...) do not bound size. There is no default graph deadline.
         """
         from marivo.analysis.materialization.graph_relation import Relation
         from marivo.analysis.public_dsl import new_members

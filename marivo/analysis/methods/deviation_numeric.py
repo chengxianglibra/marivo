@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal, localcontext
 from fractions import Fraction
@@ -13,10 +12,6 @@ from marivo.analysis.methods.physical import DecimalType, ScalarType, ValueType
 
 DeviationMethod = Literal["zscore", "mad"]
 ScaleBranch = Literal["population_stddev", "scaled_mad", "mean_absolute_deviation"]
-
-
-def _unbounded() -> None:
-    """Pure numerical callers have no Runtime deadline."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,9 +139,7 @@ def finish(value: Fraction, typ: ValueType) -> int | float | Decimal:
     return result
 
 
-def certified_score(
-    delta: Fraction, fitted: Fit, *, checkpoint: Callable[[], None] = _unbounded
-) -> Scored:
+def certified_score(delta: Fraction, fitted: Fit) -> Scored:
     """Certify the nearest binary64 signed score from unrounded fit facts."""
     if fitted.raw_scale is None or fitted.n < 2:
         raise ValueError("score has no usable fitted scale")
@@ -166,7 +159,6 @@ def certified_score(
         return Scored(result, None)
     precision = 120
     while True:
-        checkpoint()
         ctx = Context(prec=precision, rounding=ROUND_HALF_EVEN, Emin=-999999, Emax=999999)
         with localcontext(ctx):
             lower_ctx, upper_ctx = ctx.copy(), ctx.copy()

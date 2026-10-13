@@ -4,7 +4,6 @@ from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
-import ibis
 import pytest
 
 import marivo.analysis as mv
@@ -18,88 +17,6 @@ from marivo.semantic.reader import SemanticProject
 from tests.datasource.driver_audit import native_audit
 from tests.datasource.source_cases import ROWS, source_case, source_params
 from tests.support.execution_logs import execution_records
-
-
-@pytest.mark.runtime
-def test_clickhouse_owned_control_sql_audit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from tests.datasource.environment import clickhouse_analysis as ch
-
-    with native_audit(monkeypatch, "clickhouse") as audit:
-        with source_case("clickhouse", "mergetree", tmp_path, monkeypatch) as case:
-            source = case.session
-            source._prepare_interrupt()
-            bound = source.bind(case.source, source_identity="sql_ownership.owned_control")
-            expression = bound.relation
-            for _ in range(18):
-                expression = expression.cross_join(bound.relation.view()).select(expression)
-            expression = expression.mutate(noise=ibis.random())
-            qualified = source.qualify(
-                bound,
-                PhysicalRequirement(
-                    "sql_ownership.owned_control", 1, frozenset({"scan", "join", "project"})
-                ),
-            )
-            read = source.compile(
-                qualified,
-                expression,
-                purpose="sql_ownership.owned_control",
-                expected_schema=expression.schema().to_pyarrow(),
-            )
-            stream = source.batches(read, chunk_size=1)
-            try:
-                assert next(iter(stream)).num_rows == 1
-                assert source._clickhouse_active is not None
-                identity = source._clickhouse_active[1]
-                with ch.connection(admin=True) as observer:
-                    active = observer.query(
-                        "SELECT query FROM system.processes WHERE query_id={id:String}",
-                        parameters={"id": identity},
-                    ).result_rows
-                assert len(active) == 1 and str(active[0][0]).startswith(read.sql)
-                source._request_interrupt()
-            finally:
-                stream.close()
-            assert len(source.cancel_submissions) == 1
-            control = source.cancel_submissions[0]
-            assert control.state == "succeeded"
-            native = [
-                item
-                for item in audit.submissions
-                if item.category == "provider"
-                and item.owner == "clickhouse.analysis.cancel_owned_query"
-            ]
-            assert len(native) == 1
-            assert native[0].boundary == "clickhouse_connect.query"
-            assert (
-                native[0].sql
-                == control.sql
-                == ("KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC")
-            )
-            assert native[0].purpose == "analysis.cancel_owned_query"
-            assert native[0].parameter_names == ("id", "user")
-            assert native[0].state == "succeeded"
-            assert source._clickhouse_cancel_failure is None
-            with ch.connection(admin=True) as observer:
-                assert observer.query(
-                    "SELECT count() FROM system.processes WHERE query_id={id:String}",
-                    parameters={"id": identity},
-                ).first_row == (0,)
-            environment = case.environment
-        assert source._cancel_control_released and source._cancel_pool is None
-        audit.save(
-            "sql-native-clickhouse-owned-control",
-            environment,
-            {
-                "source_issued_query_observed_active": True,
-                "native_control_statement": control.sql,
-                "bound_parameter_names": ["id", "user"],
-                "owned_query_absent_after_cancel": True,
-                "reader_and_control_closed": True,
-                "business_graph_replayed": False,
-            },
-        )
 
 
 def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

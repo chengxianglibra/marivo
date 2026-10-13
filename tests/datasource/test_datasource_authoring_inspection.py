@@ -497,30 +497,6 @@ def test_sample_rejects_unknown_source_column_before_executor(project_root: Path
     assert exc_info.value.effect_observed.query_executed is False
 
 
-def test_sample_rejects_unenforceable_timeout_before_executor(project_root: Path) -> None:
-    _register_duckdb(project_root)
-    base = md.inspect(
-        ms.ref.datasource("warehouse"),
-        md.csv("orders.csv", columns={"order_id": "order_id"}),
-    )
-    inspection = replace(
-        base,
-        execution_capabilities=replace(
-            base.execution_capabilities,
-            timeout_enforced=False,
-        ),
-    )
-
-    with pytest.raises(DatasourceError) as exc_info:
-        inspection.sample(
-            scope=md.unpruned(max_rows=10, timeout_seconds=30),
-            columns=("order_id",),
-        )
-
-    assert exc_info.value.effect_observed is not None
-    assert exc_info.value.effect_observed.query_executed is False
-
-
 def test_sample_rejects_transform_and_incomplete_partition_scope(project_root: Path) -> None:
     _register_duckdb(project_root)
     base = md.inspect(
@@ -650,7 +626,7 @@ def test_inspection_exposes_factual_scope_inputs_without_lifecycle_state(
     )
 
     assert not hasattr(inspection, "contract")
-    assert inspection.execution_capabilities.timeout_enforced is True
+    assert inspection.execution_capabilities.timeout_enforced is False
     assert inspection.schema[0].name == "order_id"
     assert not hasattr(inspection.partitions(), "contract")
 

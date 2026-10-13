@@ -6,8 +6,8 @@ import hashlib
 import json
 import sqlite3
 import sys
-from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -36,21 +36,17 @@ def fail(constraint: str, received: str, *, stage: str) -> NoReturn:
     )
 
 
-def _hash(path: Path, checkpoint: Callable[[], None]) -> str:
+def _hash(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         while block := stream.read(1024 * 1024):
-            checkpoint()
             digest.update(block)
-    checkpoint()
     return digest.hexdigest()
 
 
 @contextmanager
 def _sqlite_capture(
     source: SourceSession,
-    checkpoint: Callable[[], None],
-    guard: Callable[[Callable[[], object]], AbstractContextManager[None]],
 ) -> Iterator[dict[str, object]]:
     from marivo.datasource.engines.sqlite import connect
 
@@ -66,7 +62,6 @@ def _sqlite_capture(
             "SQLite capture requires main-database tables",
             stage="admission",
         )
-    checkpoint()
     with ExitStack() as resources:
         directory = resources.enter_context(TemporaryDirectory(prefix="marivo-sqlite-capture-"))
         snapshot_backend = connect(
@@ -81,11 +76,7 @@ def _sqlite_capture(
                 stage="admission",
             )
 
-        def progress(status: int, remaining: int, total: int) -> None:
-            checkpoint()
-
-        original.backup(snapshot, pages=64, progress=progress, sleep=0.01)
-        checkpoint()
+        original.backup(snapshot, pages=64, sleep=0.01)
         authority: dict[str, object] = {
             "kind": "sqlite_native_backup",
             "capture_id": uuid4().hex,
@@ -94,12 +85,9 @@ def _sqlite_capture(
         authority["digest"] = hashlib.sha256(
             json.dumps(authority, sort_keys=True).encode()
         ).hexdigest()
-        source._checkpoint = checkpoint
         backend.con = snapshot
         try:
-            with guard(snapshot.interrupt):
-                yield authority
-            checkpoint()
+            yield authority
         finally:
             backend.con = original
 
@@ -107,9 +95,6 @@ def _sqlite_capture(
 @contextmanager
 def capture(
     source: SourceSession,
-    *,
-    checkpoint: Callable[[], None],
-    guard: Callable[[Callable[[], object]], AbstractContextManager[None]],
 ) -> Iterator[dict[str, object]]:
     """Retain bound input-read authority; remote reads may observe different source versions."""
     if source.provider.name in ("postgres", "mysql", "trino", "clickhouse"):
@@ -126,9 +111,6 @@ def capture(
                 "independent source reads require owned native table bindings",
                 stage="admission",
             )
-        checkpoint()
-        source._checkpoint = checkpoint
-        source._prepare_interrupt()
         read_authority: dict[str, object] = {
             "kind": "independent_reads",
             "capture_id": uuid4().hex,
@@ -137,33 +119,27 @@ def capture(
         read_authority["digest"] = hashlib.sha256(
             json.dumps(read_authority, sort_keys=True).encode()
         ).hexdigest()
-        with guard(source._request_interrupt):
-            yield read_authority
-        checkpoint()
+        yield read_authority
         return
     if source.provider.name == "sqlite":
-        with _sqlite_capture(source, checkpoint, guard) as sqlite_authority:
+        with _sqlite_capture(source) as sqlite_authority:
             yield sqlite_authority
         return
     if source.provider.name != "duckdb":
         fail(
             "physical_qualification",
-            "domain snapshot/cancellation is not qualified for this backend",
+            "domain snapshot is not qualified for this backend",
             stage="admission",
         )
     backend = source._backend
     connection = getattr(backend, "con", None)
-    begin, rollback, interrupt = (
-        getattr(connection, name, None) for name in ("begin", "rollback", "interrupt")
-    )
-    if not callable(begin) or not callable(rollback) or not callable(interrupt):
+    begin, rollback = (getattr(connection, name, None) for name in ("begin", "rollback"))
+    if not callable(begin) or not callable(rollback):
         fail(
             "physical_qualification",
-            "native transaction/interrupt authority unavailable",
+            "native transaction authority unavailable",
             stage="admission",
         )
-    checkpoint()
-    source._checkpoint = checkpoint
     manifest: list[dict[str, object]] = []
     with TemporaryDirectory(prefix="marivo-r7-capture-") as directory:
         for identity, binding in tuple(source._bound_sources.items()):
@@ -176,20 +152,18 @@ def capture(
                         "domain file capture requires an exact local Parquet file",
                         stage="admission",
                     )
-                checkpoint()
                 captured = Path(directory) / (uuid4().hex + ".parquet")
                 before = path.stat()
                 with path.open("rb") as reader, captured.open("wb") as writer:
                     while block := reader.read(1024 * 1024):
-                        checkpoint()
                         writer.write(block)
-                content_digest = _hash(captured, checkpoint)
+                content_digest = _hash(captured)
                 after = path.stat()
                 if (before.st_ino, before.st_size, before.st_mtime_ns) != (
                     after.st_ino,
                     after.st_size,
                     after.st_mtime_ns,
-                ) or _hash(path, checkpoint) != content_digest:
+                ) or _hash(path) != content_digest:
                     fail(
                         "input_binding", "Parquet changed during immutable capture", stage="prepare"
                     )
@@ -228,12 +202,7 @@ def capture(
         ).hexdigest()
         begin()
         try:
-            with guard(interrupt):
-                yield authority
-            checkpoint()
-        except BaseException:
-            checkpoint()
-            raise
+            yield authority
         finally:
             if sys.exc_info()[0] is None:
                 rollback()

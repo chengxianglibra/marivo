@@ -45,6 +45,8 @@ class _ProbeCursor:
 
 
 class _ProbeConnection:
+    session_properties = {"query_max_run_time": "30s"}
+
     def __init__(self, failure: Exception | None = None) -> None:
         self._failure = failure
 
@@ -128,6 +130,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     class _FakeBackend:
         disconnected = False
         name = "trino"
+        _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
@@ -290,6 +293,7 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     class _FakeBackend:
         name = "trino"
+        _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
@@ -349,6 +353,7 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
     class _FakeBackend:
         name = "trino"
+        _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection(RuntimeError("authentication failed"))
 
         def compile(self, _expression: object, *, limit: None) -> str:
@@ -416,6 +421,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
 
     class _FakeBackend:
         name = "trino"
+        _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:

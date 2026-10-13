@@ -272,7 +272,6 @@ _PREVIEW = _effects(
     flags=(
         "requires_explicit_scope",
         "requires_positive_row_guard",
-        "requires_positive_timeout_guard",
     ),
 )
 _SOURCE_HEALTH = _effects(
@@ -286,7 +285,6 @@ _CERTIFYING_PREVIEW = _effects(
     flags=(
         "requires_explicit_scope",
         "requires_positive_row_guard",
-        "requires_positive_timeout_guard",
         "may_publish_certified_artifact",
     ),
 )

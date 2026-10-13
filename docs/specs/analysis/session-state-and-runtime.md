@@ -45,7 +45,7 @@ The Runtime orders admission as follows:
 2. Acquire the Session writer guard and reconcile unfinished Run/resource state.
 3. Resolve a fixed-only exact key and return an existing committed result if found.
 4. On a producer miss, determine the key and allocate/admit its Run.
-5. Execute preparation, methods and checks under one deadline.
+5. Execute preparation, methods and checks under their captured contracts.
 6. Publish complete Artifact/Evidence/Findings and successful Run atomically.
 
 The source key binds protocol, definition/plan and fresh Run identity.
@@ -124,7 +124,7 @@ its source/input binding. Historical attribute selections retain captured
 versions through a subsequent observation.
 
 Exchange preserves typed schema/decoding, compact Cell bindings, ordered parts,
-complete read/close, deadline/cancellation and resource ownership. Producer
+complete read/close and resource ownership. Producer
 key/Cell/business guarantees are trusted rather than repeatedly re-audited.
 Necessary indexes reject encountered duplicates and required lookups reject
 missing operands. Methods still enforce their actual consumed Cell, finite,
@@ -239,18 +239,16 @@ are specified by [the method owner](operators-and-frames.md#requiredparts-transf
 
 ## Deadline and resource ownership
 
-Every graph execute shares one private 600-second monotonic deadline from entry
-through admission, preparation, checks, acquisition, local computation/refinement,
-fixed exact-hit handling and publication/return. Expiry is elapsed>600.
-Stages, batches and source/fixed transitions do not reset the budget.
-There is no public budget parameter.
+Graph execution has no default wall-clock deadline. Source connections use
+explicit datasource native settings; authoring scopes request native query
+limits where supported and skip them otherwise. Marivo does not track remaining
+time, reject late results, start deadline workers or send KILL QUERY.
+Native connection, request and query timeouts retain their backend meanings.
 
-Native source timeout/cancellation, local checkpoints and late-result rejection
-enforce the same remaining deadline. Unsupported cancellation authority blocks
-that physical route. Timeout, cancellation, bad/late batch or failed read/close
-abort uncommitted publication and release owned readers/cursors/connections/
-staging under their resource owners. Durable success remains committed after a
-later deadline; unknown commit state belongs to reconciliation.
+Native errors, Python interruption, malformed batches and failed read/close abort
+uncommitted publication and release owned resources through their actual owners.
+Elapsed time is diagnostic only. Durable success remains committed after an
+acknowledgement error; unknown commit state belongs to reconciliation.
 
 There are no occurrence/attempt/Subject/tie-width, input-row, part-row,
 captured-byte or workspace-memory execution quotas. Protocol-envelope limits,
@@ -268,44 +266,22 @@ reported as confirmed termination. Writer/commit ownership must be safe before
 continuation; unresolved commit or resource journal obligations block
 reconciliation. Recovery never resubmits the action.
 
-### MySQL owned cancellation
+### Native read cleanup
 
-MySQL source graphs prepare a separate same-datasource control connection before
-business submission. The approved provider statement cancels only the still-owned
-native data connection ID; its parameter and purpose are closed. Preparation
-captures the data connection object, its native thread ID and a duplicated socket
-while the driver is idle. Timer and signal callbacks use that captured ownership
-without invoking connection metadata methods during an active query. The duplicate
-socket closes during owner-thread cleanup. Control setup
-and requests have one-second native connection/read/write bounds and checkpoint
-the shared execution budget. Cancellation also shuts down the owned data socket,
-then owner-thread cleanup waits for control work before closing cursors and both
-connections. Control errors do not establish remote termination: receipts retain
-`remote_unknown`, and a control-close error prevents successful publication.
-During a main-thread graph with Python's default SIGINT handler, a temporary
-signal wakeup listener requests the same owned cancellation while mysqlclient
-blocks in a native read. It preserves the handler and forwards notifications to
-the previous wakeup descriptor, restoring that descriptor before releasing the
-listener. Concurrent timer and signal requests issue at most one owned KILL.
-Cursor close remains on the execution thread. Query ownership lasts until cursor
-release, including failed/early-closed unread streams; terminal submission state
-alone cannot remove an active query's cancellation target. Owner release marks
-an interrupted submission still pending during SIGINT failure unwinding as failed.
-If interrupted
-mysqlclient response draining fails, confirmed disconnection of the owned data
-connection replaces that drain and preserves the original KeyboardInterrupt.
-For a borrowed backend, only native connection-loss errors 2006/2013 after the
-exact owned cancellation preserve the original interruption while retaining
-`close_failed`. SourceSession does not disconnect the borrowed backend. Its
-outer datasource connection owner must confirm disconnection before
-`mark_backend_disconnected()` changes that cursor state to closed; failed outer
-release retains the existing typed error and unconfirmed state. Custom signal
-handlers and worker-thread callers retain their existing signal behavior.
-The Run reserves `mysql_owned_control_close@v1` before control creation and only
-discharges it after confirmed owner release. Unconfirmed creation/close retains
-the obligation and an incomplete Run; reconciliation raises a typed pending error
-instead of assuming that a read-only control was released. It never targets a
-connection from a later session.
+SourceSession releases all owned streams, temporary relations and connections,
+including when one cleanup operation fails. Borrowed backend disconnection
+belongs to the external owner. Failed cursor close remains unconfirmed until
+that owner acknowledges connection release. Cleanup can block without suitable
+native settings; no additional worker or deadline bounds it.
+
+MySQL and ClickHouse graphs create no control connection or control resource
+reservation. Python and driver interruption behavior remains native; there is
+no custom SIGINT wakeup listener. A native timeout or an interrupted read never
+publishes partial success. Remote receipts retain `remote_unknown` without
+independent termination proof. Previously recorded unresolved control resources
+remain reconciliation blockers; they are not silently discharged or targeted
+by a new connection. Normal read, temporary-relation and local-output resource
+journals, commit reconciliation and atomic publication remain active.
 
 ## Store 9 publication and local trust
 
@@ -438,8 +414,7 @@ Grouping is invocation-local and preserves the logical DAG, definition fingerpri
 ordered implementation records, per-stage proof digests and `plan_digest`. There
 is no public optimization switch or persisted second graph. An unqualified group
 uses the already selected ordinary stages. Once grouped computation starts, failure
-never retries those stages or changes route. The shared deadline, cancellation,
-resource cleanup and atomic publication boundaries still apply.
+never retries those stages or changes route. Native error propagation, resource cleanup and atomic publication still apply.
 
 ### A3 direct-key original reduction
 
@@ -470,9 +445,9 @@ Grouping does not scan sources to prove every hypothetical intermediate range.
 Actual component and finish overflows remain execution failures in the captured
 carrier, as specified by the accepted numerical policy.
 
-Index insertion, grouping and stage transitions check the shared deadline.
+Index insertion and grouping preserve the captured business checks.
 Unqualified schedules execute their already selected ordinary stages. Once a
-group starts, a numerical error, malformed consumed state, cancellation or timeout
+group starts, a numerical error, malformed consumed state, interruption or native timeout
 propagates without retry; Runtime publication remains atomic.
 
 ## Evidence, Findings and interpretation

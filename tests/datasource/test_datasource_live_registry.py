@@ -102,7 +102,7 @@ EXPECTED_EFFECTS = {
         data_access="potentially_unbounded_read",
         connection="opens_connection",
         mutations=("project_state",),
-        flags=("requires_positive_timeout_guard",),
+        flags=(),
     ),
     "DatasourceCatalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
@@ -130,7 +130,6 @@ EXPECTED_EFFECTS = {
         flags=(
             "requires_explicit_scope",
             "requires_positive_row_guard",
-            "requires_positive_timeout_guard",
             "may_persist_plaintext_values",
         ),
     ),
@@ -185,7 +184,6 @@ def test_sample_effects_are_complete_and_orthogonal() -> None:
         flags=(
             "requires_explicit_scope",
             "requires_positive_row_guard",
-            "requires_positive_timeout_guard",
             "may_persist_plaintext_values",
         ),
     )

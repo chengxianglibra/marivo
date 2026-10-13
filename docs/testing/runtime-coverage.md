@@ -10,7 +10,7 @@ package installation and installed-origin boundaries.
 
 | Behavior | Owning tests | Gate |
 | --- | --- | --- |
-| Datasource declarations, source IR, metadata, credentials, SQL submission, native deadlines and cleanup | [datasource](../../tests/datasource/) | Daily contracts; explicitly extended local resume cases in slow-test; Runtime native reads |
+| Datasource declarations, source IR, metadata, credentials, SQL submission, native timeout settings and cleanup | [datasource](../../tests/datasource/) | Daily contracts; explicitly extended local resume cases in slow-test; Runtime native reads |
 | Semantic declarations, identity, metric equations, authoring, validation and analysis handoff | [semantic](../../tests/semantic/) | Daily authoring and local handoff; Runtime native metadata and sample reads |
 | Typed graph rules, capture, lowering, admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
 | Observation, aggregation, comparison, attribution and selection | [analysis/numeric](../../tests/analysis/numeric/) | Daily numerical and behavioral oracles; explicitly extended cases in slow-test; Runtime native carriers |
@@ -18,7 +18,7 @@ package installation and installed-origin boundaries.
 | Journey matching, Duration, Funnel, anchors and retention | [analysis/journey](../../tests/analysis/journey/) | Daily source/fixed behavior; explicitly extended journeys and process recovery in slow-test; Runtime native matching |
 | History replay, completeness, views and captured observations | [analysis/lifecycle](../../tests/analysis/lifecycle/) | Daily lifecycle behavior; explicitly extended history and source-free continuation in slow-test |
 | Deviation, association and forecast | [analysis/statistics](../../tests/analysis/statistics/) | Daily statistical behavior; explicitly extended composed and recovered execution in slow-test |
-| Artifact reads, deadlines, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native cancellation |
+| Artifact reads, native failures, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native timeout configuration |
 | Session ownership and persistence | [analysis/session](../../tests/analysis/session/) | Daily session behavior; explicitly extended local session checks in slow-test; Runtime native source integration |
 | Public exports, Help budgets, result/error guidance and documentation examples | [surface](../../tests/surface/) | Daily public contracts and short examples; explicitly extended typing, process and execution examples in slow-test |
 | Config, refs, CLI, doctor, preview and telemetry | [project](../../tests/project/) | Fast daily |
@@ -68,8 +68,8 @@ import helpers from test modules.
 | Coordinate statistics, original component weighting and cumulative-window business replay on every service | Local full matrices; native numeric carriers and native reader/grid/timezone tests remain |
 
 Native profiles, types, namespaces, engine-specific distribution placement,
-Decimal behavior, native time semantics, permissions, deadlines, cancellation
-and independent server termination remain Runtime owners. Runtime does not replay
+Decimal behavior, native time semantics, permissions and native query timeouts
+remain Runtime owners. No client deadline or query-control cancellation is required. Runtime does not replay
 the complete daily acceptance matrix. Removing generic service replay does not
 establish qualification for an untested exact backend/method shape.
 
@@ -108,3 +108,27 @@ reproduction path. Unavailable services are skipped or unverified. Daily,
 Runtime, installed-package and real-Agent evidence remain distinct; a focused
 check does not qualify an unrun backend or the full release gate.
 `make release-check` includes both daily selections.
+
+## Native timeout simplification coverage
+
+The removed graph-deadline/transport-interrupt suites and SIGINT listener/control
+channel tests only qualified the retired 600-second budget, Timer, KILL and
+forced-wakeup guarantees. Their oversized blocking queries are retired with
+those guarantees, rather than run without a cancellation mechanism.
+
+Independent stream decode, exact Ibis submission, early-close diagnostics and
+close-failure coverage remain in datasource adapter contracts. The native
+failure matrix in `test_native_graph_failures.py` preserves fetch/interruption,
+precommit failure and committed-success readback; existing graph publication and
+producer recovery tests continue to own staging corruption and cold recovery.
+`test_native_timeouts.py` covers native parameter mapping, unsupported versus
+denied settings, synchronous connection ownership and cleanup of remaining
+resources after a release failure. Fixed selection/reduction and deviation
+retain their independent numerical and no-retry/publication-failure oracles.
+DuckDB and SQLite have no native query-timeout configuration. Their query-timeout
+tests are removed; ordinary query, cleanup and publication coverage remains.
+
+Runtime acquisition and control-boundary tests still exercise PostgreSQL, Trino
+and ClickHouse native settings; MySQL acquisition/certification tests exercise
+its native SELECT limit and prove no successful publication after failure.
+A local pass or a skipped service case is not native backend qualification.

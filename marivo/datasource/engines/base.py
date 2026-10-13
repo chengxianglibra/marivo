@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 BackendDatetimeDecodePolicy: TypeAlias = Literal["local_naive_label", "utc_naive_instant"]
 PartitionValueSource: TypeAlias = Literal["metadata", "system_catalog"]
-AuthoringTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextManager[None]]
+NativeQueryTimeout: TypeAlias = Callable[[BaseBackend, int], AbstractContextManager[None]]
 MetadataResolutionFailure: TypeAlias = Literal["metadata_unavailable"]
 
 
@@ -140,20 +140,19 @@ class EngineProfile:
     datetime_decode_policy: BackendDatetimeDecodePolicy
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
-    authoring_timeout: AuthoringTimeout | None
-    connection_thread: Literal["caller", "worker"] = "worker"
+    native_query_timeout: NativeQueryTimeout | None
+    thread_affine: bool = False
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
-    certification_timeout: AuthoringTimeout | None = None
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
     exact_count_distinct: bool = False
     exact_quantile: bool = False
 
     def __post_init__(self) -> None:
-        timeout_enforced = self.authoring_timeout is not None
+        timeout_enforced = self.native_query_timeout is not None
         if self.authoring_capabilities.timeout_enforced != timeout_enforced:
             raise ValueError(
                 "authoring_capabilities.timeout_enforced must match "
-                "whether authoring_timeout is configured"
+                "whether native_query_timeout is configured"
             )
 
     def open(
@@ -183,7 +182,7 @@ class EngineProfile:
         selected = open_backend(
             datasource,
             read_only=read_only,
-            timeout_seconds=terminal_timeout_seconds or 30,
+            timeout_seconds=30 if terminal_timeout_seconds is not None else None,
             terminal_timeout_seconds=terminal_timeout_seconds,
         )
         return SourceSession(self, datasource, selected.backend)
@@ -356,5 +355,5 @@ GENERIC_PROFILE = EngineProfile(
     datetime_decode_policy="local_naive_label",
     quantile=None,
     percentile_uses_approx_quantile=False,
-    authoring_timeout=None,
+    native_query_timeout=None,
 )

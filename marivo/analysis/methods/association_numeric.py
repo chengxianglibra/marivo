@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Literal
 
 from marivo.analysis.methods.deviation_numeric import RationalFact, RootCertificate
-from marivo.analysis.methods.statistical_numeric import coefficient, unbounded
+from marivo.analysis.methods.statistical_numeric import coefficient
 
 Method = Literal["pearson", "spearman", "kendall"]
 Status = Literal["valid", "insufficient_pairs", "constant_a", "constant_b", "constant_both"]
@@ -47,8 +46,6 @@ def score(
     a: tuple[Fraction, ...],
     b: tuple[Fraction, ...],
     method: Method,
-    *,
-    checkpoint: Callable[[], None] = unbounded,
 ) -> Score:
     if len(a) != len(b) or method not in ("pearson", "spearman", "kendall"):
         raise ValueError("exact complete paired vectors and a registered method required")
@@ -70,10 +67,7 @@ def score(
     c = d = ta = tb = 0
     if method == "kendall":
         for i in range(len(a)):
-            checkpoint()
             for j in range(i):
-                if j % 256 == 0:
-                    checkpoint()
                 dx, dy = a[i] - a[j], b[i] - b[j]
                 if dx == dy == 0:
                     continue
@@ -92,7 +86,7 @@ def score(
         xx, yy = tuple(v - mx for v in x), tuple(v - my for v in y)
         num = sum((u * v for u, v in zip(xx, yy, strict=True)), Fraction())
         rad = sum((u * u for u in xx), Fraction()) * sum((v * v for v in yy), Fraction())
-    value, certificate = coefficient(num, rad, checkpoint=checkpoint)
+    value, certificate = coefficient(num, rad)
     return Score(
         status,
         value,

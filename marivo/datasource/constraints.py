@@ -76,7 +76,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("credential_scope", "CredentialResolver.resolve"),
         "Explicit resolvers replace env/cache reads and never persist their values.",
         "A request groups a reference's fields within one bound project and connection operation.",
-        "Return a non-empty SecretValue promptly; honor deadline_monotonic/cancelled and report typed failures. Hosts own authorization and resolver client lifetime.",
+        "Return a non-empty SecretValue promptly; manage host-service timeouts and report typed failures. Hosts own authorization and resolver client lifetime.",
     ),
     ConstraintId.CREDENTIAL_RUNTIME_BINDING: _constraint(
         ConstraintId.CREDENTIAL_RUNTIME_BINDING,

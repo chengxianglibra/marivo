@@ -22,7 +22,6 @@ from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.deviation_execution import SavedTable, load, save
-from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -157,7 +156,6 @@ def _condition_scope(
     dict[tuple[object, ...], dict[str, int]],
     tuple[str, ...],
 ]:
-    check()
     grid = capture.signature.domain.time_grid
     if grid is None or any(c.partial for c in grid.cells):
         raise invalid("runs requires the original non-partial complete grid")
@@ -197,7 +195,6 @@ def _condition_scope(
             raise invalid("runs dependency type or original domain differs from its capture")
         allowed_reasons = dict(cell_reasons)
         for row in cell_rows(table):
-            check()
             value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
             if tag == "defined":
                 if (
@@ -237,7 +234,6 @@ def _condition_scope(
     classes: list[Literal["true", "false", "unavailable"]] = []
     reasons = []
     for key in keys:
-        check()
         classification, reason = _classify(
             capture.predicate, tuple(r[index[key]] for r, index in zip(rows, indices, strict=True))
         )
@@ -265,7 +261,6 @@ def compute(
     for sequence, cells in sorted(series.items(), key=lambda item: repr(item[0])):
         start = None
         for ordinal in range(len(grid.cells) + 1):
-            check()
             active = (
                 ordinal < len(grid.cells) and classes[cells[grid.cells[ordinal].identity]] == "true"
             )
@@ -575,7 +570,6 @@ def _verify_intervals(
     covered: set[int] = set()
     previous: tuple[str, int] | None = None
     for row in views.to_pylist():
-        check()
         indices = row["input_rows"]
         if (
             not indices

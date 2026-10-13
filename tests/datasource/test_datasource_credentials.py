@@ -75,8 +75,8 @@ def test_public_connect_test_and_no_default_cache(
     for request in resolver.requests:
         assert request.project_root == tmp_path
         assert request.fields == ("http_bearer_token",)
-        assert request.deadline_monotonic is not None
-        assert not request.cancelled
+        assert not hasattr(request, "deadline_monotonic")
+        assert not hasattr(request, "cancelled")
     for path in tmp_path.rglob("*"):
         if path.is_file():
             assert resolver.value.encode() not in path.read_bytes()
@@ -219,54 +219,25 @@ def test_default_runtime_and_external_overrides(
     assert len(resolver.requests) == 1
 
 
-def test_timeout_discards_late_resolution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_host_owns_credential_service_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     register_project(tmp_path, monkeypatch)
-    release, finished = threading.Event(), threading.Event()
-    requests: list[md.CredentialRequest] = []
 
     class Resolver:
         def resolve(self, request: md.CredentialRequest) -> md.SecretValue:
-            requests.append(request)
-            try:
-                assert release.wait(5)
-                assert request.cancelled
-                return md.SecretValue("late-result-canary")
-            finally:
-                finished.set()
+            assert not hasattr(request, "deadline_monotonic")
+            assert not hasattr(request, "cancelled")
+            raise md.DatasourceCredentialError(
+                reason="timeout",
+                reference=request.reference,
+                datasource=request.datasource,
+                fields=request.fields,
+            )
 
-    try:
-        with md.credential_scope(resolver=Resolver()):
-            result = md.test("warehouse", timeout_seconds=1)
-        assert result.failure is not None
-        assert result.failure.code == "credential_timeout"
-        assert len(requests) == 1
-    finally:
-        release.set()
-        assert finished.wait(5)
-
-
-def test_late_connection_is_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    register_project(tmp_path, monkeypatch)
-    release, closed = threading.Event(), threading.Event()
-
-    class Backend:
-        def disconnect(self) -> None:
-            closed.set()
-
-    def build(datasource: object, **kwargs: object) -> backends.BuiltDatasourceBackend:
-        assert release.wait(5)
-        return backends.BuiltDatasourceBackend(Backend(), ())
-
-    monkeypatch.setattr(backends, "build_backend_with_secrets", build)
-    try:
-        with (
-            md.credential_scope(resolver=HostResolver()),
-            pytest.raises(md.errors.DatasourceConnectionTimeoutError),
-        ):
-            manage._connect("warehouse", timeout_seconds=1)
-    finally:
-        release.set()
-        assert closed.wait(5)
+    with md.credential_scope(resolver=Resolver()):
+        result = md.test("warehouse", timeout_seconds=1)
+    assert result.failure is not None and result.failure.code == "credential_timeout"
 
 
 def test_secret_display_copy_serialization_and_help(capsys: pytest.CaptureFixture[str]) -> None:

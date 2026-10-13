@@ -169,9 +169,9 @@ class DatasourceCatalog(RenderableResult):
 
         Args:
             name: The datasource name to test.
-            timeout_seconds: Wall-clock deadline for the backend-connect
-                handshake and the ``SELECT 1`` round-trip. Defaults to
-                ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
+            timeout_seconds: Positive native connection and query timeout request.
+                Unsupported settings are skipped; this is not a total-call
+                deadline. Defaults to ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``.
 
         Returns:
             A ``DatasourceTestResult`` with ok status, latency, and typed repair.

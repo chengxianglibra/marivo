@@ -28,7 +28,6 @@ from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.cell_arrow import binding_scope
 from marivo.analysis.materialization.contracts import (
-    ResourceRecord,
     RunFailure,
     RunFailurePhase,
     canonical_json,
@@ -82,9 +81,7 @@ from marivo.analysis.materialization.graph_source_execution import execute_sourc
 from marivo.analysis.materialization.graph_storage import read_result, write_table
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.resources import (
-    clickhouse_control_reservation,
     discharge_resources,
-    mysql_control_reservation,
     reserve_output,
 )
 from marivo.analysis.materialization.storage import _fsync_directory
@@ -358,8 +355,6 @@ def _execute(
         artifact_ref = f"artifact_{nonce}"
         committing = False
         phase: RunFailurePhase = "stage_execution"
-        control_resource: ResourceRecord | None = None
-        source_owner: SourceSession | None = None
         try:
             event("graph_admitted")
             if source_only:
@@ -381,27 +376,8 @@ def _execute(
                         for schema, bound in zip(source_schemas, bindings, strict=True)
                     ):
                         raise invalid("opened physical schema differs from selected preflight")
-                    from marivo.analysis.materialization.execute_deadline import (
-                        check,
-                        guard,
-                        remaining,
-                    )
-                    from marivo.datasource.domain_snapshot import capture
-
-                    source._checkpoint = check
-                    source._seconds_remaining = remaining
-                    source_owner = source
-                    if source.provider.name == "mysql":
-                        control_resource = mysql_control_reservation(
-                            run_ref, source.datasource.name
-                        )
-                        store.reserve(control_resource)
-                    elif source.provider.name == "clickhouse":
-                        control_resource = clickhouse_control_reservation(
-                            run_ref, source.datasource.name
-                        )
-                        store.reserve(control_resource)
                     from marivo.analysis.core.rules import PreparedObservation
+                    from marivo.datasource.domain_snapshot import capture
 
                     uses_preparation = any(
                         isinstance(node, MethodNode)
@@ -409,17 +385,7 @@ def _execute(
                         and node.inputs[0].node.identity != node.inputs[1].node.identity
                         for node in captured.nodes
                     )
-                    source._prepare_interrupt()
-                    from marivo.datasource.interrupts import owned_sigint
-
-                    with (
-                        owned_sigint(source._request_interrupt)
-                        if source.provider.name in {"mysql", "clickhouse", "sqlite"}
-                        else nullcontext(),
-                        capture(source, checkpoint=check, guard=guard)
-                        if uses_preparation
-                        else guard(source._request_interrupt) as authority,
-                    ):
+                    with capture(source) if uses_preparation else nullcontext() as authority:
                         if uses_preparation:
                             source.domain_authority = authority
                             if source.provider.name == "sqlite":
@@ -479,17 +445,6 @@ def _execute(
                 method_state=result.method_state,
                 validate=False,
             )
-            if control_resource is not None:
-                if source_owner is None or not source_owner._cancel_control_released:
-                    raise RecoveryPendingError(
-                        expected=f"confirmed owned {source_owner.provider.name if source_owner is not None else 'reader'} control connection release",
-                        received="control release is unconfirmed",
-                        repair="Inspect the original Run and control resource obligation before retrying.",
-                        stage="source_cleanup",
-                        run_ref=run_ref,
-                    )
-                store.discharge(control_resource)
-                control_resource = None
             if result.contract.signature != root.signature or result.contract.method != root.method:
                 raise invalid("execution output differs from admitted root")
             if result.contract.pending_checks != plan.checks:
@@ -642,20 +597,11 @@ def _execute(
                 read_result(store.project_root, descriptor)
             event("graph_receipts_verified")
             phase = "publication"
-            from marivo.analysis.materialization.execute_deadline import check
 
-            check()
             committing = True
             with _execution_log.stage("analysis.publication"):
                 return graph_store.publish(store, artifact_ref, descriptor, resources, event)
         except BaseException as failure:
-            if (
-                control_resource is not None
-                and source_owner is not None
-                and source_owner._cancel_control_released
-            ):
-                store.discharge(control_resource)
-                control_resource = None
             if committing:
                 try:
                     original = store._graph_run(run_ref)
@@ -731,12 +677,10 @@ def execute(
 ) -> graph_store.GraphArtifact:
     entered = time.monotonic()
     invocation = _InvocationRun()
-    from marivo.analysis.materialization.execute_deadline import execution_budget
 
     inherited = _execution_log.snapshot(runtime.store.project_root).fields.get("operation_id")
     operation_id = inherited if isinstance(inherited, str) else f"op_{uuid4().hex}"
     with (
-        execution_budget(start=entered),
         binding_scope(),
         _execution_log.scope(
             runtime.store.project_root,

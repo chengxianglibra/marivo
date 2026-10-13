@@ -29,7 +29,6 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.core.time_grid import BoundTimeGrid, bind_grid
 from marivo.analysis.materialization import graph_preparation as preparation
-from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -377,12 +376,7 @@ def test_preparation_empty_selection_does_not_eagerly_parse_or_require_grid(
     assert output.column_names == list(case.stage.output_layout.columns)
 
 
-def test_preparation_preserves_first_selected_row_deadline() -> None:
+def test_preparation_has_no_execution_clock() -> None:
     case = _case()
-    token = CURRENT.set(ExecuteDeadline(0, lambda: 601.0))
-    try:
-        with pytest.raises(DomainPreparationError) as caught:
-            preparation._observation(case.stage, case.candidates, case.selected, case.original)
-        assert caught.value.constraint_id == "r7.execute_timeout"
-    finally:
-        CURRENT.reset(token)
+    result = preparation._observation(case.stage, case.candidates, case.selected, case.original)
+    assert result is not None

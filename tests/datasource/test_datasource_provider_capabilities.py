@@ -75,14 +75,6 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
             "duckdb.connection.read_only",
         ): "3eb12e5bafe877f825399d2905523e26201831b46d6ebc54e734cdb0961a8fd5",
         (
-            "clickhouse",
-            "clickhouse.analysis.cancel_owned_query",
-        ): "8407fff8e636b6bf444a67ebf40ba37a02277f63c7d8f53239d65815cd7e9d9b",
-        (
-            "mysql",
-            "mysql.analysis.cancel_owned_query",
-        ): "02548904a68f6735059c88cdd252b225475ee367d812cbaa460d05653bc4f7bc",
-        (
             "mysql",
             "mysql.authoring.install_select_deadline",
         ): "52da100c9a351a428ffae1adb7616ae4fca2ca3bd6de25dc7a2c1118f788f090",
@@ -319,7 +311,7 @@ def test_every_production_statement_has_exact_authorized_purposes() -> None:
             elif statement.statement_id == "clickhouse.analysis.cancel_owned_query":
                 expected = {"analysis.cancel_owned_query"}
             elif statement.statement_id.startswith("mysql.authoring."):
-                expected = {"semantic.certified_preview.deadline"}
+                expected = {"datasource.native_query_timeout"}
             elif statement.statement_id.startswith("duckdb.http_secret_"):
                 expected = {"datasource.http_credentials"}
             elif statement.statement_id == "duckdb.connection.read_only":
@@ -413,7 +405,7 @@ def _probe_profile() -> EngineProfile:
         datetime_decode_policy="local_naive_label",
         quantile=None,
         percentile_uses_approx_quantile=False,
-        authoring_timeout=None,
+        native_query_timeout=None,
     )
 
 
@@ -527,7 +519,7 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
     from marivo.datasource.engines import mysql
 
     backend = _RecordingBackend()
-    monkeypatch.setattr(backend, "_marivo_certified_authoring", True, raising=False)
+    monkeypatch.setattr(backend, "_marivo_terminal_timeout_seconds", 30, raising=False)
     calls: list[str] = []
 
     def execute(
@@ -539,7 +531,7 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
         purpose: str,
     ) -> tuple[dict[str, object], ...]:
         calls.append(statement_id)
-        assert purpose == "semantic.certified_preview.deadline"
+        assert purpose == "datasource.native_query_timeout"
         if statement_id.endswith("install_select_deadline"):
             assert values == {"timeout_ms": 30000}
             if fault == "denied":
@@ -554,81 +546,17 @@ def test_mysql_certification_guard_requires_confirmed_server_limit(
     monkeypatch.setattr(mysql, "execute_provider_statement", execute)
     entered = False
     if fault == "correct":
-        with mysql.certification_timeout(backend, 30):
+        with mysql.native_query_timeout(backend, 30):
             entered = True
-        assert backend._marivo_certified_authoring is False
+        assert backend._marivo_configured_query_timeout_seconds == 30
     else:
         with (
             pytest.raises(DatasourceSourceCapabilityError),
-            mysql.certification_timeout(backend, 30),
+            mysql.native_query_timeout(backend, 30),
         ):
             entered = True
     assert entered is (fault == "correct")
     assert len(calls) == (1 if fault == "denied" else 2)
-
-
-@pytest.mark.parametrize("value", [True, 0, -1, 18446744073709551616, "123", "123; SELECT 1"])
-def test_mysql_cancel_rejects_untrusted_connection_identity(value: object) -> None:
-    statement = provider_statement("mysql", "mysql.analysis.cancel_owned_query")
-    with pytest.raises(ValueError, match="requires thread_id"):
-        render_provider_statement(statement, ENGINE_PROFILES["mysql"], values={"thread_id": value})
-
-
-def test_mysql_cancel_has_a_closed_purpose_and_numeric_target() -> None:
-    statement = provider_statement("mysql", "mysql.analysis.cancel_owned_query")
-    assert (
-        render_provider_statement(statement, ENGINE_PROFILES["mysql"], values={"thread_id": 123})
-        == "KILL QUERY 123"
-    )
-    backend = _RecordingBackend()
-    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
-        execute_provider_statement(
-            backend,
-            ENGINE_PROFILES["mysql"],
-            statement.statement_id,
-            values={"thread_id": 123},
-            purpose="semantic.certified_preview.deadline",
-        )
-    assert backend.queries == []
-    assert provider_statement_log(backend) == ()
-
-
-def test_clickhouse_cancel_keeps_bound_identity_and_closed_purpose() -> None:
-    profile = ENGINE_PROFILES["clickhouse"]
-    statement = provider_statement("clickhouse", "clickhouse.analysis.cancel_owned_query")
-    assert statement.parameterized
-    assert render_provider_statement(statement, profile) == (
-        "KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC"
-    )
-    backend = _RecordingBackend()
-    with pytest.raises(DatasourceSourceCapabilityError, match="purpose"):
-        execute_provider_statement(
-            backend,
-            profile,
-            statement.statement_id,
-            parameters={"id": "owned-native-id", "user": "reader"},
-            purpose="datasource.metadata.clickhouse",
-        )
-    assert backend.queries == []
-    assert provider_statement_log(backend) == ()
-
-
-@pytest.mark.parametrize(
-    "parameters", [{}, {"id": "x"}, {"id": "", "user": "reader"}, {"id": "x", "user": ""}]
-)
-def test_clickhouse_cancel_requires_both_nonempty_owned_identity_parameters(
-    parameters: dict[str, str],
-) -> None:
-    backend = _RecordingBackend()
-    with pytest.raises(ValueError, match="bound nonempty id and user"):
-        execute_provider_statement(
-            backend,
-            ENGINE_PROFILES["clickhouse"],
-            "clickhouse.analysis.cancel_owned_query",
-            parameters=parameters,
-            purpose="analysis.cancel_owned_query",
-        )
-    assert backend.queries == []
 
 
 def test_parameterized_credential_failure_logs_template_without_bound_values(
@@ -664,3 +592,9 @@ def test_parameterized_credential_failure_logs_template_without_bound_values(
     assert completed["state"] == "failed" and completed["error_type"] == "RuntimeError"
     assert "error_message" not in completed
     assert secret not in str([submitted, completed])
+
+
+@pytest.mark.parametrize("backend", ("mysql", "clickhouse"))
+def test_query_kill_is_not_a_registered_capability(backend: str) -> None:
+    with pytest.raises(DatasourceSourceCapabilityError, match="no registered statement"):
+        provider_statement(backend, backend + ".analysis.cancel_owned_query")

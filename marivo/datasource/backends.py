@@ -127,6 +127,7 @@ def build_backend_with_secrets(
     *,
     read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
+    connection_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
     """Open an ibis backend and return any env-sourced secret provenance."""
     profile = require_profile_for_backend_type(datasource.backend_type)
@@ -136,6 +137,7 @@ def build_backend_with_secrets(
         effective,
         read_only=read_only,
         terminal_timeout_seconds=terminal_timeout_seconds,
+        connection_timeout_seconds=connection_timeout_seconds,
     )
 
 
@@ -145,11 +147,22 @@ def _build_backend_from_effective(
     *,
     read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
+    connection_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
     """Open from already resolved operation-local credentials without resolving twice."""
     profile = require_profile_for_backend_type(datasource.backend_type)
     _reject_unqualified_http_auth(datasource, profile)
     kwargs = dict(effective.kwargs)
+    if connection_timeout_seconds is not None:
+        if datasource.backend_type in {"postgres", "mysql", "clickhouse"}:
+            kwargs["connect_timeout"] = connection_timeout_seconds
+        if datasource.backend_type == "mysql":
+            kwargs["read_timeout"] = connection_timeout_seconds
+            kwargs["write_timeout"] = connection_timeout_seconds
+        elif datasource.backend_type == "clickhouse":
+            kwargs["send_receive_timeout"] = connection_timeout_seconds
+        elif datasource.backend_type == "trino":
+            kwargs["request_timeout"] = connection_timeout_seconds
     http_scope: object = None
     http_bearer_token: object = None
     http_headers: dict[str, object] = {}
@@ -163,8 +176,9 @@ def _build_backend_from_effective(
         if datasource.backend_type == "postgres":
             kwargs["autocommit"] = False
             kwargs["options"] = (
-                f"-c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
-            )
+                str(kwargs.get("options", ""))
+                + f" -c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
+            ).strip()
         elif datasource.backend_type == "trino":
             properties = kwargs.get("session_properties")
             kwargs["session_properties"] = {
@@ -209,7 +223,7 @@ def _build_backend_from_effective(
         backend=backend,
         env_sourced_secrets=effective.env_sourced_secrets,
         injected=effective.injected,
-        thread_affine=profile.connection_thread == "caller",
+        thread_affine=profile.thread_affine,
     )
     try:
         if datasource.backend_type == "duckdb":
@@ -224,21 +238,13 @@ def _build_backend_from_effective(
                 if credentials is not None:
                     backend._marivo_duckdb_http_auth = credentials
         if terminal_timeout_seconds is not None:
-            if datasource.backend_type == "mysql":
-                control_kwargs = {
-                    **kwargs,
-                    "connect_timeout": 1,
-                    "read_timeout": 1,
-                    "write_timeout": 1,
-                }
-                control = profile.connect(datasource.name, control_kwargs)
-                backend._marivo_authoring_cancel_control = control
-                backend._marivo_authoring_thread_id = backend.con.thread_id()
-                backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
             if datasource.backend_type == "postgres":
                 backend.con.read_only = True
-            if datasource.backend_type in {"postgres", "trino"}:
+            if datasource.backend_type in {"postgres", "trino", "mysql"}:
                 backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
+            if datasource.backend_type == "mysql" and profile.native_query_timeout is not None:
+                with profile.native_query_timeout(backend, terminal_timeout_seconds):
+                    pass
     except BaseException as exc:
         built.disconnect()
         if effective.injected and isinstance(exc, Exception):
@@ -247,10 +253,6 @@ def _build_backend_from_effective(
     try:
         cr.remember_injected(backend, effective.injected)
         secrets.remember_env_sourced(backend, effective.env_sourced_secrets)
-        with cr.operation_context() as operation:
-            if operation.cancelled:
-                built.disconnect()
-                raise TimeoutError("Datasource connection operation was cancelled.")
     except BaseException:
         built.disconnect()
         raise

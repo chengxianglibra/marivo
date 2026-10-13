@@ -2295,7 +2295,7 @@ class LogicalAnalysisDomain(_CohortDomain):
     Executing unfiltered membership reads and saves the complete member key set;
     it may scan the entire Entity source, with no default row truncation.
     Primary-key uniqueness, unversioned identity and show(n=...) do not bound
-    member count. Execution shares a 600-second budget across the graph.
+    member count. Execution has no default graph deadline.
     """
 
     def _bind_time_grid(self, grid: TimeGrid) -> tuple[Relation, BoundTimeGrid]:
@@ -2334,8 +2334,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         Constraints: An unfiltered session.members(entity).execute() reads and saves the
         complete member key set; it may scan the entire Entity source, with no
         default row truncation. Primary-key uniqueness, unversioned identity and
-        show(n=...) do not bound member count. Execution shares a 600-second
-        budget across the graph. A source branch reevaluates; a fixed branch
+        show(n=...) do not bound member count. Execution has no default graph deadline. A source branch reevaluates; a fixed branch
         uses exact retained Artifacts.
         """
         return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())

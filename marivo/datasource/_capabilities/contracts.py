@@ -15,7 +15,11 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
             action="Register the datasource before inspecting this source.",
             preserves_evidence=False,
         )
-    if code in {"source_mismatch", "transformed_partition_unsupported", "timeout_not_enforceable"}:
+    if code in {
+        "source_mismatch",
+        "transformed_partition_unsupported",
+        "native_timeout_configuration_failed",
+    }:
         return repair(
             kind="configure",
             canonical_id="inspect",

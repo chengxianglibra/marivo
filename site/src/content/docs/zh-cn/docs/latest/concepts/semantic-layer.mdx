@@ -47,3 +47,6 @@ def regional_orders(raw):
 Source 的能力约束仍然适用。Analysis 从 `session.members(entity)` 进入；Entity 表达式不能
 提交 SQL 或连接其他数据源。Entity Details 提供有界的规范化表达式；其他计算对象的 Details
 提供 `details.definition`，可用 `show()` 或 `to_dict()` 读取加载时的定义，无需执行。
+
+预览和认证请求后端原生查询超时，不支持则继续执行。读取或清理失败不会发布新的认证快照，
+认证仍要求完整范围和全部校验通过；连接关闭不代表远端查询已确认终止。

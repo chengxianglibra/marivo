@@ -10,6 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods import deviation_numeric as numeric
 from marivo.analysis.methods.physical import DecimalType, ScalarType
 from tests.analysis.statistics.deviation_oracle import decimal_finish, expected
@@ -255,12 +256,7 @@ def test_finite_input_unrepresentable_final_field_rejects() -> None:
         numeric.score(Fraction(sys.float_info.max) - fitted.center.value(), fitted)
 
 
-@pytest.mark.parametrize("expire", (False, True))
-def test_root_certificate_refines_a_rounding_boundary_under_shared_deadline(expire: bool) -> None:
-    from marivo.analysis.core.domain_captures import DomainPreparationError
-    from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline, check
-
-    # This primitive witness fixture is not a source or Runtime qualification.
+def test_root_certificate_refines_a_rounding_boundary_without_execution_deadline() -> None:
     variance = Fraction(1) + Fraction(1, 2**2000)
     delta = Fraction(2**53 + 1, 2**53)
     fitted = numeric.Fit(
@@ -272,34 +268,17 @@ def test_root_certificate_refines_a_rounding_boundary_under_shared_deadline(expi
         None,
         None,
     )
-    now, steps = [0.0], [0]
-
-    def checkpoint() -> None:
-        steps[0] += 1
-        if expire and steps[0] == 3:
-            now[0] = 600.001
-        check()
-
-    token = CURRENT.set(ExecuteDeadline(0.0, lambda: now[0]))
-    try:
-        if expire:
-            with pytest.raises(DomainPreparationError, match="execute_timeout"):
-                numeric.certified_score(delta, fitted, checkpoint=checkpoint)
-            assert steps[0] == 3
-        else:
-            with localcontext() as context:
-                context.prec = 800
-                independent = float(
-                    (Decimal(delta.numerator) / Decimal(delta.denominator))
-                    / (Decimal(variance.numerator) / Decimal(variance.denominator)).sqrt()
-                )
-            scored = numeric.certified_score(delta, fitted, checkpoint=checkpoint)
-            assert scored.value == independent == 1.0
-            assert scored.root is not None and scored.root.precision >= 640
-            assert (scored.root.precision - 120) % 40 == 0
-            assert numeric.verify_score(delta, fitted, scored.value, scored.root)
-    finally:
-        CURRENT.reset(token)
+    with localcontext() as context:
+        context.prec = 800
+        independent = float(
+            (Decimal(delta.numerator) / Decimal(delta.denominator))
+            / (Decimal(variance.numerator) / Decimal(variance.denominator)).sqrt()
+        )
+    scored = numeric.certified_score(delta, fitted)
+    assert scored.value == independent == 1.0
+    assert scored.root is not None and scored.root.precision >= 640
+    assert (scored.root.precision - 120) % 40 == 0
+    assert numeric.verify_score(delta, fitted, scored.value, scored.root)
 
 
 def test_null_partitions_selection_boundary_and_shared_fit(
@@ -507,14 +486,12 @@ def test_construction_mode_identity_and_zero_business_reads(
 @pytest.mark.parametrize(
     "phase", ("fit_complete", "graph_admitted", "graph_receipts_verified", "before_commit")
 )
-def test_deviation_deadline_failure_is_atomic(
+def test_deviation_phase_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     method: numeric.DeviationMethod,
     phase: str,
 ) -> None:
-    from marivo.analysis.core.domain_captures import DomainPreparationError
-    from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 
     case = analysis_dsl_case_factory("j2")
     logical = (
@@ -529,29 +506,25 @@ def test_deviation_deadline_failure_is_atomic(
     def event(point: str) -> None:
         original_event(point)
         if point == phase:
-            now[0] = 600.001
+            raise RuntimeError("injected deviation phase failure")
 
     def fitting(xs: tuple[Fraction, ...], algorithm: numeric.DeviationMethod) -> numeric.Fit:
         result = original_fit(xs, algorithm)
         if phase == "fit_complete":
-            now[0] = 600.001
+            raise RuntimeError("injected deviation phase failure")
         return result
 
     monkeypatch.setattr(runtime, "_event", event)
     monkeypatch.setattr(numeric, "fit", fitting)
-    token = CURRENT.set(ExecuteDeadline(0.0, lambda: now[0]))
-    try:
-        with pytest.raises(DomainPreparationError, match="execute_timeout"):
-            logical.execute()
-        assert runtime.last_run_ref is not None
-        failed_run = runtime.store._graph_run(runtime.last_run_ref)
-        assert failed_run is not None and failed_run.lifecycle == "failed"
-        with runtime.store._connection() as connection:
-            for table in ("dataset_artifacts", "dataset_evidence", "findings"):
-                assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
-        assert runtime.store.resources(runtime.session_ref) == ()
-    finally:
-        CURRENT.reset(token)
+    with pytest.raises(MaterializationError):
+        logical.execute()
+    assert runtime.last_run_ref is not None
+    failed_run = runtime.store._graph_run(runtime.last_run_ref)
+    assert failed_run is not None and failed_run.lifecycle == "failed"
+    with runtime.store._connection() as connection:
+        for table in ("dataset_artifacts", "dataset_evidence", "findings"):
+            assert connection.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+    assert runtime.store.resources(runtime.session_ref) == ()
 
 
 @pytest.mark.parametrize(

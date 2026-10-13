@@ -6,7 +6,7 @@ channel renders them with strictly quoted literals or provider-quoted identifier
 submits the rendered text through the backend's native raw SQL transport. Statement
 text is pinned by a catalog snapshot test, and every submission is recorded on the
 backend for auditing. Credential values never appear in rendered text. Bound
-parameters also carry the exact ClickHouse owned-query cancellation identity.
+parameters carry the exact native provider statement inputs.
 """
 
 from __future__ import annotations
@@ -235,12 +235,6 @@ def execute_provider_statement(
         )
     if statement.parameterized != (parameters is not None):
         raise ValueError("statement parameters must match the registered parameterized mode")
-    if statement_id == "clickhouse.analysis.cancel_owned_query" and (
-        not isinstance(parameters, Mapping)
-        or set(parameters) != {"id", "user"}
-        or any(type(value) is not str or not value for value in parameters.values())
-    ):
-        raise ValueError("ClickHouse cancellation requires bound nonempty id and user strings")
     sql = render_provider_statement(statement, profile, values=values, identifiers=identifiers)
     submission = ProviderStatementSubmission(
         provider=profile.name,

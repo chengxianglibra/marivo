@@ -43,7 +43,6 @@ from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -145,7 +144,6 @@ def save(table: pa.Table) -> SavedTable:
 
 
 def load(value: SavedTable) -> pa.Table:
-    check()
     raw = base64.b64decode(value.data, validate=True)
     with pa.ipc.open_stream(raw) as reader:
         table = reader.read_all()
@@ -163,7 +161,6 @@ def retain_table_fits(
 ) -> ExchangePart:
     columns = []
     for column in declaration.columns:
-        check()
         source = inputs[column.index]
         if source.contract.signature != column.signature:
             raise invalid("fitted table column differs from its declared input signature")
@@ -219,7 +216,6 @@ def validate_table_fits(
             )
         current = _index(primary, contract.key_fields)
         for column, saved in zip(declaration.columns, captured.columns, strict=True):
-            check()
             source = load(saved.primary)
             retained_parts = tuple(ExchangePart(p.role, load(p.table)) for p in saved.parts)
             original_contract = ExchangeContract(
@@ -337,7 +333,6 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
         by_id = {cell.identity: (i, cell) for i, cell in enumerate(grid.cells)}
         cells = []
         for row in cell_rows(primary):
-            check()
             identity = row[inputs.keys[position]]
             if identity not in by_id:
                 raise invalid("deviation row has no captured grid cell")
@@ -422,7 +417,6 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
 
 
 def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
-    check()
     params = node.parameters
     if isinstance(params, DeviationRead):
         return project(values[0], params.field, node=node, binding=binding)
@@ -451,7 +445,6 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
     groups: dict[tuple[object, ...], list[int]] = {}
     category_values = [table["value"].to_pylist() for table in categories]
     for index in range(len(rows)):
-        check()
         groups.setdefault(tuple(column[index] for column in category_values), []).append(index)
     if not rows and not categories:
         groups[()] = []
@@ -463,7 +456,6 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         for c in ("value", "cell_tag", "cell_reason")
     }
     for indices in groups.values():
-        check()
         facts = {
             i: arithmetic.exact(number(rows[i]["value"]), typ)
             for i in indices
@@ -485,7 +477,6 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
             )
         )
         for i in indices:
-            check()
             row = rows[i]
             for field in ("observed", "deviation", "score"):
                 fields[field + "__cell_tag"][i], fields[field + "__cell_reason"][i] = (
@@ -508,7 +499,10 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
                         "insufficient_samples" if fitted.n < 2 else "zero_scale"
                     )
                 else:
-                    scored = arithmetic.certified_score(delta, fitted, checkpoint=check)
+                    scored = arithmetic.certified_score(
+                        delta,
+                        fitted,
+                    )
                     fields["score__value"][i] = scored.value
                     scores.append(ScoreWitness(i, scored.root))
     schema = pa.schema(
@@ -661,7 +655,6 @@ def _validate(
     contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
 ) -> None:
     """Verify retained witnesses without fitting or replacing any output."""
-    check()
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
         raise invalid("deviation required parts are missing, extra or reordered")
     inputs, state = _decode(parts)
@@ -772,7 +765,6 @@ def _validate(
     scored_indices: set[int] = set()
     seen: set[int] = set()
     for partition in state.partitions:
-        check()
         if any(i in seen or not 0 <= i < len(rows) for i in partition.indices):
             raise invalid("deviation partition has duplicate or escaping rows")
         seen.update(partition.indices)
@@ -877,7 +869,6 @@ def _validate(
         ):
             raise invalid("deviation center or scale equation differs")
         for i in partition.indices:
-            check()
             row, view = rows[i], view_rows[i]
             for component in ("value", "cell_tag", "cell_reason"):
                 if view["observed__" + component] != row[component]:

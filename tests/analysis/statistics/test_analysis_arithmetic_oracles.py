@@ -287,19 +287,6 @@ def test_forecast_extreme_innovations_cannot_become_exact_zero(values: tuple[flo
         assert lower < point < upper
 
 
-def test_association_checkpoint_prevents_return() -> None:
-    def stop() -> None:
-        raise TimeoutError("independent cancellation")
-
-    with pytest.raises(TimeoutError):
-        association.score(
-            tuple(map(Fraction, range(40))),
-            tuple(map(Fraction, range(40))),
-            "kendall",
-            checkpoint=stop,
-        )
-
-
 def pair_capture(method: association.Method, lags: tuple[int, ...]) -> PairCapture:
     """Bind the old sparse calendar facts to a complete, explicitly Null grid."""
     original = capture((1,) * 7, start="2026-02-01", end="2026-02-08")

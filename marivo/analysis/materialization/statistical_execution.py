@@ -33,7 +33,6 @@ from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.deviation_execution import SavedPart, SavedTable, load, save
-from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
@@ -204,7 +203,6 @@ def index(table: pa.Table, keys: tuple[str, ...]) -> dict[tuple[object, ...], in
 def _input(
     value: Input, *, method: str, forecast_input: bool = False
 ) -> tuple[pa.Table, tuple[Fraction | None, ...]]:
-    check()
     table = load(value.primary)
     typ = parse_type(value.value_type)
     if table.schema.field("value").type != arrow_scalar_type(typ):
@@ -414,7 +412,6 @@ def association_state(saved: PairCapture) -> AssociationState:
         for series, positions in sequences:
             current = []
             for lag in declaration.lags:
-                check()
                 left = tuple(i for i in range(len(positions)) if 0 <= i + lag < len(positions))
                 aligned = tuple((positions[i], positions[i + lag]) for i in left)
                 complete = tuple(
@@ -428,7 +425,6 @@ def association_state(saved: PairCapture) -> AssociationState:
                     tuple(v for v in x if v is not None),
                     tuple(v for v in y if v is not None),
                     declaration.method,
-                    checkpoint=check,
                 )
                 series_id = digest(repr(series))
                 key = digest(repr((declaration.association_id, a, b, series_id, lag)))
@@ -543,12 +539,11 @@ def forecast_state(saved: TrainingCapture) -> ForecastState:
     output = unit_type(parse_type(declaration.input_type))
     extra = 0
     while True:
-        q = numeric.quantile(declaration.level, checkpoint=check, extra_precision=extra)
+        q = numeric.quantile(declaration.level, extra_precision=extra)
         records: list[dict[str, object]] = []
         series_records: list[Series] = []
         try:
             for series, indices in sequences:
-                check()
                 vector = tuple(numbers[i] for i in indices)
                 values = tuple(v for v in vector if v is not None)
                 training = forecast.train(values, declaration.model, declaration.season)
@@ -559,7 +554,6 @@ def forecast_state(saved: TrainingCapture) -> ForecastState:
                     if c.role == "anchor"
                 )
                 for h, cell in enumerate(saved.future.grid.cells, 1):
-                    check()
                     point, variance = forecast.point(values, training, h)
                     lower, upper, root = numeric.interval(point, variance, q, output)
                     key = (*series[:anchor], cell.identity, *series[anchor:])
@@ -586,7 +580,6 @@ def forecast_state(saved: TrainingCapture) -> ForecastState:
             if isinstance(error, OverflowError):
                 raise
             extra += 40
-            check()
     schema = pa.schema(
         [
             *(table.schema.field(k) for k in saved.input.keys),
@@ -831,7 +824,6 @@ def _validate(
     contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
 ) -> None:
     """Validate original equations and current views without rerunning any estimator."""
-    check()
     field: str
     table_fields: tuple[str, ...]
     association_declaration = next(
@@ -856,7 +848,6 @@ def _validate(
             raise invalid("association full candidate domain differs")
         groups: dict[tuple[int, int, str], list[Candidate]] = {}
         for c in state_a.candidates:
-            check()
             sequence = next(positions for s, positions in sequences if digest(repr(s)) == c.series)
             aligned = tuple(
                 (sequence[i], sequence[i + c.lag])
@@ -907,8 +898,6 @@ def _validate(
                     counts = [0, 0, 0, 0]
                     for i in range(len(xx)):
                         for j in range(i):
-                            if j % 256 == 0:
-                                check()
                             u, v = xx[i] - xx[j], yy[i] - yy[j]
                             if u == v == 0:
                                 continue
@@ -1062,7 +1051,6 @@ def _validate(
             ):
                 raise invalid("forecast per-series innovation/df/variance facts differ")
             for h, point in enumerate(series_record.points, 1):
-                check()
                 prediction = (
                     vv[-distance + (h - 1) % distance]
                     if t.model == "seasonal_naive"
@@ -1191,18 +1179,14 @@ def _verify_ranks(original: tuple[Fraction, ...], retained: tuple[RationalFact, 
     """Check frozen average ranks against ordered tie blocks without fitting new ranks."""
     if len(retained) != len(original):
         raise invalid("missing global rank witnesses")
-    check()
     ordered = sorted(zip(original, retained, strict=True), key=lambda pair: pair[0])
-    check()
     start = 0
     while start < len(ordered):
         end = start + 1
         while end < len(ordered) and ordered[end][0] == ordered[start][0]:
-            check()
             end += 1
         expected = Fraction(start + end + 1, 2)
         for _, witness in ordered[start:end]:
-            check()
             if witness.value() != expected:
                 raise invalid("global average rank witness differs")
         start = end

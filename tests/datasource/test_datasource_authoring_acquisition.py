@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Iterator
-from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 from typing import cast, get_type_hints
@@ -14,7 +12,6 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
@@ -312,33 +309,6 @@ def test_projected_sample_unknown_physical_identifier_fails_during_source_resolu
     assert query_spy.user_data_queries == 0
 
 
-def test_unsupported_timeout_blocks_before_execution(
-    query_spy: _QuerySpy,
-    inspection: SourceInspection,
-) -> None:
-    unsupported = replace(
-        inspection,
-        execution_capabilities=replace(
-            inspection.execution_capabilities,
-            timeout_enforced=False,
-        ),
-    )
-
-    with pytest.raises(DatasourceAuthoringError) as exc_info:
-        unsupported.sample(
-            scope=md.unpruned(max_rows=10, timeout_seconds=1),
-            columns=("order_id",),
-        )
-
-    assert exc_info.value.effect_observed is not None
-    assert exc_info.value.effect_observed.query_executed is False
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.kind == "configure"
-    assert exc_info.value.repair.help_target.canonical_id == "inspect"
-    assert exc_info.value.repair.preserves_evidence is False
-    assert query_spy.user_data_queries == 0
-
-
 def test_unknown_column_blocks_before_backend_connection(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
@@ -594,39 +564,6 @@ def test_time_range_rejects_non_temporal_or_unexposed_column_before_connection(
         assert exc_info.value.code == "unknown_source_column"
         assert exc_info.value.effect_observed is not None
         assert exc_info.value.effect_observed.query_executed is False
-
-
-def test_timeout_setup_failure_reports_no_query_executed(
-    query_spy: _QuerySpy,
-    inspection: SourceInspection,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    @contextmanager
-    def failing_timeout(_backend: object, _seconds: int) -> Iterator[None]:
-        raise RuntimeError("interrupt unavailable")
-        yield
-
-    monkeypatch.setattr(
-        "marivo.datasource.snapshot.require_profile_for_backend_type",
-        lambda _backend_type: replace(
-            DUCKDB_PROFILE,
-            authoring_timeout=failing_timeout,
-        ),
-    )
-
-    with pytest.raises(DatasourceAuthoringError) as exc_info:
-        inspection.sample(
-            scope=md.unpruned(max_rows=10, timeout_seconds=1),
-            columns=("order_id",),
-        )
-
-    assert exc_info.value.effect_observed is not None
-    assert exc_info.value.effect_observed.query_executed is False
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.kind == "configure"
-    assert exc_info.value.repair.help_target.canonical_id == "inspect"
-    assert exc_info.value.repair.preserves_evidence is False
-    assert query_spy.user_data_queries == 0
 
 
 def test_backend_open_failure_is_structured_and_redacted(

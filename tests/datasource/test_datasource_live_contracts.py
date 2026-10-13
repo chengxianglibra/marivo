@@ -73,7 +73,7 @@ def test_connection_test_result_rejects_inconsistent_success_failure_state(
         ("incomplete_partition_fields", "rescope", "SourceInspection.partitions", True),
         ("partition_predicate_unsupported", "rescope", "SourceInspection.partitions", True),
         ("transformed_partition_unsupported", "configure", "inspect", False),
-        ("timeout_not_enforceable", "configure", "inspect", False),
+        ("native_timeout_configuration_failed", "configure", "inspect", False),
         ("acquisition_connection_failed", "reconnect", "test", True),
         ("acquisition_source_failed", "inspect", "inspect", True),
         ("acquisition_execution_failed", "reacquire", "SourceInspection.sample", False),

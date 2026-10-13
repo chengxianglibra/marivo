@@ -204,7 +204,7 @@ def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:
     assert clickhouse["settings"]["readonly"] == 1
     assert clickhouse["settings"]["max_threads"] == 8
     assert "access_mode" not in clickhouse["settings"]
-    timeout = clickhouse_profile.authoring_timeout
+    timeout = clickhouse_profile.native_query_timeout
     assert timeout is not None
     backend = cast(
         "BaseBackend",
@@ -297,7 +297,7 @@ def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     trino_profile = original("trino")
     noop_profile = dataclasses.replace(
         trino_profile,
-        authoring_timeout=lambda backend, ts: nullcontext(),
+        native_query_timeout=lambda backend, ts: nullcontext(),
     )
 
     def _patched(backend_type: str):
@@ -623,77 +623,6 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
     assert backend.calls
 
 
-def test_mysql_raw_sql_timeout_is_not_admitted_without_driver_control() -> None:
-    from marivo.datasource.engines.mysql import PROFILE
-
-    hook = PROFILE.authoring_timeout
-    assert hook is not None
-    assert PROFILE.authoring_capabilities.timeout_enforced is True
-    backend = cast("BaseBackend", SimpleNamespace(_marivo_terminal_timeout_seconds=2))
-    with pytest.raises(RuntimeError, match="isolated owned reader"), hook(backend, 2):
-        pytest.fail("Missing MySQL driver control admitted raw SQL")
-
-
-def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        md.raw_sql(
-            ms.ref.datasource("warehouse"),
-            "SELECT 1",
-            reason="check",
-            timeout_seconds=0,
-            project_root=tmp_path,
-        )
-
-
-def test_raw_sql_result_carries_timeout_seconds(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT 1 AS ok",
-        reason="check timeout",
-        timeout_seconds=15,
-        project_root=tmp_path,
-    )
-    assert result.timeout_seconds == 15
-
-
-def test_raw_sql_fails_closed_when_timeout_unavailable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import dataclasses
-
-    from marivo.datasource import manage as manage_mod
-    from marivo.datasource.engines import require_profile_for_backend_type
-
-    _register_raw_sql_fixture(tmp_path)
-
-    real_profile = require_profile_for_backend_type("duckdb")
-    no_timeout_caps = dataclasses.replace(
-        real_profile.authoring_capabilities, timeout_enforced=False
-    )
-    no_timeout_profile = dataclasses.replace(
-        real_profile,
-        authoring_timeout=None,
-        authoring_capabilities=no_timeout_caps,
-    )
-    monkeypatch.setattr(
-        manage_mod, "require_profile_for_backend_type", lambda bt: no_timeout_profile
-    )
-
-    with pytest.raises(DatasourceRawSqlError) as exc_info:
-        md.raw_sql(
-            ms.ref.datasource("warehouse"),
-            "SELECT 1",
-            reason="check fail-closed",
-            project_root=tmp_path,
-        )
-    err = exc_info.value
-    assert err.effect_observed is not None
-    assert err.effect_observed.query_executed is False
-    assert "no enforceable timeout" in err.message
-
-
 def test_raw_sql_retains_all_query_rows_and_sql_controls_size(tmp_path: Path) -> None:
     _register_raw_sql_ranking_fixture(tmp_path)
     complete = md.raw_sql(
@@ -870,41 +799,6 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     assert "raw_sql execution or result fetching failed" in rendered
     assert "Repair:" in rendered
     assert err.repair is not None
-
-
-def test_raw_sql_error_timeout_setup_reports_no_execution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import dataclasses
-
-    from marivo.datasource import manage as manage_mod
-    from marivo.datasource.engines import require_profile_for_backend_type
-
-    _register_raw_sql_fixture(tmp_path)
-    real_profile = require_profile_for_backend_type("duckdb")
-    no_timeout_caps = dataclasses.replace(
-        real_profile.authoring_capabilities, timeout_enforced=False
-    )
-    no_timeout_profile = dataclasses.replace(
-        real_profile,
-        authoring_timeout=None,
-        authoring_capabilities=no_timeout_caps,
-    )
-    monkeypatch.setattr(
-        manage_mod, "require_profile_for_backend_type", lambda bt: no_timeout_profile
-    )
-
-    with pytest.raises(DatasourceRawSqlError) as exc_info:
-        md.raw_sql(
-            ms.ref.datasource("warehouse"),
-            "SELECT 1",
-            reason="no timeout",
-            project_root=tmp_path,
-        )
-    err = exc_info.value
-    assert err.effect_observed is not None
-    assert err.effect_observed.query_executed is False
-    assert "no enforceable timeout" in err.message
 
 
 def test_raw_sql_logs_native_statement_consumption_and_failure(

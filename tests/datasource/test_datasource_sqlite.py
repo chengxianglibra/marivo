@@ -3,16 +3,12 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 import marivo.datasource as md
 from marivo.datasource import backends, manage, store
-from marivo.datasource.errors import DatasourceRawSqlError
 from marivo.datasource.metadata import inspect_table
 
 
@@ -103,7 +99,7 @@ def test_sqlite_register_inspect_sample_and_raw_sql(
     assert inspection.partitioning.state == "none"
     assert inspection.physical_extent.row_count is None
     assert inspection.physical_extent.size_bytes is None
-    assert inspection.execution_capabilities.timeout_enforced is True
+    assert inspection.execution_capabilities.timeout_enforced is False
     assert snapshot.coverage.retained_row_count == 2
     assert raw_result.rows == (
         {"order_id": 1, "amount": 10.0},
@@ -174,81 +170,6 @@ def test_sqlite_metadata_exposes_keys_and_view_definition(
     assert all(column.nullable is False for column in strict_metadata.columns)
     assert without_rowid_metadata.primary_keys == ("account_id", "region")
     assert all(column.nullable is False for column in without_rowid_metadata.columns)
-
-
-def test_sqlite_raw_sql_timeout_remains_armed_during_cursor_fetch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    database_path = tmp_path / "app.sqlite"
-    _seed_sqlite(database_path)
-    spec = md.sqlite(name="app", path=str(database_path))
-    md.register(spec)
-    datasource_ir = store.load_one("app", project_root=tmp_path)
-    assert datasource_ir is not None
-    backend = backends.build_backend(datasource_ir)
-
-    class FetchTimer:
-        def __init__(self, seconds: int, interrupt: Callable[[], None]) -> None:
-            assert seconds == 1
-            self.interrupt = interrupt
-            self.armed = False
-
-        def start(self) -> None:
-            self.armed = True
-
-        def cancel(self) -> None:
-            self.armed = False
-
-    timers: list[FetchTimer] = []
-    fetch_armed: list[bool] = []
-
-    def timer(seconds: int, interrupt: Callable[[], None]) -> FetchTimer:
-        result = FetchTimer(seconds, interrupt)
-        timers.append(result)
-        return result
-
-    def pause(seconds: float) -> float:
-        # SQLite evaluates the second row during fetch, after execute returns.
-        if seconds:
-            armed = len(timers) == 1 and timers[0].armed
-            fetch_armed.append(armed)
-            if armed:
-                timers[0].interrupt()
-        return seconds
-
-    backend.con.create_function("pause", 1, pause)
-    backend.raw_sql("CREATE TABLE delays (seconds REAL)")
-    backend.raw_sql("INSERT INTO delays VALUES (0), (0.05)")
-
-    class _Service:
-        @contextmanager
-        def use_backend(
-            self, _name: str, *, read_only: bool, terminal_timeout_seconds: int | None = None
-        ) -> Iterator[Any]:
-            assert read_only is True
-            yield backend
-
-    monkeypatch.setattr("marivo.datasource.engines.sqlite.Timer", timer)
-    monkeypatch.setattr(
-        "marivo.datasource.manage.DatasourceConnectionService",
-        lambda _root: _Service(),
-    )
-
-    try:
-        with pytest.raises(DatasourceRawSqlError, match="result fetching failed"):
-            md.raw_sql(
-                spec.ref,
-                "SELECT pause(seconds) AS waited FROM delays",
-                reason="verify SQLite fetch timeout",
-                timeout_seconds=1,
-                project_root=tmp_path,
-            )
-        assert fetch_armed == [True]
-        assert len(timers) == 1 and not timers[0].armed
-    finally:
-        backend.disconnect()
 
 
 def test_sqlite_explicit_and_internal_read_only_connections(

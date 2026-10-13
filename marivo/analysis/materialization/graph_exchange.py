@@ -293,10 +293,8 @@ class _PartStream:
 
 
 def _key_rows(batch: pa.RecordBatch, fields: tuple[str, ...]) -> Iterator[tuple[object, ...]]:
-    from marivo.analysis.materialization.execute_deadline import check
 
     for start in range(0, batch.num_rows, 1024):
-        check()
         count = min(1024, batch.num_rows - start)
         if fields:
             columns: tuple[list[object], ...] = tuple(
@@ -341,18 +339,15 @@ class CheckedStream:
         return self._batches()
 
     def _batches(self) -> Iterator[pa.RecordBatch]:
-        from marivo.analysis.materialization.execute_deadline import check
 
         seen_keys: set[tuple[object, ...]] = set()
         exhausted = False
         try:
             for batch in self._source:
-                check()
                 if not batch.schema.equals(self.schema, check_metadata=False):
                     raise _invalid("batch schema changed")
                 if self._keys:
                     for key in _key_rows(batch, self._keys):
-                        check()
                         if (
                             any(
                                 value is None and name not in self._nullable_keys
@@ -369,7 +364,6 @@ class CheckedStream:
                 ):
                     self._validate_cells(batch)
                 yield batch
-            check()
             exhausted = True
         finally:
             self._closed = True
@@ -379,10 +373,8 @@ class CheckedStream:
                 self._key_index = seen_keys
 
     def _validate_cells(self, batch: pa.RecordBatch) -> None:
-        from marivo.analysis.materialization.execute_deadline import check
 
         for start in range(0, batch.num_rows, 1024):
-            check()
             values: list[bool] = batch.column("value").slice(start, 1024).is_valid().to_pylist()
             tags: list[object] = batch.column("cell_tag").slice(start, 1024).to_pylist()
             reasons: list[object] = batch.column("cell_reason").slice(start, 1024).to_pylist()
@@ -1206,14 +1198,12 @@ def _verify_single_state_part(
 def _table_keys(
     table: pa.Table, fields: tuple[str, ...], nullable: frozenset[str] = frozenset()
 ) -> set[tuple[object, ...]]:
-    from marivo.analysis.materialization.execute_deadline import check
 
     for name in fields:
         table.column(name)
     result: set[tuple[object, ...]] = set()
     for batch in table.to_batches(max_chunksize=1024):
         for key in _key_rows(batch, fields):
-            check()
             if (
                 any(
                     value is None and name not in nullable

@@ -19,15 +19,14 @@ pytestmark = [
 ]
 BACKENDS = ("sqlite", "postgres", "mysql", "clickhouse", "trino")
 NATIVE_OWNERS = (
-    "tests/analysis/materialization/test_native_graph_deadline.py",
+    "tests/datasource/test_control_boundaries.py",
+    "tests/datasource/test_acquisition_timeout.py",
     "tests/datasource/test_mysql_authoring_deadline.py",
-    "tests/datasource/test_source_deadline.py",
     "tests/analysis/graph/test_method_consumers.py",
     "tests/analysis/materialization/test_producer_recovery.py",
     "tests/analysis/journey/test_native_funnel_recovery.py",
     "tests/analysis/numeric/test_native_numeric.py",
     "tests/datasource/test_source_profiles.py",
-    "tests/analysis/materialization/test_graph_transport_phases.py",
     "tests/analysis/graph/test_distribution_consumers.py",
     "tests/analysis/graph/test_multiroot_consumers.py",
 )
@@ -107,7 +106,8 @@ def test_installed_public_multisource_journey(
         (owner, engine)
         for engine in ("postgres", "mysql", "trino", "clickhouse")
         for owner in NATIVE_OWNERS
-        if not owner.endswith("test_graph_transport_phases.py") or engine in ("mysql", "trino")
+        if not owner.endswith(("test_control_boundaries.py", "test_acquisition_timeout.py"))
+        or engine in ("postgres", "trino", "clickhouse")
         if not owner.endswith(("test_mysql_authoring_deadline.py", "test_source_deadline.py"))
         or engine == "mysql"
         if not owner.endswith("test_method_consumers.py") or engine in ("mysql", "clickhouse")

@@ -118,26 +118,21 @@ Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive
 bounded read.
-Ordinary Trino, PostgreSQL, and MySQL previews also acquire isolated readers
-before source binding, configured with each normalized scope's timeout. Each
-batch row or metric group uses its own reader and timeout; success or failure
-releases that reader and restores the prior connection cache. The authoring
-timeout guard covers source binding and collection. PostgreSQL uses a read-only
-transaction with `statement_timeout`, Trino uses `query_max_run_time`, and MySQL
-uses its owned-reader cancellation guard with an independent control connection.
-Certification uses isolated read-only connections configured with the authored
-scope timeout before binding or collecting rows. They close on success or
-failure, and the prior ordinary-preview connection cache is restored. The
-adapter's authoring-timeout guard remains mandatory; a backend without one
-rejects certification rather than issuing an unbounded read.
-MySQL certification uses a separately approved, session-scoped SELECT limit on
-the fresh connection. Both installation and readback are audited; a denied or
-mismatched limit rejects before collecting certification rows. Native source
-capture failure reports a structured SemanticRuntimeError with backend code,
-scoped timeout and actual query-submission state. The isolated connection closes,
-and no new or replacement certified snapshot is published. Existing typed errors
-retain their original repair. MySQL's certified SELECT limit remains distinct
-from ordinary preview's cancellation guard, raw-SQL timeout and Analysis cancellation.
+Ordinary remote previews acquire isolated readers before source binding. Each
+batch row or metric group requests its own native timeout settings; success and
+failure release the reader and restore the prior connection cache. PostgreSQL
+uses a read-only transaction with `statement_timeout`, Trino uses
+`query_max_run_time`, MySQL uses the native read-only SELECT limit, and ClickHouse
+uses `max_execution_time` with throwing overflow. Unsupported query timeout
+settings are skipped, including the current DuckDB and SQLite paths.
+
+Certification still requires exhaustive scoped reads and complete validation
+before atomic snapshot publication. Its isolated reader requests the same native
+settings as other authoring reads. Configuration denial, native read/fetch
+failure or cleanup failure reports the original typed diagnostics and actual
+query-submission state; no failed capture publishes or replaces a snapshot.
+Marivo has no Timer, control connection or KILL path. Native timeout coverage
+follows the backend; there is no complete-call or fetch deadline.
 
 ### Navigation matrix
 

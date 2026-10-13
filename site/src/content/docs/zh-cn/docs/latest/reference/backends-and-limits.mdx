@@ -14,8 +14,8 @@ Backend extra 安装 driver，连接证明可访问，二者都不授予全部�
 | DuckDB | <code style="white-space: nowrap">duckdb</code> | 本地表及准入文件来源；教程无需服务器 |
 | SQLite | <code style="white-space: nowrap">sqlite</code> | 原生 SQLite 表契约；DATE 与 UTC timestamp 路径分别准入 |
 | PostgreSQL | <code style="white-space: nowrap">postgres</code> | 只读账户及原生 libpq 前提 |
-| MySQL | <code style="white-space: nowrap">mysql</code> | 原生客户端与构建前提，以及自有取消权限 |
-| Trino | <code style="white-space: nowrap">trino</code> | 显式 catalog/schema、只读访问与查询取消 |
+| MySQL | <code style="white-space: nowrap">mysql</code> | 原生客户端与构建前提，以及原生查询配置 |
+| Trino | <code style="white-space: nowrap">trino</code> | 显式 catalog/schema、只读访问与原生查询配置 |
 | ClickHouse | <code style="white-space: nowrap">clickhouse</code> | 准入 scalar types，分析要求有效 `join_use_nulls=1` |
 
 基础包包含本地结果所需 Arrow。发现未选择 provider 不导入其 driver。
@@ -71,7 +71,8 @@ result.show()
 
 原生关系工作保留在 Ibis 中。Matching、replay 与统计可能为本地算法捕获完整输入。
 Batch transport 不承诺流式执行。失败不切换实现，也不通过其他 executor 重试。
-远程来源配置使用只读权限，来源取消和执行 deadline 仍由 provider 契约负责。
+远程来源配置使用只读权限，仅使用后端支持的原生超时配置，不支持则跳过。执行图没有默认期限，
+资源清理和原子发布仍必须完成。
 
 ## 遵守数值与方法限制
 

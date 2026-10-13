@@ -15,8 +15,8 @@ The current relation contract and focused Help are the operational guide.
 | DuckDB | <code style="white-space: nowrap">duckdb</code> | Local tables and admitted file sources; tutorial requires no server |
 | SQLite | <code style="white-space: nowrap">sqlite</code> | Native SQLite table contracts; DATE/UTC timestamp routes are distinct |
 | PostgreSQL | <code style="white-space: nowrap">postgres</code> | Read-only account and native libpq prerequisite |
-| MySQL | <code style="white-space: nowrap">mysql</code> | Native client/build prerequisites and owned cancellation authority |
-| Trino | <code style="white-space: nowrap">trino</code> | Explicit catalog/schema, read-only access and query cancellation |
+| MySQL | <code style="white-space: nowrap">mysql</code> | Native client/build prerequisites and native query settings |
+| Trino | <code style="white-space: nowrap">trino</code> | Explicit catalog/schema, read-only access and native query settings |
 | ClickHouse | <code style="white-space: nowrap">clickhouse</code> | Qualified scalar types and effective `join_use_nulls=1` for admitted analysis |
 
 The base package includes Arrow for local results. Discovery of an unselected
@@ -76,8 +76,8 @@ The example requires warehouse, `data/facts.csv` and the listed columns. Save it
 Native relational work remains in Ibis. Matching, replay and statistics may
 capture full inputs for local algorithms. Batch transport is not a promise of
 streaming execution. A failure does not switch implementation or retry through
-another executor. Remote-source configuration uses read-only access; source
-cancellation and execution deadlines remain provider-owned requirements.
+another executor. Remote-source configuration uses read-only access; native query timeouts are used when supported and skipped otherwise.
+There is no default graph deadline; cleanup and atomic publication remain mandatory.
 
 ## Respect numerical and method limits
 

@@ -19,7 +19,6 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import runs_execution
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.deviation_execution import load, save
-from marivo.analysis.materialization.execute_deadline import CURRENT, ExecuteDeadline
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
 from marivo.datasource.adapters import SourceBatchStream
 from tests.analysis.statistics.journeys import (
@@ -344,7 +343,7 @@ def test_every_receipt_part_read_recovery_and_hit(
         assert session._runtime.store.resources(session.id) == ()
 
 
-def test_resources_atomic_publication_and_deadline(
+def test_resources_atomic_publication_and_native_failure(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -355,7 +354,7 @@ def test_resources_atomic_publication_and_deadline(
     saved = snapshot(previous)
     runtime = session._runtime
     successful_runs = 0
-    for fault in ("cancel", "bad_batch", "before_commit", "timeout_below", "timeout_above"):
+    for fault in ("cancel", "bad_batch", "before_commit", "native_failure"):
         now = [0.0]
 
         def inject(
@@ -365,12 +364,11 @@ def test_resources_atomic_publication_and_deadline(
                 raise RuntimeError("injected statistical publication failure")
             if point == "graph_admitted" and injected_fault == "cancel":
                 raise KeyboardInterrupt("injected statistical cancellation")
-            if point == "before_commit" and injected_fault in ("timeout_below", "timeout_above"):
-                injected_now[0] = 599.999 if injected_fault == "timeout_below" else 600.001
+            if point == "before_commit" and injected_fault == "native_failure":
+                raise TimeoutError("injected native source failure")
 
         runtime._hook = inject
-        token = CURRENT.set(ExecuteDeadline(0.0, lambda current=now: current[0]))
-        succeeded = fault == "timeout_below"
+        succeeded = False
         try:
             with monkeypatch.context() as scoped:
                 if fault == "bad_batch":
@@ -388,7 +386,6 @@ def test_resources_atomic_publication_and_deadline(
                     with pytest.raises((AnalysisError, DomainPreparationError, KeyboardInterrupt)):
                         logical.execute()
         finally:
-            CURRENT.reset(token)
             runtime._hook = None
         assert snapshot(previous) == saved
         assert runtime.store.resources(session.id) == ()

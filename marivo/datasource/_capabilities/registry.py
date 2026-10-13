@@ -328,7 +328,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "CredentialResolver.resolve",
             "marivo.datasource.credentials.CredentialResolver.resolve",
-            "Resolve one reference using host authorization and the request deadline; return SecretValue or a typed credential failure.",
+            "Resolve one reference using host authorization and host-managed service timeouts; return SecretValue or a typed credential failure.",
             kind="method",
             output="SecretValue",
             inputs=_inputs(("receiver", "CredentialResolver"), ("subject", "CredentialRequest")),
@@ -349,7 +349,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "test",
             "marivo.datasource.manage.test",
-            "Round-trip an Ibis-compiled literal within a 30s wall-clock deadline and best-effort cache validated env secrets.",
+            "Round-trip an Ibis-compiled literal with requested native 30s settings, skipping unsupported query timeouts and best-effort cache validated env secrets.",
             output="DatasourceTestResult",
             inputs=_inputs(("subject", "DatasourceReferenceInput")),
             effects=_TEST,
@@ -460,7 +460,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "inspect",
             "marivo.datasource.inspection.inspect",
-            "Read physical metadata with operation-owned connections and a separate 30s handshake limit.",
+            "Read physical metadata with operation-owned connections and requested native 30s connection settings.",
             output="SourceInspection",
             inputs=_inputs(("subject", "Ref[datasource]"), ("dependency", "TableSource")),
             effects=_effects("live_metadata_read", "opens_connection"),
@@ -480,7 +480,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "a row or byte cap. Control query size with filters, partition predicates, aggregation, "
             "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials: "
             "Trino relies on database-side permissions, not Marivo write prevention. "
-            "The execution timeout and separate 30s connection handshake budget remain. "
+            "Native query and connection timeout requests remain; unsupported query timeouts are skipped. "
             "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
             output="RawSqlResult",
             inputs=_inputs(
@@ -492,7 +492,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             effects=_effects(
                 "potentially_unbounded_read",
                 "opens_connection",
-                flags=("requires_positive_timeout_guard",),
+                flags=(),
             ),
             constraints=constraints["configured"],
             example='md.raw_sql(ms.ref.datasource("default"), "SELECT 1 LIMIT 1", reason="check connectivity")',
@@ -589,7 +589,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.sample",
             "marivo.datasource.inspection.SourceInspection.sample",
-            "Acquire scoped evidence; the execution timeout excludes the separate 30s connection handshake.",
+            "Acquire scoped evidence; native query timeouts are optional and exclude connection/complete-call timing.",
             kind="method",
             output="DiscoverySnapshot",
             inputs=(
@@ -608,7 +608,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 flags=(
                     "requires_explicit_scope",
                     "requires_positive_row_guard",
-                    "requires_positive_timeout_guard",
                     "may_persist_plaintext_values",
                 ),
             ),
@@ -769,8 +768,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "project_root",
             "datasource",
             "fields",
-            "deadline_monotonic",
-            "cancelled",
         ),
         methods=("show",),
         consumers=("CredentialResolver.resolve",),

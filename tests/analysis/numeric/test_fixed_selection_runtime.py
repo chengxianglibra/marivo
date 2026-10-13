@@ -15,10 +15,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.graph_lowering import LoweredLocal
-from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_local_execution as local
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
@@ -161,16 +159,14 @@ def test_fused_failure_never_retries_or_publishes(
                 if fault == "cancel":
                     raise KeyboardInterrupt()
                 if fault == "timeout":
-                    deadline = execute_deadline.CURRENT.get()
-                    assert deadline is not None
-                    object.__setattr__(deadline, "start", deadline.start - 601)
+                    raise RuntimeError("injected local stage failure")
             return evaluate(predicate, left, right)
 
         monkeypatch.setattr(local, "evaluate_leaf", broken)
         expected = {
             "predicate": CoreRuleError,
             "duplicate": MaterializationError,
-            "timeout": DomainPreparationError,
+            "timeout": MaterializationError,
             "cancel": KeyboardInterrupt,
         }[failure]
         with pytest.raises(expected) as error:

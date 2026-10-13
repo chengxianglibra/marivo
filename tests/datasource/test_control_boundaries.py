@@ -75,25 +75,6 @@ def test_governed_probe_submits_exact_ibis_compilation(
         backend.disconnect()
 
 
-def test_sqlite_terminal_timeout_interrupts_actual_query(tmp_path: Path) -> None:
-    db_path = tmp_path / "timeout.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("CREATE TABLE facts (id INTEGER)")
-    md.register(md.sqlite(name="local", path=str(db_path)), project_root=tmp_path)
-
-    with pytest.raises(DatasourceRawSqlError) as failure:
-        md.raw_sql(
-            ms.ref.datasource("local"),
-            "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n "
-            "WHERE x < 100000000) SELECT sum(x) FROM n",
-            reason="verify terminal interrupt",
-            timeout_seconds=1,
-            project_root=tmp_path,
-        )
-    assert failure.value.effect_observed.query_executed is True
-    assert failure.value.repair is not None
-
-
 @pytest.mark.runtime
 @pytest.mark.skipif(
     os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1",
@@ -125,14 +106,14 @@ def test_postgres_terminal_control_uses_server_timeout_and_read_only(
         finally:
             setting.close()
         profile = adapters.provider_for("postgres")
-        assert profile.authoring_timeout is not None
+        assert profile.native_query_timeout is not None
         started = monotonic()
-        with pytest.raises(Exception), profile.authoring_timeout(backend, 1):
+        with pytest.raises(Exception), profile.native_query_timeout(backend, 1):
             backend.raw_sql("SELECT pg_sleep(3)")
         assert monotonic() - started < 2.5
-        with pytest.raises(Exception), profile.authoring_timeout(backend, 1):
+        with pytest.raises(Exception), profile.native_query_timeout(backend, 1):
             backend.raw_sql("CREATE TEMP TABLE source_control_rejected (id INTEGER)")
-        with profile.authoring_timeout(backend, 1):
+        with profile.native_query_timeout(backend, 1):
             cursor = backend.raw_sql("SELECT 1")
             try:
                 assert cursor.fetchone() == (1,)
@@ -168,8 +149,8 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
     backend = build_backend(datasource, read_only=True, terminal_timeout_seconds=1)
     try:
         profile = adapters.provider_for("trino")
-        assert profile.authoring_timeout is not None
-        with profile.authoring_timeout(backend, 1):
+        assert profile.native_query_timeout is not None
+        with profile.native_query_timeout(backend, 1):
             setting = backend.raw_sql("SHOW SESSION LIKE 'query_max_run_time'")
             try:
                 assert setting.fetchone()[1] == "1s"
@@ -181,7 +162,7 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
             finally:
                 timezone.close()
         started = monotonic()
-        with pytest.raises(TrinoQueryError) as failure, profile.authoring_timeout(backend, 1):
+        with pytest.raises(TrinoQueryError) as failure, profile.native_query_timeout(backend, 1):
             # The 3x cross join cannot finish inside the 1s limit; a lighter
             # pair has completed within the enforcement window on fast hosts.
             backend.raw_sql(
@@ -191,7 +172,7 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
             )
         assert failure.value.error_name == "EXCEEDED_TIME_LIMIT"
         assert monotonic() - started < 5
-        with pytest.raises(TrinoQueryError), profile.authoring_timeout(backend, 1):
+        with pytest.raises(TrinoQueryError), profile.native_query_timeout(backend, 1):
             backend.raw_sql("CREATE TABLE iceberg.analysis.source_control_rejected (id BIGINT)")
     finally:
         backend.disconnect()

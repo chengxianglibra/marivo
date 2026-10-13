@@ -94,11 +94,11 @@ Authoring has two governed evidence paths:
 
 These paths are composable within the caller's explicit data-access budget.
 There is no mandatory inspect-snapshot-projection ladder. Every user-data read
-has positive row and timeout guards; a returned-row limit is not a scan bound.
+has positive row limits and requested native query timeouts; a returned-row limit is not a scan bound.
 
 `md.raw_sql`/`RawSqlResult` remains available for a source-specific question
 outside Marivo's governed Analysis capability. It submits SQL text without
-parsing or classifying it, with a reason and enforced timeout. Query predicates,
+parsing or classifying it, with a reason and an optional native query timeout. Query predicates,
 aggregation and an explicit SQL LIMIT control returned size; the complete query
 result is loaded into client memory.
 Read-only behavior depends on connection and backend permissions. Its result is

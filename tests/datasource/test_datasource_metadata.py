@@ -393,6 +393,9 @@ class _FakeBackend:
         self.queries: list[str] = []
         self.table_calls: list[tuple[str, object]] = []
 
+    def disconnect(self) -> None:
+        pass
+
     def table(self, table: str, database: object = None):
         self.table_calls.append((table, database))
         return _FakeTable(self.schema)
@@ -417,6 +420,9 @@ class _FakeFileBackend:
     def read_parquet(self, path: str, **options: object):
         self.reads.append((path, options))
         return _FakeTable({"order_id": "int64", "amount": "float64"})
+
+    def disconnect(self) -> None:
+        pass
 
 
 def test_inspect_table_mysql_adapter_uses_information_schema(

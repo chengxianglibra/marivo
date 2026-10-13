@@ -61,6 +61,7 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     raw_settings = out.get("settings")
     settings: dict[str, object] = dict(raw_settings) if isinstance(raw_settings, dict) else {}
     settings["readonly"] = 1
+    settings["timeout_overflow_mode"] = "throw"
     out["settings"] = settings
     return out
 
@@ -161,12 +162,6 @@ def _system_parts_projection(
 register_provider_statements(
     "clickhouse",
     {
-        "analysis.cancel_owned_query": ProviderStatement(
-            statement_id="clickhouse.analysis.cancel_owned_query",
-            template="KILL QUERY WHERE query_id={id:String} AND user={user:String} SYNC",
-            parameterized=True,
-            allowed_purposes=frozenset({"analysis.cancel_owned_query"}),
-        ),
         "tables.full": ProviderStatement(
             statement_id="clickhouse.tables.full",
             template=(
@@ -827,7 +822,7 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
 
 
 @contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     connection = getattr(backend, "con", None)
     params = getattr(connection, "params", None)
     if not isinstance(params, dict):
@@ -881,5 +876,5 @@ PROFILE = EngineProfile(
     quantile=QuantileCapability(mode="approximate", method="reservoir_sampling"),
     percentile_uses_approx_quantile=False,
     exact_count_distinct=False,
-    authoring_timeout=authoring_timeout,
+    native_query_timeout=native_query_timeout,
 )

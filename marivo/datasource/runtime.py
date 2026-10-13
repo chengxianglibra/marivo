@@ -6,11 +6,9 @@ import hashlib
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from contextvars import ContextVar, copy_context
 from dataclasses import dataclass, field
 from pathlib import Path
-from threading import Lock, Thread
-from time import monotonic
+from time import perf_counter
 from typing import Any, TypeVar
 
 import ibis.expr.types as ir
@@ -23,11 +21,9 @@ from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.authoring import _storage_name
-from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceConnectionTimeoutError,
-    DatasourceCredentialError,
     DatasourceError,
     DatasourceMissingError,
     _backend_failure_summary,
@@ -43,82 +39,6 @@ from marivo.datasource.timezone import DatasourceEngineTimezone, probe_engine_ti
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")
-_IN_DEADLINE_WORKER: ContextVar[bool] = ContextVar("marivo_deadline_worker", default=False)
-
-
-@contextmanager
-def deadline_worker() -> Iterator[None]:
-    """Keep a complete round-trip on its current deadline worker."""
-    token = _IN_DEADLINE_WORKER.set(True)
-    try:
-        yield
-    finally:
-        _IN_DEADLINE_WORKER.reset(token)
-
-
-def run_with_deadline(
-    fn: Callable[[], _ResultT],
-    *,
-    timeout_seconds: int,
-    datasource_name: str,
-    operation: cr.CredentialOperation,
-    release: Callable[[_ResultT], None],
-) -> _ResultT:
-    """Bound a handshake and discard late results without blocking on cleanup."""
-    values: list[_ResultT] = []
-    errors: list[BaseException] = []
-    lock = Lock()
-
-    def target() -> None:
-        try:
-            with deadline_worker():
-                value = fn()
-            with lock:
-                late = operation.cancelled
-                if not late:
-                    values.append(value)
-            if late:
-                release(value)
-        except BaseException as exc:
-            with lock:
-                errors.append(exc)
-
-    context = copy_context()
-    worker = Thread(target=lambda: context.run(target), daemon=True)
-    started = monotonic()
-    try:
-        worker.start()
-        worker.join(max(0.0, (operation.deadline or started + timeout_seconds) - monotonic()))
-        if worker.is_alive() or operation.cancelled:
-            with lock:
-                credential_error = operation.timeout_error()
-                if (
-                    credential_error is None
-                    and errors
-                    and isinstance(errors[0], DatasourceCredentialError)
-                ):
-                    credential_error = errors[0]
-            if credential_error is not None:
-                raise credential_error
-            raise DatasourceConnectionTimeoutError(
-                stage="connection_timeout",
-                timeout_seconds=timeout_seconds,
-                elapsed_ms=int((monotonic() - started) * 1000),
-                datasource_name=datasource_name,
-            )
-        if errors:
-            raise errors[0]
-        return values[0]
-    except BaseException:
-        # Interrupted callers abandon ownership just like timed-out callers.
-        # Synchronize with publication so either we or the worker releases it.
-        with lock:
-            operation.cancel.set()
-            abandoned = values.pop() if values else None
-        if abandoned is not None:
-            # Third-party disconnect implementations may themselves block.
-            Thread(target=lambda: release(abandoned), daemon=True).start()
-        raise
 
 
 def open_backend(
@@ -126,21 +46,43 @@ def open_backend(
     *,
     project_root: Path | None = None,
     read_only: bool = False,
-    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    timeout_seconds: int | None = None,
     terminal_timeout_seconds: int | None = None,
 ) -> backends.BuiltDatasourceBackend:
     """Open one owned backend using the engine's thread and credential policy."""
-    if timeout_seconds < 1:
+    if timeout_seconds is not None and timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
-    profile = require_profile_for_backend_type(datasource.backend_type)
 
     def build() -> backends.BuiltDatasourceBackend:
+        started = perf_counter()
         try:
             return backends.build_backend_with_secrets(
-                datasource, read_only=read_only, terminal_timeout_seconds=terminal_timeout_seconds
+                datasource,
+                read_only=read_only,
+                terminal_timeout_seconds=terminal_timeout_seconds,
+                connection_timeout_seconds=timeout_seconds,
             )
         except DatasourceError:
             raise
+        except TimeoutError as exc:
+            if timeout_seconds is None:
+                raise DatasourceConnectionError(
+                    message="The backend reported a native connection timeout.",
+                    expected="a reachable datasource under its declared native settings",
+                    received=type(exc).__name__,
+                    location=f"datasource {datasource.name!r}",
+                    repair=repair(
+                        kind="reconnect",
+                        canonical_id="test",
+                        action="Check the declared native timeout settings and datasource reachability, then retry.",
+                    ),
+                ) from exc
+            raise DatasourceConnectionTimeoutError(
+                stage="connection_timeout",
+                timeout_seconds=timeout_seconds,
+                elapsed_ms=int((perf_counter() - started) * 1000),
+                datasource_name=datasource.name,
+            ) from exc
         except Exception as exc:
             failure = _backend_failure_summary(exc)
             raise DatasourceConnectionError(
@@ -155,18 +97,8 @@ def open_backend(
                 ),
             ) from None
 
-    with cr.operation_context(
-        project_root=project_root, timeout_seconds=timeout_seconds
-    ) as operation:
-        if profile.connection_thread == "caller" or _IN_DEADLINE_WORKER.get():
-            return build()
-        return run_with_deadline(
-            build,
-            timeout_seconds=timeout_seconds,
-            datasource_name=datasource.name,
-            operation=operation,
-            release=lambda built: built.disconnect(),
-        )
+    with cr.operation_context(project_root=project_root):
+        return build()
 
 
 def load_datasource(name: str, project_root: Path | None) -> DatasourceIR:
@@ -202,6 +134,9 @@ def _build_backend_from_store(
         project_root=project_root,
         read_only=read_only,
         terminal_timeout_seconds=terminal_timeout_seconds,
+        timeout_seconds=DEFAULT_CONNECTION_TIMEOUT_SECONDS
+        if terminal_timeout_seconds is not None
+        else None,
     )
 
 
@@ -345,8 +280,6 @@ class DatasourceConnectionService:
                 terminal_timeout_seconds=self._terminal_timeout_seconds,
             )
             self._leases[datasource_name] = built.lease
-            if self._terminal_timeout_seconds is not None:
-                built.backend._marivo_certified_authoring = True
             return built.backend
         raise DatasourceMissingError(
             message=f"datasource {datasource_name!r} is not configured for this session",
@@ -477,14 +410,36 @@ class DatasourceConnectionService:
 
     def close_all(self) -> None:
         """Disconnect all cached session backends and clear the cache."""
+        failure: BaseException | None = None
         for session in self._source_sessions.values():
-            session.close()
+            try:
+                session.close()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
         for name in self._session_backends:
-            if self._leases[name].close():
+            try:
+                if not self._leases[name].close(suppress_errors=False):
+                    raise DatasourceConnectionError(
+                        message="The datasource owner could not confirm connection release.",
+                        expected="confirmed owned connection release",
+                        received=name,
+                        location="datasource.cleanup",
+                        repair=repair(
+                            kind="reconnect",
+                            canonical_id="test",
+                            action="Inspect the original connection owner and release failure before retrying.",
+                        ),
+                    )
                 bound_session = self._source_sessions.get(name)
                 if bound_session is not None:
                     bound_session.mark_backend_disconnected()
+            except BaseException as error:
+                if failure is None:
+                    failure = error
         self._source_sessions.clear()
         self._session_backends.clear()
         self._leases.clear()
         self._engine_timezones.clear()
+        if failure is not None:
+            raise failure

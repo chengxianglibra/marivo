@@ -168,7 +168,7 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
 
 
 @contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
+def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     properties = getattr(backend.con, "session_properties", None)
     if (
         getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds
@@ -732,5 +732,5 @@ PROFILE = EngineProfile(
     exact_count_distinct=True,
     quantile=QuantileCapability(mode="approximate", method="approx_percentile"),
     percentile_uses_approx_quantile=True,
-    authoring_timeout=authoring_timeout,
+    native_query_timeout=native_query_timeout,
 )

@@ -10,12 +10,10 @@ import pytest
 
 from marivo.analysis.compiler.graph_lowering import LoweredLocal
 from marivo.analysis.core import local_laws
-from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.core.graph import Edge, MethodNode, method_node
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import CellDerive, PartsTransport
-from marivo.analysis.materialization import execute_deadline
 from marivo.analysis.materialization import graph_local_execution as local
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.cell_arrow import logical_table
@@ -237,7 +235,7 @@ def test_fused_selection_reports_actual_conflicts_and_original_predicate_stage(
     assert error.value.expected and error.value.repair
 
 
-def test_deadline_remains_checked_during_survivor_evaluation(
+def test_survivor_evaluation_is_not_bound_by_elapsed_time(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     leaf, verified = selection_input()
@@ -255,13 +253,9 @@ def test_deadline_remains_checked_during_survivor_evaluation(
         return evaluate(node, inputs, key)
 
     monkeypatch.setattr(local, "_selection_accepts", delayed)
-    deadline = execute_deadline.ExecuteDeadline(0.0, clock=lambda: ticks[0])
-    token = execute_deadline.CURRENT.set(deadline)
-    try:
-        with pytest.raises(DomainPreparationError, match="execute deadline exceeded"):
-            local.execute_verified_fixed(prepared, lowered, (verified,))
-    finally:
-        execute_deadline.CURRENT.reset(token)
+    result = local.execute_verified_fixed(prepared, lowered, (verified,))
+    assert result.primary.num_rows > 0
+    assert ticks[0] > 600
 
 
 def test_part_order_is_preserved() -> None:

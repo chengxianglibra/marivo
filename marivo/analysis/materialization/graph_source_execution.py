@@ -292,10 +292,8 @@ def _check(
         from datetime import date, datetime, timezone
 
         from marivo.analysis.core.time_grid import instant
-        from marivo.analysis.materialization.execute_deadline import check as check_deadline
 
         for row in table.to_pylist():
-            check_deadline()
             raw, actual = row["raw_time"], row["normalized_time"]
             if raw is None and actual is None:
                 continue

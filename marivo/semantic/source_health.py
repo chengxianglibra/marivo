@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from types import MappingProxyType
@@ -873,15 +874,16 @@ def _execute_field_check(
         profile = require_profile_for_backend_type(
             registry.datasources[entity.datasource].backend_type
         )
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            raise RuntimeError(
-                f"backend {profile.name!r} has no adapter-enforced authoring timeout"
-            )
-        backend = resolver.connections.session_backend(entity.datasource)
-        with timeout(backend, scope.timeout_seconds):
-            query_attempted = True
-            frame = _field_frame(resolver, registry, fields, scope)
+        timeout = profile.native_query_timeout
+        with (
+            resolver.connections.terminal_scope(scope.timeout_seconds)
+            if timeout is not None
+            else nullcontext()
+        ):
+            backend = resolver.connections.session_backend(entity.datasource)
+            with timeout(backend, scope.timeout_seconds) if timeout is not None else nullcontext():
+                query_attempted = True
+                frame = _field_frame(resolver, registry, fields, scope)
     except Exception as exc:
         return _result(
             kind=check.kind,
@@ -1065,21 +1067,22 @@ def _execute_relationship_check(
         profile = require_profile_for_backend_type(
             registry.datasources[left_entity.datasource].backend_type
         )
-        timeout = profile.authoring_timeout
-        if timeout is None:
-            raise RuntimeError(
-                f"backend {profile.name!r} has no adapter-enforced authoring timeout"
-            )
-        backend = resolver.connections.session_backend(left_entity.datasource)
+        timeout = profile.native_query_timeout
         timeout_seconds = min(scope.timeout_seconds for _ref, scope in bound_scopes)
-        with timeout(backend, timeout_seconds):
-            query_attempted = True
-            left, right, _left_id, _right_id = _relationship_frames(
-                resolver,
-                registry,
-                check.relationship,
-                scopes,
-            )
+        with (
+            resolver.connections.terminal_scope(timeout_seconds)
+            if timeout is not None
+            else nullcontext()
+        ):
+            backend = resolver.connections.session_backend(left_entity.datasource)
+            with timeout(backend, timeout_seconds) if timeout is not None else nullcontext():
+                query_attempted = True
+                left, right, _left_id, _right_id = _relationship_frames(
+                    resolver,
+                    registry,
+                    check.relationship,
+                    scopes,
+                )
     except Exception as exc:
         return _result(
             kind=check.kind,

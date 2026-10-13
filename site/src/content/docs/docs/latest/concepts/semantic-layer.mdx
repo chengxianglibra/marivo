@@ -53,3 +53,8 @@ Entity expressions cannot submit SQL or open another source. Read their bounded
 normalized expression through Entity Details. Other computation Details expose
 `details.definition`, whose `show()` and `to_dict()` describe the loaded snapshot
 without execution.
+
+Preview and certification request native query timeouts and continue when they
+are unsupported. Read or cleanup failures do not publish a new certified snapshot.
+Certification still requires complete scoped input and all validation; closing a
+connection does not prove remote query termination.

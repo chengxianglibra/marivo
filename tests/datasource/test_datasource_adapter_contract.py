@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -10,7 +9,6 @@ from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import ibis
@@ -27,7 +25,6 @@ from marivo.datasource.adapters import (
     SourceIR,
     SourceSession,
     SourceSubmission,
-    _clickhouse_deadline_settings,
     _Cursor,
     _exact_array,
     _inline_exchange,
@@ -133,7 +130,7 @@ def test_inline_exchange_preserves_exact_scalars_multiplicity_and_empty_schema(
             ]
         )
         table = table.cast(schema)
-    relation = _inline_exchange(table, lambda: None, inline_backend)
+    relation = _inline_exchange(table, inline_backend)
     if inline_backend == "trino":
         # Ibis reuses ordinal aliases incorrectly when UNNEST enters a union.
         # This check covers the actual branching validation query shape.
@@ -160,7 +157,7 @@ def test_inline_exchange_non_power_of_two_cardinality_and_duplicate_rows(
             ),
         }
     )
-    relation = _inline_exchange(table, lambda: None, inline_backend)
+    relation = _inline_exchange(table, inline_backend)
     backend = ibis.duckdb.connect()
     try:
         actual = backend.to_pyarrow(relation).cast(table.schema)
@@ -182,7 +179,7 @@ def test_inline_exchange_provenance_admission_and_released_read_refusal(
         table = pa.Table.from_batches(tuple(stream), schema=source_read.schema)
     finally:
         stream.close()
-    relation = _inline_exchange(table, lambda: None, "duckdb")
+    relation = _inline_exchange(table, "duckdb")
     bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
     qualified = session.qualify(bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan"})))
     with pytest.raises(DatasourceSourceCapabilityError, match="unbound expression"):
@@ -708,95 +705,10 @@ def test_trino_owner_interrupt_does_not_wait_for_its_own_cleanup() -> None:
     stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
     session._streams.add(stream)
     assert session.interrupt() == "remote_unknown"
-    cursor.cancel.assert_called_once_with()
+    backend.con.cancel.assert_called_once_with()
     cursor.close.assert_called_once_with()
     assert submission.state == "closed_early"
     assert submission.connection_disconnected
-
-
-@pytest.mark.parametrize(
-    "fault", ["max_execution_time", "timeout_before_checking_execution_speed", "mode", "missing"]
-)
-def test_clickhouse_deadline_refuses_unavailable_native_policy(fault: str) -> None:
-    backend = Mock()
-    settings = {
-        "max_execution_time": SimpleNamespace(readonly=0, value="0"),
-        "timeout_before_checking_execution_speed": SimpleNamespace(readonly=0, value="0"),
-        "timeout_overflow_mode": SimpleNamespace(readonly=1, value="throw"),
-    }
-    if fault == "missing":
-        del settings["max_execution_time"]
-    elif fault == "mode":
-        settings["timeout_overflow_mode"].value = "break"
-    else:
-        settings[fault].readonly = 1
-    backend.con.server_settings = settings
-    with pytest.raises(DatasourceSourceCapabilityError, match="owned execute deadline") as raised:
-        _clickhouse_deadline_settings(backend, 0.5)
-    assert raised.value.repair is not None and raised.value.repair.kind == "reconnect"
-    backend.con.query_rows_stream.assert_not_called()
-
-
-def test_clickhouse_deadline_uses_request_settings_without_mutating_client() -> None:
-    backend = Mock()
-    backend.con.server_settings = {
-        "max_execution_time": SimpleNamespace(readonly=0, value="0"),
-        "timeout_before_checking_execution_speed": SimpleNamespace(readonly=0, value="10"),
-        "timeout_overflow_mode": SimpleNamespace(readonly=1, value="throw"),
-    }
-    backend.con.params = {"max_execution_time": "99", "unrelated": "preserved"}
-    first = _clickhouse_deadline_settings(backend, 0.75)
-    second = _clickhouse_deadline_settings(backend, 0.25)
-    assert first["max_execution_time"] == 0.75 and second["max_execution_time"] == 0.25
-    assert first["query_id"] != second["query_id"]
-    assert first["timeout_before_checking_execution_speed"] == 0
-    assert first["timeout_overflow_mode"] == "throw"
-    assert backend.con.params == {"max_execution_time": "99", "unrelated": "preserved"}
-
-
-@pytest.mark.parametrize("close_fails", [False, True])
-def test_post_submission_checkpoint_failure_releases_native_cursor(
-    session: SourceSession, monkeypatch: pytest.MonkeyPatch, close_fails: bool
-) -> None:
-    read = _read(session)
-    cursor = Mock()
-    if close_fails:
-        cursor.close.side_effect = RuntimeError("cursor close failed")
-
-    def submitted_cursor(*_args: object) -> Mock:
-        from marivo.datasource.adapters import _log_native_submission
-
-        _log_native_submission()
-        return cursor
-
-    monkeypatch.setattr("marivo.datasource.adapters._native_cursor", submitted_cursor)
-    checks = 0
-
-    def checkpoint() -> None:
-        nonlocal checks
-        checks += 1
-        if checks == 2:
-            raise RuntimeError("deadline exceeded")
-
-    session._checkpoint = checkpoint
-    with pytest.raises(
-        RuntimeError, match="cursor close failed" if close_fails else "deadline exceeded"
-    ):
-        session.batches(read, chunk_size=1)
-    cursor.close.assert_called_once_with()
-    assert session.submissions[-1].state == "failed"
-    assert session.submissions[-1].cursor_state == (
-        "close_failed"
-        if close_fails
-        else "connection_owned"
-        if session.provider.name == "duckdb"
-        else "closed"
-    )
-    assert session._cursor_released.is_set()
-    completed = execution_records(session._log_root)[-1]
-    assert completed["event"] == "query.completed"
-    assert completed["state"] == "failed"
-    assert completed["cursor_state"] == session.submissions[-1].cursor_state
 
 
 def test_session_rejects_backend_from_another_provider(tmp_path: Path) -> None:
@@ -913,281 +825,6 @@ def test_sqlite_date_carriers_are_exact() -> None:
             _exact_array([value], field, backend_name="sqlite")
 
 
-@pytest.mark.parametrize("fault", ["none", "foreign", "unavailable", "failed"])
-def test_mysql_interrupt_targets_only_the_prepared_owned_connection(
-    monkeypatch: pytest.MonkeyPatch, fault: str
-) -> None:
-    from marivo.datasource import adapters
-
-    backend = Mock()
-    backend.name = "mysql"
-    backend.con.thread_id.side_effect = RuntimeError("active driver metadata is unavailable")
-    backend.con.fileno.side_effect = RuntimeError("active driver metadata is unavailable")
-    control = Mock()
-    control.name = "mysql"
-    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
-    session._cancel_thread_id = 123
-    session._mysql_connection = object() if fault == "foreign" else backend.con
-    session._cancel_control = None if fault == "unavailable" else control
-    session._cancel_control_released = fault == "unavailable"
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
-    session._query_logs[id(submission)] = _execution_log.QueryLog(
-        "compiled SQL",
-        backend=session.provider.name,
-        purpose="basic.rows",
-        project_root=session._log_root,
-    )
-    session.submissions.append(submission)
-    session._mysql_active = submission
-    execute = Mock(side_effect=RuntimeError("control failed") if fault == "failed" else None)
-    monkeypatch.setattr(adapters, "execute_provider_statement", execute)
-    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
-    owned_socket = Mock()
-    session._mysql_socket = owned_socket
-
-    session._request_interrupt()
-    captured = session._interrupted_submissions
-    session._request_interrupt()
-    assert session._interrupted_submissions == captured == (submission,)
-    assert session.interrupt() == "remote_unknown"
-    if fault in {"foreign", "unavailable"}:
-        execute.assert_not_called()
-    else:
-        execute.assert_called_once_with(
-            control,
-            session.provider,
-            "mysql.analysis.cancel_owned_query",
-            values={"thread_id": 123},
-            purpose="analysis.cancel_owned_query",
-        )
-    backend.con.thread_id.assert_not_called()
-    backend.con.fileno.assert_not_called()
-    owned_socket.shutdown.assert_called_once_with(socket.SHUT_RDWR)
-    owned_socket.close.assert_called_once_with()
-    backend.disconnect.assert_called_once_with()
-    if fault != "unavailable":
-        control.disconnect.assert_called_once_with()
-    assert submission.termination == "remote_unknown"
-    assert submission.state == "failed"
-    assert submission.connection_disconnected
-    assert session._cancel_control is None
-
-
-@pytest.mark.parametrize("state", ["failed", "closed_early", "succeeded", "unowned"])
-def test_mysql_interrupt_owns_unreleased_read_after_state_change(
-    monkeypatch: pytest.MonkeyPatch, state: str
-) -> None:
-    from marivo.datasource import adapters
-
-    backend = Mock()
-    backend.name = "mysql"
-    backend.con.thread_id.return_value = 123
-    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
-    session._cancel_thread_id = 123
-    session._mysql_connection = backend.con
-    session._cancel_control = Mock()
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
-    session._query_logs[id(submission)] = _execution_log.QueryLog(
-        "compiled SQL",
-        backend=session.provider.name,
-        purpose="basic.rows",
-        project_root=session._log_root,
-    )
-    session.submissions.append(submission)
-    if state == "failed":
-        submission.state = "failed"
-    elif state == "closed_early":
-        submission.state = "closed_early"
-    elif state == "succeeded":
-        submission.state = "succeeded"
-    if state != "unowned":
-        session._mysql_active = submission
-    execute = Mock()
-    monkeypatch.setattr(adapters, "execute_provider_statement", execute)
-    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
-    monkeypatch.setattr(socket, "fromfd", Mock(side_effect=OSError("unit transport unavailable")))
-    session._request_interrupt()
-    session._request_interrupt()
-    if state in {"failed", "closed_early"}:
-        execute.assert_called_once()
-        assert session._interrupted_submissions == (submission,)
-    else:
-        execute.assert_not_called()
-        assert session._interrupted_submissions == ()
-    session._release_cursor(None, submission)
-    assert session._mysql_active is None
-    session.close()
-
-
-@pytest.mark.parametrize("code", [2006, 2013, 2014])
-def test_borrowed_mysql_interrupted_cursor_waits_for_external_release_ack(code: int) -> None:
-    backend = Mock()
-    backend.name = "mysql"
-    session = SourceSession(
-        provider_for("mysql"), _datasource("mysql"), backend, owns_backend=False
-    )
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL", state="failed")
-    session.submissions.append(submission)
-    session._mysql_active = submission
-    session._mysql_cancel_requested = True
-    session._interrupted_submissions = (submission,)
-    cursor = Mock()
-    cursor.close.side_effect = RuntimeError(code, "native cursor drain failed")
-    if code == 2014:
-        with pytest.raises(RuntimeError):
-            session._release_cursor(cursor, submission)
-    else:
-        session._release_cursor(cursor, submission)
-    assert submission.cursor_state == "close_failed"
-    assert not submission.connection_disconnected
-    assert session._mysql_active is None
-    backend.disconnect.assert_not_called()
-    session.close()
-    assert submission.cursor_state == "close_failed"
-    assert submission.termination == "remote_unknown"
-    backend.disconnect.assert_not_called()
-    session.mark_backend_disconnected()
-    assert submission.cursor_state == "closed" and submission.connection_disconnected
-    assert submission.termination == "remote_unknown"
-
-
-@pytest.mark.parametrize("owns_backend", [True, False])
-def test_mysql_interrupted_cursor_drain_requires_owned_disconnect(
-    session: SourceSession, monkeypatch: pytest.MonkeyPatch, owns_backend: bool
-) -> None:
-    from marivo.datasource import adapters
-
-    read = _read(session)
-    session.provider = provider_for("mysql")
-    session._owns_backend = owns_backend
-    cursor = Mock()
-    cursor.close.side_effect = RuntimeError("drain failed")
-    disconnect = Mock(wraps=session._backend.disconnect)
-    monkeypatch.setattr(session._backend, "disconnect", disconnect)
-    monkeypatch.setattr(session, "_request_interrupt", Mock())
-    monkeypatch.setattr(session, "_synchronize_interrupt", Mock())
-
-    def interrupted_read(_backend: object, _name: str, _sql: str) -> None:
-        session._own_pending_cursor(cursor)
-        raise KeyboardInterrupt("caller interrupted")
-
-    monkeypatch.setattr(adapters, "_native_cursor", interrupted_read)
-    try:
-        with pytest.raises(
-            KeyboardInterrupt if owns_backend else RuntimeError,
-            match="caller interrupted" if owns_backend else "drain failed",
-        ):
-            session.batches(read, chunk_size=1)
-        cursor.close.assert_called_once_with()
-        assert session.submissions[-1].state == "failed"
-        assert session._cursor_released.is_set() and session._pending_cursor is None
-        if owns_backend:
-            assert session.submissions[-1].cursor_state == "closed"
-            assert session.submissions[-1].connection_disconnected
-            session.close()
-            disconnect.assert_called_once_with()
-        else:
-            assert session.submissions[-1].cursor_state == "close_failed"
-            assert not session.submissions[-1].connection_disconnected
-            disconnect.assert_not_called()
-    finally:
-        session._owns_backend = True
-
-
-def test_mysql_control_close_failure_still_releases_owned_read(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.datasource import adapters
-
-    backend = Mock()
-    backend.name = "mysql"
-    control = Mock()
-    control.disconnect.side_effect = RuntimeError("control close failed")
-    monkeypatch.setattr(adapters, "provider_statement_log", lambda _backend: ())
-    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
-    session._cancel_control = control
-    session._cancel_control_released = False
-    cursor = Mock()
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "compiled SQL")
-    session._query_logs[id(submission)] = _execution_log.QueryLog(
-        "compiled SQL",
-        backend=session.provider.name,
-        purpose="basic.rows",
-        project_root=session._log_root,
-    )
-    session.submissions.append(submission)
-    stream = SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
-    session._streams.add(stream)
-
-    with pytest.raises(RuntimeError, match="control close failed"):
-        session.close()
-    cursor.close.assert_called_once_with()
-    backend.disconnect.assert_called_once_with()
-    assert submission.cursor_state == "closed"
-    assert submission.connection_disconnected
-    assert session._cancel_control is None
-    assert not session._cancel_control_released
-
-
-@pytest.mark.parametrize("fault", ["none", "reused", "expired", "connect_failed"])
-def test_mysql_cancel_preparation_is_bounded_and_closes_rejected_control(
-    monkeypatch: pytest.MonkeyPatch, fault: str
-) -> None:
-    from ibis.backends import BaseBackend
-
-    from marivo.datasource import backends
-
-    backend = Mock()
-    backend.name = "mysql"
-    backend.con.thread_id.return_value = 123
-    backend.con.fileno.return_value = 17
-    control = Mock(spec=BaseBackend)
-    control.name = "mysql"
-    control.con = Mock()
-    control.con.thread_id.return_value = 123 if fault == "reused" else 456
-    build = Mock(
-        return_value=control,
-        side_effect=RuntimeError("connect failed") if fault == "connect_failed" else None,
-    )
-    monkeypatch.setattr(backends, "build_backend", build)
-    owned_socket = Mock()
-    fromfd = Mock(return_value=owned_socket)
-    monkeypatch.setattr(socket, "fromfd", fromfd)
-    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend)
-    checkpoint = Mock(side_effect=[None, RuntimeError("expired")] if fault == "expired" else None)
-    session._checkpoint = checkpoint
-    try:
-        if fault == "none":
-            session._prepare_interrupt()
-            assert session._cancel_control is control
-            assert session._cancel_thread_id == 123
-            assert session._mysql_connection is backend.con
-            assert session._mysql_socket is owned_socket
-            fromfd.assert_called_once_with(17, socket.AF_INET, socket.SOCK_STREAM)
-            session._prepare_interrupt()
-        else:
-            with pytest.raises((RuntimeError, DatasourceSourceCapabilityError)):
-                session._prepare_interrupt()
-            assert session._cancel_control is None
-            assert session._cancel_control_released == (fault != "connect_failed")
-            if fault != "connect_failed":
-                control.disconnect.assert_called_once_with()
-        build.assert_called_once_with(
-            replace(
-                session.datasource,
-                fields={"connect_timeout": 1, "read_timeout": 1, "write_timeout": 1},
-            ),
-            read_only=True,
-        )
-        assert session.submissions == []
-    finally:
-        session.close()
-    if fault == "none":
-        owned_socket.close.assert_called_once_with()
-    else:
-        fromfd.assert_not_called()
-
-
 @pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
 def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
     session: SourceSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1238,40 +875,6 @@ def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
     assert records[3]["consumed_rows"] == records[3]["consumed_arrow_bytes"] == 0
 
 
-def test_native_owner_checkpoint_failure_is_not_logged_as_a_submission(tmp_path: Path) -> None:
-    from ibis.backends import BaseBackend
-
-    from marivo.datasource.adapters import _BEFORE_SUBMIT, _CURSOR_OWNER, _native_cursor
-
-    cursor = Mock()
-    cursor.fetchmany = Mock(return_value=[])
-    cursor.close = Mock()
-    connection = Mock()
-    connection.cursor.return_value = cursor
-    backend: BaseBackend = Mock(spec=BaseBackend)
-    backend.con = connection
-
-    def checkpoint(_cursor: _Cursor) -> None:
-        raise TimeoutError("expired before native execute")
-
-    def submitted() -> None:
-        _execution_log.QueryLog(
-            "SELECT 1", backend="trino", purpose="test.prepared", project_root=tmp_path
-        )
-
-    owner_token = _CURSOR_OWNER.set(checkpoint)
-    log_token = _BEFORE_SUBMIT.set(submitted)
-    try:
-        with pytest.raises(TimeoutError, match="expired before native execute"):
-            _native_cursor(backend, "trino", "SELECT 1")
-    finally:
-        _CURSOR_OWNER.reset(owner_token)
-        _BEFORE_SUBMIT.reset(log_token)
-    cursor.execute.assert_not_called()
-    cursor.close.assert_called_once_with()
-    assert execution_records(tmp_path) == []
-
-
 def test_early_close_diagnostics_report_only_consumed_rows(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1288,54 +891,3 @@ def test_early_close_diagnostics_report_only_consumed_rows(
     completed = execution_records(session._log_root)[-1]
     assert completed["state"] == "closed_early"
     assert completed["consumed_rows"] == 1 and completed["consumed_arrow_bytes"] == 16
-
-
-def test_cancellation_worker_preserves_query_context_across_projects(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from threading import Thread
-
-    root = tmp_path / "source"
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    monkeypatch.chdir(elsewhere)
-    backend = Mock()
-    backend.name = "mysql"
-    control = Mock()
-    control.name = "mysql"
-    cursor = Mock()
-    cursor.description = ()
-    cursor.fetchall.return_value = []
-    control.raw_sql.return_value = cursor
-    control._marivo_provider_submissions = []
-    session = SourceSession(provider_for("mysql"), _datasource("mysql"), backend, project_root=root)
-    with _execution_log.scope(root, operation_id="operation", session_id="session", run_id="run"):
-        query = _execution_log.QueryLog("SELECT 1", backend="mysql", purpose="basic.rows")
-    submission = SourceSubmission("basic.rows", "facts@v1", 1, "SELECT 1")
-    session.submissions.append(submission)
-    session._query_logs[id(submission)] = query
-    session._mysql_active = submission
-    session._mysql_connection = backend.con
-    session._cancel_thread_id = 123
-    session._cancel_control = control
-    worker = Thread(target=session._request_interrupt)
-    try:
-        worker.start()
-        worker.join(2)
-        assert not worker.is_alive()
-        control.raw_sql.assert_called_once_with("KILL QUERY 123")
-        cursor.close.assert_called_once_with()
-        records = [
-            r for r in execution_records(root) if r.get("purpose") == "analysis.cancel_owned_query"
-        ]
-        assert [r["event"] for r in records] == ["query.submitted", "query.completed"]
-        assert records[0]["sql"] == "KILL QUERY 123"
-        assert records[0]["parent_query_id"] == query.context.fields["query_id"]
-        assert records[0]["query_id"] != records[0]["parent_query_id"]
-        assert records[0]["operation_id"] == "operation"
-        assert records[0]["session_id"] == "session" and records[0]["run_id"] == "run"
-        assert "interrupt_requested" not in records[0]
-        assert not (elsewhere / ".marivo").exists()
-    finally:
-        query.finish("closed_early")
-        session.close()

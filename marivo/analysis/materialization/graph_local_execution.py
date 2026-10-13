@@ -119,11 +119,9 @@ def _index_rows(
     table: pa.Table, keys: tuple[str, ...]
 ) -> dict[tuple[object, ...], dict[str, object]]:
     """Build a required index once; an encountered conflict cannot overwrite a row."""
-    from marivo.analysis.materialization.execute_deadline import check
 
     rows: dict[tuple[object, ...], dict[str, object]] = {}
     for row in _transport_rows(table):
-        check()
         key = tuple(row[column] for column in keys)
         if key in rows:
             raise _invalid("duplicate complete keys during index insertion")
@@ -789,11 +787,9 @@ def _selection_accepts(
 def _transport_part_keys(
     part: ExchangePart, keys: tuple[str, ...]
 ) -> tuple[tuple[object, ...], ...]:
-    from marivo.analysis.materialization.execute_deadline import check
 
     positions: list[tuple[object, ...]] = []
     for row in _transport_rows(cell_project(part.table, keys)):
-        check()
         positions.append(tuple(row[key] for key in keys))
     return tuple(positions)
 
@@ -935,7 +931,6 @@ def _selection_group_result(
     group: tuple[LoweredLocal, ...], source: ExchangeResult, input_binding: str
 ) -> ExchangeResult:
     """Evaluate in stage order over surviving original positions, then transport once."""
-    from marivo.analysis.materialization.execute_deadline import check
 
     keys = source.contract.key_fields
     index = _index_rows(source.primary, keys)
@@ -950,14 +945,11 @@ def _selection_group_result(
     part_keys = tuple(_transport_part_keys(part, keys) for part in parts)
     input_rows = [index]
     for stage in group:
-        check()
         survivors: list[int] = []
         for position in positions:
-            check()
             if _selection_accepts(stage.stage.node, input_rows, ordered_keys[position]):
                 survivors.append(position)
         positions = survivors
-    check()
     primary = cell_project(
         source.primary.take(pa.array(positions, type=pa.int64())),
         (*keys, "value", "cell_tag", "cell_reason"),
@@ -967,11 +959,9 @@ def _selection_group_result(
     for part, located in zip(parts, part_keys, strict=True):
         kept: list[int] = []
         for position, key in enumerate(located):
-            check()
             if key in selected_keys:
                 kept.append(position)
         restricted.append(ExchangePart(part.role, part.table.take(pa.array(kept, type=pa.int64()))))
-    check()
     return _transport_exchange(group[-1], source, input_binding, primary, tuple(restricted))
 
 
@@ -1066,10 +1056,7 @@ def _reduction_group_result(
     group: tuple[LoweredLocal, ...], source: ExchangeResult, binding: str
 ) -> ExchangeResult:
     """Compose direct key projections and finish only at the captured terminal node."""
-    from marivo.analysis.materialization.execute_deadline import check
 
-    for _member in group:
-        check()
     terminal = group[-1]
     params = terminal.stage.node.parameters
     assert isinstance(params, OriginalReduce)
@@ -1078,7 +1065,6 @@ def _reduction_group_result(
         if params.coordinates
         else _original_rollup_stage(terminal, source, binding)
     )
-    check()
     return result
 
 
@@ -1903,7 +1889,6 @@ def _coordinate_rollup_stage(
 ) -> ExchangeResult:
     params = method.stage.node.parameters
     assert isinstance(params, OriginalReduce) and params.coordinates
-    from marivo.analysis.materialization.execute_deadline import check
 
     original_contract = next(
         p for p in source.contract.signature.parts if isinstance(p, OriginalStatePart)
@@ -1980,7 +1965,6 @@ def _coordinate_rollup_stage(
     original_table = next(p.table for p in source.parts if p.role == "original_state")
     groups: dict[tuple[object, ...], list[dict[str, object]]] = {}
     for item in entries:
-        check()
         label = tuple(item[key] for key in key_fields)
         if any(value is None for value in label):
             raise _invalid("coordinate state has a missing classification")
@@ -1989,7 +1973,6 @@ def _coordinate_rollup_stage(
     state_rows: list[dict[str, object]] = []
     value_type = method.stage.node.value_type
     for label, rows in sorted(groups.items()):
-        check()
         try:
             totals, value, tag, reason = merge_original(
                 rows,
@@ -2115,10 +2098,8 @@ def _original_input(
     state_kind = REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind
     assert state_kind is not None
     entries = []
-    from marivo.analysis.materialization.execute_deadline import check
 
     for key, row in primary.items():
-        check()
         original_row = keyed[key]
         if covered[key]["coverage__complete"] is not True:
             raise _invalid("original rollup has incomplete coverage")
@@ -2625,7 +2606,6 @@ def execute_verified_fixed(
 def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -> ExchangeResult:
     """Project complete retained Subject tuples using local set-image semantics."""
     from marivo.analysis.core.model import SubjectPart
-    from marivo.analysis.materialization.execute_deadline import check
 
     subject = next(
         part for part in source.contract.signature.parts if isinstance(part, SubjectPart)
@@ -2637,7 +2617,6 @@ def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -
     seen: set[tuple[object, ...]] = set()
     indices: list[int] = []
     for index, row in enumerate(rows):
-        check()
         identity = tuple(row[name] for name in fields)
         if identity in seen:
             if subject.injective:
@@ -3050,8 +3029,6 @@ def _duration_mean(
     """Finish an exact tick sum/count once at the retained Duration unit."""
     from fractions import Fraction
 
-    from marivo.analysis.materialization.execute_deadline import check
-
     params = method.stage.node.parameters
     output_type = method.stage.node.value_type
     assert isinstance(params, RowState) and isinstance(output_type, DurationType)
@@ -3067,7 +3044,6 @@ def _duration_mean(
     else:
         values: list[int] = []
         for cell in _cells(source):
-            check()
             if not isinstance(cell, Defined) or type(cell.value) is not int:
                 raise _invalid("Duration mean requires Defined ticks; select defined observations")
             assert isinstance(cell.value, int)

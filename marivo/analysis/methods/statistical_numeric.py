@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_EVEN, Context, Decimal, localcontext
 from fractions import Fraction
@@ -11,10 +10,6 @@ from functools import lru_cache
 
 from marivo.analysis.methods.deviation_numeric import RationalFact, RootCertificate, finish
 from marivo.analysis.methods.physical import ValueType
-
-
-def unbounded() -> None:
-    """Pure arithmetic has no Runtime-owned deadline."""
 
 
 def root(value: Fraction, precision: int) -> RootCertificate:
@@ -46,9 +41,7 @@ def verify_root(certificate: RootCertificate, value: Fraction) -> bool:
     )
 
 
-def coefficient(
-    numerator: Fraction, radicand: Fraction, *, checkpoint: Callable[[], None] = unbounded
-) -> tuple[float, RootCertificate | None]:
+def coefficient(numerator: Fraction, radicand: Fraction) -> tuple[float, RootCertificate | None]:
     """Finish a bounded correlation without casting either original vector."""
     if radicand <= 0 or numerator**2 > radicand:
         raise ValueError("invalid correlation centered facts")
@@ -59,7 +52,6 @@ def coefficient(
         return float(numerator / Fraction(a, b)), None
     precision = 120
     while True:
-        checkpoint()
         certificate = root(radicand, precision)
         bounds = sorted(
             (
@@ -140,9 +132,7 @@ class QuantileCertificate:
     precision: int
 
 
-def quantile(
-    level: float, *, checkpoint: Callable[[], None] = unbounded, extra_precision: int = 0
-) -> QuantileCertificate:
+def quantile(level: float, extra_precision: int = 0) -> QuantileCertificate:
     """Invert the exact binary64 level without rounding its probability to an endpoint."""
     if type(level) is not float or not math.isfinite(level) or not 0 < level < 1:
         raise ValueError("finite float interval level in (0,1) required")
@@ -159,7 +149,6 @@ def quantile(
         lo, hi = Decimal(0), Decimal(10)
         with localcontext(ctx):
             while hi - lo > Decimal(1).scaleb(-precision + 20):
-                checkpoint()
                 mid = (lo + hi) / 2
                 lower, upper = normal_cdf_bounds(mid, precision)
                 if upper < probability:

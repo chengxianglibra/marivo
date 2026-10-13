@@ -58,7 +58,6 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.materialization.execute_deadline import check
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
     ExchangePart,
@@ -94,7 +93,6 @@ def _observation(
     grid_windows: dict[str | int, tuple[datetime, datetime]] = {}
     selections = []
     for row in selected.primary.to_pylist():
-        check()
         identity: list[str | int] = []
         for name in keys:
             value = row[name]
@@ -173,7 +171,6 @@ def _observation(
         columns["coordinate_state__present"] = []
     coordinate_rows: list[dict[str, object]] = []
     for position, rows in enumerate(restricted):
-        check()
         components = state(observation, rows)
         support = components["count" if isinstance(observation, ObserveCount) else "non_null_count"]
         total = components["count" if isinstance(observation, ObserveCount) else "sum"]
@@ -412,7 +409,6 @@ def _execute(
     completed: list[CompletedCheck] = []
     for requirement in lowered.checks:
         if isinstance(requirement, (IntegrityCheck, SemanticCheck, TemporalCheck)):
-            check()
             proof = _check(source, lowered, requirement, {})
             if proof is not None:
                 completed.append(proof)
@@ -428,7 +424,6 @@ def _execute(
     local_source_inputs = {key for item in locals_ for key in item.stage.inputs if key in relations}
     # Complete all source reads before the first local consumer.
     for stage in relations.values():
-        check()
         params = stage.node.parameters if isinstance(stage.node, MethodNode) else None
         if (
             not isinstance(
@@ -482,7 +477,6 @@ def _execute(
             results[stage.output] = _result(stage, table, (), (), retained_parts)
         tables[stage.output] = table
     for item in locals_:
-        check()
         params = item.stage.node.parameters
         for requirement in prepared.admitted.checks:
             if (
@@ -830,7 +824,6 @@ def _execute(
                     )
                 proof_digest = prior.result_digest
             completed.append(CompletedCheck(requirement, proof_digest))
-    check()
     result = results[lowered.primary_output]
     from marivo.analysis.materialization.graph_exchange import from_arrow
 

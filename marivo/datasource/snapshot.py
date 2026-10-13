@@ -7,6 +7,7 @@ import json
 import re
 from collections import Counter
 from collections.abc import Callable, Mapping
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -279,7 +280,7 @@ def _acquisition_error(
         expected=(
             "a successful bounded datasource acquisition"
             if query_executed
-            else "an enforceable adapter timeout before user-data execution"
+            else "valid native configuration and source binding before user-data execution"
         ),
         received=received,
         reason=reason,
@@ -563,14 +564,7 @@ def acquire_snapshot(
     if lookup.snapshot is not None:
         return lookup.snapshot
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
-    timeout = profile.authoring_timeout
-    if timeout is None:
-        raise _acquisition_error(
-            code="timeout_not_enforceable",
-            reason="the datasource adapter cannot enforce the requested acquisition timeout",
-            received=f"timeout_seconds={scope.timeout_seconds}",
-            scope_state=inspection.partitioning.state,
-        )
+    timeout = profile.native_query_timeout
 
     session: SourceSession | None = None
     timeout_entered = False
@@ -634,7 +628,11 @@ def acquire_snapshot(
             pushed_predicate = ()
         expression = expression.select(*columns).limit(scope.max_rows + 1)
         try:
-            with timeout(session._backend, scope.timeout_seconds):
+            with (
+                timeout(session._backend, scope.timeout_seconds)
+                if timeout is not None
+                else nullcontext()
+            ):
                 timeout_entered = True
                 execute_attempted = True
                 frame = session.collect_bounded(
@@ -650,16 +648,16 @@ def acquire_snapshot(
             failure = _backend_failure_summary(exc)
             if not timeout_entered:
                 raise _acquisition_error(
-                    code="timeout_not_enforceable",
-                    reason=f"the datasource adapter could not arm its timeout: {failure.message}",
+                    code="native_timeout_configuration_failed",
+                    reason=f"the datasource adapter could not install native timeout settings: {failure.message}",
                     received=failure.identity,
                     scope_state=inspection.partitioning.state,
                 ) from exc
             if not execute_attempted:
                 raise _acquisition_error(
-                    code="timeout_not_enforceable",
+                    code="native_timeout_configuration_failed",
                     reason=(
-                        "the datasource adapter could not enter its execution guard: "
+                        "the datasource adapter could not install native settings: "
                         f"{failure.message}"
                     ),
                     received=failure.identity,

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import builtins
 import copy
-import threading
 import time
 from collections.abc import Callable, Iterator
-from contextvars import copy_context
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, Literal, TypeAlias
 
 import pandas as pd
 from pandas.api.types import is_object_dtype
@@ -42,7 +41,6 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.runtime import (
     DatasourceConnectionService,
-    deadline_worker,
     load_datasource,
     open_backend,
 )
@@ -51,11 +49,10 @@ from marivo.refs import DatasourceKind, Ref
 from marivo.render import Card, RenderableResult, result_repr
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
-"""Default wall-clock deadline for ``md.test`` and internal connections.
+"""Default requested native timeout for connection and probe settings.
 
-Bounds both the backend-connect handshake and the Ibis literal round-trip.
-Callers may override it with a keyword ``timeout_seconds``; a non-positive
-value is rejected before any connection is attempted.
+Unsupported native settings are skipped; there is no total call deadline.
+A non-positive timeout is rejected before connection acquisition.
 """
 
 
@@ -475,12 +472,19 @@ def _connect_internal(
     *,
     project_root: Path | None = None,
     timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    terminal_timeout_seconds: int | None = None,
 ) -> _DatasourceConnection:
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
     project_root = cr.operation_root(project_root)
     datasource = load_datasource(name, project_root)
-    built = open_backend(datasource, project_root=project_root, timeout_seconds=timeout_seconds)
+    built = open_backend(
+        datasource,
+        project_root=project_root,
+        timeout_seconds=timeout_seconds,
+        read_only=terminal_timeout_seconds is not None,
+        terminal_timeout_seconds=terminal_timeout_seconds,
+    )
     connection = _DatasourceConnection(built.backend)
     connection._lease = built.lease
     cr.remember_injected(connection, built.injected)
@@ -489,9 +493,14 @@ def _connect_internal(
 
 
 def _connect(
-    name: str, *, timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS
+    name: str,
+    *,
+    timeout_seconds: int = DEFAULT_CONNECTION_TIMEOUT_SECONDS,
+    terminal_timeout_seconds: int | None = None,
 ) -> _DatasourceConnection:
-    return _connect_internal(name, timeout_seconds=timeout_seconds)
+    return _connect_internal(
+        name, timeout_seconds=timeout_seconds, terminal_timeout_seconds=terminal_timeout_seconds
+    )
 
 
 def _datasource_name(value: str | Ref[DatasourceKind]) -> str:
@@ -534,6 +543,7 @@ def _datasource_failure(
     exc: Exception,
     *,
     code: DatasourceFailureCode,
+    backend_error: Exception | None = None,
 ) -> DatasourceFailure:
     if isinstance(exc, DatasourceCredentialError):
         codes: dict[str, DatasourceFailureCode] = {
@@ -545,7 +555,7 @@ def _datasource_failure(
             "invalid-response": "credential_invalid_response",
         }
         code = codes[exc.reason]
-    summary = _backend_failure_summary(exc)
+    summary = _backend_failure_summary(backend_error or exc)
     timeout_seconds = (
         exc.timeout_seconds if isinstance(exc, DatasourceConnectionTimeoutError) else None
     )
@@ -571,128 +581,62 @@ def _release_connection(connection: _DatasourceConnection | None) -> None:
         connection._disconnect(suppress_errors=True)
 
 
-def _run_roundtrip_with_deadline(
-    fn: Callable[[dict[str, Any]], DatasourceTestResult],
+@dataclass
+class _ProbeState:
+    backend: _DatasourceConnection | None
+    phase: Literal["connection", "roundtrip"]
+    started: float
+
+
+def _run_roundtrip(
+    fn: Callable[[_ProbeState], DatasourceTestResult],
     *,
     timeout_seconds: int,
     datasource_name: str,
     project_root: Path | None = None,
 ) -> DatasourceTestResult:
-    with cr.operation_context(
-        project_root=project_root, timeout_seconds=timeout_seconds
-    ) as operation:
-        return _run_roundtrip_with_deadline_bound(
-            fn,
-            timeout_seconds=timeout_seconds,
-            datasource_name=datasource_name,
-            operation=operation,
-        )
-
-
-def _run_roundtrip_with_deadline_bound(
-    fn: Callable[[dict[str, Any]], DatasourceTestResult],
-    *,
-    operation: cr.CredentialOperation,
-    timeout_seconds: int,
-    datasource_name: str,
-) -> DatasourceTestResult:
-    """Run a full connectivity round-trip on one worker thread with a deadline.
-
-    ``fn`` performs connect + ``SELECT 1`` (+ optional secret persist) and
-    mutates ``state["backend"]`` and ``state["phase"]`` as it progresses. The
-    entire round-trip stays on a single worker thread so thread-affine backends
-    (SQLite) never cross a thread boundary.
-
-    When the deadline is exceeded the caller disconnects any backend that was
-    already opened (which also unblocks a parked network call) and returns a
-    typed timeout result whose ``code`` distinguishes the connect handshake from
-    the ``SELECT 1`` round-trip. A raised error is mapped to a failure code
-    using the phase it surfaced in.
-
-    The worker cannot be forcibly killed. A completed round-trip checks operation
-    cancellation before starting default-cache persistence. An already-started
-    cache write cannot be rolled back; injected credentials are never cached.
-    """
-    state: dict[str, Any] = {"backend": None, "phase": "connection", "started": 0.0}
-    outcome: dict[str, Any] = {}
-
-    def worker() -> None:
+    """Run a probe on the caller thread using native settings and owned cleanup."""
+    state = _ProbeState(None, "connection", time.perf_counter())
+    with cr.operation_context(project_root=project_root):
         try:
-            with deadline_worker():
-                outcome["result"] = fn(state)
-        except BaseException as exc:
-            values = cr.injected_values(state.get("backend"))
-            if values and isinstance(exc, Exception) and not isinstance(exc, DatasourceError):
-                outcome["error"] = cr.connection_error(exc, values)
-            else:
-                outcome["error"] = exc
-        finally:
-            _release_connection(state.get("backend"))
-
-    context = copy_context()
-    thread = threading.Thread(target=lambda: context.run(worker), daemon=True)
-    started = time.perf_counter()
-    state["started"] = started
-    thread.start()
-    thread.join(
-        max(0.0, (operation.deadline or time.monotonic() + timeout_seconds) - time.monotonic())
-    )
-    elapsed_ms = int((time.perf_counter() - started) * 1000)
-
-    if thread.is_alive() or operation.cancelled:
-        credential_error = operation.timeout_error()
-        if credential_error is None and isinstance(outcome.get("error"), DatasourceCredentialError):
-            credential_error = outcome["error"]
-        operation.cancel.set()
-        stage: Literal["connection_timeout", "connection_roundtrip_timeout"] = (
-            "connection_timeout"
-            if state["phase"] == "connection"
-            else "connection_roundtrip_timeout"
-        )
-        exc: Exception = credential_error or DatasourceConnectionTimeoutError(
-            stage=stage,
-            timeout_seconds=timeout_seconds,
-            elapsed_ms=elapsed_ms,
-            datasource_name=datasource_name,
-            location=f"md.test({datasource_name!r})",
-        )
-        threading.Thread(
-            target=lambda: _release_connection(state.get("backend")),
-            daemon=True,
-        ).start()
-        return DatasourceTestResult(
-            name=datasource_name,
-            ok=False,
-            latency_ms=elapsed_ms,
-            failure=_datasource_failure(exc, code=stage),
-            repair=_connection_repair(exc, failure_code=stage),
-        )
-
-    if "error" in outcome:
-        exc = outcome["error"]
-        if isinstance(exc, DatasourceCredentialScopeError):
-            raise exc
-        if isinstance(exc, DatasourceConnectionTimeoutError):
-            # The connect phase raised its own typed timeout before the outer
-            # deadline fired; keep the precise stage instead of the generic
-            # phase-based classification.
+            return fn(state)
+        except DatasourceCredentialScopeError:
+            raise
+        except Exception as error:
+            backend = state.backend.backend if state.backend is not None else None
+            exc = cr.safe_backend_exception(error, backend)
+            original = exc
+            native_code = getattr(error, "code", None)
+            if native_code is None and error.args and type(error.args[0]) is int:
+                native_code = error.args[0]
+            native_timeout = (
+                isinstance(error, TimeoutError)
+                or (type(native_code) in (int, str) and str(native_code) in {"3024", "159"})
+                or getattr(error, "error_name", None) == "EXCEEDED_TIME_LIMIT"
+            )
+            if native_timeout:
+                exc = DatasourceConnectionTimeoutError(
+                    stage="connection_roundtrip_timeout"
+                    if state.phase == "roundtrip"
+                    else "connection_timeout",
+                    timeout_seconds=timeout_seconds,
+                    elapsed_ms=int((time.perf_counter() - state.started) * 1000),
+                    datasource_name=datasource_name,
+                )
+            failure_code = (
+                exc.stage
+                if isinstance(exc, DatasourceConnectionTimeoutError)
+                else _failure_code_for_phase(state.phase)
+            )
             return DatasourceTestResult(
                 name=datasource_name,
                 ok=False,
-                latency_ms=elapsed_ms,
-                failure=_datasource_failure(exc, code=exc.stage),
-                repair=_connection_repair(exc, failure_code=exc.stage),
+                latency_ms=int((time.perf_counter() - state.started) * 1000),
+                failure=_datasource_failure(exc, code=failure_code, backend_error=original),
+                repair=_connection_repair(exc, failure_code=failure_code),
             )
-        failure_code = _failure_code_for_phase(state["phase"])
-        return DatasourceTestResult(
-            name=datasource_name,
-            ok=False,
-            latency_ms=elapsed_ms,
-            failure=_datasource_failure(exc, code=failure_code),
-            repair=_connection_repair(exc, failure_code=failure_code),
-        )
-
-    return cast("DatasourceTestResult", outcome["result"])
+        finally:
+            _release_connection(state.backend)
 
 
 def test(
@@ -704,8 +648,8 @@ def test(
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
-        timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the Ibis literal round-trip. Defaults to
+        timeout_seconds: Requested native connection and probe-query timeouts.
+            Unsupported query timeouts are skipped. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
 
@@ -728,11 +672,10 @@ def test(
         is always disconnected. Actual probe SQL and execution diagnostics are
         always written to project-local ``.marivo/logs/`` independently of telemetry.
 
-        Both the connect handshake and the Ibis literal round-trip are bounded
-        by a Marivo-side wall-clock deadline; neither depends on the backend's
-        own query timeout. If the deadline is exceeded the call fails closed
-        rather than blocking indefinitely, even when the backend itself cannot
-        be interrupted.
+        The caller thread performs connection and the Ibis literal probe.
+        Native connection, network and query settings have separate backend-defined
+        meanings. Unsupported query timeouts are skipped; there is no total
+        call deadline and cleanup may wait for the driver.
     """
     return _test_in_project(name, timeout_seconds=timeout_seconds, project_root=None)
 
@@ -747,25 +690,32 @@ def _test_in_project(
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
 
-    def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
+    def roundtrip(state: _ProbeState) -> DatasourceTestResult:
         connection = (
-            _connect(datasource_name, timeout_seconds=timeout_seconds)
+            _connect(
+                datasource_name,
+                timeout_seconds=timeout_seconds,
+                terminal_timeout_seconds=timeout_seconds,
+            )
             if project_root is None
             else _connect_internal(
-                datasource_name, project_root=project_root, timeout_seconds=timeout_seconds
+                datasource_name,
+                project_root=project_root,
+                timeout_seconds=timeout_seconds,
+                terminal_timeout_seconds=timeout_seconds,
             )
         )
-        state["backend"] = connection
-        state["phase"] = "roundtrip"
+        state.backend = connection
+        state.phase = "roundtrip"
         from marivo.datasource.adapters import provider_for
 
         selected_backend = connection.backend
-        provider_for(selected_backend.name).probe(selected_backend)
-        with cr.operation_context() as operation:
-            if operation.cancelled:
-                raise TimeoutError("Datasource round-trip was cancelled before persistence.")
+        profile = provider_for(selected_backend.name)
+        timeout = profile.native_query_timeout
+        with timeout(selected_backend, timeout_seconds) if timeout is not None else nullcontext():
+            profile.probe(selected_backend)
         _secrets.try_persist_backend_env_sourced(connection)
-        latency_ms = int((time.perf_counter() - state["started"]) * 1000)
+        latency_ms = int((time.perf_counter() - state.started) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
@@ -775,7 +725,7 @@ def _test_in_project(
         )
 
     with _execution_log.scope(project_root, datasource=datasource_name):
-        return _run_roundtrip_with_deadline(
+        return _run_roundtrip(
             roundtrip,
             timeout_seconds=timeout_seconds,
             datasource_name=datasource_name,
@@ -793,8 +743,8 @@ def test_no_persist(
 
     Args:
         name: The datasource name or ``Ref[DatasourceKind]`` to test.
-        timeout_seconds: Wall-clock deadline for the backend-connect handshake
-            and the Ibis literal round-trip. Defaults to
+        timeout_seconds: Requested native connection and probe-query timeouts.
+            Unsupported query timeouts are skipped. Defaults to
             ``DEFAULT_CONNECTION_TIMEOUT_SECONDS``. A non-positive value is
             rejected before any connection is attempted.
         project_root: Optional project root for tests and embedded callers.
@@ -810,27 +760,31 @@ def test_no_persist(
         Does not write ``~/.marivo/secrets.toml``. The backend is always
         disconnected. Actual probe SQL is recorded in project-local execution logs.
 
-        Both the connect handshake and the Ibis literal round-trip are bounded
-        by a Marivo-side wall-clock deadline; if the deadline is exceeded the
-        call fails closed rather than blocking indefinitely.
+        Native connection and probe-query settings are independent requests.
+        Unsupported query timeouts are skipped. No client deadline limits the
+        complete call or cleanup.
     """
     datasource_name = _datasource_name(name)
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")
 
-    def roundtrip(state: dict[str, Any]) -> DatasourceTestResult:
+    def roundtrip(state: _ProbeState) -> DatasourceTestResult:
         connection = _connect_internal(
             datasource_name,
             project_root=project_root,
             timeout_seconds=timeout_seconds,
+            terminal_timeout_seconds=timeout_seconds,
         )
-        state["backend"] = connection
-        state["phase"] = "roundtrip"
+        state.backend = connection
+        state.phase = "roundtrip"
         from marivo.datasource.adapters import provider_for
 
         selected_backend = connection.backend
-        provider_for(selected_backend.name).probe(selected_backend)
-        latency_ms = int((time.perf_counter() - state["started"]) * 1000)
+        profile = provider_for(selected_backend.name)
+        timeout = profile.native_query_timeout
+        with timeout(selected_backend, timeout_seconds) if timeout is not None else nullcontext():
+            profile.probe(selected_backend)
+        latency_ms = int((time.perf_counter() - state.started) * 1000)
         return DatasourceTestResult(
             name=datasource_name,
             ok=True,
@@ -840,7 +794,7 @@ def test_no_persist(
         )
 
     with _execution_log.scope(project_root, datasource=datasource_name):
-        return _run_roundtrip_with_deadline(
+        return _run_roundtrip(
             roundtrip,
             timeout_seconds=timeout_seconds,
             datasource_name=datasource_name,
@@ -894,9 +848,9 @@ def raw_sql(
             The statement executes verbatim, without parsing, rewriting, or an injected row limit.
         reason: Required exploration reason shown in the result. Name the
             physical or semantic question and disclose inferred assumptions.
-        timeout_seconds: Backend execution timeout; fail-closed if unenforceable.
-            Connection acquisition has a separate default 30-second handshake
-            budget. This value is not an end-to-end operation deadline.
+        timeout_seconds: Requested native query timeout; skipped when unsupported.
+            Connection acquisition requests separate native 30-second settings.
+            This value does not bound the complete call or fetching.
         include_types: Whether to include returned column type labels when available.
         project_root: Optional project root for tests and embedded callers.
 
@@ -921,9 +875,9 @@ def raw_sql(
         database-side permissions: use an account denied writes. Marivo does not
         parse SQL for write detection or enforce read-only execution on Trino.
 
-        The backend timeout remains armed during execution and complete result
-        fetching. An unenforceable timeout raises ``DatasourceRawSqlError`` before
-        the user statement executes. Execution or fetching failures raise a
+        Query timeout coverage follows the backend's native semantics; it does
+        not guarantee a total execution-and-fetching deadline. Unsupported native
+        query timeouts do not block execution. Configuration, execution or fetching failures raise a
         ``DatasourceRawSqlError`` without returning a partial result, and the
         backend is always disconnected. Errors do not certify absence of side effects.
 
@@ -956,20 +910,7 @@ def raw_sql(
         )
     backend_type = datasource_ir.backend_type
     profile = require_profile_for_backend_type(backend_type)
-    timeout = profile.authoring_timeout
-    if timeout is None:
-        raise DatasourceRawSqlError(
-            message="raw_sql failed: backend profile has no enforceable timeout.",
-            expected="a backend profile with authoring_timeout configured",
-            received=f"backend_type={backend_type!r} has no authoring_timeout",
-            location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
-            effect_observed=DatasourceObservedEffects(query_executed=False),
-            repair=repair(
-                kind="configure",
-                canonical_id="raw_sql",
-                action="Configure authoring_timeout for this backend profile before retrying.",
-            ),
-        )
+    timeout = profile.native_query_timeout
     service = DatasourceConnectionService(project_root)
     with service.use_backend(
         datasource_id,
@@ -979,7 +920,7 @@ def raw_sql(
         start = time.monotonic()
         query_started = False
         try:
-            with timeout(backend, timeout_seconds):
+            with timeout(backend, timeout_seconds) if timeout is not None else nullcontext():
                 query_started = True
                 with (
                     _execution_log.QueryLog(
@@ -1007,15 +948,15 @@ def raw_sql(
         except Exception as exc:
             if not query_started:
                 raise DatasourceRawSqlError(
-                    message="raw_sql timeout control is unavailable before execution.",
-                    expected="an enforceable backend timeout for this connection",
+                    message="raw_sql native timeout configuration failed before execution.",
+                    expected="native timeout settings supported by this connection",
                     received=type(exc).__name__,
                     location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
                     effect_observed=DatasourceObservedEffects(query_executed=False),
                     repair=repair(
                         kind="configure",
                         canonical_id="raw_sql",
-                        action="Use a backend connection with an enforceable query timeout.",
+                        action="Repair the reported native connection settings or permissions and retry.",
                     ),
                 ) from exc
             raise DatasourceRawSqlError(

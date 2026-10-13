@@ -388,12 +388,14 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
         *,
         read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
+        connection_timeout_seconds: int | None = None,
     ) -> BuiltDatasourceBackend:
         built = original(
             datasource,
             effective,
             read_only=read_only,
             terminal_timeout_seconds=terminal_timeout_seconds,
+            connection_timeout_seconds=connection_timeout_seconds,
         )
         backend = built.backend
         assert isinstance(backend, Backend)

@@ -13,7 +13,6 @@ import pyarrow as pa
 
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.rules import ObserveCount, ObserveMetric
-from marivo.analysis.materialization.execute_deadline import check
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +30,6 @@ def restrict(
     by_subject: dict[tuple[str | int, ...], list[Mapping[str, object]]] = {}
     member_names = tuple(name for name in candidates.column_names if name.startswith("member_"))
     for row in candidates.to_pylist():
-        check()
         subject: list[str | int] = []
         for name in member_names:
             value = row[name]
@@ -47,7 +45,6 @@ def restrict(
         fail("input_binding", "duplicate complete selected instance keys", stage="consume")
     result = []
     for selection in selections:
-        check()
         if (
             len(selection.subject) != len(member_names)
             or selection.start.utcoffset() is None
@@ -57,7 +54,6 @@ def restrict(
             fail("preparation_bounds", "invalid actual member/time window", stage="consume")
         rows = []
         for row in by_subject.get(selection.subject, []):
-            check()
             point = row["event_time"]
             if not isinstance(point, datetime) or point.utcoffset() is None:
                 fail(
@@ -74,7 +70,6 @@ def restrict(
 def state(
     params: ObserveMetric | ObserveCount, rows: tuple[Mapping[str, object], ...]
 ) -> dict[str, int | float | Decimal]:
-    check()
     if isinstance(params, ObserveCount):
         if len(rows) >= 2**63:
             fail("numeric_state", "count exceeds int64", stage="consume")
@@ -89,7 +84,6 @@ def state(
         total_exact = Fraction()
         non_null = 0
         for row in rows:
-            check()
             value = row["amount"]
             if value is None:
                 continue
@@ -110,7 +104,6 @@ def state(
         return {"sum": total_decimal, "non_null_count": non_null}
     amounts: list[int | float] = []
     for row in rows:
-        check()
         value = row["amount"]
         if value is None:
             continue

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from dataclasses import dataclass
-from threading import Timer
 from typing import TYPE_CHECKING, Any
 
 from ibis.backends import BaseBackend
@@ -468,20 +466,6 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
     )
 
 
-@contextmanager
-def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
-    connection = getattr(backend, "con", None)
-    interrupt = getattr(connection, "interrupt", None)
-    if not callable(interrupt):
-        raise RuntimeError("duckdb backend does not expose connection.interrupt()")
-    timer = Timer(timeout_seconds, interrupt)
-    try:
-        timer.start()
-        yield
-    finally:
-        timer.cancel()
-
-
 PROFILE = EngineProfile(
     name="duckdb",
     aliases=(),
@@ -497,7 +481,7 @@ PROFILE = EngineProfile(
     authoring_capabilities=AuthoringCapabilities(
         partition_predicate_supported=True,
         transformed_partition_supported=False,
-        timeout_enforced=True,
+        timeout_enforced=False,
         byte_estimate_supported=False,
     ),
     translate_strptime_format=identity_str,
@@ -506,6 +490,6 @@ PROFILE = EngineProfile(
     exact_quantile=True,
     quantile=QuantileCapability(mode="exact", method="linear_interpolation"),
     percentile_uses_approx_quantile=False,
-    authoring_timeout=authoring_timeout,
+    native_query_timeout=None,
     http_credentials=http_credentials,
 )
