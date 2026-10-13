@@ -29,7 +29,6 @@ from marivo.semantic.dtos import (
     PreviewBatchResult,
 )
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessReport
-from marivo.semantic.richness import RichnessReport
 
 datasource_ref = ref_factory.datasource
 
@@ -187,10 +186,6 @@ def _readiness_report() -> ReadinessReport:
     )
 
 
-def _richness_report() -> RichnessReport:
-    return RichnessReport(gaps=(), checked_at="2026-06-09T00:00:00Z")
-
-
 TERMINAL_BUILDERS: list = [
     pytest.param(_preview_result, id="PreviewResult"),
     pytest.param(_preview_batch_result, id="PreviewBatchResult"),
@@ -202,7 +197,6 @@ TERMINAL_BUILDERS: list = [
     pytest.param(_session_summary, id="SessionSummary"),
     pytest.param(_authoring_assessment, id="AuthoringAssessment"),
     pytest.param(_readiness_report, id="ReadinessReport"),
-    pytest.param(_richness_report, id="RichnessReport"),
 ]
 
 
@@ -378,16 +372,6 @@ def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:
             "- .input_summary",
             "- .blockers",
             "- .warnings",
-        ]
-    )
-    assert _richness_report().render() == "\n".join(
-        [
-            "RichnessReport gaps=0",
-            "gaps: none",
-            "checked_at: 2026-06-09T00:00:00Z",
-            "available:",
-            "- .show()",
-            "- .to_dict()",
         ]
     )
 

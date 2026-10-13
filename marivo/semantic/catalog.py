@@ -3936,7 +3936,7 @@ def _certification_capture(
                 else nullcontext()
             ),
         ):
-            table = resolver.table(ref_factory.entity(entity_id)).select(*columns)
+            table = resolver.entity(ref_factory.entity(entity_id)).select(*columns)
             source_owner = connections.source_session(
                 bindings.datasource_id, registry.datasources[bindings.datasource_id]
             )
@@ -5647,7 +5647,7 @@ class SemanticCatalog(RenderableResult):
                 source_bindings=bindings.source_bindings,
             )
             if kind == SemanticKind.ENTITY:
-                table = resolver.table(_make_ref(ref_str, SemanticKind.ENTITY))
+                table = resolver.entity(_make_ref(ref_str, SemanticKind.ENTITY))
                 return preview_with_source(
                     table,
                     kind="semantic_dataset",
@@ -5661,7 +5661,7 @@ class SemanticCatalog(RenderableResult):
                 )
             if kind == SemanticKind.MEASURE:
                 measure_ir = reg.measures[ref_str]
-                parent_table = resolver.table(_make_ref(measure_ir.entity, SemanticKind.ENTITY))
+                parent_table = resolver.entity(_make_ref(measure_ir.entity, SemanticKind.ENTITY))
                 measure_value = resolver.measure(_make_ref(ref_str, SemanticKind.MEASURE))
                 measure_column_name = ref_str.rsplit(".", 1)[-1]
                 preview_table = parent_table.select(measure_value.name(measure_column_name))
@@ -5678,7 +5678,7 @@ class SemanticCatalog(RenderableResult):
                 )
             if is_field_preview:
                 field_ir = reg.dimensions[ref_str]
-                parent_table = resolver.table(_make_ref(field_ir.entity, SemanticKind.ENTITY))
+                parent_table = resolver.entity(_make_ref(field_ir.entity, SemanticKind.ENTITY))
                 field_value = resolver.dimension(cast("Ref[FieldKind]", _make_ref(ref_str, kind)))
                 field_column_name = ref_str.rsplit(".", 1)[-1]
                 report_tz = system_timezone_name()
@@ -5775,8 +5775,8 @@ class SemanticCatalog(RenderableResult):
                 )
             if kind == SemanticKind.RELATIONSHIP:
                 relationship = reg.relationships[ref_str]
-                left = resolver.table(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
-                right = resolver.table(_make_ref(relationship.to_entity, SemanticKind.ENTITY))
+                left = resolver.entity(_make_ref(relationship.from_entity, SemanticKind.ENTITY))
+                right = resolver.entity(_make_ref(relationship.to_entity, SemanticKind.ENTITY))
                 left_names: list[str] = []
                 right_names: list[str] = []
                 left_values = []
@@ -6063,7 +6063,7 @@ class SemanticCatalog(RenderableResult):
             entity_scopes=bindings.entity_scopes,
             source_bindings=bindings.source_bindings,
         )
-        parent_table = resolver.table(_make_ref(entity_id, SemanticKind.ENTITY))
+        parent_table = resolver.entity(_make_ref(entity_id, SemanticKind.ENTITY))
         raw_columns = tuple(parent_table.columns)
         include_entity = any(item.kind == SemanticKind.ENTITY for item in items)
         raw_selected = set(raw_columns if include_entity else ())
@@ -6192,7 +6192,7 @@ class SemanticCatalog(RenderableResult):
                 resolver.metric(cast("Ref[MetricKind]", item.ref)).name(alias)
                 for item, alias in zip(items, aliases, strict=True)
             )
-            parent_table = resolver.table(_make_ref(bindings.entity_ids[0], SemanticKind.ENTITY))
+            parent_table = resolver.entity(_make_ref(bindings.entity_ids[0], SemanticKind.ENTITY))
             preview_table = parent_table.aggregate(list(values))
         else:
             metric_tables = tuple(

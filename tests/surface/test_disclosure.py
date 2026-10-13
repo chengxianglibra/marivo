@@ -94,12 +94,6 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
     assert capsys.readouterr().out == ""
 
 
-def test_richness_is_silent(semantic_project_factory, capsys) -> None:
-    project = _make_project(semantic_project_factory)
-    project.richness()
-    assert capsys.readouterr().out == ""
-
-
 # ---------------------------------------------------------------------------
 # repr() is one line and hints .show()
 # ---------------------------------------------------------------------------

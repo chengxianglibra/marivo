@@ -314,7 +314,7 @@ def test_readiness_never_uses_discovery_or_preview_history(
     assert "runtime_preview_missing" not in kinds
 
 
-def test_business_context_is_advisory_richness_only(semantic_project_factory) -> None:
+def test_missing_business_context_does_not_block_readiness(semantic_project_factory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN,
@@ -334,16 +334,9 @@ def test_business_context_is_advisory_richness_only(semantic_project_factory) ->
     )
 
     readiness = project.readiness(refs=("sales.revenue",))
-    richness = project.richness()
-
     assert readiness.status == "ready"
     assert not readiness.blockers
     assert not readiness.warnings
-    gaps = {(gap.subkind, ref) for gap in richness.gaps for ref in gap.refs}
-    assert ("missing_business_definition", "sales.orders") in gaps
-    assert ("missing_guardrails", "sales.orders.region") in gaps
-    assert ("missing_business_definition", "sales.orders.amount") in gaps
-    assert ("missing_guardrails", "sales.revenue") in gaps
 
 
 def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_path: Path) -> None:

@@ -739,7 +739,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo.semantic.catalog import CalendarPeriodPage, TemporalOccurrencePage
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport
-    from marivo.semantic.richness import RichnessReport
     from marivo.semantic.source_health import SourceHealthCheckResult, SourceHealthReport
 
     result_types = (
@@ -748,7 +747,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
         ReadinessReport,
         SourceHealthReport,
         SourceHealthCheckResult,
-        RichnessReport,
         CalendarPeriodPage,
         TemporalOccurrencePage,
     )

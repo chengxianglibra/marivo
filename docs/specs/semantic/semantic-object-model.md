@@ -809,8 +809,7 @@ raises `INCOMMENSURABLE_LINEAR_UNITS` when terms carry ≥2 distinct known units
 label-independent). Units never perform value conversion: relabeling `ms` as `s`
 does not divide by 1000, and a currency unit does not authorize an exchange-rate
 conversion. Such conversions require an explicitly governed expression and its
-business inputs. `None` is always valid
-(richness-advisory only, never a readiness blocker).
+business inputs. `None` represents a valid unknown unit and is not inferred.
 
 Automatic derivation uses one bounded grammar shared by catalog and runtime
 typed aggregation. `1` is the empty product; `.` joins product atoms; one `/`

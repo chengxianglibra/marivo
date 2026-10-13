@@ -80,10 +80,6 @@ class SemanticResolver:
         ref = _require_kind(self.catalog, entity_ref, expected=(SemanticKind.ENTITY,))
         return self._materializer.entity(ref)
 
-    def table(self, entity_ref: Ref[EntityKind]) -> ibis.Table:
-        """Private compatibility spelling for tabular preview internals."""
-        return self.entity(entity_ref)
-
     def dimension(self, ref_value: Ref[FieldKind]) -> ir.Value:
         ref = _require_kind(
             self.catalog,

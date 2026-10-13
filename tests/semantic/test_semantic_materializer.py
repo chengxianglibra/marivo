@@ -107,7 +107,7 @@ def _materialize_dataset(project, ref: str, *, source_bindings=None):
         ._semantic_resolver(
             connections=project._connection_service(), source_bindings=source_bindings
         )
-        .table(make_ref(ref, SemanticKind.ENTITY))
+        .entity(make_ref(ref, SemanticKind.ENTITY))
     )
 
 

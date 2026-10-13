@@ -960,7 +960,7 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
     with patch.object(project, "_connection_service", return_value=fake_service):
         catalog = SemanticCatalog(project)
         resolver = catalog._semantic_resolver(connections=project._connection_service())
-        table = resolver.table(make_ref("sales.orders", SemanticKind.ENTITY))
+        table = resolver.entity(make_ref("sales.orders", SemanticKind.ENTITY))
 
         field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
     assert field_expr is not None
@@ -1182,7 +1182,7 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
         result = (
             SemanticCatalog(project)
             ._semantic_resolver(connections=project._connection_service())
-            .table(make_ref("sales.orders", SemanticKind.ENTITY))
+            .entity(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
@@ -1245,7 +1245,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
         result = (
             SemanticCatalog(project)
             ._semantic_resolver(connections=project._connection_service())
-            .table(make_ref("sales.orders", SemanticKind.ENTITY))
+            .entity(make_ref("sales.orders", SemanticKind.ENTITY))
         )
     assert isinstance(result, ibis.expr.types.Table)
 

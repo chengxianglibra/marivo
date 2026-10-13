@@ -112,7 +112,6 @@ empty collections into one summary.
 | `catalog.preview_many(entries_or_refs, scope=scope_or_mapping, source_bindings=None)` | Validate an ordered batch and its complete exact entity-ref scope mapping before connection. |
 | `catalog.source_health(entries_or_refs, checks=(), scope=None)` | Check current connectivity and schema/capability identity, plus only explicitly declared bounded data expectations, independently from readiness. |
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
-| `ms.richness(demand=None)` | Advisory demand-ranked coverage/depth report. |
 
 Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
@@ -654,7 +653,7 @@ Loader/layout errors obtain these repair targets, path templates, and fragments
 from the same semantic registry used by focused help. An error does not embed a
 second handwritten workflow.
 
-## Readiness and richness
+## Readiness
 
 Two checks sit at the end of the write loop:
 
@@ -703,11 +702,6 @@ Two checks sit at the end of the write loop:
   dimension with no `parse` is not inferred from historical preview types.
   Current preview reports a `time_parse_risk` warning when it directly observes
   a native timezone-naive timestamp.
-- **`ms.richness(demand=None)`** returns a demand-ranked `RichnessReport`. It is
-  purely advisory — it never blocks and never mutates readiness — and seeds
-  ranking from example questions, analysis intents, run-history refs, and the
-  build purpose.
-
 `ms.load()` is the authoritative project-level static validation event. Author a
 dependency-coherent slice, load once, repair reported structural errors, and
 confirm every exact authored root with `catalog.require(ref)`.
@@ -717,8 +711,8 @@ metadata cannot confirm them. Authoring may then run an explicitly scoped
 preview against the current datasource; loading alone does not prove that a
 declared physical column exists or is queryable, and preview does not alter
 readiness.
-`ms.load()`, scoped readiness, and `ms.richness()` return bounded result
-objects with `.show()` / `.render()`. None executes historical SQL.
+`ms.load()` and scoped readiness return bounded result objects with `.show()` /
+`.render()`. Neither executes historical SQL.
 
 ## Explicit source health
 

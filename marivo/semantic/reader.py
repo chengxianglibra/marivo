@@ -34,11 +34,6 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
-from marivo.semantic.richness import (
-    DemandSignal,
-    RichnessReport,
-    build_richness_report,
-)
 from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
@@ -152,11 +147,6 @@ class SemanticProject:
     def workspace_dir(self) -> Path:
         """Return the workspace directory path."""
         return self._workspace_dir
-
-    @property
-    def root(self) -> Path:
-        """Return the semantic root path for compatibility."""
-        return self._semantic_root
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -412,18 +402,3 @@ class SemanticProject:
 
         scoped_refs = list(refs) if refs is not None else None
         return build_readiness_report(self, refs=scoped_refs)
-
-    # -- richness -----------------------------------------------------------
-
-    def richness(
-        self,
-        *,
-        demand: DemandSignal | None = None,
-    ) -> RichnessReport:
-        """Return a demand-ranked advisory richness report.
-
-        Pure advisory: it never blocks and never mutates readiness. ``demand``
-        seeds coverage/depth ranking from example questions, analysis intents,
-        run-history refs, and the build purpose.
-        """
-        return build_richness_report(self, demand=demand)

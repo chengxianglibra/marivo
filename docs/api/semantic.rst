@@ -107,7 +107,6 @@ Readiness & runtime checks
    :toctree: api/
    :nosignatures:
 
-   richness
 
 ``catalog.source_health(refs, checks=..., scope=...)`` independently checks
 current connectivity, physical schema/capability identity, and only explicitly
@@ -233,7 +232,6 @@ Readiness & assessment
    ReadinessReport
    ReadinessIssue
    ReadinessInputSummary
-   RichnessReport
    PreviewBatchResult
    SourceHealthReport
    SourceHealthCheckResult

@@ -65,7 +65,6 @@ OUTPUT_FAMILIES = frozenset(
         "RelationshipMatchesSourceCheck",
         "RelationshipCardinalitySourceCheck",
         "SourceHealthReport",
-        "RichnessReport",
         "Ref",
         "Ref[domain]",
         "Ref[datasource]",
@@ -165,7 +164,6 @@ INPUT_FAMILIES = frozenset(
         "TimeFold",
         "JoinKey",
         "RelationshipEndpoint",
-        "DemandSignal",
         "RelTol",
         "AbsTol",
         "ForceFlag",
@@ -1193,7 +1191,7 @@ def _check_topic() -> SemanticCheckTopic:
 
     return SemanticCheckTopic(
         canonical_id="checks",
-        summary="Choose inspection, readiness, preview, health, parity, or richness by proof need.",
+        summary="Choose inspection, readiness, preview, health, or parity by proof need.",
         routes=(
             route(
                 "What physical source, schema, columns, and types exist?",
@@ -1238,12 +1236,6 @@ def _check_topic() -> SemanticCheckTopic:
                 (_target("source_health"),),
                 "Ephemeral current source evidence for declared checks.",
                 "Business approval or readiness mutation.",
-            ),
-            route(
-                "Is the semantic project rich enough for current demand?",
-                (_target("richness"),),
-                "Demand-ranked advisory gaps.",
-                "A readiness blocker or execution failure.",
             ),
         ),
     )
@@ -2201,7 +2193,6 @@ _PARAMETER_NAMES_BY_CAPABILITY: Mapping[str, tuple[tuple[str, ...], ...]] = Mapp
         "preview_many": ((), ("refs",), ("scope",), ("source_bindings",)),
         "source_health": ((), ("refs",), ("checks",), ("scope",)),
         "readiness": ((), ("refs",)),
-        "richness": (("demand",),),
         "SemanticCatalog.items": ((), ("kind",)),
         "SemanticCatalog.require": ((), ("ref",)),
         "CatalogCollection.get": ((), ("key",)),
@@ -3169,15 +3160,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # ------------------------------------------------------------------
         # diagnostics_boundaries
         # ------------------------------------------------------------------
-        _capability(
-            "richness",
-            "marivo.semantic.richness",
-            "Return a demand-ranked advisory richness report.",
-            output="RichnessReport",
-            inputs=(_optional_input("dependency", "DemandSignal"),),
-            effects=_LOCAL,
-            example="report = ms.richness()",
-        ),
         # ------------------------------------------------------------------
         # SemanticCatalog methods
         # ------------------------------------------------------------------
@@ -3294,7 +3276,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ReadinessIssue,
         ReadinessReport,
     )
-    from marivo.semantic.richness import RichnessReport
     from marivo.semantic.source_health import (
         SourceCheckNamespace,
         SourceHealthCheckResult,
@@ -3715,13 +3696,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "SourceCheckNamespace",
         ("source_check",),
         methods=factory_methods("source_check"),
-    )
-    add(
-        RichnessReport,
-        "RichnessReport",
-        ("richness",),
-        properties=("gaps", "checked_at"),
-        methods=("show", "render", "to_dict"),
     )
     add(
         ReadinessInputSummary,

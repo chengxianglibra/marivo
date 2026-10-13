@@ -23,8 +23,6 @@ Public surface::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from marivo.refs import (
     PeriodCalendarKind,
     Ref,
@@ -124,7 +122,6 @@ from marivo.semantic.readiness import (
     ReadinessIssue,
     ReadinessReport,
 )
-from marivo.semantic.richness import RichnessReport
 from marivo.semantic.source_health import (
     SourceCheck,
     SourceHealthCheckResult,
@@ -132,41 +129,6 @@ from marivo.semantic.source_health import (
     source_check,
 )
 from marivo.semantic.typing import AiContextValue
-
-if TYPE_CHECKING:
-    from marivo.semantic.richness import DemandSignal
-
-
-def richness(
-    *,
-    demand: DemandSignal | None = None,
-) -> RichnessReport:
-    """Return a demand-ranked advisory richness report.
-
-    Pure advisory: it never blocks and never mutates readiness. ``demand``
-    seeds coverage/depth ranking from example questions, analysis intents,
-    run-history refs, and the build purpose.
-
-    Args:
-        demand: Optional demand signal for ranking richness gaps.
-
-    Returns:
-        RichnessReport with demand-ranked coverage and depth gaps.
-
-    Example:
-        >>> import marivo.semantic as ms
-        >>> report = ms.richness()
-        >>> report.show()
-
-    Constraints:
-        Advisory only — does not block readiness certification or runtime analysis.
-    """
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject()
-    project.load()
-    return project.richness(demand=demand)
-
 
 __all__ = [
     "AggregateFoldInput",
@@ -202,7 +164,6 @@ __all__ = [
     "Ref",
     "RelationshipDetails",
     "RelationshipEntry",
-    "RichnessReport",
     "SemanticCatalog",
     "SemanticDefinition",
     "SemanticDefinitionReadError",
@@ -250,7 +211,6 @@ __all__ = [
     "ratio",
     "ref",
     "relationship",
-    "richness",
     "snapshot",
     "source_check",
     "strptime",

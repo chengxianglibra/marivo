@@ -815,7 +815,7 @@ def _field_frame(
     scope: AuthoringScope,
 ) -> pd.DataFrame:
     entity_id = _field_owner(registry, fields[0])
-    table = resolver.table(ref_factory.entity(entity_id)).limit(scope.max_rows)
+    table = resolver.entity(ref_factory.entity(entity_id)).limit(scope.max_rows)
     values = [
         _materialized_field(resolver, field, table).name(f"value_{index}")
         for index, field in enumerate(fields)
@@ -981,8 +981,8 @@ def _relationship_frames(
     relationship = registry.relationships[relationship_ref.path]
     left_id = relationship.from_entity
     right_id = relationship.to_entity
-    left = resolver.table(ref_factory.entity(left_id)).limit(scopes[left_id].max_rows)
-    right = resolver.table(ref_factory.entity(right_id)).limit(scopes[right_id].max_rows)
+    left = resolver.entity(ref_factory.entity(left_id)).limit(scopes[left_id].max_rows)
+    right = resolver.entity(ref_factory.entity(right_id)).limit(scopes[right_id].max_rows)
     left_values = []
     right_values = []
     for index, key in enumerate(relationship.keys):
