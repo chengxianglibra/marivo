@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal, NoReturn
@@ -271,51 +270,6 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
         assert _publications(work.session) == before
         runs = work.session.runs().items
         assert len(runs) == 1 and isinstance(runs[0], FailedRun)
-        assert work.session._runtime.store.resources(work.session.id) == ()
-
-
-def test_sqlite_field_consumption_rejects_owner_removed_after_key_check(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with workload("sqlite", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        logical = work.session.members(ms.ref.entity("cost.facts")).read(
-            ms.ref.dimension("cost.subjects.sid"), via=ms.ref.relationship("cost.facts_subject")
-        )
-        original = SourceSession.batches
-        purposes: list[str] = []
-        changed: list[bool] = []
-
-        def read(
-            source: SourceSession, issued: CompiledRead, *, chunk_size: int
-        ) -> SourceBatchStream:
-            if issued.purpose == "analysis.graph.stage":
-                assert "analysis.graph.check" in purposes
-                with sqlite3.connect(tmp_path / "r96.sqlite") as connection:
-                    connection.execute(
-                        "DELETE FROM r96_subjects WHERE sid=1",
-                    )
-                changed.append(True)
-            purposes.append(issued.purpose)
-            return original(source, issued, chunk_size=chunk_size)
-
-        monkeypatch.setattr(SourceSession, "batches", read)
-        _forbid_staging(monkeypatch)
-        before = _publications(work.session)
-        with pytest.raises(MaterializationError) as missing:
-            logical.execute()
-        assert changed == [True]
-        assert missing.value.expected == (
-            "an owner operand for cost.subjects.sid on every consumed complete key"
-        )
-        assert (
-            missing.value.received
-            == "required field owner operand is missing for 5 consumed complete keys"
-        )
-        assert missing.value.repair is not None
-        assert _publications(work.session) == before
-        assert purposes.count("analysis.graph.stage") == 1
-        assert missing.value.run_ref is not None
-        assert work.session.get_run(missing.value.run_ref).lifecycle == "failed"
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 

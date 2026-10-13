@@ -189,7 +189,6 @@ def preflight_entities(
     datasource = registry.datasources[datasource_path]
     if datasource.backend_type not in (
         "duckdb",
-        "sqlite",
         "postgres",
         "mysql",
         "trino",
@@ -219,8 +218,6 @@ def preflight_entities(
                     if datasource.backend_type == "mysql"
                     else "postgres"
                     if datasource.backend_type == "postgres"
-                    else "sqlite"
-                    if datasource.backend_type == "sqlite"
                     else "duckdb",
                     "table",
                     "native",

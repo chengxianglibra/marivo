@@ -84,8 +84,8 @@ own Runtime tests. Exact Help routes expose the current admitted method contract
 
 Runtime ZoneInfo supplies named-zone rules for declared conversions. Analysis
 does not submit source-side range, gap/fold or engine/runtime rule-agreement
-audits before every requested query. SQLite retains its connection-local Python
-temporal functions. Parsing/conversion still uses the admitted source expression;
+audits before every requested query. Parsing/conversion still uses the admitted
+source expression;
 backend errors propagate and noncompliant source values may affect results.
 An explicit boundary/deadline conversion keeps its method-owned ambiguity checks.
 
@@ -176,13 +176,9 @@ DuckDB table/Parquet observations bind native microsecond timestamps (aware or
 explicitly localized) and civil dates through the existing Ibis source-time
 owner. The declared source interpretation is preserved without a repeated raw/normalized
 source audit. Conversion failures remain execution errors. The report,
-source and grid/calendar zones remain independent. SQLite's connection-local
-temporal functions convert declared or frozen default named-zone and fixed-offset
-timestamps to UTC. The resulting exact UTC timestamp/date routes, including
-first/last/mean/min/max status folds, still require individual qualification.
-SQLite has no reported reader timezone, so absent an explicit declaration it
-uses the captured system default. Report and grid timezones never supply source
-read authority. Unsupported source forms and conversion precision still reject.
+source and grid/calendar zones remain independent. Exact UTC timestamp/date
+routes, including first/last/mean/min/max status folds, still require individual
+qualification. Report and grid timezones never supply source read authority. Unsupported source forms and conversion precision still reject.
 
 `metric.fold@v1` performs the declared spatial sum per exact sample instant,
 then the declared scalar time fold. Its original state retains canonical ordered

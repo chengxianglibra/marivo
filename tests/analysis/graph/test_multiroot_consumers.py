@@ -23,7 +23,7 @@ import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods import builtin
-from marivo.analysis.methods.physical import DecimalType, Qualified, ScalarType
+from marivo.analysis.methods.physical import DecimalType, Qualified
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.temporal_fold import decode_samples
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
@@ -108,27 +108,6 @@ def test_wide_decimal_finish_keeps_extremes_and_half_even(
     )
 
 
-def test_sqlite_float_does_not_grant_decimal() -> None:
-    from dataclasses import replace
-
-    implementations = [
-        item
-        for item in builtin.implementations(MethodKey("metric.ratio"))
-        if isinstance(item.qualification, Qualified)
-        and item.qualification.implementation_id.startswith("r93.c04.sqlite.")
-        and item.key.input_types == (ScalarType("float64"),) * 2
-    ]
-    assert {item.key.input_domains for item in implementations} == {
-        ("entity", "entity"),
-        ("group", "group"),
-        ("singleton", "singleton"),
-    }
-    implementation = implementations[0]
-    assert implementation.precision == "native_numeric"
-    decimal_key = replace(implementation.key, input_types=(DecimalType(38, 6),) * 2)
-    assert builtin.specialize_numeric(implementation, decimal_key).key != decimal_key
-
-
 @pytest.mark.parametrize("backend", ("postgres", "mysql", "clickhouse"))
 def test_wide_ratio_decimal_does_not_grant_other_scales(backend: str) -> None:
     from dataclasses import replace
@@ -187,7 +166,7 @@ def _data(
     source_params(
         [
             (mode, backend)
-            for backend in ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+            for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
             for mode in (
                 "linear_fanout",
                 "linear_float",
@@ -198,13 +177,12 @@ def _data(
                 "ratio_decimal_output_overflow",
                 "spatial_mean",
             )
-            if mode != "linear_nonfinite" or backend == "sqlite"
+            if mode != "linear_nonfinite"
             if mode != "linear_fanout" or backend == "duckdb"
             if mode not in ("ratio_decimal_overflow", "ratio_decimal_output_overflow")
             or backend in ("mysql", "clickhouse")
             if not mode.startswith("spatial_") or backend == "duckdb"
             if backend == "duckdb"
-            or (backend == "sqlite" and mode in ("linear_decimal", "linear_nonfinite"))
             or (backend in ("mysql", "clickhouse") and mode == "ratio_decimal_overflow")
         ],
         backend_index=1,
@@ -472,8 +450,7 @@ def test_independent_roots_and_temporal_fold(
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             return
         if numeric_type == "decimal" and (
-            backend == "sqlite"
-            or (ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse", "trino"))
+            ratio and backend not in ("duckdb", "postgres", "mysql", "clickhouse", "trino")
         ):
             before = set(root.rglob("*.parquet"))
             from marivo.datasource.errors import DatasourceSourceCapabilityError

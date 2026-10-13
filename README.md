@@ -199,7 +199,7 @@ documentation checks. Ordinary commits keep their installed hooks and do not run
 the full Runtime suite.
 
 Fast daily tests target completion within two minutes and include embedded
-DuckDB/SQLite, local files, loopback HTTP fixtures and static native
+DuckDB, local files, loopback HTTP fixtures and static native
 compilation/decoding contracts. The analysis slice keeps one source/fixed path
 and two cold recovery representatives, plus measured-fast graph rules,
 serialization, lowering, consumer, observation-grain, datasource-capability,

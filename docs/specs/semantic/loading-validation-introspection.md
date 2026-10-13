@@ -124,7 +124,7 @@ failure release the reader and restore the prior connection cache. PostgreSQL
 uses a read-only transaction with `statement_timeout`, Trino uses
 `query_max_run_time`, MySQL uses the native read-only SELECT limit, and ClickHouse
 uses `max_execution_time` with throwing overflow. Unsupported query timeout
-settings are skipped, including the current DuckDB and SQLite paths.
+settings are skipped, including the current DuckDB path.
 
 Certification still requires exhaustive scoped reads and complete validation
 before atomic snapshot publication. Its isolated reader requests the same native

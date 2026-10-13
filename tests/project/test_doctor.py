@@ -1152,7 +1152,10 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     from marivo.datasource import manage as datasource_manage
 
     class FakeBackend:
-        name = "sqlite"
+        name = "postgres"
+        read_only = True
+        autocommit = False
+        _marivo_terminal_timeout_seconds = 30
 
         def __init__(self) -> None:
             self.queries: list[str] = []
@@ -1161,6 +1164,9 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
+
+        def rollback(self) -> None:
+            return None
 
         def cursor(self) -> object:
             owner = self
@@ -1191,7 +1197,7 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
             (),
             {
                 "name": name,
-                "backend_type": "sqlite",
+                "backend_type": "postgres",
                 "fields": {"path": ":memory:"},
                 "env_refs": {},
             },

@@ -22,14 +22,13 @@ from marivo.semantic.reader import SemanticProject
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
-Backend = Literal["trino", "duckdb", "sqlite", "clickhouse"]
+Backend = Literal["trino", "duckdb", "clickhouse"]
 
 
 def _catalog(factory: ProjectFactory, backend: Backend = "trino") -> ms.SemanticCatalog:
     declarations = {
         "trino": "md.trino(name='warehouse', host='trino.example', catalog='hive', user_env='TRINO_USER')",
         "duckdb": "md.duckdb(name='warehouse', path=':memory:')",
-        "sqlite": "md.sqlite(name='warehouse', path=':memory:')",
         "clickhouse": "md.clickhouse(name='warehouse', host='clickhouse.example', database='sales')",
     }
     project = factory(
@@ -123,8 +122,6 @@ def test_trino_exact_p95_blocks_without_source_access(
     (
         ("trino", "approx_p95", False, ""),
         ("duckdb", "exact_p95", False, ""),
-        ("sqlite", "exact_p95", True, "does not support that source operation either"),
-        ("sqlite", "approx_p95", True, "qualified source-native implementation"),
         ("clickhouse", "exact_distinct", True, "agg='approx_count_distinct'"),
     ),
 )

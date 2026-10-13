@@ -141,7 +141,6 @@ class EngineProfile:
     quantile: QuantileCapability | None
     percentile_uses_approx_quantile: bool
     native_query_timeout: NativeQueryTimeout | None
-    thread_affine: bool = False
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
     exact_count_distinct: bool = False

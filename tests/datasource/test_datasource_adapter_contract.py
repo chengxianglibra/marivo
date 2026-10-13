@@ -7,9 +7,10 @@ import sys
 from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import replace
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from typing import NoReturn
 from unittest.mock import Mock
 
 import ibis
@@ -49,6 +50,23 @@ from marivo.datasource.ir import (
 from tests.support.execution_logs import execution_records
 
 
+@pytest.mark.parametrize("backend", ["sqlite", "sqlite3"])
+def test_removed_backend_refuses_before_provider_loading(
+    backend: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource import engines
+
+    def forbidden_load(_backend: str) -> NoReturn:
+        raise AssertionError("Removed datasource reached provider loading")
+
+    monkeypatch.setattr(engines, "_load_profile", forbidden_load)
+    with pytest.raises(DatasourceBackendTypeUnsupportedError) as caught:
+        provider_for(backend)
+    error = caught.value
+    assert error.expected and error.received == backend and error.repair is not None
+    assert error.repair.candidates == ("clickhouse", "duckdb", "mysql", "postgres", "trino")
+
+
 def _datasource(backend: str) -> DatasourceIR:
     return DatasourceIR(
         semantic_id="source",
@@ -65,11 +83,9 @@ def _datasource(backend: str) -> DatasourceIR:
 @pytest.fixture
 def session(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[SourceSession]:
     backend_name: object = getattr(request, "param", "duckdb")
-    assert isinstance(backend_name, str) and backend_name in {"duckdb", "sqlite"}
+    assert isinstance(backend_name, str) and backend_name == "duckdb"
     database = tmp_path / f"source.{backend_name}"
-    backend = (
-        ibis.duckdb.connect(database) if backend_name == "duckdb" else ibis.sqlite.connect(database)
-    )
+    backend = ibis.duckdb.connect(database)
     backend.raw_sql("CREATE TABLE facts (id BIGINT, amount BIGINT)")
     backend.raw_sql("INSERT INTO facts VALUES (9007199254740993, 2), (9007199254740994, 3)")
     backend.raw_sql("CREATE VIEW facts_view AS SELECT id, amount FROM facts")
@@ -98,7 +114,7 @@ def _read(session: SourceSession) -> CompiledRead:
 
 
 def test_all_six_providers_resolve_without_opening() -> None:
-    assert provider_names() == ("duckdb", "sqlite", "trino", "mysql", "postgres", "clickhouse")
+    assert provider_names() == ("duckdb", "trino", "mysql", "postgres", "clickhouse")
     assert tuple(provider_for(name).name for name in provider_names()) == provider_names()
     with pytest.raises(DatasourceBackendTypeUnsupportedError):
         provider_for("unknown")
@@ -304,27 +320,9 @@ def test_postgres_record_integer_decode_is_canonical_only() -> None:
             _exact_array([(value,)], field, backend_name="postgres")
 
 
-def test_timestamp_precision_and_sqlite_storage_type_reject_loss(tmp_path: Path) -> None:
+def test_timestamp_precision_rejects_loss() -> None:
     with pytest.raises(DatasourceSourceCapabilityError):
         _exact_array([datetime(2026, 1, 1, 0, 0, 0, 123456)], pa.field("at", pa.timestamp("ms")))
-    backend = ibis.sqlite.connect(tmp_path / "storage.sqlite")
-    backend.raw_sql("CREATE TABLE stored (id INTEGER)")
-    backend.raw_sql("INSERT INTO stored VALUES ('not_an_integer')")
-    with SourceSession(provider_for("sqlite"), _datasource("sqlite"), backend) as source_session:
-        bound = source_session.bind(TableSourceIR("stored"), source_identity="stored")
-        qualified = source_session.qualify(
-            bound, PhysicalRequirement("storage", 1, frozenset({"scan"}))
-        )
-        expression = bound.relation.select("id")
-        read = source_session.compile(
-            qualified,
-            expression,
-            purpose="storage",
-            expected_schema=expression.schema().to_pyarrow(),
-        )
-        with pytest.raises(DatasourceSourceCapabilityError):
-            list(source_session.batches(read, chunk_size=1))
-        assert source_session.submissions[-1].state == "failed"
 
 
 def test_selected_provider_does_not_import_unselected_modules() -> None:
@@ -338,8 +336,8 @@ def reject_optional_drivers(name, *args, **kwargs):
     return original_import(name, *args, **kwargs)
 builtins.__import__ = reject_optional_drivers
 from marivo.datasource.adapters import provider_for
-assert provider_for('sqlite').name == 'sqlite'
-for name in ('duckdb', 'postgres', 'mysql', 'trino', 'clickhouse'):
+assert provider_for('duckdb').name == 'duckdb'
+for name in ('postgres', 'mysql', 'trino', 'clickhouse'):
     assert 'marivo.datasource.engines.' + name not in sys.modules
 for name in ('postgres', 'mysql', 'trino', 'clickhouse'):
     assert provider_for(name).name == name
@@ -384,7 +382,13 @@ def test_basic_group_and_count_use_the_bound_expression(session: SourceSession) 
     ]
 
 
-@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
+@pytest.mark.parametrize(
+    "session",
+    [
+        "duckdb",
+    ],
+    indirect=True,
+)
 def test_local_staging_preserves_nullable_int64_low_bits(session: SourceSession) -> None:
     from marivo.datasource.adapters import _native_cursor
 
@@ -535,7 +539,13 @@ def test_compiled_read_rejects_forgery_foreign_session_and_unbound_source(
         other.close()
 
 
-@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
+@pytest.mark.parametrize(
+    "session",
+    [
+        "duckdb",
+    ],
+    indirect=True,
+)
 def test_early_close_and_empty_result_keep_fixed_schema(session: SourceSession) -> None:
     read = _read(session)
     stream = session.batches(read, chunk_size=1)
@@ -565,7 +575,13 @@ def test_early_close_and_empty_result_keep_fixed_schema(session: SourceSession) 
     assert empty_stream.schema.equals(empty.schema, check_metadata=False)
 
 
-@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
+@pytest.mark.parametrize(
+    "session",
+    [
+        "duckdb",
+    ],
+    indirect=True,
+)
 def test_borrowed_session_releases_stream_without_closing_connection(
     session: SourceSession, tmp_path: Path
 ) -> None:
@@ -712,23 +728,26 @@ def test_join_union_require_explicit_local_engine_qualification(session: SourceS
     requirement = PhysicalRequirement(
         "source_operation.correspondence", 1, frozenset({"scan", "join", "union"})
     )
-    if session.provider.name in ("duckdb", "sqlite"):
+    if session.provider.name == "duckdb":
         assert session.qualify(bound, requirement).requirement == requirement
     else:
         with pytest.raises(DatasourceSourceCapabilityError, match="basic physical requirement"):
             session.qualify(bound, requirement)
 
 
-@pytest.mark.parametrize("backend", ["clickhouse", "mysql", "sqlite"])
+@pytest.mark.parametrize(
+    "backend",
+    [
+        "clickhouse",
+        "mysql",
+    ],
+)
 def test_utc_decode_requires_explicit_schema_authority(backend: str) -> None:
     value = datetime(2026, 11, 1, 5, 30, 0, 123456)
     field = pa.field("instant", pa.timestamp("us", tz="UTC"))
     result = _exact_array([value], field, backend_name=backend)
     assert result.to_pylist() == [value.replace(tzinfo=timezone.utc)]
-    if backend == "sqlite":
-        assert _exact_array([value.isoformat()], field, backend_name=backend).to_pylist() == [
-            value.replace(tzinfo=timezone.utc)
-        ]
+
     for zone in ("America/New_York", "+08:00"):
         with pytest.raises(DatasourceSourceCapabilityError):
             _exact_array(
@@ -801,38 +820,24 @@ for backend, blocked_driver in (
     subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True)
 
 
-def test_sqlite_date_carriers_are_exact() -> None:
-    field = pa.field("left_start", pa.date32())
-    assert _exact_array(["2026-08-01", None], field, backend_name="sqlite").to_pylist() == [
-        date(2026, 8, 1),
-        None,
-    ]
-    for value in ("20260801", "2026-W31-6", "2026-02-30", "2026-08-01 00:00:00"):
-        with pytest.raises(DatasourceSourceCapabilityError):
-            _exact_array([value], field, backend_name="sqlite")
-
-
-@pytest.mark.parametrize("session", ["duckdb", "sqlite"], indirect=True)
+@pytest.mark.parametrize(
+    "session",
+    [
+        "duckdb",
+    ],
+    indirect=True,
+)
 def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
     session: SourceSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from tests.datasource.driver_audit import native_audit
 
     backend_name = session.provider.name
-    if backend_name == "sqlite":
-        from sqlite3 import Connection
 
-        connection: object = getattr(session._backend, "con", None)
-        assert isinstance(connection, Connection)
-        connection.commit()
     session.close()
     with native_audit(monkeypatch, backend_name) as audit:
         database = tmp_path / f"source.{backend_name}"
-        backend = (
-            ibis.duckdb.connect(database)
-            if backend_name == "duckdb"
-            else ibis.sqlite.connect(database)
-        )
+        backend = ibis.duckdb.connect(database)
         with SourceSession(
             provider_for(backend_name), _datasource(backend_name), backend, project_root=tmp_path
         ) as observed:
@@ -844,12 +849,10 @@ def test_persisted_sql_matches_native_driver_and_completes_after_consumption(
             records = [r for r in execution_records(tmp_path) if r.get("purpose") == "basic.rows"]
             assert len(records) == 1 and records[0]["event"] == "query.submitted"
             assert sum(batch.num_rows for batch in iterator) == 1
-            from sqlite3 import OperationalError
-
             from duckdb import CatalogException
 
             backend.drop_table("facts")
-            with pytest.raises((CatalogException, OperationalError)):
+            with pytest.raises(CatalogException):
                 observed.batches(read, chunk_size=1)
     native = [item for item in audit.submissions if item.category == "governed_ibis"]
     records = [r for r in execution_records(tmp_path) if r.get("purpose") == "basic.rows"]

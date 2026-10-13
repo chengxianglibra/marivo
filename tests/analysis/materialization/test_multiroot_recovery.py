@@ -221,7 +221,7 @@ def test_native_independent_multiroot_fixed_and_cold(
             tuple(case.session for case in cases),
         )
     shutil.rmtree(tmp_path / "models")
-    for pattern in ("source.duckdb*", "source.sqlite*"):
+    for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
     reports: list[Json] = []

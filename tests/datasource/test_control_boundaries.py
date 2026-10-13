@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 from pathlib import Path
 from time import monotonic
 
@@ -17,7 +16,6 @@ from marivo.datasource import adapters
 from marivo.datasource.adapters import _Cursor
 from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import duckdb as duckdb_engine
-from marivo.datasource.engines import sqlite as sqlite_engine
 from marivo.datasource.errors import DatasourceRawSqlError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 
@@ -32,27 +30,6 @@ def test_duckdb_connection_settings_are_effective() -> None:
         assert (timezone, threads, force_download) == ("UTC", 1, True)
     finally:
         backend.disconnect()
-
-
-def test_sqlite_read_only_authorizer_rejects_write_and_closes(tmp_path: Path) -> None:
-    db_path = tmp_path / "read_only.db"
-    with sqlite3.connect(db_path) as connection:
-        connection.execute("CREATE TABLE facts (id INTEGER)")
-        connection.execute("INSERT INTO facts VALUES (1)")
-    backend = sqlite_engine.connect("local", {"path": str(db_path), "read_only": True})
-    connection = backend.con
-    try:
-        assert connection.execute("SELECT id FROM facts").fetchall() == [(1,)]
-        with pytest.raises(sqlite3.DatabaseError):
-            connection.execute("INSERT INTO facts VALUES (2)")
-        with pytest.raises(sqlite3.DatabaseError):
-            connection.execute("CREATE TABLE rejected (id INTEGER)")
-    finally:
-        backend.disconnect()
-    with pytest.raises(sqlite3.ProgrammingError):
-        connection.execute("SELECT id FROM facts")
-    with sqlite3.connect(db_path) as reopened:
-        assert reopened.execute("SELECT id FROM facts").fetchall() == [(1,)]
 
 
 def test_governed_probe_submits_exact_ibis_compilation(

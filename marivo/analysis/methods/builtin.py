@@ -292,11 +292,10 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_multiroot_consumers.py",
             ),
         )
-        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+        for backend in ("postgres", "mysql", "trino", "clickhouse")
         for numeric_type in (ScalarType("float64"), DecimalType(38, 6))
         for item in declarations
-        if not (backend == "sqlite" and isinstance(numeric_type, DecimalType))
-        and (
+        if (
             method.name == "metric.linear"
             or (
                 method.name == "metric.ratio"
@@ -324,7 +323,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_multiroot_consumers.py",
             ),
         )
-        for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+        for backend in ("postgres", "mysql", "trino", "clickhouse")
         for item in declarations
         if (method.name, item.key.input_types, item.key.input_domains)
         in (
@@ -364,7 +363,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         else "tests/test_r93_capability_consumers.py",
                     ),
                 )
-                for backend in ("sqlite", "postgres", "mysql", "trino", "clickhouse")
+                for backend in ("postgres", "mysql", "trino", "clickhouse")
                 for item in declarations
                 if isinstance(item.key.shape, SourceShape)
                 and item.key.shape
@@ -441,27 +440,13 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "state_rollup.count",
     ):
         return declarations
-    sqlite = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
-            numeric_specialization="consumer",
-            qualification=Qualified(
-                f"r55.sqlite.{method}.{item.key}",
-                "analysis.compiler.graph_lowering",
-                "tests/test_sqlite_semantic_integration.py",
-            ),
-        )
+    native_inputs = tuple(
+        item
         for item in declarations
         if isinstance(item.key.shape, SourceShape)
         and item.key.shape.backend == "duckdb"
         and item.key.shape.form == "table"
         and item.key.route == "ibis"
-    )
-    native_inputs = tuple(
-        item
-        for item in sqlite
-        if isinstance(item.key.shape, SourceShape)
         and method.name
         in (
             "parts_transport",
@@ -478,11 +463,12 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
     )
     remote: dict[Backend, tuple[Implementation, ...]] = {}
-    # Preserve the original upstream keys in provenance IDs and declaration order.
+    # Preserve historical upstream key text in proof IDs and declaration order.
+    # The retired backend name here is provenance only; all shapes use supported providers.
     native_routes: tuple[tuple[Backend, Backend], ...] = (
-        ("postgres", "sqlite"),
+        ("postgres", "duckdb"),
         ("mysql", "postgres"),
-        ("trino", "sqlite"),
+        ("trino", "duckdb"),
         ("clickhouse", "trino"),
     )
     for backend, upstream in native_routes:
@@ -494,14 +480,19 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 qualification=Qualified(
                     f"o2b.{backend}.metric.count.ordinary.{item.key.input_types[0].name}@v1"
                     if method.name == "metric.count"
-                    else f"r93.{backend}.{method}.{item.key}",
+                    else f"r93.{backend}.{method}."
+                    + (
+                        str(item.key).replace("backend='duckdb'", "backend='sqlite'")
+                        if upstream == "duckdb"
+                        else str(item.key)
+                    ),
                     "analysis.compiler.graph_lowering",
                     "tests/analysis/graph/test_observation_paths.py"
                     if method.name == "metric.count"
                     else "tests/test_r93_method_consumers.py",
                 ),
             )
-            for item in (native_inputs if upstream == "sqlite" else remote[upstream])
+            for item in (native_inputs if upstream == "duckdb" else remote[upstream])
             if isinstance(item.key.shape, SourceShape)
         )
     c05_groups = tuple(
@@ -579,7 +570,6 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     )
     return (
         *declarations,
-        *sqlite,
         *(item for backend, _ in native_routes for item in remote[backend]),
         *c05_groups,
         *c06_fold,
@@ -1622,11 +1612,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     ),
                 )
                 for input_types, input_domains, route in c08_keys[method.name]
-                for backend in (
-                    ("postgres", "mysql", "clickhouse", "trino")
-                    if method.name == "parts_transport"
-                    else ("sqlite", "postgres", "mysql", "clickhouse", "trino")
-                )
+                for backend in ("postgres", "mysql", "clickhouse", "trino")
                 for item in declarations
                 if item.key.shape
                 == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
@@ -1663,7 +1649,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "tests/test_r93_reference_consumers.py",
                     ),
                 )
-                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for backend in ("postgres", "mysql", "clickhouse", "trino")
                 for item in declarations
                 if item.key.shape == SourceShape("duckdb", "table", "native", NoTime())
                 and item.key.input_types == (ScalarType("int64"),) * 2
@@ -1687,7 +1673,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "tests/test_r93_attribution_consumers.py",
                     ),
                 )
-                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for backend in ("postgres", "mysql", "clickhouse", "trino")
                 for item in declarations
                 if item.key.shape
                 == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
@@ -1706,7 +1692,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
     }
     if method.name in c09_local_keys:
         types, domains = c09_local_keys[method.name]
-        local_backends: tuple[Backend, ...] = ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+        local_backends: tuple[Backend, ...] = ("postgres", "mysql", "clickhouse", "trino")
         if method.name == "state_rollup.sum_zero":
             local_backends = ("duckdb", *local_backends)
         declarations = (
@@ -1777,7 +1763,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         "tests/test_r93_attribution_consumers.py",
                     ),
                 )
-                for backend in ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+                for backend in ("postgres", "mysql", "clickhouse", "trino")
                 for item in declarations
                 if item.key.shape == FixedShape(NoTime())
                 and item.key.input_types
@@ -1948,7 +1934,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             and item.key.route == "ibis"
             and item.key.input_domains == ("entity",) * len(item.key.input_domains)
             and all(t in (ScalarType("int64"), ScalarType("float64")) for t in item.key.input_types)
-            for backend in ("postgres", "mysql", "trino", "clickhouse", "sqlite")
+            for backend in ("postgres", "mysql", "trino", "clickhouse")
         )
         declarations = tuple({item.key: item for item in (*declarations, *native)}.values())
     if method.name in (

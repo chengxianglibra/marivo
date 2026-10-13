@@ -170,7 +170,7 @@ def _manifest() -> Manifest:
         provider,
     )
     add("datasource/capabilities", ("render_provider_statement",), ("re.sub",), provider)
-    for backend in ("duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"):
+    for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse"):
         add(f"datasource/engines/{backend}", ("<module>",), ("ProviderStatement",), provider)
     add(
         "datasource/manage",

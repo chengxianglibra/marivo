@@ -100,7 +100,7 @@ def test_provider_replacement_preserves_business_kernel(monkeypatch: pytest.Monk
         "count",
         "count_all",
     )
-    providers = (_implementation("duckdb"), _implementation("sqlite"))
+    providers = (_implementation("duckdb"), _implementation("postgres"))
 
     def declarations(method: MethodKey) -> tuple[Implementation, ...]:
         assert method == MethodKey("row.count")
@@ -143,7 +143,7 @@ def test_missing_or_unavailable_exact_provider_never_borrows_route() -> None:
         "count",
         "count_all",
     )
-    wanted = _implementation("sqlite")
+    wanted = _implementation("postgres")
     other_provider = _implementation("duckdb")
     other_route = replace(wanted, key=replace(wanted.key, route="ibis"))
     for implementations in (
@@ -169,19 +169,19 @@ def test_missing_or_unavailable_exact_provider_never_borrows_route() -> None:
 def test_wrong_schema_refuses_before_compilation_or_submission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    backend = ibis.sqlite.connect(tmp_path / "schema.sqlite")
+    backend = ibis.duckdb.connect(tmp_path / "schema.duckdb")
     backend.create_table("facts", schema={"id": "int64", "amount": "int64"})
     datasource = DatasourceIR(
         semantic_id="source",
         name="source",
-        backend_type="sqlite",
+        backend_type="duckdb",
         fields={},
         env_refs={},
         ai_context=AiContextIR(),
         python_symbol="source",
         location=DatasourceSourceLocation("source.py", 1),
     )
-    with SourceSession(provider_for("sqlite"), datasource, backend) as session:
+    with SourceSession(provider_for("duckdb"), datasource, backend) as session:
         binding = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
         qualified = session.qualify(
             binding, PhysicalRequirement("r96.schema", 1, frozenset({"scan", "project"}))

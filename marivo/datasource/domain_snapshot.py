@@ -1,13 +1,12 @@
-"""Driver-owned transactions, SQLite backups and immutable file capture authority."""
+"""Driver-owned transactions, immutable file capture authority."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import sys
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import contextmanager, suppress
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -17,7 +16,6 @@ from uuid import uuid4
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 from marivo.datasource.ir import ParquetSourceIR, TableSourceIR
@@ -43,56 +41,6 @@ def _hash(path: Path) -> str:
         while block := stream.read(1024 * 1024):
             digest.update(block)
     return digest.hexdigest()
-
-
-@contextmanager
-def _sqlite_capture(
-    source: SourceSession,
-) -> Iterator[dict[str, object]]:
-    from marivo.datasource.engines.sqlite import connect
-
-    backend = source._backend
-    original = getattr(backend, "con", None)
-    if not isinstance(original, sqlite3.Connection) or any(
-        not isinstance(binding.source, TableSourceIR)
-        or binding.source.database not in (None, "main")
-        for binding in source._bound_sources.values()
-    ):
-        fail(
-            "physical_qualification",
-            "SQLite capture requires main-database tables",
-            stage="admission",
-        )
-    with ExitStack() as resources:
-        directory = resources.enter_context(TemporaryDirectory(prefix="marivo-sqlite-capture-"))
-        snapshot_backend = connect(
-            "domain_capture", {"path": str(Path(directory) / "snapshot.sqlite"), "read_only": True}
-        )
-        resources.callback(
-            BackendLease(snapshot_backend, thread_affine=True).close, suppress_errors=False
-        )
-        snapshot = getattr(snapshot_backend, "con", None)
-        if not isinstance(snapshot, sqlite3.Connection):
-            fail(
-                "physical_qualification",
-                "SQLite native backup target unavailable",
-                stage="admission",
-            )
-
-        original.backup(snapshot, pages=64, sleep=0.01)
-        authority: dict[str, object] = {
-            "kind": "sqlite_native_backup",
-            "capture_id": uuid4().hex,
-            "files": [],
-        }
-        authority["digest"] = hashlib.sha256(
-            json.dumps(authority, sort_keys=True).encode()
-        ).hexdigest()
-        backend.con = snapshot
-        try:
-            yield authority
-        finally:
-            backend.con = original
 
 
 @contextmanager
@@ -123,10 +71,6 @@ def capture(
             json.dumps(read_authority, sort_keys=True).encode()
         ).hexdigest()
         yield read_authority
-        return
-    if source.provider.name == "sqlite":
-        with _sqlite_capture(source) as sqlite_authority:
-            yield sqlite_authority
         return
     if source.provider.name != "duckdb":
         fail(

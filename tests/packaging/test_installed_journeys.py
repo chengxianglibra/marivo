@@ -57,13 +57,13 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
         ("tests/analysis/materialization/test_native_graph_failures.py", ""),
         (
             "tests/analysis/materialization/test_producer_recovery.py",
-            "duckdb or sqlite or file_producer or http_source",
+            "duckdb or file_producer or http_source",
         ),
         (
             "tests/analysis/graph/test_method_consumers.py",
-            "source_statistic and (duckdb or sqlite)",
+            "source_statistic and (duckdb)",
         ),
-        ("tests/datasource/test_source_profiles.py", "duckdb or sqlite"),
+        ("tests/datasource/test_source_profiles.py", "duckdb"),
         (
             "tests/datasource/test_datasource_profiles_store.py",
             "plaintext or env_refs_round_trip",
@@ -95,23 +95,23 @@ def test_installed_complete_public_journey(installed_wheel: InstalledWheel, jour
             "direct_score_runs or two_separate_axes or score_select_members_followup or category_time_three_methods",
         ),
         ("tests/analysis/materialization/test_public_schema_drift.py", ""),
-        ("tests/analysis/graph/test_reference_consumers.py", "duckdb or sqlite"),
+        ("tests/analysis/graph/test_reference_consumers.py", "duckdb"),
         (
             "tests/analysis/graph/test_distribution_consumers.py",
-            "(duckdb or sqlite) and (" + METHOD_SELECTIONS["test_distribution_consumers.py"] + ")",
+            "(duckdb) and (" + METHOD_SELECTIONS["test_distribution_consumers.py"] + ")",
         ),
         (
             "tests/analysis/graph/test_multiroot_consumers.py",
-            "(duckdb or sqlite) and (" + METHOD_SELECTIONS["test_multiroot_consumers.py"] + ")",
+            "(duckdb) and (" + METHOD_SELECTIONS["test_multiroot_consumers.py"] + ")",
         ),
-        ("tests/analysis/numeric/test_comparison_consumers.py", "duckdb or sqlite"),
+        ("tests/analysis/numeric/test_comparison_consumers.py", "duckdb"),
         (
             "tests/analysis/materialization/test_attribution_recovery.py",
             "native_duckdb_attribution",
         ),
         (
             "tests/analysis/numeric/test_native_numeric.py",
-            "native_weighted_and_mean or sqlite or native_numeric_recovers_without_sources",
+            "native_weighted_and_mean or native_numeric_recovers_without_sources",
         ),
     ),
 )

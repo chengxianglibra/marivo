@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from sqlite3 import connect
 from typing import Literal
 
 import duckdb
@@ -50,7 +49,7 @@ def _project(
     monkeypatch: pytest.MonkeyPatch,
     factory: Callable[[dict[str, str]], SemanticProject],
     *,
-    backend: Literal["duckdb", "sqlite"] = "duckdb",
+    backend: Literal["duckdb",] = "duckdb",
     form: Literal["table", "parquet"] = "table",
     representation: Literal["naive", "aware", "date"] = "naive",
     read_zone: str | None = "UTC",
@@ -58,37 +57,22 @@ def _project(
 ) -> Path:
     monkeypatch.chdir(root)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
-    database = root / ("warehouse.duckdb" if backend == "duckdb" else "warehouse.sqlite")
+    database = root / "warehouse.duckdb"
     physical = {"naive": "TIMESTAMP", "aware": "TIMESTAMPTZ", "date": "DATE"}[representation]
-    if backend == "sqlite":
-        with connect(database) as connection:
-            connection.execute("CREATE TABLE customers (id BIGINT)")
-            connection.executemany("INSERT INTO customers VALUES (?)", [(1,), (2,)])
-            connection.execute(
-                f"CREATE TABLE orders (id VARCHAR, customer BIGINT, amount BIGINT, happened {physical})"
-            )
-            connection.executemany(
-                "INSERT INTO orders VALUES (?, ?, ?, ?)",
-                [
-                    (identity, 1 if customer == "A" else 2, amount, point)
-                    for identity, customer, amount, point in rows
-                ],
-            )
-    else:
-        with duckdb.connect(str(database)) as connection:
-            connection.execute("SET TimeZone='UTC'")
-            connection.execute("CREATE TABLE customers (id VARCHAR)")
-            connection.execute("INSERT INTO customers VALUES ('A'), ('B')")
-            connection.execute(
-                f"CREATE TABLE orders (id VARCHAR, customer VARCHAR, amount BIGINT, happened {physical})"
-            )
-            connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?)", rows)
-            if form == "parquet":
-                for table in ("customers", "orders"):
-                    pq.write_table(
-                        connection.execute(f"SELECT * FROM {table}").to_arrow_table(),
-                        root / f"{table}.parquet",
-                    )
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("SET TimeZone='UTC'")
+        connection.execute("CREATE TABLE customers (id VARCHAR)")
+        connection.execute("INSERT INTO customers VALUES ('A'), ('B')")
+        connection.execute(
+            f"CREATE TABLE orders (id VARCHAR, customer VARCHAR, amount BIGINT, happened {physical})"
+        )
+        connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?)", rows)
+        if form == "parquet":
+            for table in ("customers", "orders"):
+                pq.write_table(
+                    connection.execute(f"SELECT * FROM {table}").to_arrow_table(),
+                    root / f"{table}.parquet",
+                )
     customer_source = (
         f"md.parquet({str(root / 'customers.parquet')!r})"
         if form == "parquet"
@@ -291,77 +275,6 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     assert running.execute().to_pandas().set_index("member").value.to_dict() == {"A": 928, "B": 60}
 
 
-@pytest.mark.parametrize(
-    "zone,first,last,before,after",
-    (
-        (
-            "UTC+05:45",
-            "2026-07-31 21:45:00",
-            "2026-08-01 21:44:59.999999",
-            "2026-07-31 21:44:59.999999",
-            "2026-08-01 21:45:00",
-        ),
-    ),
-)
-def test_sqlite_default_conversion_matches_independent_instant_boundaries(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    zone: str,
-    first: str,
-    last: str,
-    before: str,
-    after: str,
-) -> None:
-    monkeypatch.setenv("TZ", zone)
-    rows = (
-        ("before", "A", 888, before),
-        ("one", "A", 10, first),
-        ("two", "A", 30, last),
-        ("end", "A", 900, after),
-        ("b", "B", 60, first),
-    )
-    _project(
-        tmp_path, monkeypatch, semantic_project_factory, backend="sqlite", read_zone=None, rows=rows
-    )
-    session = mv.session.get_or_create("sqlite-boundaries", report_timezone="Asia/Shanghai")
-    values = _observe(
-        session,
-        mv.time_scope(
-            start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
-            end=datetime(2026, 8, 1, 16, tzinfo=timezone.utc),
-        ),
-    )
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {1: 20, 2: 60}
-
-
-def test_sqlite_declared_new_york_source_converts_across_spring_transition(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    monkeypatch.setenv("TZ", "Asia/Shanghai")
-    rows = (
-        ("before", "A", 888, "2026-03-07 23:59:59.999999"),
-        ("one", "A", 10, "2026-03-08 01:30:00"),
-        ("two", "A", 30, "2026-03-08 03:30:00"),
-        ("end", "A", 900, "2026-03-09 00:00:00"),
-        ("b", "B", 60, "2026-03-08 03:30:00"),
-    )
-    _project(
-        tmp_path,
-        monkeypatch,
-        semantic_project_factory,
-        backend="sqlite",
-        read_zone="America/New_York",
-        rows=rows,
-    )
-    session = mv.session.get_or_create("sqlite-dst", report_timezone="America/New_York")
-    values = _observe(session, mv.time_scope(start="2026-03-08", end="2026-03-09"))
-    assert _parameters(values).temporal.axes[0].source == "declared"
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {1: 20, 2: 60}
-
-
 @pytest.mark.parametrize("read_zone", ("UTC", "Asia/Shanghai"))
 def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     tmp_path: Path,
@@ -393,52 +306,6 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     ):
         _observe(session, mv.time_scope(start="2026-08-01", end="2026-08-02")).execute()
     assert session.runs().items == before
-
-
-def test_sqlite_system_default_is_frozen_and_declared_timezone_overrides(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    zone = "America/New_York"
-    monkeypatch.setenv("TZ", zone)
-    rows = (
-        ("one", "A", 2, "2026-08-01 08:00:00.000001"),
-        ("two", "A", 5, "2026-08-01 09:00:00.000001"),
-        ("b", "B", 60, "2026-08-01 08:00:00.000001"),
-    )
-    _project(
-        tmp_path, monkeypatch, semantic_project_factory, backend="sqlite", read_zone=None, rows=rows
-    )
-    session = mv.session.get_or_create("default-reader", report_timezone="Asia/Shanghai")
-    members = session.members(ms.ref.entity("sales.customers"))
-    monkeypatch.setenv("TZ", "Asia/Tokyo")
-    scope = mv.time_scope(start="2026-08-01", end="2026-08-02")
-    values = members.observe(
-        ms.ref.metric("sales.average"),
-        during=scope,
-        via=ms.ref.relationship("sales.buyer"),
-        by=(mv.member(),),
-    )
-    assert isinstance(values, mv.LogicalNumericRelation)
-    params = _parameters(values)
-    assert params.event.timezone is None
-    assert isinstance(params.event.parse, TimestampParse)
-    assert params.event.parse.timezone is None
-    assert params.temporal.axes[0].source == "system_fallback"
-    assert params.temporal.axes[0].read_timezone == zone
-    monkeypatch.setenv("TZ", "UTC-03:30")
-    assert values.execute().to_pandas().set_index("member").value.to_dict() == {1: 3.5, 2: 60}
-    model = tmp_path / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace("parse=ms.timestamp()", "parse=ms.timestamp(timezone='UTC')")
-    )
-    ms.load(workspace_dir=tmp_path)
-    override_session = mv.session.get_or_create("declared-reader", report_timezone="UTC")
-    override = _observe(override_session, scope)
-    assert _parameters(override).temporal.axes[0].source == "declared"
-    assert _parameters(override).temporal.axes[0].read_timezone == "UTC"
-    assert override.execute().to_pandas().set_index("member").value.to_dict() == {1: 3.5, 2: 60}
 
 
 def test_exact_mean_qualification_missing_still_rejects_before_run(

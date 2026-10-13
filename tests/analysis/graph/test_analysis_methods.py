@@ -434,7 +434,11 @@ def test_missing_key_repair_uses_bounded_admitted_profiles() -> None:
     template = _implementation()
     shape = template.key.shape
     assert isinstance(shape, SourceShape)
-    backends: tuple[Backend, ...] = ("duckdb", "mysql", "postgres", "sqlite")
+    backends: tuple[Backend, ...] = (
+        "duckdb",
+        "mysql",
+        "postgres",
+    )
     items = tuple(
         replace(template, key=replace(template.key, shape=replace(shape, backend=name)))
         for name in backends

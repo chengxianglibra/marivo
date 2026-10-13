@@ -10,7 +10,6 @@ substring match there cannot tell a correct format from a wrong one.
 """
 
 import re
-from datetime import datetime
 
 import ibis
 import pytest
@@ -22,16 +21,14 @@ from marivo.analysis.compiler.source_time import (
     parse_strptime,
     translated_strptime_format,
 )
-from marivo.analysis.materialization.temporal_sql import sqlite_strptime
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.semantic.ir import StrptimeParse
 
-ENGINES = ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+ENGINES = ("duckdb", "postgres", "mysql", "trino", "clickhouse")
 
 # The exact parser each engine must reach, taken from its own documentation.
 NATIVE_PARSER = {
     "duckdb": "STRPTIME",
-    "sqlite": "_MARIVO_STRPTIME",
     "postgres": "TO_TIMESTAMP",
     "mysql": "STR_TO_DATE",
     "trino": "DATE_PARSE",
@@ -105,7 +102,6 @@ def test_every_engine_reaches_its_own_parser(engine: str) -> None:
     "engine,expected",
     [
         ("duckdb", "%Y-%m-%d %H:%M:%S"),
-        ("sqlite", "%Y-%m-%d %H:%M:%S"),
         ("postgres", "YYYY-MM-DD HH24:MI:SS"),
         ("mysql", MYSQL_FAMILY_FULL_FORMAT),
         ("trino", MYSQL_FAMILY_FULL_FORMAT),
@@ -118,7 +114,7 @@ def test_engine_final_formats_are_never_re_translated(engine: str, expected: str
     Both MySQL and Trino actually read ``'%Y-%m-%d %T'``: sqlglot re-maps the
     translated ``%H:%i:%s``, and ``%T`` is MySQL's documented ``%H:%M:%S``, so
     the minute is still minutes. PostgreSQL and ClickHouse keep the profile's
-    exact translation, DuckDB and SQLite the authored Python format.
+    exact translation, DuckDB the authored Python format.
     """
     literals = _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
     assert literals[0] == expected
@@ -250,23 +246,3 @@ def test_every_engine_profile_has_a_strptime_translator() -> None:
     for backend_type in ENGINE_PROFILES:
         assert callable(ENGINE_PROFILES[backend_type].translate_strptime_format)
         assert ENGINE_PROFILES[backend_type].translate_strptime_format("%Y%m%d")
-
-
-def test_sqlite_scalar_parses_to_canonical_microsecond_text() -> None:
-    """The SQLite scalar mirrors ``datetime.strptime`` on the exact input."""
-    fmt = "%Y-%m-%d %H:%M:%S"
-    text = "2026-07-01 15:59:00"
-    assert sqlite_strptime(text, fmt) == datetime.strptime(text, fmt).isoformat(
-        sep=" ", timespec="microseconds"
-    )
-    assert sqlite_strptime(None, fmt) is None
-
-
-def test_sqlite_scalar_answers_null_for_an_unparseable_cell() -> None:
-    """A malformed cell returns NULL without a separate source-data preflight.
-
-    Raising would cross the driver boundary as an opaque
-    ``user-defined function raised exception``.
-    """
-    assert sqlite_strptime("not-a-date", "%Y-%m-%d") is None
-    assert sqlite_strptime("2026-02-30", "%Y-%m-%d") is None

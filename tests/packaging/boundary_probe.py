@@ -9,7 +9,6 @@ import importlib.util
 import inspect
 import json
 import os
-import sqlite3
 import sys
 from enum import Enum
 from pathlib import Path
@@ -111,7 +110,7 @@ def dependencies(extra: str) -> dict[str, object]:
                 assert "cleanup_probe" not in connection.list_tables()
             finally:
                 connection.disconnect()
-        if extra in ("duckdb", "sqlite"):
+        if extra == "duckdb":
             project = Path.cwd() / ("native-" + extra)
             project.mkdir()
             os.environ["MARIVO_PROJECT_ROOT"] = str(project)
@@ -120,22 +119,12 @@ def dependencies(extra: str) -> dict[str, object]:
                 "CREATE TABLE measurements (value INTEGER)",
                 "INSERT INTO measurements VALUES (1), (2)",
             )
-            if extra == "duckdb":
-                import duckdb
+            import duckdb
 
-                with duckdb.connect(str(database)) as connection:
-                    for statement in statements:
-                        connection.execute(statement)
-            else:
-                with sqlite3.connect(database) as sqlite_connection:
-                    for statement in statements:
-                        sqlite_connection.execute(statement)
-                sqlite_connection.close()
-            spec = (
-                md.duckdb(name="local", path=str(database))
-                if extra == "duckdb"
-                else md.sqlite(name="local", path=str(database))
-            )
+            with duckdb.connect(str(database)) as connection:
+                for statement in statements:
+                    connection.execute(statement)
+            spec = md.duckdb(name="local", path=str(database))
             reference = md.register(spec)
             assert md.test(reference.name).ok
             result = md.raw_sql(
@@ -180,15 +169,9 @@ def missing_driver(backend: str) -> dict[str, object]:
     os.environ["MARIVO_BOUNDARY_USER"] = "boundary"
     specs: dict[
         str,
-        md.DuckDBSpec
-        | md.SQLiteSpec
-        | md.PostgresSpec
-        | md.MySQLSpec
-        | md.TrinoSpec
-        | md.ClickHouseSpec,
+        md.DuckDBSpec | md.PostgresSpec | md.MySQLSpec | md.TrinoSpec | md.ClickHouseSpec,
     ] = {
         "duckdb": md.duckdb(name="missing", path=":memory:"),
-        "sqlite": md.sqlite(name="missing", path=":memory:"),
         "postgres": md.postgres(name="missing", host="127.0.0.1", database="unused"),
         "mysql": md.mysql(name="missing", host="127.0.0.1", database="unused"),
         "trino": md.trino(

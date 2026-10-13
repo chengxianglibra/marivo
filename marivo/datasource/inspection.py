@@ -872,12 +872,6 @@ def _canonical_catalog_type(type_name: str, *, backend_type: str) -> str:
         r"(?:char|character)(?:\(\d+\))?", type_name.lower()
     ):
         return type_name.lower()
-    if backend_type == "sqlite":
-        from marivo.datasource.engines.sqlite import declared_scalar_type
-
-        mapped = declared_scalar_type(type_name)
-        if mapped is not None:
-            return str(mapped)
     mappers = {
         "duckdb": DuckDBType,
         "mysql": MySQLType,

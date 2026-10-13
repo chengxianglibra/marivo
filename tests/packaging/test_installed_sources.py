@@ -17,7 +17,7 @@ pytestmark = [
         reason="explicit installed multisource opt-in required",
     ),
 ]
-BACKENDS = ("sqlite", "postgres", "mysql", "clickhouse", "trino")
+BACKENDS = ("postgres", "mysql", "clickhouse", "trino")
 NATIVE_OWNERS = (
     "tests/datasource/test_control_boundaries.py",
     "tests/datasource/test_acquisition_timeout.py",
@@ -33,7 +33,6 @@ NATIVE_OWNERS = (
 METHOD_SELECTIONS = {
     "test_distribution_consumers.py": (
         "native_distribution and (int64 or "
-        "(sqlite and (timestamp or string)) or "
         "(postgres and (distinct-decimal or quantile-float64)) or "
         "(mysql and distinct-decimal) or (trino and approx_quantile-float64) or "
         "(clickhouse and (approx_distinct-boolean or approx_quantile-float64)))"
@@ -73,7 +72,7 @@ def test_installed_public_multisource_journey(
     try:
         for name in ("prepare", "privileges", "produce"):
             phase(name)
-        if engine in {"sqlite", "mysql"}:
+        if engine == "mysql":
             phase("native")
         phase("invalidate")
         phase("invalid")

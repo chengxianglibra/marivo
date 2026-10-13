@@ -13,11 +13,12 @@ The current relation contract and focused Help are the operational guide.
 | Backend | Extra | Setup facts |
 | --- | --- | --- |
 | DuckDB | <code style="white-space: nowrap">duckdb</code> | Local tables and admitted file sources; tutorial requires no server |
-| SQLite | <code style="white-space: nowrap">sqlite</code> | Native SQLite table contracts; DATE/UTC timestamp routes are distinct |
 | PostgreSQL | <code style="white-space: nowrap">postgres</code> | Read-only account and native libpq prerequisite |
 | MySQL | <code style="white-space: nowrap">mysql</code> | Native client/build prerequisites and native query settings |
 | Trino | <code style="white-space: nowrap">trino</code> | Explicit catalog/schema, read-only access and native query settings |
 | ClickHouse | <code style="white-space: nowrap">clickhouse</code> | Qualified scalar types and effective `join_use_nulls=1` for admitted analysis |
+
+Analysis stores metadata in project-local SQLite independently of datasource support.
 
 The base package includes Arrow for local results. Discovery of an unselected
 provider does not import its driver. Missing selected dependencies produce a

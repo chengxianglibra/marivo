@@ -11,35 +11,34 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
-from marivo.datasource.authoring import DuckDBSpec, SQLiteSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.capabilities import (
     provider_statement,
     provider_statement_log,
     render_provider_statement,
 )
-from marivo.datasource.engines import duckdb, postgres, sqlite
+from marivo.datasource.engines import duckdb, postgres
 from marivo.datasource.ir import JsonSourceIR
 from marivo.datasource.json_source import _request_payload
 from marivo.datasource.metadata import inspect_table
 
 
 def test_render_does_not_reinterpret_slot_values() -> None:
-    import sqlite3
-
     namespace = "x' OR 1=1 --"
-    with sqlite3.connect(":memory:") as connection:
-        connection.execute(f"ATTACH DATABASE ':memory:' AS \"{namespace}\"")
-        connection.execute(f'CREATE TABLE "{namespace}".unrelated(id INTEGER)')
-        connection.execute(f'CREATE TABLE "{namespace}"."{{schema}}"(id INTEGER)')
+    connection = ibis.duckdb.connect()
+    try:
+        connection.raw_sql(f'CREATE SCHEMA "{namespace}"')
+        connection.raw_sql(f'CREATE TABLE "{namespace}".unrelated(id INTEGER)')
+        connection.raw_sql(f'CREATE TABLE "{namespace}"."{{schema}}"(id INTEGER)')
         sql = render_provider_statement(
-            provider_statement("sqlite", "sqlite.schema.kind"),
-            sqlite.PROFILE,
-            values={"table": "{schema}"},
-            identifiers={"schema": namespace},
+            provider_statement("duckdb", "duckdb.tables.columns"),
+            duckdb.PROFILE,
+            values={"database": "memory", "schema": namespace, "table": "{schema}"},
         )
-        rows = connection.execute(sql).fetchall()
-        assert len(rows) == 1
-        assert 'CREATE TABLE "{schema}"' in rows[0][1]
+        rows = connection.raw_sql(sql).fetchall()
+        assert len(rows) == 1 and rows[0][0] == "id"
+    finally:
+        connection.disconnect()
 
 
 @pytest.mark.parametrize("header", ["Authorization", "X-API-Key"])
@@ -103,29 +102,6 @@ def test_duckdb_metadata_is_namespace_bound(tmp_path: Path) -> None:
     assert [column.ordinal_position for column in metadata.columns] == [1, 2]
     assert metadata.physical_profile is not None
     assert metadata.physical_profile.row_count == 2
-
-
-def test_sqlite_partial_and_expression_indexes_do_not_claim_column_uniqueness(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "warehouse.sqlite"
-    backend = ibis.sqlite.connect(str(path))
-    try:
-        for sql in (
-            "CREATE TABLE t(id INTEGER, active INTEGER, label TEXT)",
-            "CREATE UNIQUE INDEX partial_uq ON t(id) WHERE active=1",
-            "CREATE UNIQUE INDEX expression_uq ON t(id, lower(label))",
-            "CREATE UNIQUE INDEX full_uq ON t(id, label)",
-            "INSERT INTO t VALUES (7,0,'a'),(7,0,'b')",
-        ):
-            backend.raw_sql(sql).close()
-    finally:
-        backend.disconnect()
-    md.register(SQLiteSpec(name="warehouse", path=str(path)), project_root=tmp_path)
-    metadata = inspect_table("warehouse", table="t", project_root=tmp_path)
-    assert [(item.name, item.columns) for item in metadata.unique_constraints] == [
-        ("full_uq", ("id", "label"))
-    ]
 
 
 def test_postgres_groups_composite_constraints_by_identity(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 import ibis
 import pytest
 
 import marivo.datasource as md
-from marivo.datasource.authoring import DuckDBSpec, SQLiteSpec
+from marivo.datasource.authoring import DuckDBSpec
 from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.engines.base import MetadataInspectRequest, schema_only_metadata_inspect
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
@@ -106,24 +105,6 @@ def test_duckdb_inspect_reads_catalog_facts_beyond_schema(tmp_path: Path) -> Non
         warning.kind in {"primary_keys_unavailable", "view_unavailable", "nullable_unavailable"}
         for warning in metadata.warnings
     )
-
-
-def test_sqlite_inspect_reads_catalog_facts_without_schema_only_fallback(tmp_path: Path) -> None:
-    db_path = tmp_path / "warehouse.sqlite"
-    with sqlite3.connect(db_path) as con:
-        con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, amount REAL)")
-    md.register(SQLiteSpec(name="warehouse", path=str(db_path)), project_root=tmp_path)
-
-    metadata = inspect_table("warehouse", table="orders", project_root=tmp_path)
-
-    assert tuple(column.name for column in metadata.columns) == ("id", "amount")
-    assert metadata.partition_state == "none"
-    assert metadata.is_view is False
-    assert metadata.primary_keys == ("id",)
-    by_name = {column.name: column for column in metadata.columns}
-    assert by_name["id"].nullable is False
-    assert not any(warning.kind == "schema_only_fallback" for warning in metadata.warnings)
-    assert any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
 
 
 def test_file_inspection_knows_it_is_not_a_view(tmp_path: Path) -> None:

@@ -100,7 +100,7 @@ def _tables(
     rows: list[dict[str, object]],
 ) -> Iterator[tuple[Case, str, str]]:
     subjects = [{"tenant": "a", "sid": index} for index in range(GROUPS)]
-    if backend in ("duckdb", "sqlite"):
+    if backend == "duckdb":
         if profile not in (
             "table",
             "ordinary-table",
@@ -113,7 +113,7 @@ def _tables(
         ) or (backend != "duckdb" and profile in ("csv", "parquet", "local-json")):
             raise ValueError("Local cost fixture requires a native table or view profile")
         path = root / ("r96." + backend)
-        admin = ibis.duckdb.connect(path) if backend == "duckdb" else ibis.sqlite.connect(path)
+        admin = ibis.duckdb.connect(path)
         try:
             data = _data(rows[:1], backend)
             admin.raw_sql("CREATE TABLE r96_facts (" + data.columns + ")")
@@ -125,8 +125,7 @@ def _tables(
                 admin.raw_sql("INSERT INTO r96_facts VALUES " + values)
                 admin.raw_sql("INSERT INTO r96_other VALUES " + values)
             admin.raw_sql("CREATE VIEW r96_view AS SELECT * FROM r96_facts")
-            if backend == "sqlite":
-                admin.con.commit()
+
         finally:
             admin.disconnect()
         source = TableSourceIR("r96_view" if "view" in profile else "r96_facts")

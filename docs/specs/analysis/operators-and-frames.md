@@ -65,7 +65,7 @@ the requested key and disclose at most three admitted physical profiles for the
 same types, domains and time. These are explicit reconstruction choices, not
 automatic retries; an empty candidate list directs the caller to report missing
 library support. Other physical shapes still require their own registration.
-Contribution coordinates use the same flat retained layouts on all six backends,
+Contribution coordinates use the same flat retained layouts on all five backends,
 including categorical Count on PostgreSQL. This removes only the former array
 state restriction; every method, carrier, time and physical profile still needs
 its exact registered qualification.
@@ -108,7 +108,7 @@ Entity identity/version grain and source parsing are trusted declarations.
 Constructor guarantees, call assumptions and completed invocation checks remain
 distinct. Selection preserves unique keys; grouping constructs unique targets.
 To-one structure proves single-valuedness, not total matching.
-Contribution coordinates are independent flat relations. SQLite, MySQL and
+Contribution coordinates are independent flat relations. MySQL and
 ClickHouse do not require arrays or structs for this state. Relationship inference
 does not change backend admission or substitute a path.
 

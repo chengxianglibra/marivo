@@ -31,7 +31,6 @@ from tests.support.source_trace import SourceTrace
             for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
             for kind in ("distinct", "identity", "quantile", "approx_distinct", "approx_quantile")
         ]
-        + [("sqlite", "approx_quantile", "int64")]
         + [("duckdb", "distinct", "timestamp")]
         + [("duckdb", "approx_distinct", "string")]
         + [(backend, "distinct", "decimal") for backend in ("postgres", "mysql", "trino")]
@@ -146,7 +145,7 @@ def test_native_distribution(
                 "sales/models.py": models,
             }
         )
-        if backend not in ("duckdb", "sqlite"):
+        if backend != "duckdb":
 
             def forbid_staging(*args: object, **kwargs: object) -> NoReturn:
                 pytest.fail("C10 cannot create or drop backend tables")
@@ -199,7 +198,7 @@ def test_native_distribution(
         refuses = (
             (kind in ("distinct", "identity") and backend == "clickhouse")
             or (kind == "quantile" and backend not in ("duckdb", "postgres"))
-            or (kind == "approx_quantile" and backend in ("sqlite", "mysql"))
+            or (kind == "approx_quantile" and backend in ("mysql"))
         )
         if refuses:
             before = set((tmp_path / ".marivo").rglob("*.parquet"))

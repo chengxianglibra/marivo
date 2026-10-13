@@ -24,14 +24,12 @@ from marivo.datasource.engines.base import (
 
 SUPPORTED_BACKEND_TYPES: tuple[str, ...] = (
     "duckdb",
-    "sqlite",
     "trino",
     "mysql",
     "postgres",
     "clickhouse",
 )
 _ALIASES = {
-    "sqlite3": "sqlite",
     "presto": "trino",
     "postgresql": "postgres",
     "redshift": "postgres",

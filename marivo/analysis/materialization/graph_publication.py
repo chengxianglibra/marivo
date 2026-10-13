@@ -388,19 +388,6 @@ def _execute(
                     with capture(source) if uses_preparation else nullcontext() as authority:
                         if uses_preparation:
                             source.domain_authority = authority
-                            if source.provider.name == "sqlite":
-                                from sqlite3 import Connection
-
-                                from marivo.analysis.materialization.temporal_sql import (
-                                    _initialize_sqlite_functions,
-                                )
-
-                                connection: object = getattr(source._backend, "con", None)
-                                if not isinstance(connection, Connection):
-                                    raise invalid(
-                                        "SQLite capture has no native execution connection"
-                                    )
-                                _initialize_sqlite_functions(connection)
                             rebound: list[SourceBinding] = []
                             for source_binding in bindings:
                                 selected_source = source.binding_for(source_binding.leaf.identity)

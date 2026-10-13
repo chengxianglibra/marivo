@@ -105,7 +105,7 @@ def parse_timezone(value: str) -> tuple[str, tzinfo]:
 def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:
     """Read a configured or driver-reported timezone without submitting SQL."""
     profile = profile_for_backend(backend)
-    if profile.name in {"sqlite", "generic"}:
+    if profile.name == "generic":
         return _fallback()
     name = getattr(backend, "_marivo_timezone_name", None)
     if profile.name == "postgres":

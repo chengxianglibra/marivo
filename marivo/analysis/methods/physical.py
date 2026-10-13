@@ -11,7 +11,7 @@ from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.semantics import MethodKey
 
-Backend: TypeAlias = Literal["duckdb", "postgres", "mysql", "sqlite", "trino", "clickhouse"]
+Backend: TypeAlias = Literal["duckdb", "postgres", "mysql", "trino", "clickhouse"]
 ScalarName: TypeAlias = Literal["boolean", "string", "int64", "float64", "date", "timestamp"]
 Route: TypeAlias = Literal["ibis", "ibis_python", "artifact_python"]
 

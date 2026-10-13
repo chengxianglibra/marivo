@@ -16,7 +16,6 @@ Registration & lifecycle
    register
    DatasourceSpec
    DuckDBSpec
-   SQLiteSpec
    TrinoSpec
    MySQLSpec
    PostgresSpec
@@ -44,7 +43,6 @@ Source constructors
    json
    parquet
    duckdb
-   sqlite
    postgres
    mysql
    clickhouse
@@ -130,8 +128,8 @@ but does not define a second ref type.
 Datasource vs source
 --------------------
 
-``md.duckdb(...)`` and ``md.sqlite(...)`` declare datasources. ``md.table(...)``
-is the source descriptor for internal tables/views inside either datasource.
+``md.duckdb(...)`` declares a DuckDB datasource. ``md.table(...)`` is the source
+descriptor for internal tables/views inside supported datasources.
 ``md.parquet(...)`` and ``md.csv(...)`` remain DuckDB file sources.
 ``md.json(...)`` covers DuckDB JSON files and URLs, including a parameterized
 JSON-body POST request. These sources are used with a datasource ref in inspection and

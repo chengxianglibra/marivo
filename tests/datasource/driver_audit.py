@@ -551,6 +551,6 @@ def native_audit(monkeypatch: pytest.MonkeyPatch, backend: str) -> Iterator[Driv
                     return call
 
                 patch.setattr(cls, name, wrap(original_method, "clickhouse_connect." + name))
-        elif backend != "sqlite":
+        else:
             raise ValueError(f"No native driver audit for {backend}")
         yield audit

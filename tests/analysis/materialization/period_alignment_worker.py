@@ -37,7 +37,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         patch.object(SourceSession, "__init__", forbidden),
         patch.object(duckdb, "connect", forbidden),
         patch.object(ibis.duckdb, "connect", forbidden),
-        patch.object(ibis.sqlite, "connect", forbidden),
     ):
         session = mv.session.resume(session_id, by="id")
         values = {}

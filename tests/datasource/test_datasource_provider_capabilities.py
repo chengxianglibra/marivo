@@ -219,22 +219,6 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
             "postgres.tables.kind",
         ): "6a5af7a08b1cd022e3bdcbf5c5ea9003856fb3f5c6ba10039f6c9dab7fff6d27",
         (
-            "sqlite",
-            "sqlite.pragma.index_info",
-        ): "3b25054b5a4a4f89898806b4b020ae56b2c4e56ef04f342a67684dacbc74c05a",
-        (
-            "sqlite",
-            "sqlite.pragma.index_list",
-        ): "d3039ed95522bc4c649226792c8aff4deceab6039ef7d03cade6560f60e0eb4d",
-        (
-            "sqlite",
-            "sqlite.pragma.table_info",
-        ): "237a2faf8e4bebb8b55c0848614c2245fd2f0f63deb8b5286e95e6004260c688",
-        (
-            "sqlite",
-            "sqlite.schema.kind",
-        ): "1ea7edcf28dc690b6068d106c60ec5ef7fed215ee7078b2486114ed7c6bcb337",
-        (
             "trino",
             "trino.columns",
         ): "56b9066cd5eac76477c018228712611fe546ce4e4f87e8c519992f737e088959",

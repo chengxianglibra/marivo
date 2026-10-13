@@ -27,14 +27,7 @@ from tests.support.source_trace import capture_source
 
 @contextmanager
 def administrator(engine: str, project: Path) -> Iterator[Callable[[str], None]]:
-    if engine == "sqlite":
-        with sqlite3.connect(project / "source.sqlite") as connection:
-
-            def execute(sql: str) -> None:
-                connection.execute(sql)
-
-            yield execute
-    elif engine == "postgres":
+    if engine == "postgres":
         from tests.datasource.environment import postgres_analysis as pg
 
         with pg.connection(admin=True) as pg_connection:
@@ -84,9 +77,7 @@ def configure(engine: str, project: Path, prefix: str) -> None:
     datasources = project / "models/datasources"
     datasources.mkdir(parents=True)
     common = "name='warehouse', host='127.0.0.1', user_env='MARIVO_WHEEL_READER'"
-    if engine == "sqlite":
-        declaration = f"md.sqlite(name='warehouse', path={str(project / 'source.sqlite')!r})"
-    elif engine == "trino":
+    if engine == "trino":
         declaration = (
             f"md.trino({common}, port=18080, catalog='iceberg', schema='analysis', timezone='UTC')"
         )
@@ -148,8 +139,7 @@ def prepare(engine: str, project: Path, prefix: str) -> None:
             string = "TEXT"
         if engine == "trino":
             string = "VARCHAR"
-        if engine == "sqlite":
-            integer, string = "INTEGER", "TEXT"
+
         customer_identity = string
         suffix = " ENGINE=MergeTree ORDER BY id" if engine == "clickhouse" else ""
         if engine == "mysql":
@@ -248,22 +238,7 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
     ms.load()
     with pytest.MonkeyPatch.context() as patch:
         trace = capture_source(patch)
-        if engine == "sqlite":
-            original_connect = sqlite3.connect
-            source = project / "source.sqlite"
-
-            def connect(
-                database: str | Path, *args: object, **kwargs: object
-            ) -> sqlite3.Connection:
-                # Forward the driver's dynamic connection arguments unchanged.
-                connection = original_connect(database, *args, **kwargs)  # type: ignore[call-overload]
-                assert isinstance(connection, sqlite3.Connection)
-                if Path(database).resolve() == source:
-                    connection.set_trace_callback(observed.append)
-                return connection
-
-            patch.setattr(sqlite3, "connect", connect)
-        elif engine == "mysql":
+        if engine == "mysql":
             ss_cursor_type = importlib.import_module("MySQLdb.cursors").SSCursor
             original_execute = ss_cursor_type.execute
 
@@ -289,7 +264,7 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
     missing = {sql: count - actual[sql] for sql, count in expected.items() if actual[sql] < count}
     assert not missing, {"unmatched_purposes": [item.purpose for item in submitted]}
     return {
-        "boundary": "sqlite3 trace callback" if engine == "sqlite" else "MySQLdb SSCursor.execute",
+        "boundary": "MySQLdb SSCursor.execute",
         "matched": [
             {
                 "purpose": item.purpose,
@@ -446,8 +421,6 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
         ), message
         return type(caught.value).__name__
 
-    if engine == "sqlite":
-        return {"account": None, "boundary": "Marivo query-only connection; no server account"}
     if engine == "postgres":
         from tests.datasource.environment import postgres_analysis as pg
 

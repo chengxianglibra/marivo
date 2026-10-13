@@ -45,7 +45,6 @@ PROFILES: dict[str, tuple[str, ...]] = {
     ),
     "postgres": ("table", "view", "namespace-table", "namespace-view"),
     "mysql": ("innodb-table", "view"),
-    "sqlite": ("main-table", "main-view"),
     "trino": ("iceberg", "non-iceberg"),
     "clickhouse": ("mergetree", "distributed"),
 }
@@ -106,7 +105,6 @@ class SourceData:
     values: str
     clickhouse_columns: str
     rows: list[dict[str, object]]
-    sqlite_type_map: dict[str, str] | None = None
 
 
 @contextmanager
@@ -173,20 +171,17 @@ def source_case(
             data.rows,
             data.clickhouse_columns,
         )
-    if backend in {"duckdb", "sqlite"}:
+    if backend == "duckdb":
         path = root / f"source.{backend}"
-        admin = ibis.duckdb.connect(path) if backend == "duckdb" else ibis.sqlite.connect(path)
+        admin = ibis.duckdb.connect(path)
         try:
             admin.raw_sql(f"CREATE TABLE {name} ({columns})")
             admin.raw_sql(f"INSERT INTO {name} VALUES {values}")
             admin.raw_sql(f"CREATE VIEW {name}_view AS SELECT * FROM {name}")
-            if backend == "sqlite":
-                admin.con.commit()
+
         finally:
             admin.disconnect()
         fields: dict[str, object] = {"path": str(path), "read_only": True}
-        if backend == "sqlite" and data is not None and data.sqlite_type_map is not None:
-            fields["type_map"] = data.sqlite_type_map
         ds = datasource(backend, fields)
         with provider_for(backend).open(ds) as session:
             environment: dict[str, object] = {"backend": backend, "read_only": True}

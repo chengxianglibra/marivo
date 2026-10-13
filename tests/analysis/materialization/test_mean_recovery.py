@@ -81,8 +81,6 @@ def test_native_original_mean_independent_fixed_and_cold(
     shutil.rmtree(tmp_path / "models")
     for path in tmp_path.glob("source.duckdb*"):
         path.unlink()
-    for path in tmp_path.glob("source.sqlite*"):
-        path.unlink()
     reports: list[Json] = []
     for phase in ("fixed", "cold"):
         output = tmp_path / (phase + ".json")

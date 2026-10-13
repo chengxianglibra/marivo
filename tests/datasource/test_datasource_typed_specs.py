@@ -17,7 +17,6 @@ from marivo.datasource.authoring import (
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
-    SQLiteSpec,
     TrinoSpec,
     _ir_from_spec,
     validate_datasource_name,
@@ -31,7 +30,7 @@ from tests.support.result_protocol import assert_conforms
 
 
 def _ir(
-    spec: DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
+    spec: DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
 ) -> DatasourceIR:
     return _ir_from_spec(
         spec,
@@ -112,25 +111,6 @@ def test_duckdb_http_auth_rejects_ambiguous_or_incomplete_declarations(
 ) -> None:
     with pytest.raises(DatasourceFieldInvalidError):
         DuckDBSpec(name="hawkeye", **kwargs)  # type: ignore[arg-type]
-
-
-def test_sqlite_spec_maps_path_read_only_and_type_map() -> None:
-    spec = SQLiteSpec(
-        name="app",
-        path="data/app.sqlite",
-        read_only=True,
-        type_map={"money": "float64"},
-    )
-    ir = _ir(spec)
-
-    assert spec.backend_type == "sqlite"
-    assert ir.backend_type == "sqlite"
-    assert ir.fields == {
-        "path": "data/app.sqlite",
-        "read_only": True,
-        "type_map": {"money": "float64"},
-    }
-    assert ir.env_refs == {}
 
 
 @pytest.mark.parametrize(
@@ -363,12 +343,6 @@ def test_duckdb_helper_signature_has_current_fields() -> None:
     assert "ai_context" in signature.parameters
 
 
-def test_sqlite_helper_signature_exposes_typed_connection_fields() -> None:
-    signature = inspect.signature(md.sqlite)
-
-    assert {"name", "path", "read_only", "type_map", "ai_context"} <= set(signature.parameters)
-
-
 # -- Store persistence tests --
 
 
@@ -539,10 +513,6 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
     [
         (DuckDBSpec(name="local"), "target: path=':memory:'"),
         (
-            SQLiteSpec(name="app", path="data/app.sqlite", read_only=True),
-            "target: path='data/app.sqlite'",
-        ),
-        (
             TrinoSpec(
                 name="warehouse",
                 host="trino.example",
@@ -584,7 +554,7 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
     ],
 )
 def test_datasource_specs_render_only_agent_relevant_state(
-    spec: DuckDBSpec | SQLiteSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
+    spec: DuckDBSpec | TrinoSpec | MySQLSpec | PostgresSpec | ClickHouseSpec,
     target: str,
     capsys: pytest.CaptureFixture[str],
 ) -> None:

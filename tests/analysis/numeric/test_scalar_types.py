@@ -2,27 +2,7 @@
 
 import pytest
 
-from marivo.datasource.engines.sqlite import declared_scalar_type
 from marivo.datasource.inspection import _canonical_catalog_type
-
-
-@pytest.mark.parametrize(
-    "declaration,expected",
-    [
-        ("INT2", "int64"),
-        ("tinyint", "int64"),
-        ("FLOAT", "float64"),
-        ("VARCHAR(20)", "string"),
-        ("CHAR(3)", "string"),
-        ("BOOL", "boolean"),
-        ("DATETIME", "timestamp(6)"),
-    ],
-)
-def test_sqlite_metadata_and_runtime_share_physical_mapping(
-    declaration: str, expected: str
-) -> None:
-    assert str(declared_scalar_type(declaration)) == expected
-    assert _canonical_catalog_type(declaration, backend_type="sqlite") == expected
 
 
 @pytest.mark.parametrize(
@@ -76,7 +56,7 @@ def test_scalar_dataframe_converter_failure_is_structured() -> None:
 @pytest.mark.parametrize("value", [1.5, 2**64, "invalid"])
 def test_integer_dataframe_conversion_failure_is_structured(value: object) -> None:
     import ibis
-    from ibis.backends.sqlite.converter import SQLitePandasData
+    from ibis.formats.pandas import PandasData
 
     from marivo.datasource.engines.scalar_decode import checked_dataframe
     from marivo.datasource.errors import DatasourcePreviewError
@@ -86,4 +66,4 @@ def test_integer_dataframe_conversion_failure_is_structured(value: object) -> No
             return [(value,)]
 
     with pytest.raises(DatasourcePreviewError, match="incompatible integer storage"):
-        checked_dataframe(Cursor(), ibis.schema({"value": "int64"}), SQLitePandasData.convert_table)
+        checked_dataframe(Cursor(), ibis.schema({"value": "int64"}), PandasData.convert_table)

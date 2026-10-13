@@ -2,7 +2,6 @@
 
 import os
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -11,8 +10,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_store
-from marivo.analysis.methods.registry import MethodRegistration, MethodRegistry
-from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -298,91 +295,6 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
                         "previous_snapshot": saved,
                         "resources": 0,
                         "boundary": "Public two-DuckDB datasource relationship observation only; R1 metadata remains allowed, business reads and new Runs are forbidden.",
-                    }
-                )
-            )
-
-
-def test_public_missing_sqlite_qualification_refuses_before_business_read(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    from tests.support.source_trace import capture_source
-
-    profile = "table"
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    trace = capture_source(monkeypatch)
-    with source_case("sqlite", profile, tmp_path, monkeypatch, reference_data("sqlite")) as case:
-        author_source_project(
-            "sqlite", case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
-        )
-        session = mv.session.get_or_create("r94-missing-qualification", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.facts"))
-        previous = members.read(ms.ref.measure("sales.facts.amount")).execute()
-        saved = snapshot(previous)
-        before = run_ids(session)
-        published_before = publication_counts(session)
-        native_before = list(trace.native_sql)
-        calls: list[str] = []
-
-        lookup = MethodRegistry.lookup
-
-        def missing(registry: MethodRegistry, key: MethodKey) -> MethodRegistration:
-            registration = lookup(registry, key)
-            return (
-                replace(registration, implementations=())
-                if key.name == "metric.sum_zero"
-                else registration
-            )
-
-        def forbidden(*args: object, **kwargs: object) -> None:
-            calls.append("business-read-or-admission")
-            raise AssertionError("Unqualified source route admitted work")
-
-        for name in ("compile", "batches"):
-            monkeypatch.setattr(SourceSession, name, forbidden)
-        monkeypatch.setattr(MethodRegistry, "lookup", missing)
-        monkeypatch.setattr(graph_store, "admit", forbidden)
-        with pytest.raises(AnalysisError) as caught:
-            members.observe(
-                ms.ref.metric("sales.total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(mv.member(),),
-            ).execute()
-        error = caught.value
-        assert "qualified exact key for metric.sum_zero" in error.expected
-        assert error.expected and error.repair is not None and error.repair.action
-        assert calls == [] and trace.native_sql == native_before
-        assert run_ids(session) == before and publication_counts(session) == published_before
-        assert session._runtime.store.resources(session.id) == ()
-        assert snapshot(previous) == saved
-        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-            Path(directory, "public-refusal-no-static-route-" + profile + ".json").write_bytes(
-                encode(
-                    {
-                        "requirement": "R9:refusal:shared:pre-run-pre-read:refusal:no-static-route",
-                        "backend": "sqlite",
-                        "profile": profile,
-                        "read_timezone": "America/New_York",
-                        "error": {
-                            "type": type(error).__name__,
-                            "expected": error.expected,
-                            "received": error.received,
-                            "repair": error.repair.action,
-                        },
-                        "tripwire_calls": list(calls),
-                        "native_business_submissions_after": len(trace.native_sql)
-                        - len(native_before),
-                        "run_counts_before": [len(before)],
-                        "run_counts_after": [len(run_ids(session))],
-                        "publication_counts_before": [*published_before],
-                        "publication_counts_after": [*publication_counts(session)],
-                        "previous_artifact_preserved": True,
-                        "previous_snapshot": saved,
-                        "resources": 0,
-                        "boundary": "Missing exact SQLite sum qualification after UTC normalization; R1 metadata remains allowed. No fallback, source business read or new Run is admitted.",
                     }
                 )
             )

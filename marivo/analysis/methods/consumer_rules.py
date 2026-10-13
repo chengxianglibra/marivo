@@ -16,8 +16,8 @@ from marivo.analysis.methods.physical import (
 
 NATIVE_DISTRIBUTION_BACKENDS: Mapping[str, tuple[Backend, ...]] = MappingProxyType(
     {
-        "metric.distinct": ("sqlite", "postgres", "mysql", "trino"),
-        "metric.approx_distinct": ("sqlite", "postgres", "mysql", "trino", "clickhouse"),
+        "metric.distinct": ("postgres", "mysql", "trino"),
+        "metric.approx_distinct": ("postgres", "mysql", "trino", "clickhouse"),
         "metric.quantile": ("postgres",),
         "metric.approx_quantile": ("postgres", "trino", "clickhouse"),
     }

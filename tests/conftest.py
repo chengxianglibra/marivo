@@ -403,7 +403,7 @@ def installed_wheel(tmp_path_factory: pytest.TempPathFactory) -> InstalledWheel:
 
 
 @pytest.fixture(
-    scope="session", params=("base", "duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
+    scope="session", params=("base", "duckdb", "postgres", "mysql", "trino", "clickhouse")
 )
 def installed_dependency_wheel(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory

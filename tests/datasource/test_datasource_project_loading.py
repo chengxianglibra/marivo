@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ast
-import sqlite3
 from pathlib import Path
 from typing import Protocol
 
@@ -34,19 +33,38 @@ class _ProjectFactory(Protocol):
 
 def _project(root: Path, factory: _ProjectFactory, name: str = "warehouse") -> Path:
     root.mkdir(parents=True)
-    database = root / "warehouse.sqlite"
-    with sqlite3.connect(database) as connection:
+    database = root / "warehouse.duckdb"
+    with duckdb.connect(str(database)) as connection:
         connection.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, amount INTEGER)")
         connection.execute("INSERT INTO orders VALUES (1, 10), (2, 20)")
     factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            f"md.sqlite(name={name!r}, path={str(database)!r}, read_only=True)\n"
+            f"md.duckdb(name={name!r}, path={str(database)!r}, read_only=True)\n"
         },
         load=False,
         workspace_dir=root,
     )
     return root
+
+
+def test_removed_sqlite_declaration_preserves_original_load_error(
+    tmp_path: Path, semantic_project_factory: _ProjectFactory
+) -> None:
+    semantic_project_factory(
+        {
+            "datasources/warehouse.py": "import marivo.datasource as md\n"
+            "md.sqlite(name='warehouse', path='warehouse.sqlite')\n"
+        },
+        load=False,
+        workspace_dir=tmp_path,
+    )
+    assert not hasattr(md, "sqlite") and not hasattr(md, "SQLiteSpec")
+    with pytest.raises(DatasourceLoadError) as caught:
+        md.load(workspace_dir=tmp_path).list()
+    assert caught.value.exception_type == "AttributeError"
+    assert caught.value.traceback is not None and "sqlite" in caught.value.traceback
+    assert isinstance(caught.value.__cause__, AttributeError)
 
 
 def test_project_selection_and_bound_catalog_methods(
@@ -72,7 +90,7 @@ def test_project_selection_and_bound_catalog_methods(
     )
     assert inspection._project_root == explicit
     assert catalog.describe("explicit_source").literal_fields["path"] == str(
-        explicit / "warehouse.sqlite"
+        explicit / "warehouse.duckdb"
     )
     assert catalog.test("explicit_source").ok
     with pytest.raises(DatasourceMissingError) as exc_info:
@@ -119,7 +137,7 @@ def test_external_datasource_is_usable_without_a_local_copy(
     )
     assert [item.name for item in datasources.list()] == ["default", "warehouse"]
     assert datasources.describe("warehouse").literal_fields["path"] == str(
-        external / "warehouse.sqlite"
+        external / "warehouse.duckdb"
     )
     assert datasources.test("warehouse").ok
     assert md.test(ms.ref.datasource("warehouse")).ok

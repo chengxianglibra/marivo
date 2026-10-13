@@ -159,7 +159,7 @@ datasource services. Use `RUNTIME_WORKERS=<count>` to override the
 per-invocation limit after measuring host capacity. Explicit `TESTS` node ids
 containing `::` run serially. Account for other concurrent test tasks on the host.
 
-`make test` 目标是在两分钟内完成，运行快速本地 DuckDB/SQLite、文件、loopback HTTP
+`make test` 目标是在两分钟内完成，运行快速本地 DuckDB、文件、loopback HTTP
 和 SQL 编译契约，并包含测量过的快速图规则、序列化、lowering、消费者、观测粒度、
 数据源能力、数值边界和时间解析用例。较长的坐标统计、worker、独立进程恢复和组合场景由 `make slow-test` 执行；完整的本地验收
 可通过 `make test` 与 `make slow-test` 两个入口运行。`runtime` 仅标记需要已启动

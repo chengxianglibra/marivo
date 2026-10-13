@@ -194,15 +194,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             ),
         ),
         _capability(
-            "sqlite",
-            "marivo.datasource.authoring.sqlite",
-            "Build a SQLite table/view datasource; native NUMERIC cannot supply exact Decimal. Median, percentile, and string strptime are unsupported.",
-            output="DatasourceSpec",
-            inputs=_inputs(("mapping_key", "DatasourceName")),
-            constraints=constraints["declare"],
-            example='md.sqlite(name="app", path="data/app.sqlite", read_only=True)',
-        ),
-        _capability(
             "trino",
             "marivo.datasource.authoring.trino",
             "Build a Trino datasource specification. Marivo's source-native route does not "
@@ -654,7 +645,6 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         {
             "declare_manage": (
                 "duckdb",
-                "sqlite",
                 "trino",
                 "mysql",
                 "postgres",
@@ -707,7 +697,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DuckDBSpec,
         MySQLSpec,
         PostgresSpec,
-        SQLiteSpec,
         TrinoSpec,
     )
     from marivo.datasource.catalog import DatasourceCatalog
@@ -788,7 +777,6 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
     )
     spec_producers: tuple[tuple[type, str], ...] = (
         (DuckDBSpec, "duckdb"),
-        (SQLiteSpec, "sqlite"),
         (TrinoSpec, "trino"),
         (MySQLSpec, "mysql"),
         (PostgresSpec, "postgres"),

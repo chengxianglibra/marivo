@@ -12,13 +12,11 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.core.model import DomainKind
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
-    DecimalType,
     FixedShape,
     QualificationKey,
     Qualified,
@@ -38,35 +36,6 @@ from tests.support.json import key_json
 from tests.support.source_trace import SourceTrace
 
 
-@pytest.mark.parametrize("method", ["group.attach", "row.count", "row.mean", "state_rollup.mean"])
-def test_sqlite_does_not_specialize_to_unobserved_decimal(
-    method: Literal["group.attach", "row.count", "row.mean", "state_rollup.mean"],
-) -> None:
-    types = (
-        (DecimalType(18, 6), ScalarType("string"))
-        if method == "group.attach"
-        else (DecimalType(18, 6),)
-    )
-    domains: tuple[DomainKind, ...] = (
-        ("entity", "entity")
-        if method == "group.attach"
-        else ("group",)
-        if method in ("row.mean", "state_rollup.mean")
-        else ("entity",)
-    )
-    key = QualificationKey(
-        MethodKey(method),
-        types,
-        domains,
-        SourceShape("sqlite", "table", "native", TimeShape("instant", "us", "UTC")),
-        "ibis",
-    )
-    assert all(
-        builtin.specialize_numeric(candidate, key).key != key
-        for candidate in builtin.implementations(key.method)
-    )
-
-
 @pytest.mark.parametrize(
     ("backend", "time_case"),
     source_params(
@@ -75,7 +44,6 @@ def test_sqlite_does_not_specialize_to_unobserved_decimal(
             for backend in ("duckdb", "postgres", "mysql", "trino", "clickhouse")
             for time_case in ("utc", "dst")
         ]
-        + [("sqlite", "dst")]
     ),
 )
 def test_declared_string_time_uses_owned_execution_functions(
@@ -977,7 +945,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
 
 
 @pytest.mark.parametrize(
-    "backend", source_params(["duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"])
+    "backend", source_params(["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 )
 def test_native_timestamp_retains_reader_and_grid_authority(
     backend: str,
@@ -1039,7 +1007,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
             case,
             monkeypatch,
             semantic_project_factory,
-            time_parse="native" if backend == "sqlite" else "native_resolved",
+            time_parse="native_resolved",
         )
         session = mv.session.get_or_create("r93-native-time", report_timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
@@ -1069,7 +1037,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
                 "product_rows": 10,
                 "native_time_type": str(native_type),
                 "reader_timezone": reader_zone,
-                "parser": "timestamp UTC" if backend == "sqlite" else None,
+                "parser": None,
                 "report_timezone": "Asia/Tokyo",
                 "grid_timezone": str(zone),
                 "last_microsecond_included": True,
@@ -1080,62 +1048,6 @@ def test_native_timestamp_retains_reader_and_grid_authority(
             grouped,
             (case.session,),
         )
-
-
-def test_sqlite_native_time_adopts_frozen_system_reader_authority(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    source_trace: SourceTrace,
-) -> None:
-    from tests.datasource.source_receipts import receipt
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    monkeypatch.setenv("TZ", "UTC")
-    data = SourceData(
-        "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened TIMESTAMP",
-        "(1,1,'a',2,'2026-08-01 04:00:00'),(2,1,'a',5,'2026-08-02 03:59:59.999999')",
-        "",
-        [],
-    )
-    with source_case("sqlite", "table", tmp_path, monkeypatch, data) as case:
-        author_source_project(
-            "sqlite", case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
-        )
-        session = mv.session.get_or_create("r93-native-unresolved", report_timezone="Asia/Tokyo")
-        zone = ZoneInfo("America/New_York")
-        scope = mv.time_scope(
-            start=datetime(2026, 8, 1, tzinfo=zone), end=datetime(2026, 8, 3, tzinfo=zone)
-        )
-        grid = mv.time_grid(during=scope, grain=mv.grain("day"), timezone=str(zone))
-        members = session.members(ms.ref.entity("sales.facts"))
-        reader = members._node._live().graph.entity_schema.reader_timezone
-        assert reader is not None and reader.read_tz_resolution == "system_fallback"
-        monkeypatch.setenv("TZ", "Asia/Shanghai")
-        logical = members.observe(ms.ref.metric("sales.total"), during=grid, by=(mv.member(),))
-        assert session.runs().items == ()
-        assert not any(owner.submissions for owner in source_trace.owners)
-        assert logical.execute().group_by(grid).rollup().execute().to_pandas().value.tolist() == [
-            7,
-            0,
-        ]
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
-    receipt(
-        "c06-sqlite-native-time-system-default",
-        {
-            "backend": "sqlite",
-            "parser": None,
-            "reader_timezone": "UTC",
-            "reader_origin": "system_fallback",
-            "host_timezone": "UTC",
-            "report_timezone": "Asia/Tokyo",
-            "grid_timezone": "America/New_York",
-            "values": [7, 0],
-            "host_change_preserved_authority": True,
-            "resources": 0,
-        },
-    )
 
 
 @pytest.mark.parametrize("backend", source_params(["duckdb", "postgres"]))

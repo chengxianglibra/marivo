@@ -107,13 +107,10 @@ class BuiltDatasourceBackend:
     backend: BaseBackend = field(repr=False)
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...] = field(repr=False)
     injected: tuple[cr.SecretValue, ...] = field(default=(), repr=False)
-    thread_affine: bool = field(default=False, repr=False)
     lease: BackendLease = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "lease", BackendLease(self.backend, thread_affine=self.thread_affine)
-        )
+        object.__setattr__(self, "lease", BackendLease(self.backend))
 
     def disconnect(self) -> None:
         self.lease.close()
@@ -223,7 +220,6 @@ def _build_backend_from_effective(
         backend=backend,
         env_sourced_secrets=effective.env_sourced_secrets,
         injected=effective.injected,
-        thread_affine=profile.thread_affine,
     )
     try:
         if datasource.backend_type == "duckdb":

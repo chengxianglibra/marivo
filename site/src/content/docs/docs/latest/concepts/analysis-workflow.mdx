@@ -195,8 +195,7 @@ coordinate bindings. Use the corresponding classification object for subsequent
 `group_by`, statistic rollup or retained-axis attribution when a bare Dimension Ref
 would be ambiguous. Attribution uses the complete ordered endpoint axes. Fixed continuations
 use saved bindings and complete keys without re-inferring paths.
-Contribution coordinates use flat state on all six backends, including SQLite,
-MySQL and ClickHouse. Coordinates already in the result key reuse original
+Contribution coordinates use flat state on all five backends, including MySQL and ClickHouse. Coordinates already in the result key reuse original
 components; other coordinates retain complete flat partitions. Real all-Null
 contributions remain distinct from empty targets. Automatic relationships preserve
 the exact backend admission boundary. Materialized comparisons retain the bound

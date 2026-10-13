@@ -11,7 +11,6 @@ from marivo.datasource.authoring import (
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
-    SQLiteSpec,
     TrinoSpec,
 )
 from marivo.datasource.backends import SUPPORTED_BACKEND_TYPES
@@ -27,7 +26,6 @@ def test_engine_registry_keys_match_supported_backend_types() -> None:
     assert tuple(ENGINE_PROFILES) == SUPPORTED_BACKEND_TYPES
     assert set(ENGINE_PROFILES) == {
         "duckdb",
-        "sqlite",
         "trino",
         "mysql",
         "postgres",
@@ -56,7 +54,6 @@ def test_every_profile_populates_required_fields() -> None:
 def test_every_profile_declares_real_authoring_capabilities() -> None:
     expected = {
         "duckdb": (True, False, False, False),
-        "sqlite": (True, False, False, False),
         "trino": (True, False, True, True),
         "mysql": (True, False, True, True),
         "postgres": (True, False, True, True),
@@ -138,7 +135,6 @@ def test_aliases_are_unique_and_resolve_to_profiles() -> None:
     assert profile_for_backend_name("presto").name == "trino"
     assert profile_for_backend_name("postgresql").name == "postgres"
     assert profile_for_backend_name("redshift").name == "postgres"
-    assert profile_for_backend_name("sqlite3").name == "sqlite"
 
 
 def test_unknown_backend_name_resolves_to_generic_profile() -> None:
@@ -156,7 +152,6 @@ def test_registered_profiles_do_not_use_generic_metadata_inspector() -> None:
 def test_authoring_specs_resolve_to_profiles() -> None:
     specs = (
         DuckDBSpec(name="duck"),
-        SQLiteSpec(name="lite"),
         TrinoSpec(name="tri", host="h", catalog="c", user_env="TRINO_USER"),
         MySQLSpec(name="my", host="h", database="d"),
         PostgresSpec(name="pg", host="h", database="d"),
@@ -169,7 +164,6 @@ def test_authoring_specs_resolve_to_profiles() -> None:
         names.add(profile.name)
     assert names == {
         "duckdb",
-        "sqlite",
         "trino",
         "mysql",
         "postgres",

@@ -32,7 +32,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         patch.object(SourceSession, "__init__", forbidden),
         patch.object(duckdb, "connect", forbidden),
         patch.object(ibis.duckdb, "connect", forbidden),
-        patch.object(ibis.sqlite, "connect", forbidden),
         patch.object(source_timezone, "probe_engine_timezone", forbidden),
         patch.object(source_timezone, "_resolve_system_timezone", forbidden),
     ):

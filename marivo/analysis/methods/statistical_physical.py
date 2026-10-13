@@ -48,16 +48,8 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "forecast.read",
     ):
         return declarations
-    sqlite = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
-            qualification=Qualified(
-                "r93-sqlite-" + method.name + "-entity-int64-us-utc-v1",
-                "analysis.materialization.statistical_execution",
-                "tests/test_r93_method_consumers.py",
-            ),
-        )
+    native_inputs = tuple(
+        item
         for item in declarations
         if isinstance(item.key.shape, SourceShape)
         and item.key.shape.backend == "duckdb"
@@ -81,7 +73,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     mysql = tuple(
@@ -107,7 +99,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     clickhouse = tuple(
@@ -123,7 +115,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         for item in trino
         if isinstance(item.key.shape, SourceShape)
     )
-    return (*declarations, *sqlite, *postgres, *mysql, *trino, *clickhouse)
+    return (*declarations, *postgres, *mysql, *trino, *clickhouse)
 
 
 def specialize(implementation: Implementation, key: QualificationKey) -> Implementation:

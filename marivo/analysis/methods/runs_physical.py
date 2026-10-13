@@ -43,16 +43,8 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         if item.key.input_domains != ()
         if not isinstance(item.key.shape, SourceShape) or item.key.shape.backend == "duckdb"
     )
-    sqlite = tuple(
-        replace(
-            item,
-            key=replace(item.key, shape=replace(item.key.shape, backend="sqlite")),
-            qualification=Qualified(
-                "r93-sqlite-" + method.name + "-entity-int64-us-utc-v1",
-                "analysis.materialization.runs_execution",
-                "tests/test_r93_method_consumers.py",
-            ),
-        )
+    native_inputs = tuple(
+        item
         for item in declarations
         if isinstance(item.key.shape, SourceShape)
         and item.key.shape.form == "table"
@@ -70,7 +62,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     postgres = tuple(
@@ -83,7 +75,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     mysql = tuple(
@@ -96,7 +88,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     clickhouse = tuple(
@@ -109,7 +101,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r93_method_consumers.py",
             ),
         )
-        for item in sqlite
+        for item in native_inputs
         if isinstance(item.key.shape, SourceShape)
     )
     grouped = tuple(
@@ -122,7 +114,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "tests/test_r94_statistical_recovery.py",
             ),
         )
-        for item in (*sqlite, *trino, *postgres, *mysql, *clickhouse)
+        for item in (*trino, *postgres, *mysql, *clickhouse)
         if method.name == "time.runs"
         and isinstance(item.key.shape, SourceShape)
         and item.key.input_domains == ("entity",)
@@ -130,7 +122,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.shape.time == TimeShape("instant", "us", "UTC")
         and item.key.route == "ibis_python"
     )
-    return (*declarations, *sqlite, *trino, *postgres, *mysql, *clickhouse, *grouped)
+    return (*declarations, *trino, *postgres, *mysql, *clickhouse, *grouped)
 
 
 def specialize(implementation: Implementation, key: QualificationKey) -> Implementation:

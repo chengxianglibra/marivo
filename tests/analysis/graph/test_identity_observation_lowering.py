@@ -342,9 +342,7 @@ def _primary(lowered: LoweredPlan) -> LoweredRelation:
     )
 
 
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.parametrize("backend", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 @pytest.mark.parametrize("contribution", (False, True))
 @pytest.mark.parametrize("method", ("count", "sum", "mean", "min", "max"))
 def test_classified_count_native_compilation_and_admission(
@@ -410,7 +408,7 @@ def test_classified_count_native_compilation_and_admission(
             SourceShape(backend, "table", "native", leaf.definition.shape.time),
             "ibis",
         )
-        if method in ("min", "max") and backend not in ("duckdb", "sqlite"):
+        if method in ("min", "max") and backend != "duckdb":
             with pytest.raises(MethodRegistrationError, match="qualified exact key"):
                 REGISTRY.select(key, inputs, root.parameters)
         else:
@@ -426,7 +424,7 @@ def test_classified_count_native_compilation_and_admission(
             value_type=root.value_type,
         )
         roots: tuple[MethodNode, ...] = (root, rolled)
-        if method == "sum" and not contribution and backend not in ("duckdb", "sqlite"):
+        if method == "sum" and not contribution and backend != "duckdb":
             with pytest.raises(MethodRegistrationError, match="qualified exact key"):
                 _lower(rolled, (binding,))
             roots = (root,)

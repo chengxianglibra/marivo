@@ -43,7 +43,6 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         patch.object(SourceSession, "__init__", forbidden),
         patch.object(duckdb, "connect", forbidden),
         patch.object(ibis.duckdb, "connect", forbidden),
-        patch.object(ibis.sqlite, "connect", forbidden),
         patch.object(
             graph_local_execution,
             "execute_verified_fixed",

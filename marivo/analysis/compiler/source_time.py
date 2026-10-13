@@ -164,24 +164,11 @@ def encoded_time_predicate(
         return None
 
 
-def _parse_signature(text: str, fmt: str) -> datetime:
-    raise NotImplementedError("native string parse")
-
-
 def _parse_signature_zoned(text: str, fmt: str, zone: str) -> datetime:
     raise NotImplementedError("native zoned string parse")
 
 
-# SQLite has no ibis ``StringToTimestamp`` rule. Its parser is a
-# connection-local deterministic scalar registered by the SQLite execution
-# adapter, and it consumes the authored Python format because
-# ``datetime.strptime`` is exactly that language.
-_sqlite_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
-    _parse_signature,
-    name="_marivo_strptime",
-    signature=((dt.string, dt.string), dt.Timestamp(scale=6)),
-)
-# ClickHouse has no ibis ``StringToTimestamp`` rule either. ``parseDateTimeOrNull``
+# ClickHouse has no ibis ``StringToTimestamp`` rule. ``parseDateTimeOrNull``
 # is its native MySQL-format parser; the explicit zone argument keeps the result
 # a UTC-labelled instant regardless of session timezone. Malformed values may
 # become NULL and are not checked by an automatic source preflight.
@@ -247,8 +234,6 @@ def native_parse(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.
     parser result directly instead of the cast value.
     """
     fmt = translated_strptime_format(engine, parse.format)
-    if engine == "sqlite":
-        return _sqlite_strptime(text, fmt)
     if engine == "clickhouse":
         # The explicit zone argument keeps the parsed instant labelled UTC
         # whatever the session timezone is.
@@ -267,7 +252,7 @@ def parse_strptime(engine: str, text: ir.StringValue, parse: StrptimeParse) -> i
     """Parse string text with *engine*'s native parser and the authored format.
 
     Every engine goes through :func:`translated_strptime_format`, so the profile
-    hook is the one owner of who translates a format. DuckDB and SQLite consume
+    hook is the one owner of who translates a format. DuckDB consumes
     the Python strptime format itself, so their translation is the identity and
     the emitted format is the authored one.
 

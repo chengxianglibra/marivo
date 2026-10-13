@@ -228,7 +228,7 @@ Materialized method calls do not replay origin or reconnect its source.
 
 Backend, table form, exact type, domain, time shape, method and complete-read/cleanup
 authority all participate in admission. DuckDB tables, local Parquet, local
-CSV/JSON adapters, SQLite, PostgreSQL, MySQL, Trino and ClickHouse do not inherit
+CSV/JSON adapters, PostgreSQL, MySQL, Trino and ClickHouse do not inherit
 one another's method qualifications. A backend name or successfully compiled
 expression is not blanket support.
 

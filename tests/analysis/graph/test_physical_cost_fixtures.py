@@ -13,9 +13,7 @@ from tests.analysis.graph.physical_workloads import _data, _rows, _tables, workl
 from tests.support.paths import PROJECT_ROOT
 
 
-@pytest.mark.parametrize(
-    "backend", ("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse")
-)
+@pytest.mark.parametrize("backend", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 def test_cost_fixture_declares_trino_microsecond_time_only(backend: str) -> None:
     rows = _rows(2, "baseline")
     data = _data(rows, backend)

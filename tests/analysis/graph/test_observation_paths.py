@@ -267,7 +267,7 @@ def test_long_path_sum_and_count(
             json.dumps({"session": session.id, "inputs": outputs})
         )
         shutil.rmtree(tmp_path / "models")
-        for database in (*tmp_path.glob("*.sqlite"), *tmp_path.glob("*.duckdb")):
+        for database in tmp_path.glob("*.duckdb"):
             database.unlink()
         for phase in ("fixed", "cold"):
             completed = subprocess.run(

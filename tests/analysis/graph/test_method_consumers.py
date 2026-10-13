@@ -510,7 +510,7 @@ def test_source_statistic(
                     "physical_key": key_json(selected.key),
                     "implementation_id": selected.implementation.qualification.implementation_id,
                     "remote_termination": "not_applicable"
-                    if backend in {"duckdb", "sqlite"}
+                    if backend == "duckdb"
                     else "remote_unknown",
                     "boundary": "Bounded entity/int64 source capture and views; not full scenario qualification",
                 }
@@ -532,7 +532,7 @@ def test_source_statistic(
                 )
     (tmp_path / "statistic-producer.json").write_bytes(encode(checked({"artifacts": artifacts})))
     (tmp_path / "models").rename(tmp_path / "models.offline")
-    for pattern in ("source.duckdb*", "source.sqlite*"):
+    for pattern in ("source.duckdb*",):
         for source_path in tmp_path.glob(pattern):
             source_path.unlink()
     fixed_phase = recover_statistic(tmp_path, "fixed")

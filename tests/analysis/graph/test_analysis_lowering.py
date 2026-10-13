@@ -512,7 +512,7 @@ def test_unqualified_parameters_and_shapes_fail_at_plan():
     wrong = replace(
         leaf,
         definition=replace(
-            leaf.definition, shape=SourceShape("sqlite", "table", "native", NoTime())
+            leaf.definition, shape=SourceShape("postgres", "table", "native", NoTime())
         ),
     )
     with pytest.raises(MethodRegistrationError, match="qualified exact key"):

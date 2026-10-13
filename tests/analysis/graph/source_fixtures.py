@@ -22,7 +22,7 @@ def author_source_project(
     read_timezone: str = "UTC",
 ) -> bool:
     assert isinstance(case.source, TableSourceIR)
-    remote = backend not in ("duckdb", "sqlite")
+    remote = backend != "duckdb"
     if remote:
 
         def forbid_staging_write(*args: object, **kwargs: object) -> NoReturn:

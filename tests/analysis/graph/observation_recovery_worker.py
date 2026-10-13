@@ -33,7 +33,6 @@ def recover(root: Path, phase: str) -> None:
         patch.object(ms, "load", forbidden),
         patch.object(SemanticProject, "load", forbidden),
         patch.object(SourceSession, "__init__", forbidden),
-        patch.object(ibis.sqlite, "connect", forbidden),
         patch.object(ibis.duckdb, "connect", forbidden),
     ):
         session = mv.session.resume(session_id, by="id")

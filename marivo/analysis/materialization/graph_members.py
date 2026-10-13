@@ -458,22 +458,6 @@ class MemberGraph:
                 ) as source,
             ):
                 owner = source
-                if datasource.backend_type == "sqlite":
-                    from sqlite3 import Connection
-
-                    from marivo.analysis.materialization.temporal_sql import (
-                        _initialize_sqlite_functions,
-                    )
-
-                    connection: object = getattr(backend, "con", None)
-                    if not isinstance(connection, Connection):
-                        raise DatasetConstructionError(
-                            expected="the selected native SQLite connection",
-                            received=type(connection).__name__,
-                            repair="Reconnect the governed SQLite datasource and retry execution.",
-                            location="analysis.graph_members",
-                        )
-                    _initialize_sqlite_functions(connection)
                 from marivo.datasource.timezone import probe_engine_timezone
 
                 frozen_timezones = {

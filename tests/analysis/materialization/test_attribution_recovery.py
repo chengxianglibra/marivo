@@ -124,7 +124,7 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         }
         (tmp_path / "r94-attribution.json").write_bytes(encode(state))
     shutil.rmtree(tmp_path / "models")
-    for pattern in ("source.duckdb*", "source.sqlite*"):
+    for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
     repository = PROJECT_ROOT

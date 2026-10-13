@@ -12,11 +12,12 @@ Backend extra 安装 driver，连接证明可访问，二者都不授予全部�
 | 后端 | Extra | 配置事实 |
 | --- | --- | --- |
 | DuckDB | <code style="white-space: nowrap">duckdb</code> | 本地表及准入文件来源；教程无需服务器 |
-| SQLite | <code style="white-space: nowrap">sqlite</code> | 原生 SQLite 表契约；DATE 与 UTC timestamp 路径分别准入 |
 | PostgreSQL | <code style="white-space: nowrap">postgres</code> | 只读账户及原生 libpq 前提 |
 | MySQL | <code style="white-space: nowrap">mysql</code> | 原生客户端与构建前提，以及原生查询配置 |
 | Trino | <code style="white-space: nowrap">trino</code> | 显式 catalog/schema、只读访问与原生查询配置 |
 | ClickHouse | <code style="white-space: nowrap">clickhouse</code> | 准入 scalar types，分析要求有效 `join_use_nulls=1` |
+
+Analysis 使用项目本地 SQLite 保存元数据，与数据源支持无关。
 
 基础包包含本地结果所需 Arrow。发现未选择 provider 不导入其 driver。
 所选依赖缺失时，typed repair 指明所需 extra。

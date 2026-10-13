@@ -16,7 +16,7 @@ uv pip install --python .venv/bin/python "marivo[duckdb]"
 ```
 
 Windows 将 `.venv/bin/python`替换为 `.venv/Scripts/python.exe`。
-其他打包 driver 使用 `sqlite`、`postgres`、`mysql`、`trino`、`clickhouse`或 `all`。
+其他打包 driver 使用 `postgres`、`mysql`、`trino`、`clickhouse`或 `all`。
 PostgreSQL 需要 libpq，MySQL 需要原生客户端和构建前提，基础包包含 Arrow。
 
 可选安装器 `curl -fsSL https://marivo.io/install.sh | bash`创建或复用 `.venv`，

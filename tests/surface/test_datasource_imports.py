@@ -162,7 +162,6 @@ def test_datasource_public_exports() -> None:
         "TrinoSpec",
         "MySQLSpec",
         "PostgresSpec",
-        "SQLiteSpec",
         "ClickHouseSpec",
         "DiscoverySnapshot",
         "SourceInspection",
@@ -184,7 +183,6 @@ def test_datasource_public_exports() -> None:
         "trino",
         "mysql",
         "postgres",
-        "sqlite",
         "clickhouse",
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"

@@ -3,7 +3,7 @@
 This module lives in ``marivo.datasource`` because format translation is an
 engine concern: MySQL-family backends and ClickHouse use MySQL format
 specifiers, PostgreSQL uses ``TO_TIMESTAMP`` template patterns, and DuckDB,
-SQLite and the generic profile consume Python strptime formats unchanged.
+The generic profile consumes Python strptime formats unchanged.
 """
 
 from __future__ import annotations

@@ -35,26 +35,24 @@ def _blocking_view(case: Case, backend: str, statement: str) -> Iterator[TableSo
     qualified = ".".join(names)
     create = "CREATE VIEW " + qualified + " AS " + statement
     drop = "DROP VIEW " + qualified
-    if backend in ("duckdb", "sqlite"):
+    if backend == "duckdb":
         path = case.session.datasource.fields["path"]
         assert isinstance(path, str)
         if backend == "duckdb":
             case.session.close()
-        admin = ibis.duckdb.connect(path) if backend == "duckdb" else ibis.sqlite.connect(path)
+        admin = ibis.duckdb.connect(path)
         try:
             admin.raw_sql(create)
-            if backend == "sqlite":
-                admin.con.commit()
+
         finally:
             admin.disconnect()
         try:
             yield TableSourceIR(name, database=database)
         finally:
-            admin = ibis.duckdb.connect(path) if backend == "duckdb" else ibis.sqlite.connect(path)
+            admin = ibis.duckdb.connect(path)
             try:
                 admin.raw_sql(drop)
-                if backend == "sqlite":
-                    admin.con.commit()
+
             finally:
                 admin.disconnect()
     elif backend == "postgres":

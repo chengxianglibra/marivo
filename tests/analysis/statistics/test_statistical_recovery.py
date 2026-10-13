@@ -13,10 +13,10 @@ def test_remote_group_runs_declarations_are_exact() -> None:
         and item.key.shape.backend != "duckdb"
         and item.key.input_domains == ("group",)
     ]
-    assert len(grouped) == 5
+    assert len(grouped) == 4
     assert {
         item.key.shape.backend for item in grouped if isinstance(item.key.shape, SourceShape)
-    } == {"sqlite", "postgres", "mysql", "trino", "clickhouse"}
+    } == {"postgres", "mysql", "trino", "clickhouse"}
     for item in grouped:
         assert isinstance(item.key.shape, SourceShape)
         assert item.key.shape.form == "table" and item.key.shape.table_kind == "native"

@@ -85,7 +85,7 @@ def _native_temporal_recovery(
     )
     with ExitStack() as stack:
         case = stack.enter_context(source_case(backend, profile, tmp_path, monkeypatch, data))
-        if backend in ("duckdb", "sqlite"):
+        if backend == "duckdb":
             case.session.close()
         subject_case = stack.enter_context(
             source_case(backend, profile, tmp_path, monkeypatch, subjects)
@@ -135,8 +135,6 @@ def _native_temporal_recovery(
         environment = checked({**case.environment, "profile": profile})
     shutil.rmtree(tmp_path / "models")
     for path in tmp_path.glob("source.duckdb*"):
-        path.unlink()
-    for path in tmp_path.glob("source.sqlite*"):
         path.unlink()
     reports: list[Json] = []
     for phase in ("fixed", "cold"):

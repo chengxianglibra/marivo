@@ -27,11 +27,11 @@ def test_native_driver_records_fixture_sql_once(
         audit.assert_classified()
 
 
-def test_store_connection_authority_is_separate_from_datasource_sqlite(
+def test_store_connection_authority_is_separate_from_other_connections(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    with native_audit(monkeypatch, "sqlite") as audit:
+    with native_audit(monkeypatch, "duckdb") as audit:
         store = SessionStore(tmp_path)
         assert store.db_path.exists()
         with sqlite3.connect(tmp_path / "ordinary.sqlite") as datasource:

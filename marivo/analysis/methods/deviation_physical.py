@@ -106,8 +106,7 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         for typ in (ScalarType("int64"), ScalarType("float64"))
         for shape in shapes
     )
-    source_backends: tuple[Literal["sqlite", "clickhouse", "mysql", "postgres", "trino"], ...] = (
-        "sqlite",
+    source_backends: tuple[Literal["clickhouse", "mysql", "postgres", "trino"], ...] = (
         "clickhouse",
         "mysql",
         "postgres",

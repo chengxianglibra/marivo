@@ -380,8 +380,7 @@ consumes its own translation: MySQL (`STR_TO_DATE`) and Trino (`DATE_PARSE`) tak
 the MySQL form via `python_to_mysql_strptime`, PostgreSQL (`TO_TIMESTAMP`) takes a
 template pattern via `python_to_postgres_strptime`, ClickHouse
 (`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
-expressible there, SQLite parses in a connection-local deterministic scalar, and
-DuckDB receives Python strptime unchanged.
+expressible there, and DuckDB receives Python strptime unchanged.
 
 `ms.strptime(format)` also declares canonical source encoding for every field,
 not just partition columns: directive widths and zero padding, literal separators,

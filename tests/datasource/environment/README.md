@@ -23,8 +23,7 @@ Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,
 `MARIVO_CLICKHOUSE_ANALYSIS_TEST`, set to `1`. Distributed ClickHouse and the
 Trino memory catalog use `MARIVO_CLICKHOUSE_CLUSTER_TEST` and
 `MARIVO_TRINO_NON_ICEBERG_TEST`. Unavailable services skip their opt-in cases;
-those skips provide no real-backend evidence. SQLite uses files under `tmp_path`
-and needs no service.
+those skips provide no real-backend evidence.
 
 Use bounded concurrency while other agents are testing. For example:
 
@@ -34,9 +33,8 @@ MARIVO_POSTGRES_ANALYSIS_TEST=1 make runtime-test TESTS='tests/datasource/test_s
 
 Tests use UUID-named fixtures, keep administration separate from the restricted
 reader, and remove their own objects in `finally`. Passwords enter datasource
-declarations through environment references. Source profiling rejects SQLite's
-float-backed NUMERIC carrier when an exact Decimal cannot be preserved. Source
-profile, cancellation, and analysis method tests each retain their own scope;
+declarations through environment references. Source profile, cancellation, and
+analysis method tests each retain their own scope;
 passing one does not qualify the others.
 
 ## Topology
@@ -164,10 +162,8 @@ is an explicit reset.
 
 PostgreSQL setup removes PUBLIC CREATE/TEMP, grants public-schema USAGE and
 SELECT, and defaults reader transactions to read-only and UTC. MySQL grants only
-SELECT on `analysis.*`; InnoDB fixtures use `utf8mb4_0900_bin`. SQLite's production
-connection is query-only. Native driver buffering, SQLite busy-handler waits,
-and SQLite internal statement recompilation remain driver behavior, rather than
-Marivo replay or retry policies. `fetchmany` limits rows, not cell bytes.
+SELECT on `analysis.*`; InnoDB fixtures use `utf8mb4_0900_bin`. Native driver
+buffering remains driver behavior, rather than Marivo replay or retry policies. `fetchmany` limits rows, not cell bytes.
 
 Trino file rules restrict `analysis_reader` to Iceberg/Hive/system metadata and the
 `noniceberg` memory catalog. The loopback service does not authenticate identities;
@@ -190,7 +186,7 @@ already-ready services. Select backends explicitly and keep Trino separate from
 ClickHouse:
 
 ```bash
-MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=sqlite,postgres,mysql,clickhouse make installed-multisource-test
+MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=postgres,mysql,clickhouse make installed-multisource-test
 MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino make installed-multisource-test
 ```
 

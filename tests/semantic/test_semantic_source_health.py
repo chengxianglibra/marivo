@@ -1,12 +1,12 @@
-"""Explicit source-health contract tests against a real SQLite backend."""
+"""Explicit source-health contract tests against a real DuckDB backend."""
 
 from __future__ import annotations
 
-import sqlite3
 import textwrap
 from datetime import timedelta
 from pathlib import Path
 
+import duckdb
 import pytest
 
 import marivo.datasource as md
@@ -17,9 +17,9 @@ from marivo.semantic.errors import SemanticRuntimeError
 
 
 def _seed_sources(path: Path) -> None:
-    connection = sqlite3.connect(path)
+    connection = duckdb.connect(str(path))
     try:
-        connection.executescript(
+        connection.execute(
             """
             CREATE TABLE orders (
                 order_id INTEGER PRIMARY KEY,
@@ -56,13 +56,13 @@ def _catalog(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory,
 ) -> tuple[SemanticCatalog, Path]:
-    database_path = tmp_path / "warehouse.sqlite"
+    database_path = tmp_path / "warehouse.duckdb"
     _seed_sources(database_path)
     project = semantic_project_factory(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.sqlite(name='warehouse', path={str(database_path)!r})\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"
@@ -269,7 +269,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     details = catalog.require(relationship).details()
     assert details.cardinality == "many_to_one"
 
-    connection = sqlite3.connect(database_path)
+    connection = duckdb.connect(str(database_path))
     try:
         connection.execute(
             "INSERT INTO orders VALUES (4, NULL, 'paid', 40.0, '2020-01-04 00:00:00')"
@@ -304,7 +304,7 @@ def test_schema_drift_reports_current_affected_refs_and_repair(
     semantic_project_factory,
 ) -> None:
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    connection = sqlite3.connect(database_path)
+    connection = duckdb.connect(str(database_path))
     try:
         connection.execute("ALTER TABLE orders RENAME COLUMN amount TO amount_old")
         connection.commit()
@@ -344,7 +344,7 @@ def test_decorator_field_schema_drift_fails_closed_with_affected_refs(
     semantic_project_factory,
 ) -> None:
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    connection = sqlite3.connect(database_path)
+    connection = duckdb.connect(str(database_path))
     try:
         connection.execute("ALTER TABLE decorator_orders RENAME COLUMN amount TO amount_old")
         connection.commit()
@@ -403,7 +403,7 @@ def test_source_unavailability_has_its_own_code(
     semantic_project_factory,
 ) -> None:
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
-    connection = sqlite3.connect(database_path)
+    connection = duckdb.connect(str(database_path))
     try:
         connection.execute("DROP TABLE orders")
         connection.commit()

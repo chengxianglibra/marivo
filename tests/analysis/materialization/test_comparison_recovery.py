@@ -85,7 +85,7 @@ def test_native_comparison_independent_fixed_and_cold(
         )
         environment = checked({**case.environment, "profile": profile})
     shutil.rmtree(tmp_path / "models")
-    for pattern in ("source.duckdb*", "source.sqlite*"):
+    for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
     reports: list[Json] = []

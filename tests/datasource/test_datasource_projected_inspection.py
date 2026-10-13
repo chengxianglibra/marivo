@@ -584,9 +584,6 @@ def test_projected_source_render_preserves_database_identity_shape(
         ("mysql", "tinyint(1)", "int8"),
         ("mysql", "tinyint(1)", "int8"),
         ("mysql", "bigint unsigned", "uint64"),
-        ("sqlite", "INT2", "int64"),
-        ("sqlite", "TIMESTAMP", "timestamp(6)"),
-        ("sqlite", "VARCHAR(20)", "string"),
     ],
 )
 def test_scalar_representation_metadata_is_not_a_cast(

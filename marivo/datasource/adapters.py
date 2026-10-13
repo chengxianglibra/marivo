@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import closing, nullcontext
+from contextlib import closing
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -367,11 +367,7 @@ def _exact_array(
             normalized_values.append(None)
             continue
         if pa.types.is_boolean(arrow_type):
-            if (
-                backend_name in ("sqlite", "mysql", "clickhouse")
-                and type(value) is int
-                and value in (0, 1)
-            ):
+            if backend_name in ("mysql", "clickhouse") and type(value) is int and value in (0, 1):
                 value = bool(value)
             valid = type(value) is bool
         elif pa.types.is_integer(arrow_type):
@@ -396,7 +392,7 @@ def _exact_array(
         ):
             valid = type(value) is bytes
         elif pa.types.is_timestamp(arrow_type):
-            if backend_name in {"sqlite", "mysql"} and type(value) is str:
+            if backend_name == "mysql" and type(value) is str:
                 if not re.fullmatch(
                     r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:[+-][0-9]{2}:[0-9]{2})?",
                     value,
@@ -411,7 +407,7 @@ def _exact_array(
             # These UTC readers return naive native/text carriers. Only an
             # explicitly UTC Arrow schema authorizes restoring the zone.
             if (
-                backend_name in ("clickhouse", "mysql", "sqlite")
+                backend_name in ("clickhouse", "mysql")
                 and arrow_type.tz == "UTC"
                 and type(value) is datetime
                 and value.tzinfo is None
@@ -421,11 +417,7 @@ def _exact_array(
                 arrow_type.tz is not None
             )
         elif pa.types.is_date(arrow_type):
-            if backend_name in {"mysql", "sqlite"} and type(value) is str:
-                if backend_name == "sqlite" and not re.fullmatch(
-                    r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value
-                ):
-                    raise _invalid(f"exact {arrow_type} value for {field.name}", "text date")
+            if backend_name == "mysql" and type(value) is str:
                 try:
                     value = date.fromisoformat(value)
                 except ValueError as exc:
@@ -781,11 +773,7 @@ class SourceSession:
         self.provider = provider
         self.datasource = datasource
         self._backend = backend
-        self._backend_lease = (
-            backend_lease or BackendLease(backend, thread_affine=provider.thread_affine)
-            if owns_backend
-            else None
-        )
+        self._backend_lease = backend_lease or BackendLease(backend) if owns_backend else None
         self._backend_disconnected = False
         self._token = object()
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
@@ -944,7 +932,7 @@ class SourceSession:
         supported = frozenset({"scan", "filter", "project", "group", "count"})
         if self.provider.name == "duckdb":
             supported |= {"join", "union", "window", "sort"}
-        elif self.provider.name in ("sqlite", "postgres", "mysql", "trino", "clickhouse"):
+        elif self.provider.name in ("postgres", "mysql", "trino", "clickhouse"):
             supported |= {"join", "union"}
         if (
             not need.method_id
@@ -1087,52 +1075,18 @@ class SourceSession:
             raise _invalid("an exact read owned by this session", "unowned calculated exchange")
         if not table.schema.equals(stored[1].schema, check_metadata=False):
             raise _invalid("the issued exchange schema", str(table.schema))
-        if self.provider.name not in ("duckdb", "sqlite"):
+        if self.provider.name != "duckdb":
             relation = _inline_exchange(table, self.provider.name)
             self._inline_relations[relation.op()] = frozenset(stored[1].source_identity.split("|"))
             return relation
         name = "mv_graph_" + uuid4().hex
-        from marivo.datasource.engines.sqlite import owned_temporary_writes
-
-        with (
-            owned_temporary_writes(self._backend, frozenset({name, name + "_input"}))
-            if self.provider.name == "sqlite"
-            else nullcontext()
-        ):
-            try:
-                if self.provider.name == "sqlite":
-                    from pandas import DataFrame
-
-                    columns: dict[str, list[object]] = {
-                        field.name: [
-                            value.isoformat(sep=" ", timespec="microseconds")
-                            if isinstance(value, datetime)
-                            else value
-                            for value in table.column(field.name).to_pylist()
-                        ]
-                        for field in table.schema
-                    }
-                    # Object columns preserve nullable int64 low bits. Timestamp
-                    # strings match SQLite's lexical comparison with Ibis literals.
-                    data = (
-                        ibis.memtable(
-                            DataFrame(columns, dtype=object), schema=ibis.schema(table.schema)
-                        )
-                        .op()
-                        .copy(name=name + "_input")
-                        .to_expr()
-                    )
-                    try:
-                        relation = self._backend.create_table(name, data, temp=True)
-                    finally:
-                        self._backend.drop_table(name + "_input", database="temp", force=True)
-                else:
-                    relation = self._backend.create_table(name, table, temp=True)
-                if not isinstance(relation, ir.Table):
-                    raise _invalid("one temporary Ibis relation", type(relation).__name__)
-            except BaseException:
-                self._backend.drop_table(name, force=True)
-                raise
+        try:
+            relation = self._backend.create_table(name, table, temp=True)
+            if not isinstance(relation, ir.Table):
+                raise _invalid("one temporary Ibis relation", type(relation).__name__)
+        except BaseException:
+            self._backend.drop_table(name, force=True)
+            raise
         self._staged_relations[relation.op()] = (
             frozenset(stored[1].source_identity.split("|")),
             name,
@@ -1155,14 +1109,7 @@ class SourceSession:
                     )
                 continue
             try:
-                from marivo.datasource.engines.sqlite import owned_temporary_writes
-
-                with (
-                    owned_temporary_writes(self._backend, frozenset({owned[1]}))
-                    if self.provider.name == "sqlite"
-                    else nullcontext()
-                ):
-                    self._backend.drop_table(owned[1], force=True)
+                self._backend.drop_table(owned[1], force=True)
                 del self._staged_relations[relation.op()]
             except BaseException as error:
                 if failure is None:
@@ -1324,9 +1271,7 @@ class SourceSession:
                 "connection_owned" if self.provider.name == "duckdb" else "closed"
             )
             if submission.state in {"failed", "closed_early"}:
-                submission.termination = (
-                    "local_closed" if self.provider.name == "sqlite" else "remote_unknown"
-                )
+                submission.termination = "remote_unknown"
 
     def close(self) -> None:
         if self._closed:
@@ -1375,9 +1320,7 @@ class SourceSession:
                 submission.cursor_state = "closed"
             if submission.state in {"failed", "closed_early"}:
                 submission.termination = (
-                    "local_closed"
-                    if self.provider.name in {"duckdb", "sqlite"}
-                    else "remote_unknown"
+                    "local_closed" if self.provider.name == "duckdb" else "remote_unknown"
                 )
                 query = self._query_logs.get(id(submission))
                 if query is not None:

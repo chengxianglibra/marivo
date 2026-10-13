@@ -37,7 +37,7 @@ import helpers from test modules.
 - Share ordinary behavior through representative local Parquet paths. Retain
   native cases where compilation, precision, physical keys or resource ownership
   introduces a distinct risk; avoid backend/storage Cartesian replay.
-- Run embedded DuckDB, SQLite, local-file and loopback HTTP checks in
+- Run embedded DuckDB, local-file and loopback HTTP checks in
   `make test`. Mark only materially extended local source/fixed/cold journeys
   `slow`; an analysis directory or filename does not make a case slow. A fresh
   Python process does not require a fresh datasource service.
@@ -61,7 +61,7 @@ import helpers from test modules.
 
 | Removed repetition | Remaining coverage |
 | --- | --- |
-| Statistical methods and nine-method fixed/cold replay on every service | Local DuckDB/SQLite method and process oracles; source profiles own native decoding and stream cleanup |
+| Statistical methods and nine-method fixed/cold replay on every service | Local DuckDB method and process oracles; source profiles own native decoding and stream cleanup |
 | Reference, comparison, member validation and attribution business matrices on every service | Their local source/fixed and independent cold tests; native producer recovery owns source-offline and cold handoff per service |
 | Separate native mean, distribution, reference, versioned, temporal and multiroot recovery journeys | Local recovery owners preserve their exact assertions; native producer recovery covers the shared service handoff |
 | Ordinary multiroot arithmetic, slicing, aggregation and min/max replay on every service | Local full matrix; native Decimal precision/overflow and first/last ordering cases remain |
@@ -125,7 +125,7 @@ producer recovery tests continue to own staging corruption and cold recovery.
 denied settings, synchronous connection ownership and cleanup of remaining
 resources after a release failure. Fixed selection/reduction and deviation
 retain their independent numerical and no-retry/publication-failure oracles.
-DuckDB and SQLite have no native query-timeout configuration. Their query-timeout
+DuckDB has no native query-timeout configuration. Its query-timeout
 tests are removed; ordinary query, cleanup and publication coverage remains.
 
 Runtime acquisition and control-boundary tests still exercise PostgreSQL, Trino

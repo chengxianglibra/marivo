@@ -102,7 +102,7 @@ def test_native_distributions_independent_fixed_and_cold(
                 "sales/models.py": models,
             }
         )
-        if backend not in ("duckdb", "sqlite"):
+        if backend != "duckdb":
 
             def forbid_staging(*args: object, **kwargs: object) -> NoReturn:
                 pytest.fail("C10 cannot create or drop backend tables")
@@ -116,7 +116,7 @@ def test_native_distributions_independent_fixed_and_cold(
             kinds += ["distinct", "identity"]
         if backend in ("duckdb", "postgres"):
             kinds += ["quantile"]
-        if backend not in ("sqlite", "mysql"):
+        if backend not in ("mysql"):
             kinds += ["approx_quantile"]
         for kind in kinds:
             metric = mv.runtime_metric.aggregate(
@@ -183,7 +183,7 @@ def test_native_distributions_independent_fixed_and_cold(
         }
         (tmp_path / "r94-distribution.json").write_bytes(encode(state))
     shutil.rmtree(tmp_path / "models")
-    for pattern in ("source.duckdb*", "source.sqlite*"):
+    for pattern in ("source.duckdb*",):
         for path in tmp_path.glob(pattern):
             path.unlink()
     reports: list[Json] = []

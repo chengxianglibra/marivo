@@ -188,10 +188,6 @@ def _issue(
         if physical_replacements
         else compact.expression
     )
-    if source.provider.name == "sqlite":
-        from marivo.analysis.materialization.temporal_sql import lower_temporal
-
-        rewritten = lower_temporal(rewritten, "sqlite")
     if not isinstance(rewritten, ir.Table):
         raise _invalid("rewritten stage is not an Ibis table")
     # Ibis outer joins can widen state nullability; the Cell carrier is still

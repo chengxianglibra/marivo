@@ -859,9 +859,8 @@ for detailed owning rules.
 
 Runtime ZoneInfo supplies named-zone rules for declared time conversions.
 Analysis does not submit source-side range, gap/fold, or engine/runtime rule
-agreement checks before the requested query. SQLite keeps its connection-local
-Python temporal functions. Backend conversion errors propagate from query
-execution; source values that violate the declaration can affect results.
+agreement checks before the requested query. Backend conversion errors propagate
+from query execution; source values that violate the declaration can affect results.
 
 ## Certified time dependency handoff
 

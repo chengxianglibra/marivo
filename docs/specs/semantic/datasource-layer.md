@@ -109,7 +109,6 @@ used everywhere downstream.
 | Constructor | Spec | `backend_type` | Notes |
 |---|---|---|---|
 | `md.duckdb(...)` | `DuckDBSpec` | `duckdb` | Local file / in-memory. Also the engine that reads parquet/csv/json file sources. |
-| `md.sqlite(...)` | `SQLiteSpec` | `sqlite` | Local file / in-memory SQLite tables and views; optional query-only mode and declared-type mapping. |
 | `md.trino(...)` | `TrinoSpec` | `trino` | `catalog` is the connection target; `schema` is an optional default. |
 | `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. |
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
@@ -125,7 +124,7 @@ not exact median/percentile. Author `agg="approx_median"` or
 semantic readiness rejects known aggregate/backend incompatibilities without
 connecting; loading alone grants no backend execution support.
 
-`DatasourceSpec` is the closed union of these six types. Concrete engine
+`DatasourceSpec` is the closed union of these five types. Concrete engine
 connection builders live in `marivo/datasource/engines/` and are internal — the
 public surface is the spec constructors and `Ref[datasource]`.
 
@@ -135,14 +134,6 @@ and only a count for additional configuration. It never expands resolved
 secrets, session/settings maps, `extra`, or AI context. Read `.fields` and
 `.env_refs` only when exact configuration is needed. The default repr is a
 one-line pointer to this card rather than a dataclass field dump.
-
-SQLite uses `md.table(...)` for tables and views. It does not consume the
-DuckDB-owned Parquet, CSV, or JSON descriptors. `read_only=True` enables
-connection-level SQLite authorizer write denial; Marivo's bounded inspection and diagnostic
-reads enable the same protection internally. SQLite does not compile median or
-percentile aggregations or string `strptime` expressions in Ibis 12, so those operations
-fail through the structured Marivo contract; use a supported aggregation and a
-native temporal column instead.
 
 ### Fields, names, and context
 
@@ -299,9 +290,9 @@ Missing selected optional drivers raise `DatasourceConnectionError` with the
 backend-specific `marivo[backend]` installation repair. Unselected drivers are
 not imported by provider discovery.
 
-SQLite and MySQL retain their source-representation checks at execution. For
-example, SQLite temporal and Boolean columns must use the backend's admitted
-representations, and Boolean values must be exactly 0/1/NULL. Native temporal
+MySQL retains its source-representation checks at execution. Temporal and
+Boolean columns must use the backend's admitted representations, and Boolean
+values must be exactly 0/1/NULL. Native temporal
 analysis also admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and ClickHouse
 `DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse timestamp
 execution retain verified UTC session/reader requirements; source and report
@@ -606,7 +597,7 @@ Acquisition opens an isolated reader with requested native query settings.
 PostgreSQL uses `statement_timeout`, Trino uses `query_max_run_time`, ClickHouse
 uses `max_execution_time` and throwing overflow, and MySQL uses its native
 read-only SELECT limit. Their server-defined coverage is not a total
-execution-and-fetch deadline. DuckDB and SQLite do not simulate query timeouts;
+execution-and-fetch deadline. DuckDB does not simulate query timeouts;
 unsupported limits do not block reads. Reader cleanup and row/scope constraints
 remain mandatory. Shared connections are not altered.
 
@@ -626,7 +617,7 @@ preview does not persist an authoring checkpoint or affect readiness.
 Provider operation support and exact Analysis method qualification are separate.
 The selected engine provider
 registry is lazy. `SourceSession` binds table and view relations on DuckDB,
-SQLite, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
+PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
 local JSON, and uncredentialed HTTP JSON. It checks exact source identity,
 runtime JSON parameters, relation ancestry, additional physical inputs, and
 the pre-read Arrow schema. One active batch stream belongs to a session; the
@@ -642,12 +633,6 @@ lease, which disconnects through Ibis at most once. Borrowed source sessions
 release streams and staged relations before the connection owner disconnects.
 Cleanup continues across resource failures and records disconnection only after
 confirmed release; it does not actively cancel remote queries.
-
-SQLite native NUMERIC affinity is not an exact Decimal carrier. Declaring a
-Decimal schema, including through `type_map`, does not restore precision already
-lost to a native float. Such reads raise `DatasourceSourceCapabilityError`
-without float-to-Decimal coercion. Use a qualified exact-Decimal datasource
-instead; other backends retain their exact precision/scale requirements.
 
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The R1 basic physical requirement
@@ -665,7 +650,7 @@ describes only selected bounded rows, `md.test` and source-health connectivity
 prove one compiled literal round trip, and explicit source-health checks report
 only their requested business scope. Optional metadata failures may yield
 schema-only or unavailable observations; a fact required for admission cannot
-be inferred from a sample or silently supplied. Six backend metadata profiles
+be inferred from a sample or silently supplied. Five backend metadata profiles
 read the bound Ibis relation schema as the authoritative column baseline and
 obtain optional catalog facts — comments, column nullability and ordinals,
 view kind and definitions, primary keys and unique constraints where the
@@ -682,8 +667,7 @@ Each fact query that fails yields that fact's
 unavailable warning while inspection still succeeds; a total failure yields
 schema-only. Unknown view kind is `None`, not `False`. DuckDB catalog facts
 are qualified by database, schema, and table. Composite unique constraints
-retain their constraint identity and column order; SQLite partial and expression
-indexes do not establish unconditional column uniqueness. A consumer requiring one
+retain their constraint identity and column order. A consumer requiring one
 of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
 `system.tables` / `system.parts` partition-value reads continue through bound
 Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
@@ -740,7 +724,8 @@ identity, purpose and actual submission. The user-authored text submitted by
 `md.raw_sql` is the explicit terminal exception, not an implementation route
 for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; required timezone or complete-result facts block the affected execution cell. A required governed operation
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
-SQLite transactions have separate internal persistence authority.
+SQLite transactions have separate internal persistence authority. SQLite is not
+a supported datasource; removing its datasource adapter does not change the Store.
 
 ### Public connection boundary
 
@@ -781,12 +766,11 @@ After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined
 in [authoring-workflow.md](authoring-workflow.md).
 
-For MySQL and SQLite bounded dataframe acquisition, nullable integer columns keep
+For MySQL bounded dataframe acquisition, nullable integer columns keep
 exact integer cells before backend conversion; a NULL must not promote large
 integers through float64. Typed inspection does not normalize PostgreSQL/MySQL/Trino
 fixed CHAR to logical string, because its padding semantics differ. Bind a
-variable-length text column instead; SQLite's qualified BINARY text convention
-continues to admit CHAR declarations.
+variable-length text column instead.
 
 
 ## Execution logging side effects

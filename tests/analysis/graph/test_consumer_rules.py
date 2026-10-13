@@ -131,7 +131,7 @@ def _requests(key: QualificationKey) -> Iterator[QualificationKey]:
         yield replace(
             key,
             shape=replace(
-                key.shape, backend="sqlite" if key.shape.backend == "duckdb" else "duckdb"
+                key.shape, backend="postgres" if key.shape.backend == "duckdb" else "duckdb"
             ),
         )
 
@@ -291,7 +291,7 @@ def test_registry_preserves_specialized_selection_identity_and_exact_route(
     assert selected.precision == "checked_int64"
     if isinstance(value, DecimalType):
         unqualified = replace(
-            key, shape=SourceShape("sqlite", "table", "native", TimeShape("instant", "us", "UTC"))
+            key, shape=SourceShape("mysql", "table", "native", TimeShape("instant", "us", "UTC"))
         )
         with pytest.raises(MethodRegistrationError, match="qualified exact key"):
             REGISTRY.select(unqualified, (source,), params)

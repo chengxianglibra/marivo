@@ -17,7 +17,7 @@ from tests.support.source_trace import SourceTrace
 
 
 @pytest.mark.parametrize(
-    "backend", source_params(("duckdb", "sqlite", "postgres", "mysql", "trino", "clickhouse"))
+    "backend", source_params(("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 )
 def test_public_metadata_and_bounded_sample(
     backend: str,
