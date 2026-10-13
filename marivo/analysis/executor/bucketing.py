@@ -237,6 +237,9 @@ def bucket_time_expression(
             or context.effective_column_tz == report_tz
         ):
             return parsed
+        if classification == "day":
+            # Date-only formats are civil dates: bucket without a timezone shift.
+            return bucket_start_expr(parsed, grain)
         column_tz = context.effective_column_tz or datasource_read_tz
         local_parsed = _timestamp_expr_in_report_timezone(
             parsed,
@@ -537,6 +540,9 @@ def _semantic_civil_date_expr(
         and not _is_hour_only_partition_meta(time_meta)
     ):
         parsed = _parse_string_column(raw, time_meta, profile=profile)
+        if _classify_strptime_format(time_meta.format) == "day":
+            # Date-only formats already are civil dates; never shift them.
+            return parsed
         context = effective_time_context(
             time_meta,
             report_tz=boundary_tz,
@@ -845,6 +851,9 @@ def apply_time_series_bucket(
                     window=window,
                 )
                 bucket = bucket_start_expr(local_parsed, cast("Grain", window.grain))
+        elif classification == "day":
+            # Date-only formats are civil dates: bucket without a timezone shift.
+            bucket = bucket_start_expr(parsed, cast("Grain", window.grain))
         else:
             context = effective_time_context(
                 time_meta,

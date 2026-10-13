@@ -654,3 +654,87 @@ def test_column_timezone_prefers_declared_timezone_over_datasource_read_timezone
     assert _column_timezone(_TimeMeta(), datasource_read_tz=ZoneInfo("Asia/Shanghai")) == ZoneInfo(
         "UTC"
     )
+
+
+# ---------------------------------------------------------------------------
+# Date-only strptime fields are civil dates and must not be timezone-shifted
+# ---------------------------------------------------------------------------
+
+
+def _date_only_table(column: str, values: list[str]) -> ibis.Table:
+    con = ibis.duckdb.connect(":memory:")
+    con.raw_sql(f"CREATE TABLE bills ({column} VARCHAR)")
+    rows = ",".join(f"('{value}')" for value in values)
+    con.raw_sql(f"INSERT INTO bills VALUES {rows}")
+    return con.table("bills")
+
+
+def test_date_only_month_strptime_buckets_by_month_across_timezones():
+    table = _date_only_table("bill_date", ["2026-09"])
+    field = FakeField(
+        "bill_date",
+        "bill_date",
+        FakeMeta("string", "%Y-%m", parse_kind="strptime", granularity="month"),
+    )
+
+    bucketed = apply_time_series_bucket(
+        table,
+        field_ir=field,
+        window=AbsoluteWindow(
+            start="2026-09-01",
+            end="2026-10-01",
+            grain="month",
+            time_dimension="bill_date",
+        ),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("UTC"),
+    )
+
+    rows = bucketed.execute()["bucket_start"].tolist()
+    assert [str(item)[:10] for item in rows] == ["2026-09-01"]
+
+
+def test_bucket_time_expression_date_only_strptime_skips_timezone_shift():
+    from marivo.analysis.executor.bucketing import bucket_time_expression
+    from marivo.analysis.windows.grain import Grain
+
+    table = _date_only_table("log_date", ["20260930", "20261001"])
+    meta = FakeMeta("string", "%Y%m%d", parse_kind="strptime", granularity="day")
+
+    bucket = bucket_time_expression(
+        table.log_date,
+        time_meta=meta,
+        grain=Grain(unit="month"),
+        report_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("UTC"),
+        window=AbsoluteWindow(start="2026-09-01", end="2026-11-01", grain="month"),
+    )
+
+    rows = table.mutate(bucket_start=bucket).order_by("log_date").execute()
+    assert [str(item)[:10] for item in rows["bucket_start"]] == ["2026-09-01", "2026-10-01"]
+
+
+def test_semantic_civil_date_expr_keeps_date_only_strptime_unshifted():
+    from marivo.analysis.executor.bucketing import _semantic_civil_date_expr
+    from marivo.datasource.engines.base import GENERIC_PROFILE
+
+    table = _date_only_table("log_date", ["20260930"])
+    field = FakeField(
+        "log_date",
+        "log_date",
+        FakeMeta("string", "%Y%m%d", parse_kind="strptime", granularity="day"),
+    )
+
+    civil_date = _semantic_civil_date_expr(
+        table.log_date,
+        field_ir=field,
+        table=table,
+        window=AbsoluteWindow(start="2026-09-01", end="2026-10-01"),
+        boundary_tz=ZoneInfo("Asia/Shanghai"),
+        datasource_read_tz=ZoneInfo("UTC"),
+        dataset_ir=None,
+        profile=GENERIC_PROFILE,
+    )
+
+    rows = table.mutate(civil_date=civil_date).execute()["civil_date"].tolist()
+    assert [str(item)[:10] for item in rows] == ["2026-09-30"]
