@@ -10,6 +10,7 @@ from fractions import Fraction
 from itertools import pairwise
 from typing import Literal
 
+import pandas as pd
 import pyarrow as pa
 from pydantic import TypeAdapter
 
@@ -44,11 +45,13 @@ from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
     from_arrow,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import invalid
 from marivo.analysis.methods import deviation_numeric as arithmetic
@@ -152,13 +155,11 @@ def load(value: SavedTable) -> pa.Table:
     return table
 
 
-def _part(role: str, payload: str) -> ExchangePart:
-    return ExchangePart(role, pa.table({role + "__retained": [payload]}))
+def _part(role: str, payload: str) -> ArrowPart:
+    return ArrowPart(role, pa.table({role + "__retained": [payload]}))
 
 
-def retain_table_fits(
-    inputs: tuple[ExchangeResult, ...], declaration: TableFitsPart
-) -> ExchangePart:
+def retain_table_fits(inputs: tuple[ExchangeResult, ...], declaration: TableFitsPart) -> ArrowPart:
     columns = []
     for column in declaration.columns:
         source = inputs[column.index]
@@ -169,14 +170,23 @@ def retain_table_fits(
                 column.index,
                 source.contract.input_binding,
                 source.contract.key_fields,
-                save(source.primary),
+                save(to_arrow(source.primary, source.contract.schema)),
                 tuple(
                     SavedPart(
                         part_role(
                             next(p for p in column.signature.parts if part_role(p) == part.role)
                         ),
                         next(p.key_fields for p in source.contract.parts if p.role == part.role),
-                        save(part.table),
+                        save(
+                            to_arrow(
+                                part.table,
+                                next(
+                                    declared.schema
+                                    for declared in source.contract.parts
+                                    if declared.role == part.role
+                                ),
+                            )
+                        ),
                     )
                     for part in source.parts
                 ),
@@ -188,7 +198,7 @@ def retain_table_fits(
 
 
 def validate_table_fits(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
+    contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]
 ) -> None:
     declaration = next(p for p in contract.signature.parts if isinstance(p, TableFitsPart))
     fit = next(
@@ -214,10 +224,11 @@ def validate_table_fits(
             raise invalid(
                 "fitted table capture version, canonical encoding or column binding differs"
             )
-        current = _index(primary, contract.key_fields)
+        current_frame = primary.to_pandas()
+        current = _index(current_frame, contract.key_fields)
         for column, saved in zip(declaration.columns, captured.columns, strict=True):
             source = load(saved.primary)
-            retained_parts = tuple(ExchangePart(p.role, load(p.table)) for p in saved.parts)
+            retained_parts = tuple(ArrowPart(p.role, load(p.table)) for p in saved.parts)
             original_contract = ExchangeContract(
                 column.signature,
                 MethodKey("parts_transport"),
@@ -235,21 +246,23 @@ def validate_table_fits(
             original = _index(source, saved.keys)
             if saved.keys != contract.key_fields or set(original) != set(current):
                 raise invalid("fitted table column keys differ from their captured current domain")
-            expected = source.take(pa.array([original[key] for key in current], type=pa.int64()))
-            actual = cell_rename(
-                cell_project(
-                    primary,
-                    (
-                        *saved.keys,
-                        *(
-                            f"column_{column.index}__{c}"
-                            for c in ("value", "cell_tag", "cell_reason")
-                        ),
+            expected = source.to_pandas().iloc[[original[key] for key in current]]
+            actual = current_frame.loc[
+                :,
+                [
+                    *saved.keys,
+                    *(
+                        f"column_{column.index}__{field}"
+                        for field in ("value", "cell_tag", "cell_reason")
                     ),
-                ),
-                (*saved.keys, "value", "cell_tag", "cell_reason"),
+                ],
+            ].rename(
+                columns={
+                    f"column_{column.index}__{field}": field
+                    for field in ("value", "cell_tag", "cell_reason")
+                }
             )
-            if not actual.equals(expected):
+            if not actual.reset_index(drop=True).equals(expected.reset_index(drop=True)):
                 raise invalid("fitted table column differs from its verified original value view")
     except (
         ValueError,
@@ -272,10 +285,22 @@ def validate_table_fits(
         ) from error
 
 
-def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Inputs, State]:
+def _decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Inputs, State]:
     by_role = {part.role: part.table for part in parts}
-    first = by_role["fit_inputs"]["fit_inputs__retained"][0].as_py()
-    second = by_role["fit_state"]["fit_state__retained"][0].as_py()
+    first_table = by_role["fit_inputs"]
+    second_table = by_role["fit_state"]
+    first = (
+        first_table["fit_inputs__retained"].iloc[0]
+        if isinstance(first_table, pd.DataFrame)
+        else first_table["fit_inputs__retained"][0].as_py()
+    )
+    second = (
+        second_table["fit_state__retained"].iloc[0]
+        if isinstance(second_table, pd.DataFrame)
+        else second_table["fit_state__retained"][0].as_py()
+    )
+    if not isinstance(first, str) or not isinstance(second, str):
+        raise invalid("deviation retained payload is not a JSON string")
     inputs, state = (
         INPUTS.validate_json(first, strict=True),
         STATE.validate_json(second, strict=True),
@@ -289,9 +314,13 @@ def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Inputs, State]:
     return inputs, state
 
 
-def _index(table: pa.Table, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
-    result = {tuple(row[k] for k in keys): i for i, row in enumerate(cell_rows(table))}
-    if len(result) != table.num_rows or any(None in key for key in result):
+def _index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
+    frame = table.to_pandas() if isinstance(table, pa.Table) else table
+    rows = frame.to_dict(orient="records")
+    result = {tuple(row[k] for k in keys): i for i, row in enumerate(rows)}
+    if len(result) != len(frame) or any(
+        value is None or pd.isna(value) for key in result for value in key
+    ):
         raise invalid("deviation input contains null or duplicate complete keys")
     return result
 
@@ -305,21 +334,30 @@ def _primary(views: pa.Table, field: str, keys: tuple[str, ...]) -> pa.Table:
     )
 
 
-def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[ExchangePart, ...]:
+def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[ArrowPart, ...]:
     """Capture original per-instance mappings from their actual typed owners."""
-    primary = load(inputs.primary)
+    primary_table = load(inputs.primary)
+    primary = primary_table.to_pandas()
     result = []
     subject = next((part for part in inputs.parts if part.role == "subject"), None)
     if subject is not None:
         table = load(subject.table)
+        names = tuple(name.replace("subject__", "subject_map__") for name in table.column_names)
+        schema = pa.schema(
+            [
+                pa.field(name, field.type, nullable=field.nullable, metadata=field.metadata)
+                for name, field in zip(names, table.schema, strict=True)
+            ],
+            metadata=table.schema.metadata,
+        )
         result.append(
-            ExchangePart(
+            ArrowPart(
                 "subject_map",
-                cell_rename(
-                    table,
-                    tuple(
-                        name.replace("subject__", "subject_map__") for name in table.column_names
+                to_arrow(
+                    table.to_pandas().rename(
+                        columns=dict(zip(table.column_names, names, strict=True))
                     ),
+                    schema,
                 ),
             )
         )
@@ -332,7 +370,7 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
         )
         by_id = {cell.identity: (i, cell) for i, cell in enumerate(grid.cells)}
         cells = []
-        for row in cell_rows(primary):
+        for row in primary.to_dict(orient="records"):
             identity = row[inputs.keys[position]]
             if identity not in by_id:
                 raise invalid("deviation row has no captured grid cell")
@@ -340,18 +378,16 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
         coverage = next((part for part in inputs.parts if part.role == "coverage"), None)
         retained_grid = next((part for part in inputs.parts if part.role == "grid_cells"), None)
         if coverage is None and retained_grid is not None:
-            table = load(retained_grid.table)
+            table = load(retained_grid.table).to_pandas()
             lookup = _index(table, inputs.keys)
             original_keys = tuple(_index(primary, inputs.keys))
             if not set(original_keys) <= set(lookup):
                 raise invalid("deviation input escapes its retained complete grid mapping")
-            complete = table["grid_cells__coverage"].take(
-                pa.array([lookup[key] for key in original_keys], type=pa.int64())
-            )
-            if any(value is not True for value in complete.to_pylist()):
+            complete = [table.iloc[lookup[key]]["grid_cells__coverage"] for key in original_keys]
+            if any(value is not True for value in complete):
                 raise invalid("deviation input lacks retained complete grid coverage")
         elif coverage is None:
-            endpoint_coverage: list[pa.ChunkedArray] = []
+            endpoint_coverage: list[list[object]] = []
             original_keys = tuple(_index(primary, inputs.keys))
             for side in ("current", "baseline"):
                 endpoint = next(
@@ -359,60 +395,49 @@ def _mapping_parts(inputs: Inputs, declaration: FitInputsPart) -> tuple[Exchange
                 )
                 if endpoint is None:
                     raise invalid("deviation grid input lacks captured endpoint coverage")
-                table = load(endpoint.table)
+                table = load(endpoint.table).to_pandas()
                 column = side + "_endpoint__complete"
-                if column not in table.column_names:
+                if column not in table.columns:
                     raise invalid("deviation grid endpoint lacks its original coverage fact")
                 index = _index(table, inputs.keys)
                 if set(index) != set(original_keys):
                     raise invalid("deviation grid endpoint coverage has different complete keys")
-                endpoint_coverage.append(
-                    table[column].take(
-                        pa.array([index[key] for key in original_keys], type=pa.int64())
-                    )
-                )
-            if any(
-                value is not True for column in endpoint_coverage for value in column.to_pylist()
-            ):
+                endpoint_coverage.append([table.iloc[index[key]][column] for key in original_keys])
+            if any(value is not True for column in endpoint_coverage for value in column):
                 raise invalid("deviation grid endpoints do not retain complete coverage")
-            complete = pa.chunked_array(
-                [
-                    pa.array(
-                        [
-                            a and b
-                            for a, b in zip(
-                                endpoint_coverage[0].to_pylist(),
-                                endpoint_coverage[1].to_pylist(),
-                                strict=True,
-                            )
-                        ],
-                        type=pa.bool_(),
-                    )
-                ]
-            )
+            complete = [
+                a and b for a, b in zip(endpoint_coverage[0], endpoint_coverage[1], strict=True)
+            ]
         else:
-            complete = load(coverage.table)["coverage__complete"]
-        arrays = {key: primary[key] for key in inputs.keys}
-        arrays.update(
-            {
-                "grid_cells__identity": pa.array(
-                    [cell.identity for _, cell in cells], type=pa.string()
-                ),
-                "grid_cells__ordinal": pa.array([ordinal for ordinal, _ in cells], type=pa.int64()),
-                **{
-                    "grid_cells__" + name: pa.array(
-                        [getattr(cell, name) for _, cell in cells], type=pa.timestamp("us", "UTC")
+            complete = load(coverage.table).to_pandas()["coverage__complete"].tolist()
+        mapping = primary.loc[:, list(inputs.keys)].copy()
+        mapping["grid_cells__identity"] = [cell.identity for _, cell in cells]
+        mapping["grid_cells__ordinal"] = [ordinal for ordinal, _ in cells]
+        mapping["grid_cells__partial"] = [cell.partial for _, cell in cells]
+        mapping["grid_cells__precision"] = [grid.precision] * len(cells)
+        mapping["grid_cells__coverage"] = complete
+        for name in ("original_start", "original_end", "start", "end"):
+            mapping["grid_cells__" + name] = [getattr(cell, name) for _, cell in cells]
+        schema = pa.schema(
+            [
+                *(primary_table.schema.field(key) for key in inputs.keys),
+                pa.field("grid_cells__identity", pa.string()),
+                pa.field("grid_cells__ordinal", pa.int64()),
+                *(
+                    pa.field("grid_cells__" + name, pa.timestamp("us", "UTC"))
+                    for name in (
+                        "original_start",
+                        "original_end",
+                        "start",
+                        "end",
                     )
-                    for name in ("original_start", "original_end", "start", "end")
-                },
-                "grid_cells__partial": pa.array(
-                    [cell.partial for _, cell in cells], type=pa.bool_()
                 ),
-                "grid_cells__precision": pa.array([grid.precision] * len(cells), type=pa.string()),
-                "grid_cells__coverage": complete,
-            }
+                pa.field("grid_cells__partial", pa.bool_()),
+                pa.field("grid_cells__precision", pa.string()),
+                pa.field("grid_cells__coverage", pa.bool_()),
+            ]
         )
-        result.append(ExchangePart("grid_cells", pa.table(arrays)))
+        result.append(ArrowPart("grid_cells", to_arrow(mapping.loc[:, schema.names], schema)))
     return tuple(result)
 
 
@@ -422,28 +447,31 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         return project(values[0], params.field, node=node, binding=binding)
     assert isinstance(params, DeviationFit)
     source = values[0]
+    source_primary = source.primary
+    source_parts = source.parts
     typ = parse_type(params.input_type)
-    rows, keys = cell_rows(source.primary), source.contract.key_fields
-    original = _index(source.primary, keys)
+    source_schema = source.contract.schema
+    rows = cell_rows(to_arrow(source_primary, source_schema))
+    keys = source.contract.key_fields
+    original = _index(source_primary, keys)
     categories = []
     for value in values[1:]:
-        if value.contract.key_fields != keys or set(_index(value.primary, keys)) != set(original):
+        value_primary = value.primary
+        if value.contract.key_fields != keys or set(_index(value_primary, keys)) != set(original):
             raise invalid("deviation categorical input lacks the exact complete key set")
-        category_index = _index(value.primary, keys)
-        ordered = value.primary.take(
-            pa.array([category_index[key] for key in original], type=pa.int64())
-        )
-        category_rows = cell_rows(ordered)
+        category_index = _index(value_primary, keys)
+        ordered = value_primary.iloc[[category_index[key] for key in original]]
+        category_rows = cell_rows(to_arrow(ordered, value.contract.schema))
         if any(row["cell_tag"] not in ("defined", "null") for row in category_rows):
             raise invalid("deviation partitions require Defined or Null categories")
         categories.append(ordered)
-    for part in source.parts:
+    for part in source_parts:
         if part.role == "coverage" and any(
-            value is not True for value in part.table["coverage__complete"].to_pylist()
+            value is not True for value in part.table["coverage__complete"].tolist()
         ):
             raise invalid("deviation input has false captured coverage")
     groups: dict[tuple[object, ...], list[int]] = {}
-    category_values = [table["value"].to_pylist() for table in categories]
+    category_values = [table["value"].tolist() for table in categories]
     for index in range(len(rows)):
         groups.setdefault(tuple(column[index] for column in category_values), []).append(index)
     if not rows and not categories:
@@ -507,7 +535,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
                     scores.append(ScoreWitness(i, scored.root))
     schema = pa.schema(
         (
-            *(source.primary.schema.field(key) for key in keys),
+            *(source_schema.field(key) for key in keys),
             *(
                 pa.field(
                     name,
@@ -530,7 +558,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         compact_schema(
             schema,
             (
-                *policies(source.primary),
+                *policies(to_arrow(source_primary, source_schema)),
                 *CELL_REASONS,
             ),
         ),
@@ -540,8 +568,11 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         source.contract.input_binding,
         source.contract.signature,
         keys,
-        save(source.primary),
-        tuple(save(table) for table in categories),
+        save(to_arrow(source_primary, source_schema)),
+        tuple(
+            save(to_arrow(table, value.contract.schema))
+            for table, value in zip(categories, values[1:], strict=True)
+        ),
         tuple(
             SavedPart(
                 next(
@@ -550,9 +581,18 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
                     if part_role(p) == part.role
                 ),
                 next(p.key_fields for p in source.contract.parts if p.role == part.role),
-                save(part.table),
+                save(
+                    to_arrow(
+                        part.table,
+                        next(
+                            declared.schema
+                            for declared in source.contract.parts
+                            if declared.role == part.role
+                        ),
+                    )
+                ),
             )
-            for part in source.parts
+            for part in source_parts
         ),
     )
     encoded = INPUTS.dump_json(saved).decode()
@@ -576,7 +616,21 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
         0,
     )
     parts = (
-        *tuple(p for p in source.parts if p.role == "subject"),
+        *tuple(
+            ArrowPart(
+                part.role,
+                to_arrow(
+                    part.table,
+                    next(
+                        declared.schema
+                        for declared in source.contract.parts
+                        if declared.role == part.role
+                    ),
+                ),
+            )
+            for part in source_parts
+            if part.role == "subject"
+        ),
         _part("fit_inputs", encoded),
         _part("fit_state", STATE.dump_json(state).decode()),
         _part("finding_policy", POLICY.dump_json(policy).decode()),
@@ -592,7 +646,7 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
 def _result(
     node: MethodNode,
     primary: pa.Table,
-    parts: tuple[ExchangePart, ...],
+    parts: tuple[ArrowPart, ...],
     keys: tuple[str, ...],
     binding: str,
     *,
@@ -621,26 +675,39 @@ def _result(
 def project(
     source: ExchangeResult, field: str, *, node: MethodNode, binding: str
 ) -> ExchangeResult:
-    inputs, state = _decode(source.parts)
-    views = load(state.views)
+    source_primary = source.primary
+    source_parts = source.parts
+    inputs, state = _decode(source_parts)
+    views_table = load(state.views)
+    views = views_table.to_pandas()
     index = _index(views, inputs.keys)
-    chosen = [index[key] for key in _index(source.primary, inputs.keys)]
-    primary = _primary(views.take(pa.array(chosen, type=pa.int64())), field, inputs.keys)
+    chosen = [index[key] for key in _index(source_primary, inputs.keys)]
+    primary = _primary(to_arrow(views.iloc[chosen], views_table.schema), field, inputs.keys)
     roles = {part_role(p) for p in node.signature.parts}
-    parts = [p for p in source.parts if p.role in roles]
+    selected_parts: list[ExchangePart | ArrowPart] = [p for p in source_parts if p.role in roles]
     if field == "observed":
         for saved in inputs.parts:
-            if saved.role in roles and saved.role not in {p.role for p in parts}:
+            if saved.role in roles and saved.role not in {p.role for p in selected_parts}:
                 table = load(saved.table)
                 if saved.keys == inputs.keys:
-                    lookup = _index(table, inputs.keys)
-                    table = table.take(
-                        pa.array(
-                            [lookup[key] for key in _index(primary, inputs.keys)], type=pa.int64()
-                        )
+                    frame = table.to_pandas()
+                    lookup = _index(frame, inputs.keys)
+                    current_keys = _index(primary, inputs.keys)
+                    table = to_arrow(
+                        frame.iloc[[lookup[key] for key in current_keys]], table.schema
                     )
-                parts.append(ExchangePart(saved.role, table))
-    by_role = {p.role: p for p in parts}
+                selected_parts.append(ArrowPart(saved.role, table))
+    by_role: dict[str, ArrowPart] = {}
+    for part in selected_parts:
+        if isinstance(part, ExchangePart):
+            schema = next(
+                declaration.schema
+                for declaration in source.contract.parts
+                if declaration.role == part.role
+            )
+            by_role[part.role] = ArrowPart(part.role, to_arrow(part.table, schema))
+        else:
+            by_role[part.role] = part
     return _result(
         node,
         primary,
@@ -651,9 +718,7 @@ def project(
     )
 
 
-def _validate(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> None:
+def _validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     """Verify retained witnesses without fitting or replacing any output."""
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
         raise invalid("deviation required parts are missing, extra or reordered")
@@ -735,7 +800,7 @@ def _validate(
         raise invalid("deviation original signature, parts or partition binding differs")
     retained_fit = any(isinstance(p, FitInputsPart) for p in inputs.signature.parts)
     if retained_fit:
-        nested_parts = tuple(ExchangePart(p.role, load(p.table)) for p in inputs.parts)
+        nested_parts = tuple(ArrowPart(p.role, load(p.table)) for p in inputs.parts)
         nested_contract = ExchangeContract(
             inputs.signature,
             MethodKey("deviation.read"),
@@ -757,7 +822,7 @@ def _validate(
             row["cell_tag"] not in ("defined", "null") for row in cell_rows(categorical)
         ):
             raise invalid("deviation retained categorical keys or Cell states differ")
-        category_columns.append(categorical["value"].to_pylist())
+        category_columns.append(categorical.to_pandas()["value"].tolist())
     groups: set[tuple[object, ...]] = set()
     witnesses = {w.index: w.root for w in state.scores}
     if len(witnesses) != len(state.scores):
@@ -926,19 +991,21 @@ def _validate(
         raise invalid("deviation fit scope is incomplete")
     if set(witnesses) != scored_indices:
         raise invalid("deviation score witnesses differ from its usable scale rows")
-    current = _index(primary, inputs.keys)
+    current = _index(primary.to_pandas(), inputs.keys)
     if not set(current) <= set(original):
         raise invalid("selected deviation output escapes its original fit scope")
     field = "score" if declaration.view == "result" else declaration.view
+    views_frame = views.to_pandas()
+    selected_views = views_frame.iloc[[original[key] for key in current]]
     retained = _primary(
-        views.take(pa.array([original[key] for key in current], type=pa.int64())),
+        to_arrow(selected_views, views.schema),
         field,
         inputs.keys,
     )
     if declaration.table_views:
         for i, column_field in enumerate(declaration.table_views):
             expected_column = _primary(
-                views.take(pa.array([original[key] for key in current], type=pa.int64())),
+                to_arrow(selected_views, views.schema),
                 column_field,
                 inputs.keys,
             )
@@ -980,21 +1047,22 @@ def _validate(
             continue
         original_part = load(saved_part.table)
         if saved_part.role == "coverage" and any(
-            x is not True for x in original_part["coverage__complete"].to_pylist()
+            x is not True for x in original_part.to_pandas()["coverage__complete"].tolist()
         ):
             raise invalid("deviation captured coverage is false")
         actual_part = next((p for p in parts if p.role == saved_part.role), None)
         if actual_part is not None:
             if saved_part.keys == inputs.keys:
-                lookup = _index(original_part, inputs.keys)
+                original_frame = original_part.to_pandas()
+                lookup = _index(original_frame, inputs.keys)
                 if set(lookup) != set(original):
                     raise invalid(
                         "deviation original component keys differ from its complete input"
                     )
-                original_part = original_part.take(
-                    pa.array([lookup[key] for key in current], type=pa.int64())
+                original_part = to_arrow(
+                    original_frame.iloc[[lookup[key] for key in current]], original_part.schema
                 )
-            if not actual_part.table.equals(original_part):
+            if not actual_part.table.to_pandas().equals(original_part.to_pandas()):
                 raise invalid(
                     "deviation retained original component differs from its captured authority"
                 )
@@ -1035,9 +1103,7 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
         ) from error
 
 
-def validate(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> None:
+def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     try:
         _validate(contract, primary, parts)
     except (

@@ -393,7 +393,7 @@ import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 def forbidden(*args: object, **kwargs: object) -> None:
     raise AssertionError('Recovered group accessed its source')
-SourceSession.batches = forbidden
+SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1], by='id')
 grouped = session.artifact(sys.argv[2])
 assert isinstance(grouped, mv.MaterializedNumericRelation)

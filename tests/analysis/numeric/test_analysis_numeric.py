@@ -747,7 +747,7 @@ import json, sys
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.graph_exchange import numeric_primary
+from marivo.analysis.materialization.graph_exchange import numeric_primary, to_arrow
 from marivo.datasource.runtime import DatasourceConnectionService
 
 def forbidden(*args, **kwargs):
@@ -779,7 +779,7 @@ for kind, artifact in json.loads(sys.argv[2]).items():
     verified = result._dataset.verified()
     result_signature = json.loads(encode(result._node.root.signature, SIGNATURE))
     result_signature.pop('node_id')
-    output[kind] = {'value': [str(value) for value in numeric_primary(verified.primary)['value'].to_pylist()], 'state': [part.table.to_pylist() for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': result_signature, 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
+    output[kind] = {'value': [str(value) for value in numeric_primary(to_arrow(verified.primary, verified.contract.schema))['value'].to_pylist()], 'state': [part.table.to_dict(orient='records') for part in verified.parts if part.role == 'original_state'], 'K': asdict(result.contract()), 'signature': result_signature, 'artifact': result.state.artifact_ref.ref, 'run': result.state.producing_run_ref, 'execution_key': result._dataset.artifact.descriptor.execution_key_digest}
 print(json.dumps(output, default=str, sort_keys=True))
 """
     first = run(consumer, json.dumps(artifacts))

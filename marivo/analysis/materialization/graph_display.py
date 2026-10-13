@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
 import ibis.expr.datatypes as dt
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.graph import (
@@ -30,19 +31,22 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import DisplayRank, DisplayTable, PartsTransport
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.materialization.cell_arrow import annotate, logical_schema
-from marivo.analysis.materialization.cell_arrow import binding as cell_binding
-from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.cell_arrow import binding as cell_table_binding
+from marivo.analysis.materialization.cell_arrow import logical_schema
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.cell_arrow import validate as validate_cells
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
-    from_arrow,
+    _pandas_records,
+    from_pandas,
     numeric_primary,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_relation import (
     FrozenBinding,
@@ -212,9 +216,18 @@ def limit(relation: Relation, count: int) -> Relation:
     )
 
 
-def scalar_key(value: object) -> tuple[int, int | float | Decimal | str | date | datetime]:
+def scalar_key(
+    value: object,
+) -> tuple[int, int | float | Decimal | str | date | datetime | timedelta]:
     if value is None:
         return (0, 0)
+    if isinstance(value, timedelta):
+        nanoseconds = (
+            int(value.value)
+            if isinstance(value, pd.Timedelta)
+            else (value.days * 86400 + value.seconds) * 1_000_000_000 + value.microseconds * 1_000
+        )
+        return (1, nanoseconds)
     if isinstance(value, (int, float, Decimal, str, date, datetime)) and not isinstance(
         value, bool
     ):
@@ -243,7 +256,7 @@ def ranked(
 
     def instance_key(
         row: dict[str, object],
-    ) -> tuple[tuple[int, int | float | Decimal | str | date | datetime], ...]:
+    ) -> tuple[tuple[int, int | float | Decimal | str | date | datetime | timedelta], ...]:
         mask = row[keys[mask_index]] if mask_index is not None else 0
         assert isinstance(mask, int)
         return tuple(
@@ -298,7 +311,7 @@ def ranked(
     return output
 
 
-def finish(node: MethodNode, table: pa.Table) -> pa.Table:
+def finish(node: MethodNode, table: pd.DataFrame) -> pd.DataFrame:
     """Finish only controlled display preparation; no source or Catalog access."""
     params = node.parameters
     if not isinstance(params, DisplayRank):
@@ -307,71 +320,60 @@ def finish(node: MethodNode, table: pa.Table) -> pa.Table:
     partitions = tuple(
         f"partitions__partition_{i}" for i in range(len(params.partition_types))
     ) or ("partitions__partition",)
-    rows = cell_rows(numeric_primary(table))
+    rows: list[dict[str, object]] = [
+        {name: value for name, value in row.items() if isinstance(name, str)}
+        for row in table.to_dict("records")
+    ]
     order = ranked(
         rows, keys, params.order, params.ties, partitions, node.signature.domain.instance_key
     )
     ranks = [order[tuple(row[k] for k in keys)][0] for row in rows]
     positions = [order[tuple(row[k] for k in keys)][1] for row in rows]
-    for name, data, dtype in (
-        ("ranks__value", ranks, pa.int64()),
-        ("ranking_domain__rank_value", ranks, pa.int64()),
-        ("ranking_domain__position", positions, pa.int64()),
-        ("ordering__position", positions, pa.int64()),
-    ):
-        table = table.set_column(
-            table.schema.get_field_index(name), name, pa.array(data, type=dtype)
-        )
+    table["ranks__value"] = ranks
+    table["ranking_domain__rank_value"] = ranks
+    table["ranking_domain__position"] = positions
+    table["ordering__position"] = positions
     return table
 
 
-def flatten(result: ExchangeResult) -> pa.Table:
-    table = result.primary
+def _logical_rows(frame: pd.DataFrame, schema: pa.Schema) -> list[dict[str, object]]:
+    if cell_table_binding(schema).cells:
+        return cell_rows(to_arrow(frame, schema))
+    return _pandas_records(frame, schema)
+
+
+def flatten(result: ExchangeResult) -> pd.DataFrame:
+    primary_schema = result.contract.schema
+    table_rows = _logical_rows(result.primary, primary_schema)
     keys = result.contract.key_fields
+    columns = list(logical_schema(primary_schema).names)
     for part in result.parts:
         if part.role == "grid_cells" and any(
             p.role in ("condition_cells", "pair_inputs", "training_inputs") for p in result.parts
         ):
             continue
-        if next(p.key_fields for p in result.contract.parts if p.role == part.role) != keys:
+        declared_part = next(p for p in result.contract.parts if p.role == part.role)
+        if declared_part.key_fields != keys:
             continue
-        declared = cell_binding(table.schema)
-        retained = cell_binding(part.table.schema)
-        rows = {tuple(row[k] for k in keys): row for row in part.table.to_pylist()}
-        for field in part.table.schema:
-            if field.name not in keys and field.name not in table.column_names:
-                table = table.append_column(
-                    field,
-                    pa.array(
-                        [
-                            rows[tuple(row[k] for k in keys)][field.name]
-                            for row in table.to_pylist()
-                        ],
-                        type=field.type,
-                    ),
-                )
-        cells = tuple(
-            cell for cell in retained.cells if cell.fields.value not in declared.logical_columns
-        )
-        table = annotate(
-            table,
-            (*declared.cells, *cells),
-            (
-                *declared.logical_columns,
-                *(
-                    name
-                    for name in retained.logical_columns
-                    if name not in declared.logical_columns
-                ),
-            ),
-        )
-    return table
+        part_rows = _logical_rows(part.table, declared_part.schema)
+        indexed = {tuple(row[k] for k in keys): row for row in part_rows}
+        part_columns = logical_schema(declared_part.schema).names
+        for name in part_columns:
+            if name in keys or name in columns:
+                continue
+            columns.append(name)
+            for row in table_rows:
+                identity = tuple(row[k] for k in keys)
+                if identity not in indexed:
+                    raise invalid("retained display input is missing a complete receiver key")
+                row[name] = indexed[identity][name]
+    return pd.DataFrame(table_rows, columns=columns)
 
 
 def _fixed_rows(result: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
-    """Read checked Arrow Cells through the controlled exact pandas carrier."""
+    """Index decoded Cells from the checked pandas result."""
     rows: dict[tuple[object, ...], dict[str, object]] = {}
-    for row in cell_rows(numeric_primary(result.primary)):
+    for row in _logical_rows(result.primary, result.contract.schema):
         key = tuple(row[k] for k in result.contract.key_fields)
         if key in rows:
             raise invalid("duplicate complete key during required display index insertion")
@@ -384,7 +386,17 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
     assert isinstance(params, (DisplayRank, DisplayTable))
     first = inputs[0]
     keys = first.contract.key_fields
-    table = flatten(first) if isinstance(params, DisplayRank) else cell_project(first.primary, keys)
+    table = (
+        flatten(first)
+        if isinstance(params, DisplayRank)
+        else pd.DataFrame(
+            [
+                {key: row[key] for key in keys}
+                for row in _logical_rows(first.primary, first.contract.schema)
+            ],
+            columns=keys,
+        )
+    )
     if isinstance(params, DisplayRank):
         previous_display = {
             f"{part.role}__{component}"
@@ -392,11 +404,12 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
             if isinstance(part, DisplayPart)
             for component in part.components
         }
-        table = cell_project(
-            table,
-            [name for name in logical_schema(table.schema).names if name not in previous_display],
-        )
-    receiver = {tuple(row[k] for k in keys) for row in cell_rows(first.primary)}
+        table = table.loc[
+            :, [name for name in table.columns if name not in previous_display]
+        ].copy()
+    receiver = {
+        tuple(row[k] for k in keys) for row in _logical_rows(first.primary, first.contract.schema)
+    }
     for i, source in enumerate(inputs):
         rows = _fixed_rows(source)
         if source.contract.key_fields != keys or (
@@ -407,138 +420,165 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
             raise invalid("display input complete keys differ")
         if isinstance(params, DisplayTable):
             for field in ("value", "cell_tag", "cell_reason"):
-                table = table.append_column(
-                    f"column_{i}__{field}",
-                    pa.array(
-                        [rows[tuple(row[k] for k in keys)][field] for row in cell_rows(table)],
-                        type=logical_schema(source.primary.schema).field(field).type,
-                    ),
+                table[f"column_{i}__{field}"] = pd.Series(
+                    [rows[tuple(row[k] for k in keys)][field] for row in table.to_dict("records")],
+                    index=table.index,
                 )
         elif i:
             if any(row["cell_tag"] not in ("defined", "null") for row in rows.values()):
                 raise invalid("partition is not a complete category map")
-            table = table.append_column(
-                f"partitions__partition_{i - 1}",
-                pa.array(
-                    [rows[tuple(row[k] for k in keys)]["value"] for row in cell_rows(table)],
-                    type=source.primary.schema.field("value").type,
-                ),
+            table[f"partitions__partition_{i - 1}"] = pd.Series(
+                [rows[tuple(row[k] for k in keys)]["value"] for row in table.to_dict("records")],
+                index=table.index,
             )
     if isinstance(params, DisplayRank) and not params.partition_types:
-        table = table.append_column(
-            "partitions__partition", pa.array([0] * table.num_rows, type=pa.int64())
-        )
+        table["partitions__partition"] = [0] * len(table)
     # Same closed component layout as source preparation.
-    for part in node.signature.parts:
-        if not isinstance(part, DisplayPart):
+    for signature_part in node.signature.parts:
+        if not isinstance(signature_part, DisplayPart):
             continue
-        for component, dtype in zip(part.components, part.types, strict=True):
-            name = f"{part.role}__{component}"
-            if name in table.column_names:
+        for component, _dtype in zip(signature_part.components, signature_part.types, strict=True):
+            name = f"{signature_part.role}__{component}"
+            if name in table.columns:
                 continue
             source_name = (
                 component
-                if part.role in ("values", "ranking_domain")
+                if signature_part.role in ("values", "ranking_domain")
                 and component in ("value", "cell_tag", "cell_reason")
                 else "cell_tag"
                 if component in ("cell_tag", "rank_tag")
                 else "cell_reason"
                 if component in ("cell_reason", "rank_reason")
                 else f"partitions__{component}"
-                if part.role == "ranking_domain" and component.startswith("partition")
+                if signature_part.role == "ranking_domain" and component.startswith("partition")
                 else component
-                if part.role == "columns"
+                if signature_part.role == "columns"
                 else None
             )
             values = (
-                cell_column(table, source_name)
+                table[source_name].tolist()
                 if source_name is not None
-                else pa.array([part.identity] * table.num_rows, type=pa.string())
-                if part.role == "column_bindings" and isinstance(params, DisplayTable)
-                else pa.array([0] * table.num_rows, type=dt.dtype(dtype).to_pyarrow())
+                else [signature_part.identity] * len(table)
+                if signature_part.role == "column_bindings" and isinstance(params, DisplayTable)
+                else [0] * len(table)
             )
-            table = table.append_column(name, values)
+            table[name] = values
     table = finish(node, table)
     primary_columns = (
         (*keys, "value", "cell_tag", "cell_reason")
         if isinstance(params, DisplayRank)
-        else (
-            *keys,
-            *(
-                f"column_{i}__{f}"
+        else tuple(
+            [*keys]
+            + [
+                f"column_{i}__{field}"
                 for i in range(len(params.labels))
-                for f in ("value", "cell_tag", "cell_reason")
-            ),
+                for field in ("value", "cell_tag", "cell_reason")
+            ]
         )
     )
-    primary = cell_project(table, primary_columns)
+    primary = table.loc[:, primary_columns].copy()
     from marivo.analysis.materialization.deviation_execution import retain_table_fits
 
-    parts = tuple(
-        ExchangePart(
-            part_role(p),
-            cell_project(table, (*keys, *(f"{part_role(p)}__{c}" for c in p.components))),
-        )
-        if isinstance(p, DisplayPart)
-        else retain_table_fits(inputs, p)
-        if isinstance(p, TableFitsPart)
-        else next(part for part in first.parts if part.role == part_role(p))
-        for p in node.signature.parts
-    )
-    from marivo.analysis.methods.coordinate_state import declarations
+    parts: list[ExchangePart] = []
+    part_schemas: list[PartContract] = []
+    logical_primary_schema = logical_schema(first.contract.schema)
+    for declaration in node.signature.parts:
+        role = part_role(declaration)
+        if isinstance(declaration, DisplayPart):
+            component_columns = tuple(
+                f"{role}__{component}" for component in declaration.components
+            )
+            part_frame = table.loc[:, (*keys, *component_columns)].copy()
+            schema = pa.schema(
+                [
+                    *(logical_primary_schema.field(key) for key in keys),
+                    *(
+                        pa.field(f"{role}__{component}", dt.dtype(dtype).to_pyarrow())
+                        for component, dtype in zip(
+                            declaration.components, declaration.types, strict=True
+                        )
+                    ),
+                ]
+            )
+            key_fields = next(
+                (item.key_fields for item in first.contract.parts if item.role == role), keys
+            )
+        elif isinstance(declaration, TableFitsPart):
+            retained_fit = retain_table_fits(inputs, declaration)
+            schema = pa.schema([pa.field("table_fits__retained", pa.string())])
+            part_frame = retained_fit.table.to_pandas()
+            key_fields = ()
+        else:
+            retained_exchange = next(item for item in first.parts if item.role == role)
+            schema = next(item.schema for item in first.contract.parts if item.role == role)
+            part_frame = retained_exchange.table
+            key_fields = next(item.key_fields for item in first.contract.parts if item.role == role)
+        parts.append(ExchangePart(role, part_frame))
+        part_schemas.append(PartContract(role, schema, key_fields))
+    from marivo.analysis.methods.coordinate_state import declarations as coordinate_declarations
 
-    children = {role for role, _, _, _ in declarations(node.signature)}
-    parts = (
-        *parts,
-        *(
-            part
-            for part in first.parts
-            if part.role in children and not any(p.role == part.role for p in parts)
-        ),
-    )
-    state = pa.table(
+    children = {role for role, _, _, _ in coordinate_declarations(node.signature)}
+    for exchange_part in first.parts:
+        if exchange_part.role in children and not any(
+            item.role == exchange_part.role for item in parts
+        ):
+            part_schemas.append(
+                next(item for item in first.contract.parts if item.role == exchange_part.role)
+            )
+            parts.append(exchange_part)
+    key_fields_schema = [logical_primary_schema.field(key) for key in keys]
+    if isinstance(params, DisplayRank):
+        primary_schema = pa.schema(
+            [
+                *key_fields_schema,
+                logical_primary_schema.field("value"),
+                pa.field("cell_tag", pa.string()),
+                pa.field("cell_reason", pa.string()),
+            ]
+        )
+    else:
+        primary_schema = pa.schema(
+            [
+                *key_fields_schema,
+                *(
+                    pa.field(
+                        f"column_{i}__{field}",
+                        logical_schema(source.contract.schema).field(field).type,
+                    )
+                    for i, source in enumerate(inputs)
+                    for field in ("value", "cell_tag", "cell_reason")
+                ),
+            ]
+        )
+    state = pd.DataFrame(
         {
-            **{k: primary[k] for k in keys},
-            "status": cell_column(primary, "cell_tag")
+            **{key: primary[key].tolist() for key in keys},
+            "status": primary["cell_tag"].tolist()
             if isinstance(params, DisplayRank)
-            else pa.array(["accepted"] * primary.num_rows, type=pa.string()),
+            else ["accepted"] * len(primary),
         }
     )
-    reasons = first.contract.cell_reasons
+    state_schema = pa.schema([*key_fields_schema, pa.field("status", pa.string())])
     contract = ExchangeContract(
         node.signature,
         node.method,
         binding,
-        primary.schema,
+        primary_schema,
         keys,
-        tuple(
-            PartContract(
-                p.role,
-                p.table.schema,
-                next(
-                    (item.key_fields for item in first.contract.parts if item.role == p.role),
-                    () if p.role == "table_fits" else keys,
-                ),
-            )
-            for p in parts
-        ),
-        reasons,
+        tuple(part_schemas),
+        first.contract.cell_reasons,
         "ranking" if isinstance(params, DisplayRank) else "table",
-        state.schema,
+        state_schema,
         allow_empty_singleton=not keys,
         column_reasons=tuple(item.contract.cell_reasons for item in inputs)
         if isinstance(params, DisplayTable)
         else (),
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
+    return from_pandas(primary, contract, parts=tuple(parts), method_state=state, validate=False)
 
 
-def validate(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> None:
+def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     """Reproduce original ranks and verify every selected view and column."""
-    from marivo.analysis.materialization.graph_exchange import CheckedStream, _TableStream
-
     by_role = {p.role: p.table for p in parts}
     keys = contract.key_fields
     declarations = {p.role: p for p in contract.signature.parts if isinstance(p, DisplayPart)}
@@ -563,19 +603,14 @@ def validate(
                 full.schema.get_field_index("value"), "value", full["value"].cast(pa.int64())
             )
         checked_cells = cell_project(full, (*keys, "value", "cell_tag", "cell_reason"))
-        stream = CheckedStream(
-            _TableStream(checked_cells),
-            checked_cells.schema,
-            keys,
-            contract.cell_reasons,
-            nullable_keys=frozenset(
-                f"key_{i}"
-                for i, c in enumerate(contract.signature.domain.instance_key)
-                if c.field.startswith("attribution:axis:")
-            ),
-        )
-        tuple(stream)
+        validate_cells(checked_cells)
         rows = cell_rows(full)
+        nullable_keys = frozenset(
+            f"key_{i}"
+            for i, c in enumerate(contract.signature.domain.instance_key)
+            if c.field.startswith("attribution:axis:")
+        )
+        _validate_rows(rows, keys, nullable_keys, contract.cell_reasons)
         partitions = tuple(c for c in declaration.components if c.startswith("partition"))
         expected = ranked(
             rows,
@@ -587,7 +622,9 @@ def validate(
         )
         original = {tuple(row[k] for k in keys): row for row in rows}
         for role in ("partitions", "ordering"):
-            if {tuple(row[k] for k in keys) for row in cell_rows(by_role[role])} != set(original):
+            role_rows = cell_rows(by_role[role])
+            _validate_rows(role_rows, keys, nullable_keys, contract.cell_reasons)
+            if {tuple(row[k] for k in keys) for row in role_rows} != set(original):
                 raise invalid(
                     "independent partition or ordering keys differ from the full ranking domain"
                 )
@@ -605,7 +642,11 @@ def validate(
             if role == "values":
                 actual_rows = cell_rename(actual_rows, [*keys, *declarations[role].components])
                 actual_rows = numeric_primary(actual_rows)
-            for row in cell_rows(actual_rows):
+            component_rows = cell_rows(actual_rows)
+            _validate_keys(component_rows, keys, nullable_keys)
+            if role == "values":
+                _validate_cells(component_rows, contract.cell_reasons)
+            for row in component_rows:
                 prior = original[tuple(row[k] for k in keys)]
                 for component in declarations[role].components:
                     field = (
@@ -628,7 +669,9 @@ def validate(
             else "values"
         )
         view_rows = {tuple(row[k] for k in keys): row for row in cell_rows(by_role[role])}
-        for row in cell_rows(primary):
+        primary_rows = cell_rows(primary)
+        _validate_rows(primary_rows, keys, nullable_keys, contract.cell_reasons)
+        for row in primary_rows:
             if any(
                 row[f] != view_rows[tuple(row[k] for k in keys)][f"{role}__{f}"]
                 for f in ("value", "cell_tag", "cell_reason")
@@ -658,15 +701,55 @@ def validate(
                 for i, coordinate in enumerate(contract.signature.domain.instance_key)
                 if coordinate.field.startswith("attribution:axis:")
             )
-            tuple(
-                CheckedStream(
-                    _TableStream(column), column.schema, keys, reasons, nullable_keys=nullable
-                )
-            )
+            validate_cells(column)
+            _validate_rows(cell_rows(column), keys, nullable, reasons)
         if cell_rows(
             cell_rename(by_role["columns"], logical_schema(primary.schema).names)
         ) != cell_rows(primary):
             raise invalid("terminal columns differ from their retained Cells")
+
+
+def _validate_rows(
+    rows: list[dict[str, object]],
+    keys: tuple[str, ...],
+    nullable_keys: frozenset[str],
+    cell_reasons: tuple[tuple[str, tuple[str, ...]], ...],
+) -> None:
+    _validate_keys(rows, keys, nullable_keys)
+    _validate_cells(rows, cell_reasons)
+
+
+def _validate_keys(
+    rows: list[dict[str, object]], keys: tuple[str, ...], nullable_keys: frozenset[str]
+) -> None:
+    seen: set[tuple[object, ...]] = set()
+    for row in rows:
+        identity = tuple(row[key] for key in keys)
+        if any(
+            value is None and key not in nullable_keys
+            for key, value in zip(keys, identity, strict=True)
+        ):
+            raise invalid("ranking contains a null complete key")
+        if identity in seen:
+            raise invalid("ranking contains a duplicate complete key")
+        seen.add(identity)
+
+
+def _validate_cells(
+    rows: list[dict[str, object]], cell_reasons: tuple[tuple[str, tuple[str, ...]], ...]
+) -> None:
+    reasons = dict(cell_reasons)
+    for row in rows:
+        value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+        if tag == "defined":
+            if value is None or reason is not None:
+                raise invalid("ranking contains an invalid Defined Cell")
+        elif (
+            tag not in ("null", "undefined", "unknown")
+            or value is not None
+            or reason not in reasons.get(str(tag), ())
+        ):
+            raise invalid("ranking contains an invalid non-Defined Cell")
 
 
 def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> ExchangeResult:
@@ -685,19 +768,38 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
         *(role for role, _, _, _ in declarations(signature) if role not in roles),
     )
     parts = tuple(p for p in source.parts if p.role in retained_roles)
-    selected = next(p.table for p in parts if p.role == name)
-    primary = cell_rename(
-        selected, [*source.contract.key_fields, "value", "cell_tag", "cell_reason"]
+    selected = next(p for p in parts if p.role == name)
+    selected_contract = next(p for p in source.contract.parts if p.role == name)
+    selected_schema = logical_schema(selected_contract.schema)
+    primary = pd.DataFrame(
+        [
+            {
+                **{key: row[key] for key in source.contract.key_fields},
+                **{
+                    field: row[f"{name}__{field}"] for field in ("value", "cell_tag", "cell_reason")
+                },
+            }
+            for row in _logical_rows(selected.table, selected_contract.schema)
+        ],
+        columns=(*source.contract.key_fields, "value", "cell_tag", "cell_reason"),
+    )
+    primary_schema = pa.schema(
+        [
+            *(selected_schema.field(key) for key in source.contract.key_fields),
+            pa.field("value", selected_schema.field(f"{name}__value").type),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
     )
     contract = replace(
         source.contract,
         signature=signature,
         method=MethodKey("parts_transport"),
-        schema=primary.schema,
+        schema=primary_schema,
         parts=tuple(p for p in source.contract.parts if p.role in retained_roles),
         state_kind="none",
         state_schema=None,
         pending_checks=(),
         _frozen=None,
     )
-    return from_arrow(primary, contract, parts=parts, validate=False)
+    return from_pandas(primary, contract, parts=parts, validate=False)

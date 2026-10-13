@@ -20,7 +20,7 @@ from marivo._compat import UTC
 from marivo.project import resolve_project_root
 
 LogValue: TypeAlias = str | int | float | bool | None
-QueryState: TypeAlias = Literal["succeeded", "failed", "closed_early"]
+QueryState: TypeAlias = Literal["succeeded", "failed"]
 _MAX_FILE_BYTES = 128 * 1024 * 1024
 _MAX_HISTORICAL_BYTES = 1024 * 1024 * 1024
 _RETENTION_DAYS = 14
@@ -155,7 +155,7 @@ def error_fields(error: BaseException, *, sensitive: bool = False) -> dict[str, 
 
 
 class QueryLog:
-    """One actual submission; completion follows consumption and cursor release."""
+    """One Ibis execution; completion records its result, duration, and row count."""
 
     def __init__(
         self,
@@ -173,7 +173,6 @@ class QueryLog:
         )
         self.started = monotonic()
         self.rows = 0
-        self.arrow_bytes: int | None = None
         self.error: BaseException | None = None
         self.sensitive = sensitive
         self.finished = False
@@ -205,7 +204,6 @@ class QueryLog:
             state=state,
             duration_ms=int((monotonic() - self.started) * 1000),
             consumed_rows=self.rows,
-            consumed_arrow_bytes=self.arrow_bytes,
             fields={**failure, **fields},
         )
 

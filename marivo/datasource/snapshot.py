@@ -640,7 +640,7 @@ def acquire_snapshot(
                     source_identities=(snapshot_id,),
                     purpose="datasource.snapshot",
                     max_rows=scope.max_rows + 1,
-                ).to_pandas()
+                )
         except (DatasourceCredentialError, DatasourceCredentialScopeError):
             raise
         except Exception as exc:

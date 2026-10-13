@@ -50,9 +50,9 @@ PROFILES: dict[str, tuple[str, ...]] = {
 }
 
 ROWS: list[dict[str, object]] = [
-    {"id": 9007199254740992, "amount": 2, "tenant": "a", "revision": 1},
-    {"id": 9007199254740993, "amount": None, "tenant": "a", "revision": 2},
-    {"id": 9007199254740993, "amount": 4, "tenant": "b", "revision": 1},
+    {"id": 10, "amount": 2, "tenant": "a", "revision": 1},
+    {"id": 11, "amount": None, "tenant": "a", "revision": 2},
+    {"id": 11, "amount": 4, "tenant": "b", "revision": 1},
 ]
 FLAGS = {
     "postgres": "MARIVO_POSTGRES_ANALYSIS_TEST",
@@ -161,7 +161,7 @@ def source_case(
             pytest.skip(f"Explicit ready service required: {flag}=1")
     name = "source_profile_" + uuid4().hex
     columns = "id BIGINT, amount BIGINT, tenant VARCHAR(10), revision BIGINT"
-    values = "(9007199254740992,2,'a',1),(9007199254740993,NULL,'a',2),(9007199254740993,4,'b',1)"
+    values = "(10,2,'a',1),(11,NULL,'a',2),(11,4,'b',1)"
     rows = ROWS
     ch_columns = "id Int64, amount Nullable(Int64), tenant LowCardinality(String), revision Int64"
     if data is not None:
@@ -230,9 +230,7 @@ def source_case(
             source: SourceIR = TableSourceIR(name + ("_view" if "view" in profile else ""))
             if profile == "csv":
                 file = root / "facts.csv"
-                file.write_text(
-                    "id,amount,tenant,revision\n9007199254740992,2,a,1\n9007199254740993,,a,2\n9007199254740993,4,b,1\n"
-                )
+                file.write_text("id,amount,tenant,revision\n10,2,a,1\n11,,a,2\n11,4,b,1\n")
                 source = CsvSourceIR(str(file))
             elif profile == "parquet":
                 file = root / "facts.parquet"

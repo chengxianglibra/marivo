@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
@@ -24,7 +23,7 @@ from marivo.analysis.methods.physical import (
     TimeShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.datasource.adapters import SourceBatchStream
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
 
 
@@ -114,16 +113,16 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
     assert all(amount is None or type(amount) is int for amount in amounts)
     total = sum(amount for amount in amounts if isinstance(amount, int))
     support = sum(amount is not None for amount in amounts)
-    captures: list[pa.RecordBatch] = []
-    iterate = SourceBatchStream._iterate
+    captures: list[pd.DataFrame] = []
+    execute = SourceSession.execute
 
-    def captured(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-        for batch in iterate(stream):
-            if stream._submission.purpose == "analysis.domain.prepare":
-                captures.append(batch)
-            yield batch
+    def captured(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        frame = execute(source, read)
+        if read.purpose == "analysis.domain.prepare":
+            captures.append(frame)
+        return frame
 
-    monkeypatch.setattr(SourceBatchStream, "_iterate", captured)
+    monkeypatch.setattr(SourceSession, "execute", captured)
     with workload("duckdb", profile, len(facts), "baseline", tmp_path, monkeypatch) as work:
         result = work.source(route)
         assert work.validate(result)["passed"] is True
@@ -132,27 +131,26 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         assert result._dataset is not None
         checked = result._dataset.verified()
         assert checked.primary is not None
-        assert checked.primary.schema.field("value").type == pa.int64()
-        assert cell_rows(checked.primary) == [
+        assert checked.contract.schema.field("value").type == pa.int64()
+        assert checked.primary.to_dict("records") == [
             {"value": total, "cell_tag": "defined", "cell_reason": None}
         ]
         parts = {part.role: part.table for part in checked.parts}
-        assert parts["original_state"].to_pylist() == [
+        assert parts["original_state"].to_dict("records") == [
             {"original_state__sum": total, "original_state__non_null_count": support}
         ]
-        assert parts["coverage"].to_pylist() == [{"coverage__complete": True}]
+        assert parts["coverage"].to_dict("records") == [{"coverage__complete": True}]
         if route == "ibis_python":
             keys = {
                 (row["key_0"], row["key_1"], row["key_2"])
-                for batch in captures
-                if {"key_0", "key_1", "key_2"} <= set(batch.schema.names)
-                for row in batch.to_pylist()
+                for frame in captures
+                if {"key_0", "key_1", "key_2"} <= set(frame.columns)
+                for row in frame.to_dict(orient="records")
             }
             assert keys == {("a", 2**53 + index, 1) for index in range(len(facts))}
             assert all(
-                batch.schema.field("key_1").type == pa.int64()
-                and batch.schema.field("key_2").type == pa.int64()
-                for batch in captures
-                if {"key_0", "key_1", "key_2"} <= set(batch.schema.names)
+                str(frame["key_1"].dtype) == "int64" and str(frame["key_2"].dtype) == "int64"
+                for frame in captures
+                if {"key_0", "key_1", "key_2"} <= set(frame.columns)
             )
         assert work.session._runtime.store.resources(work.session.id) == ()

@@ -4,13 +4,14 @@ from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo import _execution_log
-from marivo.datasource.adapters import PhysicalRequirement
+from marivo.datasource.adapters import CompiledRead, PhysicalRequirement, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
@@ -34,11 +35,7 @@ def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.Monk
                 purpose="sql_ownership.http_source",
                 expected_schema=bound.relation.schema().to_pyarrow(),
             )
-            stream = case.session.batches(read, chunk_size=32)
-            try:
-                rows = sum(batch.num_rows for batch in stream)
-            finally:
-                stream.close()
+            rows = len(case.session.execute(read))
             assert rows == len(ROWS)
             assert any(
                 item.category == "provider" and item.purpose == "datasource.http_credentials"
@@ -105,6 +102,15 @@ def test_public_sql_owner_audit(
                 reference, md.table(case.source.table, database=case.source.database)
             )
             assert {column.name for column in inspection.schema} == set(ROWS[0])
+            governed: list[tuple[str, str]] = []
+            source_execute = SourceSession.execute
+
+            def observe(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
+                result = source_execute(source, read)
+                governed.append((read.purpose, read.sql))
+                return result
+
+            monkeypatch.setattr(SourceSession, "execute", observe)
             session = mv.session.get_or_create("sql_ownership-sql-owner", report_timezone="UTC")
             result = session.members(ms.ref.entity("sales.facts")).execute()
             assert len(result.to_pandas()) == len(ROWS)
@@ -122,7 +128,6 @@ def test_public_sql_owner_audit(
             categories = {item.category for item in audit.submissions}
             assert {
                 "provider",
-                "governed_ibis",
                 "raw_sql_terminal",
                 "store",
                 "ibis_metadata_preparation",
@@ -133,12 +138,12 @@ def test_public_sql_owner_audit(
             assert len(terminal_reads) == 1 and terminal_reads[0].sql == statement
             assert all(item.purpose for item in audit.submissions if item.category == "provider")
             logged = [r for r in execution_records(tmp_path) if r["event"] == "query.submitted"]
-            owned = [
-                item
-                for item in audit.submissions
-                if item.category in {"provider", "governed_ibis", "raw_sql_terminal"}
-            ]
-            assert Counter(str(r["sql"]) for r in logged) == Counter(item.sql for item in owned)
+            assert governed
+            assert Counter(governed) == Counter(
+                (str(r["purpose"]), str(r["sql"]))
+                for r in logged
+                if str(r.get("purpose", "")).startswith("analysis.")
+            )
             completed = [r for r in execution_records(tmp_path) if r["event"] == "query.completed"]
             assert {r["query_id"] for r in logged} == {r["query_id"] for r in completed}
             environment = {**case.environment, "profile": profile}

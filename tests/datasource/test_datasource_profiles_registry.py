@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.datasource as md
@@ -19,10 +20,6 @@ from marivo.datasource.authoring import (
 )
 from marivo.datasource.backends import BuiltDatasourceBackend
 from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceMissingError
-
-
-class _ProbeResult:
-    result_rows = [(1,)]
 
 
 class _ProbeCursor:
@@ -53,6 +50,19 @@ class _ProbeConnection:
 
     def cursor(self) -> _ProbeCursor:
         return _ProbeCursor(self._failure)
+
+
+class _PandasProbeBackend:
+    con: _ProbeConnection
+
+    def execute(self, _expression: object, *, params: object, limit: object) -> pd.DataFrame:
+        del params, limit
+        cursor = self.con.cursor()
+        try:
+            cursor.execute("SELECT 1")
+            return pd.DataFrame.from_records(cursor.fetchmany(2), columns=("probe",))
+        finally:
+            cursor.close()
 
 
 @pytest.fixture
@@ -128,7 +138,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
         )
     )
 
-    class _FakeBackend:
+    class _FakeBackend(_PandasProbeBackend):
         disconnected = False
         name = "trino"
         _marivo_terminal_timeout_seconds = 30
@@ -136,10 +146,6 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
-
-        def raw_sql(self, sql: str):
-            assert sql == "SELECT 1"
-            return _ProbeResult()
 
         def list_tables(self):
             raise AssertionError("list_tables requires a default schema for Trino")
@@ -183,17 +189,13 @@ def test_datasource_test_success_persists_env_sourced_secret(
     monkeypatch.setenv("TRINO_AUTH", "validated-secret")
     persisted: list[tuple[str, str]] = []
 
-    class _FakeBackend:
+    class _FakeBackend(_PandasProbeBackend):
         name = "trino"
         _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
-
-        def raw_sql(self, sql: str) -> object:
-            assert sql == "SELECT 1"
-            return _ProbeResult()
 
         def disconnect(self) -> None:
             return None
@@ -243,16 +245,13 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
     monkeypatch.setenv("TRINO_AUTH", "bad-secret")
     persisted: list[tuple[str, str]] = []
 
-    class _FakeBackend:
+    class _FakeBackend(_PandasProbeBackend):
         name = "trino"
         _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection(RuntimeError("authentication failed"))
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
-
-        def raw_sql(self, sql: str) -> object:
-            raise RuntimeError("authentication failed")
 
         def disconnect(self) -> None:
             return None
@@ -313,16 +312,13 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
     assert "password=<redacted>" in open_failure.failure.message
     assert '"token"=<redacted>' in open_failure.failure.message
 
-    class _FakeBackend:
+    class _FakeBackend(_PandasProbeBackend):
         name = "trino"
         _marivo_terminal_timeout_seconds = 30
         con = _ProbeConnection()
 
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
-
-        def raw_sql(self, _sql: str) -> object:
-            return _ProbeResult()
 
         def disconnect(self) -> None:
             return None

@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Literal, TypeAlias
 
 import ibis
-import pyarrow as pa
+import pandas as pd
 import pytest
-from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -30,8 +29,8 @@ from marivo.analysis.methods.physical import (
     SourceShape,
 )
 from marivo.datasource import adapters
-from marivo.datasource.adapters import PhysicalRequirement, _Cursor, provider_for
-from marivo.datasource.errors import DatasourceConnectionError, DatasourceSourceCapabilityError
+from marivo.datasource.adapters import PhysicalRequirement, provider_for
+from marivo.datasource.errors import DatasourceConnectionError
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from marivo.semantic.reader import SemanticProject
@@ -134,40 +133,6 @@ def test_mysql_reader_initialization_warning_is_a_typed_failure(
         assert failure.value.received == "timezone initialization warning"
 
 
-@pytest.mark.parametrize(
-    "value", [Decimal("1.5"), Decimal("NaN"), Decimal("Infinity"), Decimal(2**63), 1.0]
-)
-def test_integer_decode_rejects_inexact_or_overflow(value: Decimal | float) -> None:
-    for backend in ("postgres", "mysql"):
-        with pytest.raises(DatasourceSourceCapabilityError):
-            adapters._exact_array([value], pa.field("value", pa.int64()), backend_name=backend)
-
-
-@pytest.mark.parametrize("backend", ["postgres", "mysql"])
-def test_integer_decode_preserves_full_width(backend: str) -> None:
-    values = [Decimal(-(2**63)), Decimal(2**63 - 1)]
-    assert adapters._exact_array(
-        list(values), pa.field("value", pa.int64()), backend_name=backend
-    ).to_pylist() == [-(2**63), 2**63 - 1]
-
-
-@pytest.mark.parametrize("value", [2, -1, 0.0, "1"])
-def test_mysql_boolean_carrier_rejects_non_boolean_domain(value: int | float | str) -> None:
-    with pytest.raises(DatasourceSourceCapabilityError):
-        adapters._exact_array([value], pa.field("complete", pa.bool_()), backend_name="mysql")
-
-
-def test_mysql_utc_timestamp_carrier_preserves_microseconds() -> None:
-    value = "2026-08-01 00:00:00.123456"
-    assert adapters._exact_array(
-        [value], pa.field("time", pa.timestamp("us", "UTC")), backend_name="mysql"
-    ).to_pylist() == [datetime(2026, 8, 1, microsecond=123456, tzinfo=timezone.utc)]
-    with pytest.raises(DatasourceSourceCapabilityError):
-        adapters._exact_array(
-            [value], pa.field("time", pa.timestamp("us", "America/New_York")), backend_name="mysql"
-        )
-
-
 SourceStatisticMethod: TypeAlias = Literal[
     "pearson",
     "spearman",
@@ -207,19 +172,19 @@ def test_source_statistic(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     submitted: list[str] = []
     owners: list[adapters.SourceSession] = []
-    native = adapters._native_cursor
+    source_execute = adapters.SourceSession.execute
     open_session = adapters.SourceSession.__enter__
 
-    def capture(owner: BaseBackend, name: str, sql: str) -> _Cursor:
-        submitted.append(sql)
-        return native(owner, name, sql)
+    def capture(owner: adapters.SourceSession, read: adapters.CompiledRead) -> pd.DataFrame:
+        submitted.append(read.sql)
+        return source_execute(owner, read)
 
     def entered(owner: adapters.SourceSession) -> adapters.SourceSession:
         result = open_session(owner)
         owners.append(owner)
         return result
 
-    monkeypatch.setattr(adapters, "_native_cursor", capture)
+    monkeypatch.setattr(adapters.SourceSession, "execute", capture)
     monkeypatch.setattr(adapters.SourceSession, "__enter__", entered)
     data = SourceData(
         "id BIGINT, revision BIGINT, tenant VARCHAR(10), happened TIMESTAMP",
@@ -485,9 +450,6 @@ def test_source_statistic(
             ]
             assert submissions and method_submitted
             assert all(owner._closed for owner in method_owners if owner is not case.session)
-            assert all(
-                item["cursor_state"] in ("closed", "connection_owned") for item in submissions
-            )
             assert all(item["state"] == "succeeded" for item in submissions)
             assert all(item["connection_disconnected"] is True for item in submissions)
             restored = session.artifact(dataset.artifact.artifact_ref)

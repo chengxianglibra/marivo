@@ -16,7 +16,7 @@ from marivo.analysis.compiler import source_time
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import engines
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.semantic.ir import TargetDimensionContract
 from tests.shared_fixtures import DslCase, DslCaseFactory
@@ -80,13 +80,13 @@ def test_observation_preserves_population_windows_and_query_count(
         },
     )
     reads: list[tuple[str, str]] = []
-    original = SourceSession.batches
+    original = SourceSession.execute
 
-    def traced(self: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def traced(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
         reads.append((read.purpose, read.sql))
-        return original(self, read, chunk_size=chunk_size)
+        return original(self, read)
 
-    monkeypatch.setattr(SourceSession, "batches", traced)
+    monkeypatch.setattr(SourceSession, "execute", traced)
     population = case.session.members(ms.ref.entity("sales.customer"))
 
     def observe(start: str, end: str) -> pd.DataFrame:
@@ -161,13 +161,13 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d", integer=integer)
     reads: list[tuple[str, str]] = []
-    original = SourceSession.batches
+    original = SourceSession.execute
 
-    def traced(self: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def traced(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
         reads.append((read.purpose, read.sql))
-        return original(self, read, chunk_size=chunk_size)
+        return original(self, read)
 
-    monkeypatch.setattr(SourceSession, "batches", traced)
+    monkeypatch.setattr(SourceSession, "execute", traced)
     grid = mv.time_grid(
         during=mv.time_scope(start="2026-08-01", end="2026-10-01"), grain=mv.grain("month")
     )

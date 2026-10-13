@@ -110,7 +110,7 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
 
             return forbidden
 
-        for name in ("__enter__", "bind", "compile", "batches"):
+        for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
         monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
         errors: list[Json] = []

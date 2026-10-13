@@ -37,12 +37,7 @@ if TYPE_CHECKING:
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
-    import ibis.expr.schema as sch
-    import pandas as pd
     from ibis.backends.mysql import Backend
-    from ibis.backends.mysql.converter import MySQLPandasData
-
-    from marivo.datasource.engines.scalar_decode import ScalarCursor, checked_dataframe
 
     # Ibis optional backend classes do not ship typing metadata.
     class CheckedBackend(Backend):  # type: ignore[misc]
@@ -65,9 +60,6 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
                         ),
                     ) from cause
             self._marivo_timezone_name = "UTC"
-
-        def _fetch_from_cursor(self, cursor: ScalarCursor, schema: sch.Schema) -> pd.DataFrame:
-            return checked_dataframe(cursor, schema, MySQLPandasData.convert_table)
 
     host = require_field(name, kwargs, "host", help_target="mysql")
     database = require_field(name, kwargs, "database", help_target="mysql")

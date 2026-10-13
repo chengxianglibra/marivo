@@ -390,7 +390,7 @@ def retained_coordinates_case(analysis_dsl_case_factory: DslCaseFactory) -> DslC
 
 @pytest.fixture
 def source_trace(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
-    """Capture native cursor calls and execution-owner receipts."""
+    """Capture Ibis source execution calls and execution-owner receipts."""
     from tests.support.source_trace import capture_source
 
     return capture_source(monkeypatch)

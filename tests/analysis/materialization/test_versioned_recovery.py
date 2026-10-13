@@ -104,7 +104,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         for kind in ("snapshot", "validity"):
             entity = ms.ref.entity("sales.subjects_" + kind)
             with monkeypatch.context() as construction:
-                construction.setattr(SourceSession, "batches", forbidden)
+                construction.setattr(SourceSession, "execute", forbidden)
                 construction.setattr(SourceSession, "compile", forbidden)
                 with pytest.raises(AnalysisError):
                     session.members(entity)

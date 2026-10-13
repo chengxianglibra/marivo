@@ -128,7 +128,7 @@ def test_public_full_grid_unknown(
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("Fixed full-grid Unknown consumer accessed its source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     before = set(case.root.rglob("*.parquet"))
     with pytest.raises(StatisticalRelationError) as caught:
         fixed.forecast(horizon=mv.periods(1), model=mv.naive()).execute()
@@ -188,7 +188,7 @@ import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 def forbidden(*args: object, **kwargs: object) -> None:
     raise AssertionError('Cold business coverage accessed its source')
-SourceSession.batches = forbidden
+SourceSession.execute = forbidden
 session = mv.session.get_or_create('business-coverage', report_timezone='UTC')
 fixed = session.artifact(__import__('sys').argv[1])
 assert fixed.to_pandas().cell_tag.tolist().count('unknown') == 3
@@ -264,7 +264,7 @@ def test_public_duration_business_coverage(
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("Duration business coverage quotient accessed its source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     ratio = observed.ratio(observed).execute()
     frame = ratio.to_pandas()
     assert frame.cell_tag.tolist().count("unknown") == 3

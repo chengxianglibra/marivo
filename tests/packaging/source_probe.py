@@ -258,7 +258,6 @@ def native_audit(engine: str, project: Path) -> dict[str, object]:
     assert sum(item.purpose == "analysis.graph.stage" for item in submitted) == 1
     assert all(owner._closed for owner in trace.owners)
     assert all(item.state == "succeeded" and item.connection_disconnected for item in submitted)
-    assert all(item.cursor_state in {"closed", "connection_owned"} for item in submitted)
     expected = Counter(item.sql for item in submitted)
     actual = Counter(observed)
     missing = {sql: count - actual[sql] for sql, count in expected.items() if actual[sql] < count}

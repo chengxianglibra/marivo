@@ -79,7 +79,7 @@ def test_full_entity_time_cohort(
         pytest.fail("Fixed full-opportunity cohort must use retained artifacts only")
 
     with monkeypatch.context() as fixed_only:
-        fixed_only.setattr(SourceSession, "batches", forbid_source_read)
+        fixed_only.setattr(SourceSession, "execute", forbid_source_read)
         fixed = fixed_targets.cohort(fixed_values.value.gt(0), rule=mv.at_least(2)).execute()
     assert set(fixed.to_pandas().member) == expected
     with pytest.raises(MaterializationError) as incomplete:
@@ -243,5 +243,7 @@ def test_no_time_quantifiers_and_complete_target_decisions(
         )
         assert len(decisions) == len(analysis_dsl_rows("j2").customers)
         assert {
-            row["key_0"] for row in decisions.to_pylist() if row["cohort_decision__accepted"]
+            row["key_0"]
+            for row in decisions.to_dict(orient="records")
+            if row["cohort_decision__accepted"]
         } == expected

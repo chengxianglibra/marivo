@@ -189,7 +189,7 @@ def test_post_json_source_binds_array_body_value() -> None:
     }
 
 
-def test_post_json_source_uses_bound_session_batches() -> None:
+def test_post_json_source_uses_bound_session_execute() -> None:
     response = {"data": {"change_infos": [{"change_id": 101}]}}
     with _post_json_server(response) as (url, requests):
         datasource = DatasourceIR(
@@ -221,7 +221,7 @@ def test_post_json_source_uses_bound_session_batches() -> None:
                 source_identities=("http-json",),
                 purpose="authoring.sample",
                 max_rows=2,
-            ).to_pylist() == [{"change_id": 101}]
+            ).to_dict(orient="records") == [{"change_id": 101}]
             assert session.submissions[-1].state == "succeeded"
     assert len(requests) == 1
 

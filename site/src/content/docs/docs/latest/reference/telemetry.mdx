@@ -23,16 +23,18 @@ provider metadata/control statements and `md.raw_sql()`. SQL generated but never
 submitted is not recorded as an executed query. Third-party driver/Ibis bootstrap
 SQL and the Store's own SQLite persistence statements are outside this coverage.
 
-`query.submitted` stores the complete SQL text and a unique `query_id` before the
-driver call. `query.completed` records elapsed time, outcome and actual consumed
-rows; governed Arrow streams also report consumed Arrow bytes. Stream completion
-follows exhaustion or early close and cursor release, rather than merely a
-successful execute call. `closed_early` does not claim full consumption. Later
-owner-release facts can appear as `query.cleanup`; remote termination remains
-unknown unless the execution owner has confirmed it.
+`query.submitted` stores the complete SQL text and a unique `query_id` before
+source execution. For governed reads, that SQL is the compiled bound Ibis
+expression; the record also retains its purpose and source identity.
+`query.completed` records elapsed time, outcome and the row count
+returned by the Ibis `execute()` call. Governed reads materialize a pandas
+DataFrame before completion is recorded; Marivo does not report custom
+Arrow-consumed bytes, stream exhaustion or cursor-close fields. Later owner-release
+facts can appear as `query.cleanup`; remote termination remains unknown unless
+the execution owner has confirmed it.
 
 Analysis logs include execution and phase start/completion, result counts, and
-cache reuse. Python/Arrow phases have no invented SQL. Available operation,
+cache reuse. Python/pandas phases have no invented SQL. Available operation,
 session, run, datasource, backend and stage identifiers link the records.
 `execution.reused` identifies a retained artifact hit and does not imply a new
 source query. Errors contain their type, available backend codes and a bounded,

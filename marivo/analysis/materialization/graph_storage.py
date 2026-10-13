@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from marivo.analysis.core.cell_encoding import EncodedCell, KnownCell, ValidityCell
 from marivo.analysis.materialization.cell_arrow import (
-    annotate,
     binding,
-    column,
+    schema_binding,
     storage_schema,
-    validate,
 )
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
@@ -55,10 +56,12 @@ def payload_digest(root: Path, directory: Path, receipt: LocalReceipt) -> str:
 
 
 def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> LocalReceipt:
+    created = False
     try:
         _checked_path(root, staging)
         _checked_path(root, final)
         staging.mkdir(parents=True, exist_ok=False)
+        created = True
         data = staging / "data.parquet"
         # Preserve nested Arrow field names covered by the exact schema receipt.
         pq.write_table(
@@ -83,12 +86,18 @@ def write_table(root: Path, staging: Path, final: Path, table: pa.Table) -> Loca
             entry.size_bytes + len(manifest),
         )
     except (OSError, pa.ArrowException) as error:
+        if created:
+            shutil.rmtree(staging, ignore_errors=True)
         raise MaterializationError(
             expected="complete durable Parquet in the Run-owned output directory",
             received=f"local Parquet write failed: {type(error).__name__}",
             repair="Inspect local write permissions and available space, then reconcile the original Run before a new invocation.",
             stage="storage_staging",
         ) from None
+    except BaseException:
+        if created:
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
 
 
 def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
@@ -112,11 +121,103 @@ def read_table(root: Path, receipt: LocalReceipt) -> pa.Table:
                 raise invalid("committed Parquet reader did not close successfully") from None
 
 
+def _read_pandas_payload(
+    root: Path,
+    receipt: LocalReceipt,
+    *,
+    expected_schema: pa.Schema | None = None,
+) -> tuple[pd.DataFrame, pa.Schema]:
+    parquet, path = _open_payload(root, receipt)
+    try:
+        schema = parquet.schema_arrow
+        if expected_schema is not None and not schema.equals(
+            storage_schema(expected_schema), check_metadata=True
+        ):
+            raise invalid("primary physical schema differs from its frozen descriptor")
+        if (
+            parquet.metadata.num_rows != receipt.realized_row_count
+            or len(receipt.file_manifest) != 1
+            or path.stat().st_size != receipt.file_manifest[0].size_bytes
+        ):
+            raise invalid("committed Parquet payload differs from its receipt")
+        frame = pd.read_parquet(path)
+        if tuple(frame.columns) != tuple(schema.names) or len(frame) != receipt.realized_row_count:
+            raise invalid("committed pandas result differs from its frozen Parquet payload")
+        return frame, schema
+    except (OSError, pa.ArrowException, ValueError) as error:
+        if isinstance(error, MaterializationError):
+            raise
+        raise invalid("committed Parquet could not be read completely") from error
+    finally:
+        read_failed = sys.exc_info()[0] is not None
+        try:
+            parquet.close()
+        except (OSError, pa.ArrowException):
+            if not read_failed:
+                raise invalid("committed Parquet reader did not close successfully") from None
+
+
+def _validate_pandas_cells(frame: pd.DataFrame, schema: pa.Schema) -> None:
+    for cell in binding(schema, exact=True).cells:
+        values = frame[cell.fields.value]
+        missing = values.isna()
+        if isinstance(cell, KnownCell):
+            if len(frame) and (missing.any() if cell.code == 0 else not missing.all()):
+                raise invalid("Cell state disagrees with value validity")
+            continue
+        if isinstance(cell, ValidityCell):
+            continue
+        states = frame[cell.state]
+        if states.isna().any():
+            raise invalid("physical Cell state cannot be null")
+        admitted = (
+            *((-1,) if isinstance(cell, EncodedCell) and cell.optional else ()),
+            0,
+            *cell.book.codes(),
+        )
+        for raw_state, absent in zip(states, missing, strict=True):
+            if isinstance(raw_state, bool):
+                raise invalid("physical Cell state is not an integer code")
+            try:
+                code = int(raw_state)
+            except (OverflowError, TypeError, ValueError) as error:
+                raise invalid("physical Cell state is not an integer code") from error
+            if code != raw_state or code not in admitted:
+                raise invalid("undeclared physical Cell code")
+            if (code == 0) == bool(absent):
+                raise invalid("Cell state disagrees with value validity")
+
+
+def _pandas_cell_tags(frame: pd.DataFrame, schema: pa.Schema, name: str) -> list[str | None]:
+    cell = next(
+        (item for item in binding(schema, exact=True).cells if item.fields.tag == name), None
+    )
+    if cell is None:
+        values = frame[name].tolist()
+        return [None if pd.isna(value) else str(value) for value in values]
+    if isinstance(cell, KnownCell):
+        tag, _reason = cell.book.decode(cell.code)
+        return [tag] * len(frame)
+    if isinstance(cell, ValidityCell):
+        defined = cell.book.decode(0)[0]
+        missing = cell.book.decode(cell.missing_code)[0]
+        return [defined if not absent else missing for absent in frame[cell.fields.value].isna()]
+    result: list[str | None] = []
+    for raw_state in frame[cell.state]:
+        code = int(raw_state)
+        result.append(None if code == -1 else cell.book.decode(code)[0])
+    return result
+
+
 def read_result(
     root: Path, descriptor: Descriptor, *, _validated: ValidatedDescriptor | None = None
 ) -> ExchangeResult:
     checked = checked_metadata(descriptor, _validated)
-    primary = read_table(root, descriptor.primary_receipt.local)
+    schema = schema_from(descriptor.realized_schema)
+    primary, _ = _read_pandas_payload(
+        root, descriptor.primary_receipt.local, expected_schema=schema
+    )
+    _validate_pandas_cells(primary, schema)
     for receipt in descriptor.parts:
         try:
             actual = payload_digest(root, root / receipt.local.project_relative_path, receipt.local)
@@ -124,54 +225,54 @@ def read_result(
             raise invalid("committed part payload cannot be verified") from error
         if actual != receipt.payload_digest:
             raise invalid("committed part payload differs from its immutable receipt digest")
-    parts = tuple(ExchangePart(p.role, read_table(root, p.local)) for p in descriptor.parts)
-    schema = schema_from(descriptor.realized_schema)
-    if not primary.schema.equals(storage_schema(schema), check_metadata=True):
-        raise invalid("primary physical schema differs from its frozen descriptor")
-    primary = primary.replace_schema_metadata(schema.metadata)
-    validate(primary)
-    rebound: list[ExchangePart] = []
-    for declared, part in zip(descriptor.parts, parts, strict=True):
-        if binding(part.table.schema).cells:
+    parts: list[ExchangePart] = []
+    part_schemas: list[pa.Schema] = []
+    for receipt in descriptor.parts:
+        frame, storage_part_schema = _read_pandas_payload(root, receipt.local)
+        if binding(storage_part_schema).cells:
             raise invalid("part payload carries a competing Cell binding")
-        table = annotate(part.table, declared.cell_table.cells, declared.cell_table.logical_columns)
-        if binding(table.schema, exact=True) != declared.cell_table:
+        part_schema = schema_binding(
+            storage_part_schema, receipt.cell_table.cells, receipt.cell_table.logical_columns
+        )
+        if binding(part_schema, exact=True) != receipt.cell_table:
             raise invalid("part Cell binding differs from its frozen receipt")
-        validate(table)
-        rebound.append(ExchangePart(part.role, table))
-    parts = tuple(rebound)
+        _validate_pandas_cells(frame, part_schema)
+        parts.append(ExchangePart(receipt.role, frame))
+        part_schemas.append(part_schema)
     method = descriptor.method_bindings[-1].method
     keys = descriptor.row_contract.key_fields
     state = descriptor.method_state
-    statuses = None
+    statuses: pd.DataFrame | None = None
+    state_schema: pa.Schema | None = None
     if state.kind != "none":
         status_column = "status" if state.kind == "spearman" else "cell_tag"
-        statuses = pa.Table.from_arrays(
-            [
-                *(primary.column(key) for key in keys),
-                pa.array(["accepted"] * len(primary), type=pa.string())
-                if descriptor.method_state.kind
-                in (
-                    "cohort",
-                    "table",
-                )
-                else column(primary, status_column),
-            ],
-            names=[*keys, "status"],
+        status_values = (
+            ["accepted"] * len(primary)
+            if state.kind in ("cohort", "table")
+            else primary[status_column].tolist()
+            if status_column == "status"
+            else _pandas_cell_tags(primary, schema, status_column)
         )
+        state_columns: dict[str, object] = {key: primary[key].tolist() for key in keys}
+        state_columns["status"] = status_values
+        state_fields = [*(schema.field(key) for key in keys), pa.field("status", pa.string())]
         if state.kind in ("share", "penetration", "standardized"):
             from marivo.analysis.materialization.graph_exchange import reference_parameters
-            from marivo.analysis.materialization.graph_reference import error_bounds
+            from marivo.analysis.materialization.graph_reference import _pandas_error_bounds
 
-            statuses = statuses.append_column(
-                "error_bound",
-                pa.array(
-                    error_bounds(
-                        reference_parameters(checked.descriptor.signature), parts, primary
-                    ),
-                    type=pa.float64(),
-                ),
+            state_columns["error_bound"] = _pandas_error_bounds(
+                reference_parameters(checked.descriptor.signature),
+                tuple(parts),
+                primary,
+                {
+                    part.role: part_schema
+                    for part, part_schema in zip(parts, part_schemas, strict=True)
+                },
+                schema,
             )
+            state_fields.append(pa.field("error_bound", pa.float64()))
+        state_schema = pa.schema(state_fields)
+        statuses = pd.DataFrame(state_columns)
     contract = ExchangeContract(
         checked.descriptor.signature,
         MethodKey(method.name, method.version),
@@ -181,17 +282,17 @@ def read_result(
         tuple(
             PartContract(
                 p.role,
-                p.table.schema,
+                part_schema,
                 tuple(name for name, _ in descriptor.parts[index].key_fields),
             )
-            for index, p in enumerate(parts)
+            for index, (p, part_schema) in enumerate(zip(parts, part_schemas, strict=True))
         ),
         descriptor.row_contract.cell_reasons,
         state.kind,
-        None if statuses is None else statuses.schema,
+        state_schema,
         (),
         descriptor.row_set_contract.kind == "optional_singleton",
         descriptor.row_contract.column_reasons,
         _frozen=checked,
     )
-    return ExchangeResult(contract, primary, parts, (), statuses)
+    return ExchangeResult(contract, primary, tuple(parts), (), statuses)

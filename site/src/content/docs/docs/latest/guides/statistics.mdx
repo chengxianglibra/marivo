@@ -143,8 +143,8 @@ local_total = values.deviation(method="zscore").observed.rollup().execute()
 The customer-association snippet instead uses `customers`, `august_revenue`,
 `august`, `buyer` and a governed order-count Metric. The final original-rollup
 snippet needs `values` with retained original components. Local statistical
-preparation may capture full vectors; batch transport does not mean the algorithm
-streams. Unsupported numerical or source combinations reject without fallback.
+preparation may materialize full vectors in pandas, so it is eager rather than
+streaming. Unsupported numerical or source combinations reject without fallback.
 
 ## Direct distribution aggregates
 

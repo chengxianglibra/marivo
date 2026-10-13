@@ -43,7 +43,7 @@ from marivo.analysis.materialization.execution_key import (
 )
 from marivo.analysis.materialization.graph_exchange import (
     VerifiedFixedInput,
-    from_arrow,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_execution import _prepare_captured_graph
 from marivo.analysis.materialization.graph_local_execution import (
@@ -413,25 +413,13 @@ def _execute(
                         lowered = lower(plan, bindings=bindings)
                         with _execution_log.stage("analysis.source") as summary:
                             result = execute_source_graph(prepared, lowered, source)
-                            summary.update(
-                                row_count=result.primary.num_rows, arrow_bytes=result.primary.nbytes
-                            )
+                            summary.update(row_count=len(result.primary))
             else:
                 assert fixed_lowered is not None
                 values = tuple(fixed[leaf.identity] for leaf in _fixed_input_occurrences(root))
                 with _execution_log.stage("analysis.local") as summary:
                     result = execute_verified_fixed(prepared, fixed_lowered, values)
-                    summary.update(
-                        row_count=result.primary.num_rows, arrow_bytes=result.primary.nbytes
-                    )
-            result = from_arrow(
-                result.primary,
-                result.contract,
-                parts=result.parts,
-                completed_checks=result.completed_checks,
-                method_state=result.method_state,
-                validate=False,
-            )
+                    summary.update(row_count=len(result.primary))
             if result.contract.signature != root.signature or result.contract.method != root.method:
                 raise invalid("execution output differs from admitted root")
             if result.contract.pending_checks != plan.checks:
@@ -457,7 +445,7 @@ def _execute(
                     nonce=nonce,
                 )
                 keys = tuple(
-                    (name, str(result.primary.schema.field(name).type))
+                    (name, str(result.contract.schema.field(name).type))
                     for name in result.contract.key_fields
                 )
                 primary = PrimaryReceipt(
@@ -466,7 +454,10 @@ def _execute(
                     state.input_binding,
                     keys,
                     write_table(
-                        store.project_root, staging / "primary", final / "primary", result.primary
+                        store.project_root,
+                        staging / "primary",
+                        final / "primary",
+                        to_arrow(result.primary, result.contract.schema),
                     ),
                 )
                 event("graph_primary_written")
@@ -474,14 +465,15 @@ def _execute(
                 from marivo.analysis.materialization.cell_arrow import binding
                 from marivo.analysis.methods.coordinate_state import layout as coordinate_layout
 
-                for part in result.parts:
+                for index, part in enumerate(result.parts):
                     from marivo.analysis.materialization.graph_storage import payload_digest
 
+                    declaration = result.contract.parts[index]
                     local = write_table(
                         store.project_root,
                         staging / part.role,
                         final / part.role,
-                        part.table,
+                        to_arrow(part.table, declaration.schema),
                     )
                     parts.append(
                         PartReceipt(
@@ -489,8 +481,8 @@ def _execute(
                             "part",
                             state.input_binding,
                             tuple(
-                                (name, str(part.table.schema.field(name).type))
-                                for name in result.contract.parts[len(parts)].key_fields
+                                (name, str(declaration.schema.field(name).type))
+                                for name in declaration.key_fields
                             ),
                             local,
                             part.role,
@@ -499,7 +491,7 @@ def _execute(
                             state.contract_version,
                             payload_digest(store.project_root, staging / part.role, local),
                             coordinate_layout(result.contract.signature, part.role),
-                            binding(part.table.schema),
+                            binding(declaration.schema),
                         )
                     )
                     event("graph_part_written")
@@ -558,7 +550,7 @@ def _execute(
                     else "singleton",
                     "unordered",
                 ),
-                schema_text(result.primary.schema),
+                schema_text(result.contract.schema),
                 digest(canonical_json(snapshot.semantic_versions)),
                 methods,
                 tuple(

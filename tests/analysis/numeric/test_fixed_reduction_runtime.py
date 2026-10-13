@@ -10,7 +10,7 @@ from dataclasses import asdict, replace
 from typing import Literal, NoReturn, TypeAlias
 
 import duckdb
-import pyarrow as pa
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -89,7 +89,7 @@ def _forbid_source(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("fixed original reduction accessed a source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
 
 
 def _publications(case: DslCase) -> tuple[int, ...]:
@@ -180,23 +180,18 @@ def test_group_failure_has_no_retry_or_partial_publication(
                 index = next(i for i, p in enumerate(parts) if p.role == "original_state")
                 table = parts[index].table
                 parts[index] = ExchangePart(
-                    "original_state", pa.concat_tables((table, table.slice(0, 1)))
+                    "original_state", pd.concat((table, table.iloc[[0]]), ignore_index=True)
                 )
             elif fault == "overflow":
                 index = next(i for i, p in enumerate(parts) if p.role == "original_state")
-                table = parts[index].table
-                column = table.schema.get_field_index("original_state__sum")
-                table = table.set_column(
-                    column,
-                    "original_state__sum",
-                    pa.array([2**63 - 1, 90, 0, 0], type=pa.int64()),
-                )
+                table = parts[index].table.copy()
+                table["original_state__sum"] = [2**63 - 1, 90, 0, 0]
                 parts[index] = ExchangePart("original_state", table)
+                primary = source.primary.copy()
+                primary["value"] = pd.Series([2**63 - 1, 90, 0, None], dtype="Int64")
                 source = replace(
                     source,
-                    primary=source.primary.set_column(
-                        1, "value", pa.array([2**63 - 1, 90, 0, None], type=pa.int64())
-                    ),
+                    primary=primary,
                 )
             return execute(group, replace(source, parts=tuple(parts)), binding)
 
@@ -243,7 +238,7 @@ from marivo.datasource.adapters import SourceSession
 
 def forbidden(*args, **kwargs):
     raise AssertionError('cold fixed reduction opened a source or Semantic')
-SourceSession.batches = forbidden
+SourceSession.execute = forbidden
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
 session = mv.session.resume(sys.argv[1], by='id')

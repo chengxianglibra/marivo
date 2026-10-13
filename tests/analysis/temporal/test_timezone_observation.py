@@ -297,7 +297,7 @@ def test_nanosecond_mean_or_conversion_rejects_before_business_read(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("business reads must not precede exact conversion admission")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(
         AnalysisError,
         match=r"qualified exact key for metric\.mean"
@@ -326,7 +326,7 @@ def test_exact_mean_qualification_missing_still_rejects_before_run(
         raise AssertionError("qualification failure submitted a business batch")
 
     monkeypatch.setattr(MethodRegistry, "lookup", missing)
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(AnalysisError, match=r"qualified exact key for metric\.mean"):
         value.execute()
     assert session.runs().items == ()
@@ -377,7 +377,7 @@ def test_changed_engine_authority_rejects_before_business_read(
         raise AssertionError("authority drift submitted a business batch")
 
     monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     with pytest.raises(AnalysisError, match="source timezone changed after graph construction"):
         value.execute()
 

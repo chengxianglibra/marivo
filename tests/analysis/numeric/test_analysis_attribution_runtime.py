@@ -4,6 +4,7 @@ from fractions import Fraction
 from typing import Literal
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -12,6 +13,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -212,12 +214,14 @@ def test_numeric_source_fixed_and_axis_expansion(
             verified = result._dataset.verified()
             allocation = next(p.table for p in verified.parts if p.role == "allocation")
             if family.startswith("duration"):
-                allocation = allocation.set_column(
-                    allocation.schema.get_field_index("allocation__contribution"),
-                    "allocation__contribution",
-                    allocation["allocation__contribution"].cast(pa.int64()),
-                )
-            actual = {r["key_1"]: r["allocation__contribution"] for r in allocation.to_pylist()}
+                allocation = allocation.copy()
+                allocation["allocation__contribution"] = allocation[
+                    "allocation__contribution"
+                ].astype("int64")
+            actual = {
+                r["key_1"]: r["allocation__contribution"]
+                for r in allocation.to_dict(orient="records")
+            }
             expected = {
                 key: by_side[0].get(key, Fraction()) - by_side[1].get(key, Fraction())
                 for key in set(by_side[0]) | set(by_side[1])
@@ -342,7 +346,9 @@ def test_common_other_mapping_each_parent_and_resolution(
     sources = (change, change.execute()) if fixed_followup else (change,)
     for source in sources:
         result = source.attribute(axes=axes, mode=mode, top_k=1).execute()
-        rows = cell_rows(result._dataset.verified().primary)
+        assert result._dataset is not None
+        exchange = result._dataset.verified()
+        rows = cell_rows(to_arrow(exchange.primary, exchange.contract.schema))
         assert any(r["key_1"] == "Other" and r["key_3"] == 0 for r in rows)
         assert any(r["key_1"] is None and r["key_3"] & 1 for r in rows)
         for level in (1, 2) if mode == "hierarchy" else (2,):
@@ -355,7 +361,7 @@ def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory
     import subprocess
     import sys
 
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
 
     case = analysis_dsl_case_factory("j2")
     export_dsl_parquet_models(case, case.root)
@@ -375,7 +381,7 @@ def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory
     result = saved.attribute(axes=axes, top_k=1).execute()
     checked = result._dataset.verified()
     with pytest.raises(AnalysisError):
-        from_arrow(
+        from_pandas(
             checked.primary,
             checked.contract,
             parts=checked.parts[:-1],
@@ -386,16 +392,15 @@ def test_offline_attribution_cold_path(analysis_dsl_case_factory: DslCaseFactory
         if part.role in ("allocation", "reconciliation", "basis"):
             column = next(
                 c
-                for c in part.table.column_names
+                for c in part.table.columns
                 if c.endswith(("__value", "__contribution", "__total"))
             )
-            bad = part.table.set_column(
-                part.table.schema.get_field_index(column),
-                column,
-                pa.array([99] * len(part.table), type=part.table[column].type),
-            )
+            declared = next(p for p in checked.contract.parts if p.role == part.role)
+            dtype = declared.schema.field(column).type
+            bad = part.table.copy()
+            bad[column] = [99 if pa.types.is_integer(dtype) else "wrong-binding"] * len(part.table)
             with pytest.raises(AnalysisError):
-                from_arrow(
+                from_pandas(
                     checked.primary,
                     checked.contract,
                     parts=tuple(
@@ -416,7 +421,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 def unavailable(*args, **kwargs):
     raise AssertionError("fixed attribution touched source or Semantic")
-duckdb.connect = ibis.duckdb.connect = ms.load = SourceSession.bind = SourceSession.batches = unavailable
+duckdb.connect = ibis.duckdb.connect = ms.load = SourceSession.bind = SourceSession.execute = unavailable
 session = mv.session.resume(sys.argv[1], by='id')
 saved = session.artifact(sys.argv[2])
 axes = (ms.ref.dimension('sales.order.channel'),)
@@ -480,7 +485,7 @@ def test_static_refusals_and_shared_compiled_submissions(
         def forbidden(*args: object, **kwargs: object) -> None:
             raise AssertionError("invalid attribution read business rows")
 
-        patch.setattr(adapters.SourceSession, "batches", forbidden)
+        patch.setattr(adapters.SourceSession, "execute", forbidden)
         for bad in (True, False, 0, -1, 1001, 1.5):
             with pytest.raises(AnalysisError):
                 change.attribute(axes=axes, top_k=bad)
@@ -495,20 +500,18 @@ def test_static_refusals_and_shared_compiled_submissions(
         assert change._runtime.last_run_ref == before
     issued = []
     submitted = []
-    original_batches = adapters.SourceSession.batches
-    original_cursor = adapters._native_cursor
+    original_execute = adapters.SourceSession.execute
 
-    def audited(self, read, *, chunk_size):
-        assert read.sql == self._backend.compile(read.expression, params=dict(read.params))
+    def audited(self: adapters.SourceSession, read: adapters.CompiledRead) -> pd.DataFrame:
+        assert read.sql == self._backend.compile(
+            read.expression.as_table(), params=dict(read.params), limit=None
+        )
         issued.append(read.sql)
-        return original_batches(self, read, chunk_size=chunk_size)
+        result = original_execute(self, read)
+        submitted.append(self.submissions[-1].sql)
+        return result
 
-    def cursor(backend, name, sql):
-        submitted.append(sql)
-        return original_cursor(backend, name, sql)
-
-    monkeypatch.setattr(adapters.SourceSession, "batches", audited)
-    monkeypatch.setattr(adapters, "_native_cursor", cursor)
+    monkeypatch.setattr(adapters.SourceSession, "execute", audited)
     calls = []
     original_result = graph_attribution.result
 
@@ -567,8 +570,11 @@ def test_period_buckets_and_retained_coarsened_partition(
         current, baseline = current.execute(), baseline.execute()
     change = current.compare(baseline, align=mv.exact(time=mv.ordinal())).absolute
     result = change.attribute(axes=axes).execute()
+    assert result._dataset is not None
+    exchange = result._dataset.verified()
     actual = {
-        (r["key_0"], r["key_3"]): r["value"] for r in cell_rows(result._dataset.verified().primary)
+        (r["key_0"], r["key_3"]): r["value"]
+        for r in cell_rows(to_arrow(exchange.primary, exchange.contract.schema))
     }
     assert actual == expected
 
@@ -739,17 +745,17 @@ def test_float_view_arithmetic_retains_allocation_error_bounds(
     ratio = result.current.ratio(result.baseline).execute()
     checked = ratio._dataset.verified()
     correspondence = next(p.table for p in checked.parts if p.role == "correspondence")
-    assert all(v > 0 for v in correspondence["correspondence__current_error_bound"].to_pylist())
-    assert all(v > 0 for v in correspondence["correspondence__baseline_error_bound"].to_pylist())
+    assert all(v > 0 for v in correspondence["correspondence__current_error_bound"].tolist())
+    assert all(v > 0 for v in correspondence["correspondence__baseline_error_bound"].tolist())
     exact = {
         channel: Fraction(current) / Fraction(baseline)
         for (_, channel, current), (_, _, baseline) in zip(facts[:2], facts[2:], strict=True)
     }
     bounds = {
         tuple(r[k] for k in checked.contract.key_fields): r["correspondence__result_error_bound"]
-        for r in correspondence.to_pylist()
+        for r in correspondence.to_dict(orient="records")
     }
-    for row in cell_rows(checked.primary):
+    for row in cell_rows(to_arrow(checked.primary, checked.contract.schema)):
         key = tuple(row[k] for k in checked.contract.key_fields)
         assert abs(Fraction(row["value"]) - exact[row["key_1"]]) <= Fraction(bounds[key])
 

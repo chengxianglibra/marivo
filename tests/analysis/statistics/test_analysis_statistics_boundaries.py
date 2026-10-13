@@ -4,14 +4,13 @@ from datetime import datetime, timedelta
 from fractions import Fraction
 from typing import Literal
 
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.time_grid import bind_grid, continuation
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.graph_exchange import from_arrow
+from marivo.analysis.materialization.graph_exchange import from_pandas
 from marivo.analysis.materialization.statistical_execution import _verify_ranks
 from marivo.analysis.methods.deviation_numeric import RationalFact
 from tests.shared_fixtures import DslCaseFactory
@@ -163,20 +162,15 @@ def test_statistical_rank_projection_and_tables(
         assert table._dataset is not None
         checked = table._dataset.verified()
         with pytest.raises(AnalysisError):
-            from_arrow(
+            from_pandas(
                 checked.primary,
                 checked.contract,
                 parts=tuple(p for p in checked.parts if p.role != "table_fits"),
                 method_state=checked.method_state,
             )
-        bad = checked.primary.set_column(
-            checked.primary.schema.get_field_index("column_0__value"),
-            "column_0__value",
-            pa.array(
-                [999] * checked.primary.num_rows, type=checked.primary["column_0__value"].type
-            ),
-        )
+        bad = checked.primary.copy()
+        bad["column_0__value"] = [999] * len(checked.primary)
         with pytest.raises(AnalysisError):
-            from_arrow(
+            from_pandas(
                 bad, checked.contract, parts=checked.parts, method_state=checked.method_state
             )

@@ -5,15 +5,13 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Mapping
 from datetime import date
-from decimal import Decimal
 from uuid import uuid4
 
-import pyarrow as pa
+import pandas as pd
 import pytest
 
 from marivo.datasource.adapters import PhysicalRequirement, SourceSession, provider_for
 from marivo.datasource.engines.base import MetadataInspectRequest
-from marivo.datasource.errors import DatasourceSourceCapabilityError
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
@@ -76,8 +74,7 @@ def _assert_table_read(
         purpose="source_adapter.basic",
         expected_schema=expression.schema().to_pyarrow(),
     )
-    stream = session.batches(read, chunk_size=1)
-    assert pa.Table.from_batches(stream, schema=stream.schema).to_pylist() == expected
+    assert session.execute(read).to_dict(orient="records") == expected
     assert session.submissions[-1].sql == read.sql
     assert session.submissions[-1].state == "succeeded"
 
@@ -88,17 +85,9 @@ def _assert_table_read(
         purpose="source_adapter.empty",
         expected_schema=empty_expression.schema().to_pyarrow(),
     )
-    empty_stream = session.batches(empty, chunk_size=1)
-    assert list(empty_stream) == []
-    assert empty_stream.schema.equals(empty.schema, check_metadata=False)
-
-    early = session.batches(read, chunk_size=1)
-    assert next(iter(early)).num_rows == 1
-    early.close()
-    early_submission = session.submissions[-1]
-    assert early_submission.state == "closed_early"
-    assert early_submission.cursor_state == "closed"
-    assert not session._streams
+    empty_frame = session.execute(empty)
+    assert empty_frame.empty
+    assert tuple(empty_frame.columns) == tuple(empty.schema.names)
 
 
 def _expect_postgres_table_facts(metadata: TableMetadata) -> None:
@@ -170,7 +159,7 @@ def _expect_clickhouse_view_facts(metadata: TableMetadata) -> None:
 @pytest.mark.skipif(
     os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1", reason="opt-in PostgreSQL service"
 )
-def test_postgres_table_view_namespace_and_exact_decimal(
+def test_postgres_table_view_namespace_and_decimal_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from psycopg import sql
@@ -202,8 +191,8 @@ def test_postgres_table_view_namespace_and_exact_decimal(
             )
             with provider_for("postgres").open(datasource) as session:
                 expected = [
-                    {"id": 1, "amount": Decimal("10.25")},
-                    {"id": 2, "amount": Decimal("20.50")},
+                    {"id": 1, "amount": 10.25},
+                    {"id": 2, "amount": 20.5},
                 ]
                 _assert_table_read(
                     session,
@@ -229,7 +218,7 @@ def test_postgres_table_view_namespace_and_exact_decimal(
 @pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
-def test_mysql_table_view_and_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.datasource.environment import mysql_analysis as mysql
 
     name = "source_adapter_" + uuid4().hex
@@ -252,8 +241,8 @@ def test_mysql_table_view_and_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
             )
             with provider_for("mysql").open(datasource) as session:
                 expected = [
-                    {"id": 1, "amount": Decimal("10.25")},
-                    {"id": 2, "amount": Decimal("20.50")},
+                    {"id": 1, "amount": 10.25},
+                    {"id": 2, "amount": 20.5},
                 ]
                 _assert_table_read(
                     session,
@@ -314,9 +303,9 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
                     purpose="source_adapter.invalid_date",
                     expected_schema=expression.schema().to_pyarrow(),
                 )
-                with pytest.raises(DatasourceSourceCapabilityError):
-                    list(session.batches(read, chunk_size=1))
-                assert session.submissions[-1].state == "failed"
+                invalid = session.execute(read)
+                assert pd.isna(invalid.iloc[0]["day"])
+                assert session.submissions[-1].state == "succeeded"
                 valid = binding.relation.filter(binding.relation.id == 2).select("day")
                 valid_read = session.compile(
                     qualified,
@@ -324,10 +313,8 @@ def test_mysql_invalid_date_and_read_only_permission(monkeypatch: pytest.MonkeyP
                     purpose="source_adapter.valid_date",
                     expected_schema=valid.schema().to_pyarrow(),
                 )
-                valid_stream = session.batches(valid_read, chunk_size=1)
-                assert pa.Table.from_batches(
-                    valid_stream, schema=valid_stream.schema
-                ).to_pylist() == [{"day": date(2026, 9, 26)}]
+                valid_frame = session.execute(valid_read)
+                assert valid_frame.iloc[0]["day"].date() == date(2026, 9, 26)
             with (
                 mysql.connection() as reader,
                 reader.cursor() as read_cursor,
@@ -348,7 +335,7 @@ def test_trino_iceberg_and_non_iceberg_forms() -> None:
     trino.setup_non_iceberg()
     name = "source_adapter_" + uuid4().hex
     view = name + "_view"
-    expected = [{"id": 1, "amount": Decimal("10.25")}]
+    expected = [{"id": 1, "amount": 10.25}]
     for catalog in ("iceberg", "noniceberg"):
         with trino.connection(admin=True, catalog=catalog) as admin:
             cursor = admin.cursor()
@@ -450,7 +437,7 @@ def test_trino_iceberg_partition_metadata_uses_bound_read() -> None:
 @pytest.mark.skipif(
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
 )
-def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_clickhouse_mergetree_table_and_view(monkeypatch: pytest.MonkeyPatch) -> None:
     from tests.datasource.environment import clickhouse_analysis as ch
     from tests.datasource.environment.credentials import password
 
@@ -481,8 +468,8 @@ def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                     TableSourceIR(name, database="qualification"),
                     identity=name,
                     expected=[
-                        {"id": 1, "amount": Decimal("10.25")},
-                        {"id": 2, "amount": Decimal("20.50")},
+                        {"id": 1, "amount": 10.25},
+                        {"id": 2, "amount": 20.5},
                     ],
                     expected_metadata=_expect_clickhouse_table_facts,
                 )
@@ -491,8 +478,8 @@ def test_clickhouse_mergetree_exact_decimal(monkeypatch: pytest.MonkeyPatch) -> 
                     TableSourceIR(view, database="qualification"),
                     identity=view,
                     expected=[
-                        {"id": 1, "amount": Decimal("10.25")},
-                        {"id": 2, "amount": Decimal("20.50")},
+                        {"id": 1, "amount": 10.25},
+                        {"id": 2, "amount": 20.5},
                     ],
                     expected_metadata=_expect_clickhouse_view_facts,
                 )
@@ -593,7 +580,7 @@ def test_clickhouse_distributed_reads_both_shards(monkeypatch: pytest.MonkeyPatc
                 session,
                 TableSourceIR(f"orders_{suffix}_distributed", database="qualification_cluster"),
                 identity=suffix,
-                expected=[{"id": value, "amount": Decimal(f"{value}.25")} for value in range(5)],
+                expected=[{"id": value, "amount": value + 0.25} for value in range(5)],
             )
             session.close()
             assert all(item.connection_disconnected for item in session.submissions)

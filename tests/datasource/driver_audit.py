@@ -134,7 +134,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
             return Origin(
                 "provider", submission.statement_id, submission.purpose, submission.sql, names
             )
-        if path.endswith("/marivo/datasource/adapters.py") and name == "batches":
+        if path.endswith("/marivo/datasource/adapters.py") and name == "execute":
             owner = local.get("self")
             proof = local.get("proof")
             if (
@@ -144,7 +144,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
             ):
                 return Origin(
                     "governed_ibis",
-                    "SourceSession.batches",
+                    "SourceSession.execute",
                     proof.purpose,
                     proof.sql,
                     source_identity=proof.source_identity,

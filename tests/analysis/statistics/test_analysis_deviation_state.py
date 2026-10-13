@@ -26,6 +26,7 @@ from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangeResult,
     from_arrow,
+    from_pandas,
 )
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
@@ -134,7 +135,7 @@ def test_empty_receiver_has_no_synthetic_row(method: DeviationMethod) -> None:
     node, source = _input((), method)
     result = execution.execute(node, (source,), "result")
     _, state = execution._decode(result.parts)
-    assert result.primary.num_rows == 0
+    assert len(result.primary) == 0
     assert state.partitions[0].fit.n == 0
 
 
@@ -219,7 +220,7 @@ def _mixed_fit_table() -> tuple[ExchangeResult, ExchangeResult]:
     )
     result = fixed(table_node, (scored, source), "table")
     assert any(isinstance(p, TableFitsPart) for p in result.contract.signature.parts)
-    from_arrow(
+    from_pandas(
         result.primary, result.contract, parts=result.parts, method_state=result.method_state
     )
     return result, scored
@@ -238,9 +239,9 @@ def test_mixed_table_capture_preserves_independent_fit_authority(damage: str) ->
     from marivo.analysis.methods.deviation_numeric import RationalFact
 
     result, scored = _mixed_fit_table()
-    payload = next(p.table for p in result.parts if p.role == "table_fits")["table_fits__retained"][
-        0
-    ].as_py()
+    payload = next(p.table for p in result.parts if p.role == "table_fits")[
+        "table_fits__retained"
+    ].iloc[0]
     capture = execution.TABLE_FITS.validate_json(payload, strict=True)
     column = capture.columns[0]
     if damage == "version":
@@ -292,7 +293,7 @@ def test_mixed_table_capture_preserves_independent_fit_authority(damage: str) ->
         for p in result.parts
     )
     with pytest.raises(StatisticalRelationError) as raised:
-        from_arrow(result.primary, result.contract, parts=parts, method_state=result.method_state)
+        from_pandas(result.primary, result.contract, parts=parts, method_state=result.method_state)
     assert raised.value.code == "r8.retained_part"
 
 
@@ -379,11 +380,8 @@ def test_representative_closed_recovery_facts_reject_after_clean_authority(
     elif damage == "scale_branch":
         fit_payload["branch"] = "scaled_mad" if method == "zscore" else "population_stddev"
     else:
-        primary = primary.set_column(
-            primary.schema.get_field_index("value"),
-            "value",
-            pa.array([100.0, 100.0, 100.0]),
-        )
+        primary = primary.copy()
+        primary["value"] = [100.0, 100.0, 100.0]
     input_json = json.dumps(input_payload, separators=(",", ":"))
     state_payload["input_digest"] = hashlib.sha256(input_json.encode()).hexdigest()
     state_json = json.dumps(state_payload, separators=(",", ":"))
@@ -427,7 +425,7 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
     inputs, state = execution._decode(result.parts)
     saved_state = next(p for p in inputs.parts if p.role == "fit_state")
     table = execution.load(saved_state.table)
-    payload = object_json(checked(json.loads(table["fit_state__retained"][0].as_py())))
+    payload = object_json(checked(json.loads(table["fit_state__retained"].iloc[0])))
     if damage == "version":
         payload["version"] = "r8.fit_state/v2"
     else:
@@ -445,7 +443,7 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
     digest = hashlib.sha256(encoded).hexdigest()
     state = replace(state, input_digest=digest)
     policy_part = next(p for p in result.parts if p.role == "finding_policy")
-    policy = POLICY.validate_json(policy_part.table["finding_policy__retained"][0].as_py())
+    policy = POLICY.validate_json(policy_part.table["finding_policy__retained"].iloc[0])
     policy = replace(policy, ordered_input_bindings=("capture:" + digest,))
     parts = tuple(
         execution._part(p.role, encoded.decode())

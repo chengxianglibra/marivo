@@ -6,12 +6,11 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import duckdb
-import pyarrow as pa
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -24,7 +23,7 @@ from marivo.analysis.materialization import (
     statistical_execution,
 )
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
-from marivo.datasource.adapters import SourceBatchStream
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.statistics.deviation_fixture import prepare_profiles
 from tests.analysis.statistics.journeys import (
     Result,
@@ -302,12 +301,12 @@ def test_score_select_members_followup_one_dag(
         by=(mv.member(),),
     )
     trace: list[str] = []
-    iterate, compute = SourceBatchStream._iterate, deviation_execution.execute
+    execute_source, compute = SourceSession.execute, deviation_execution.execute
 
-    def read(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-        for batch in iterate(stream):
-            trace.append("source")
-            yield batch
+    def read(source: SourceSession, compiled: CompiledRead) -> pd.DataFrame:
+        result = execute_source(source, compiled)
+        trace.append("source")
+        return result
 
     def score(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
         if isinstance(node.parameters, DeviationFit):
@@ -315,7 +314,7 @@ def test_score_select_members_followup_one_dag(
         return compute(node, values, binding)
 
     with (
-        patch.object(SourceBatchStream, "_iterate", read),
+        patch.object(SourceSession, "execute", read),
         patch.object(deviation_execution, "execute", score),
     ):
         result = followup.aggregate(mv.count_defined()).execute()

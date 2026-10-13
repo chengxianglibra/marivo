@@ -1,11 +1,10 @@
-"""Bounded bulk validation and invocation-owned primary key indexes."""
+"""Focused pandas contract checks for the private graph exchange."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from dataclasses import replace
-from typing import Literal
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -18,53 +17,48 @@ from marivo.analysis.core.model import (
     OriginalStatePart,
     Signature,
 )
-from marivo.analysis.materialization import graph_exchange as exchange
-from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
-    CheckedStream,
     ExchangeContract,
     ExchangePart,
     PartContract,
-    collect,
-    from_arrow,
+    _pandas_records,
+    from_pandas,
 )
 from marivo.analysis.methods.semantics import MethodKey
 
 
-class _Stream:
-    def __init__(self, schema: pa.Schema, batches: tuple[pa.RecordBatch, ...]) -> None:
-        self.schema = schema
-        self.batches = batches
-        self.close_calls = 0
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        return iter(self.batches)
-
-    def close(self) -> None:
-        self.close_calls += 1
-
-
-class _CloseFailure(_Stream):
-    def close(self) -> None:
-        super().close()
-        raise RuntimeError("close failed")
+def _schema() -> pa.Schema:
+    return pa.schema(
+        [
+            pa.field("key_0", pa.string()),
+            pa.field("key_1", pa.int64()),
+            pa.field("key_2", pa.int64()),
+            pa.field("value", pa.int64()),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
+    )
 
 
-def _primary(keys: list[tuple[str | None, int, int]]) -> pa.Table:
-    return pa.table(
+def _primary(keys: list[tuple[str | None, int, int]]) -> pd.DataFrame:
+    return pd.DataFrame(
         {
-            "key_0": pa.array([key[0] for key in keys], type=pa.string()),
-            "key_1": pa.array([key[1] for key in keys], type=pa.int64()),
-            "key_2": pa.array([key[2] for key in keys], type=pa.int64()),
-            "value": pa.array([0] * len(keys), type=pa.int64()),
-            "cell_tag": pa.array(["defined"] * len(keys), type=pa.string()),
-            "cell_reason": pa.array([None] * len(keys), type=pa.string()),
+            "key_0": [key[0] for key in keys],
+            "key_1": [key[1] for key in keys],
+            "key_2": [key[2] for key in keys],
+            "value": [0] * len(keys),
+            "cell_tag": ["defined"] * len(keys),
+            "cell_reason": [None] * len(keys),
         }
     )
 
 
-def _contract(primary: pa.Table, *, nullable: bool = False) -> ExchangeContract:
+def _logical_records(frame: pd.DataFrame, contract: ExchangeContract) -> list[dict[str, object]]:
+    return _pandas_records(frame, contract.schema)
+
+
+def _contract(*, nullable: bool = False) -> ExchangeContract:
     binding = Binding("r96", "exchange", "bulk", "whole")
     owner = ms.ref.entity("cost.facts")
     keys = (
@@ -80,7 +74,7 @@ def _contract(primary: pa.Table, *, nullable: bool = False) -> ExchangeContract:
         signature,
         MethodKey("parts_transport"),
         "bulk",
-        primary.schema,
+        _schema(),
         ("key_0", "key_1", "key_2"),
         cell_reasons=(
             ("null", ("empty_contribution",)),
@@ -91,9 +85,9 @@ def _contract(primary: pa.Table, *, nullable: bool = False) -> ExchangeContract:
 
 
 def _original(
-    primary: pa.Table,
-) -> tuple[ExchangeContract, tuple[ExchangePart, ...], pa.Table]:
-    contract = _contract(primary)
+    frame: pd.DataFrame,
+) -> tuple[ExchangeContract, tuple[ExchangePart, ...], pd.DataFrame]:
+    contract = _contract()
     state = OriginalStatePart(
         contract.signature.domain.binding,
         "input",
@@ -102,91 +96,71 @@ def _original(
         ("sum", "non_null_count"),
         "v1",
     )
-    original = primary.select(contract.key_fields).append_column(
-        "original_state__sum", primary["value"]
+    keys = list(contract.key_fields)
+    original = frame.loc[:, keys].copy()
+    original["original_state__sum"] = frame["value"]
+    original["original_state__non_null_count"] = 1
+    status = frame.loc[:, keys].copy()
+    status["status"] = frame["cell_tag"]
+    state_schema = pa.schema(
+        [*(contract.schema.field(key) for key in keys), pa.field("status", pa.string())]
     )
-    original = original.append_column(
-        "original_state__non_null_count", pa.array([1] * primary.num_rows, type=pa.int64())
+    part_schema = pa.schema(
+        [
+            *(contract.schema.field(key) for key in keys),
+            pa.field("original_state__sum", pa.int64()),
+            pa.field("original_state__non_null_count", pa.int64()),
+        ]
     )
-    status = primary.select(contract.key_fields).append_column("status", primary["cell_tag"])
     contract = replace(
         contract,
         method=MethodKey("metric.sum_zero"),
         signature=replace(contract.signature, parts=(state,)),
-        parts=(PartContract("original_state", original.schema, contract.key_fields),),
+        parts=(PartContract("original_state", part_schema, contract.key_fields),),
         state_kind="original_sum_zero",
-        state_schema=status.schema,
+        state_schema=state_schema,
     )
     return contract, (ExchangePart("original_state", original),), status
 
 
-def test_bulk_complete_keys_preserve_int64_versions_across_batches_and_empty_input() -> None:
-    keys: list[tuple[str | None, int, int]] = [
-        ("a", 2**53 + index // 2, index % 2 + 1) for index in range(1025)
+def test_pandas_exchange_preserves_large_complete_keys_and_empty_frames() -> None:
+    frame = _primary([("a", 2**53 + index, index + 1) for index in range(1025)])
+    contract = _contract()
+    result = from_pandas(frame, contract)
+    assert result.primary["key_1"].iloc[-1] == 2**53 + 1024
+    assert _logical_records(result.primary, result.contract)[-1]["key_1"] == 2**53 + 1024
+    assert len(from_pandas(frame.iloc[0:0], contract).primary) == 0
+
+
+@pytest.mark.parametrize("corruption", ["duplicate", "null"])
+def test_pandas_exchange_rejects_duplicate_or_illegal_null_keys(corruption: str) -> None:
+    keys: list[tuple[str | None, int, int]] = [("a", 2**53 + index, 1) for index in range(4)]
+    keys[-1] = keys[0] if corruption == "duplicate" else (None, 2**53 + 3, 1)
+    with pytest.raises(MaterializationError, match="null or duplicate complete key"):
+        from_pandas(_primary(keys), _contract())
+    if corruption == "null":
+        assert len(from_pandas(_primary(keys), _contract(nullable=True)).primary) == 4
+
+
+def test_pandas_exchange_validates_all_four_cell_branches_and_exact_zero() -> None:
+    frame = _primary([("a", 1, 1), ("a", 2, 1), ("a", 3, 1), ("a", 4, 1)])
+    frame["value"] = [0, None, None, None]
+    frame["cell_tag"] = ["defined", "null", "undefined", "unknown"]
+    frame["cell_reason"] = [
+        None,
+        "empty_contribution",
+        "zero_denominator",
+        "insufficient_business_coverage",
     ]
-    primary = _primary(keys)
-    source = _Stream(primary.schema, tuple(primary.to_batches(max_chunksize=513)))
-    result = collect(source, _contract(primary))
-    assert logical_table(result.primary).equals(primary)
-    assert source.close_calls == 1
-    assert exchange._table_keys(primary, _contract(primary).key_fields) == set(keys)
-    empty = primary.slice(0, 0)
-    source = _Stream(empty.schema, ())
-    assert logical_table(collect(source, _contract(empty)).primary).equals(empty)
-    assert source.close_calls == 1
-
-
-def test_bulk_keys_preserve_unkeyed_cardinality_and_empty_field_validation() -> None:
-    singleton = pa.table({"value": [1]})
-    assert exchange._table_keys(singleton, ()) == {()}
-    assert exchange._table_keys(singleton.slice(0, 0), ()) == set()
-    with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
-        exchange._table_keys(pa.table({"value": [1, 2]}), ())
-    with pytest.raises(KeyError):
-        exchange._table_keys(singleton.slice(0, 0), ("missing",))
-
-
-@pytest.mark.parametrize("invalid", ["duplicate", "null"])
-def test_bulk_keys_reject_cross_batch_duplicates_and_illegal_nulls(invalid: str) -> None:
-    keys: list[tuple[str | None, int, int]] = [("a", 2**53 + index, 1) for index in range(1025)]
-    keys[-1] = keys[0] if invalid == "duplicate" else (None, 2**53 + 1024, 1)
-    primary = _primary(keys)
-    source = _Stream(primary.schema, tuple(primary.to_batches(max_chunksize=1024)))
-    with pytest.raises(MaterializationError, match="null or duplicate complete key"):
-        collect(source, _contract(primary))
-    assert source.close_calls == 1
-    with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
-        exchange._table_keys(primary, _contract(primary).key_fields)
-
-
-def test_completed_key_index_does_not_cross_nullable_policy_or_source_invocations() -> None:
-    primary = _primary([(None, 2**53 + 7, 1), ("a", 2**53 + 7, 2)])
-    assert logical_table(from_arrow(primary, _contract(primary, nullable=True)).primary).equals(
-        primary
-    )
-    with pytest.raises(MaterializationError, match="null or duplicate complete key"):
-        from_arrow(primary, _contract(primary))
-    with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
-        exchange._table_keys(primary, _contract(primary).key_fields)
-
-
-def test_bulk_cells_preserve_all_four_branches_and_exact_defined_zero() -> None:
-    primary = _primary([("a", 2**53 + index, 1) for index in range(4)])
-    primary = primary.set_column(3, "value", pa.array([0, None, None, None], type=pa.int64()))
-    primary = primary.set_column(
-        4, "cell_tag", pa.array(["defined", "null", "undefined", "unknown"], type=pa.string())
-    )
-    primary = primary.set_column(
-        5,
-        "cell_reason",
-        pa.array(
-            [None, "empty_contribution", "zero_denominator", "insufficient_business_coverage"],
-            type=pa.string(),
-        ),
-    )
-    result = from_arrow(primary, _contract(primary))
-    assert logical_table(result.primary).equals(primary)
-    assert result.primary.schema.field("value").type == pa.int64()
+    result = from_pandas(frame, _contract())
+    rows = _logical_records(result.primary, result.contract)
+    assert [row["cell_tag"] for row in rows] == ["defined", "null", "undefined", "unknown"]
+    assert rows[0]["value"] == 0
+    assert [rows[index]["cell_reason"] for index in range(1, 4)] == [
+        "empty_contribution",
+        "zero_denominator",
+        "insufficient_business_coverage",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -198,98 +172,32 @@ def test_bulk_cells_preserve_all_four_branches_and_exact_defined_zero() -> None:
         (None, "other", "empty_contribution"),
     ],
 )
-def test_bulk_cells_reject_invalid_payloads_and_undeclared_reasons(
+def test_pandas_exchange_rejects_invalid_or_undeclared_cells(
     value: int | None, tag: str, reason: str | None
 ) -> None:
-    primary = _primary([("a", 2**53 + 1, 1)])
-    primary = primary.set_column(3, "value", pa.array([value], type=pa.int64()))
-    primary = primary.set_column(4, "cell_tag", pa.array([tag], type=pa.string()))
-    primary = primary.set_column(5, "cell_reason", pa.array([reason], type=pa.string()))
-    source = _Stream(primary.schema, tuple(primary.to_batches()))
+    frame = _primary([("a", 1, 1)])
+    frame.loc[0, ["value", "cell_tag", "cell_reason"]] = [value, tag, reason]
     with pytest.raises(MaterializationError, match=r"invalid .*Defined Cell"):
-        collect(source, _contract(primary))
-    assert source.close_calls == 1
-
-
-def test_collect_reuses_only_its_completed_primary_key_index(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    primary = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 1, 2)])
-    contract, parts, status = _original(primary)
-    calls: list[tuple[str, ...]] = []
-    table_keys = exchange._table_keys
-
-    def independent(
-        table: pa.Table, fields: tuple[str, ...], nullable: frozenset[str] = frozenset()
-    ) -> set[tuple[object, ...]]:
-        calls.append(tuple(table.column_names))
-        return table_keys(table, fields, nullable)
-
-    monkeypatch.setattr(exchange, "_table_keys", independent)
-    source = _Stream(primary.schema, tuple(primary.to_batches(max_chunksize=1)))
-    result = collect(source, contract, parts=parts, method_state=status)
-    assert logical_table(result.primary).equals(primary)
-    assert calls == [tuple(parts[0].table.column_names), tuple(status.column_names)]
-    assert source.close_calls == 1
+        from_pandas(frame, _contract())
 
 
 @pytest.mark.parametrize("corruption", ["part_key", "state_key", "sum"])
-def test_independent_parts_and_numerical_state_still_reject_corruption(corruption: str) -> None:
-    primary = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 2, 1)])
-    contract, parts, status = _original(primary)
-    original = parts[0].table
+def test_pandas_exchange_verifies_independent_state_keys_and_numeric_state(
+    corruption: str,
+) -> None:
+    frame = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 2, 1)])
+    contract, parts, status = _original(frame)
+    original = parts[0].table.copy()
     if corruption == "part_key":
-        original = original.set_column(
-            1, "key_1", pa.array([2**53 + 1, 2**53 + 3], type=pa.int64())
-        )
+        original["key_1"] = [2**53 + 1, 2**53 + 3]
     elif corruption == "state_key":
-        status = status.set_column(1, "key_1", pa.array([2**53 + 1, 2**53 + 3], type=pa.int64()))
+        status["key_1"] = [2**53 + 1, 2**53 + 3]
     else:
-        original = original.set_column(3, "original_state__sum", pa.array([0, 1], type=pa.int64()))
+        original["original_state__sum"] = [0, 1]
     with pytest.raises(MaterializationError):
-        from_arrow(
-            primary,
+        from_pandas(
+            frame,
             contract,
             parts=(ExchangePart("original_state", original),),
             method_state=status,
         )
-
-
-@pytest.mark.parametrize("failure", ["schema", "close", "early_stop"])
-def test_key_index_requires_successful_exhaustion_and_close(failure: str) -> None:
-    primary = _primary([("a", 2**53 + 1, 1), ("a", 2**53 + 2, 1)])
-    batches = tuple(primary.to_batches(max_chunksize=1))
-    source: _Stream
-    if failure == "schema":
-        changed = batches[1].set_column(1, "key_1", pa.array([1.0], type=pa.float64()))
-        source = _Stream(primary.schema, (batches[0], changed))
-    elif failure == "close":
-        source = _CloseFailure(primary.schema, batches)
-    else:
-        source = _Stream(primary.schema, batches)
-    checked = CheckedStream(source, primary.schema, _contract(primary).key_fields)
-    if failure == "early_stop":
-        iterator = iter(checked)
-        next(iterator)
-        checked.close()
-    else:
-        with pytest.raises((MaterializationError, RuntimeError)):
-            tuple(checked)
-    assert source.close_calls == 1
-    assert not checked.completed
-    with pytest.raises(MaterializationError, match="producer key validation did not complete"):
-        checked._complete_key_index()
-
-
-@pytest.mark.parametrize("boundary", ("stream", "part"))
-def test_bulk_key_validation_keeps_stream_release(boundary: Literal["stream", "part"]) -> None:
-    primary = _primary([("a", 2**53 + index, 1) for index in range(4)])
-    source = _Stream(primary.schema, tuple(primary.to_batches()))
-    if boundary == "stream":
-        result = collect(source, _contract(primary))
-        assert result.primary.select(["key_0", "key_1", "key_2", "value"]).equals(
-            primary.select(["key_0", "key_1", "key_2", "value"])
-        )
-    else:
-        assert len(exchange._table_keys(primary, _contract(primary).key_fields)) == 4
-    assert source.close_calls == (1 if boundary == "stream" else 0)

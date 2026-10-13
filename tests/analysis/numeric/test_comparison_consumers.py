@@ -74,7 +74,7 @@ def test_complete_keys_source_and_fixed(
         def forbid_source(*args: object, **kwargs: object) -> NoReturn:
             pytest.fail("Fixed C07 continuation must not read a source")
 
-        monkeypatch.setattr(SourceSession, "batches", forbid_source)
+        monkeypatch.setattr(SourceSession, "execute", forbid_source)
         fixed = fixed_logical.execute()
         assert len(source_trace.native_sql) == submissions_before
         complete = {

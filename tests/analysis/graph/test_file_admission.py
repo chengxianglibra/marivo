@@ -120,7 +120,7 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             raise AssertionError("File construction/refusal attempted data work")
 
         monkeypatch.setattr(SourceSession, "compile", forbidden)
-        monkeypatch.setattr(SourceSession, "batches", forbidden)
+        monkeypatch.setattr(SourceSession, "execute", forbidden)
         monkeypatch.setattr(graph_store, "admit", forbidden)
         members = session.members(ms.ref.entity("sales.facts"))
         received: str | None = None
@@ -193,7 +193,7 @@ def test_json_request_sources_are_refused_before_source_open(
             calls.append("source-open-or-admission")
             raise AssertionError("Unqualified JSON request opened a source")
 
-        for name in ("__enter__", "bind", "compile", "batches"):
+        for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
         monkeypatch.setattr(graph_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:

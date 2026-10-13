@@ -134,7 +134,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     for kind in ("snapshot", "validity"):
         entity = ms.ref.entity("sales.subjects_" + kind)
         with pytest.MonkeyPatch.context() as guards:
-            guards.setattr(SourceSession, "batches", forbidden)
+            guards.setattr(SourceSession, "execute", forbidden)
             guards.setattr(SourceSession, "compile", forbidden)
             with pytest.raises(AnalysisError):
                 session.members(entity)

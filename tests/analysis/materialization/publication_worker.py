@@ -46,7 +46,7 @@ def _run() -> None:
     except SessionBusyError:
         print("busy", flush=True)
         return
-    value = read_result(store.project_root, result.descriptor).primary["value"].to_pylist()
+    value = read_result(store.project_root, result.descriptor).primary["value"].tolist()
     print(
         json.dumps(
             {"artifact": result.artifact_ref, "run": result.producing_run_ref, "value": value}

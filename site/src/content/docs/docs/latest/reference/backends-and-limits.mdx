@@ -70,21 +70,33 @@ The example requires warehouse, `data/facts.csv` and the listed columns. Save it
 
 | Inputs | Behavior |
 | --- | --- |
-| Live sources | Governed Ibis executes on the source, or prepares input for a registered local algorithm |
-| Fixed Artifacts | Controlled retained data feeds registered local consumers |
+| Live sources | Governed Ibis executes on the source and returns pandas data, or prepares a DataFrame for a registered local algorithm |
+| Fixed Artifacts | Persisted Result Parquet is read into pandas for registered local consumers |
 | Mixed source and fixed | Reject before Run admission or either business input read |
 
-Native relational work remains in Ibis. Matching, replay and statistics may
-capture full inputs for local algorithms. Batch transport is not a promise of
-streaming execution. A failure does not switch implementation or retry through
-another executor. Remote-source configuration uses read-only access; native query timeouts are used when supported and skipped otherwise.
-There is no default graph deadline; cleanup and atomic publication remain mandatory.
+Relational work expressible in the admitted Ibis plan stays at the source. Ibis
+and its provider convert returned rows to pandas; those defaults can be lossy,
+such as turning an invalid date into null. Marivo does not add a strict source
+Arrow round-trip audit. Requested row/time bounds, complete-key and Cell checks,
+and the existing Result Parquet schema checks remain in force. Source reads and
+local statistics are eager; full vectors may be materialized in memory. A failure
+does not switch implementation or retry through another executor. Remote-source
+configuration uses read-only access; native query timeouts are used when supported
+and skipped otherwise. There is no default graph deadline; cleanup and atomic
+publication remain mandatory.
+
+Prepared analysis reads local Parquet from its declared path without creating a
+temporary copy. Marivo checks the file identity and content before and after the
+run and fails if it detects a change; this does not provide a filesystem
+snapshot while queries execute.
 
 ## Respect numerical and method limits
 
-Exact Decimal scale, timestamp precision, Duration unit, original components,
-complete grids and per-root routes participate in admission. Compiling an Ibis
-expression or passing Readiness is insufficient physical execution evidence.
+Decimal scale, timestamp precision, Duration unit, original components, complete
+grids and per-root routes remain method and retained-state contracts. These
+contracts apply after Ibis/provider conversion; they do not promise a lossless
+source-to-pandas round trip. Compiling an Ibis expression or passing Readiness
+is insufficient physical execution evidence.
 Quantile exactness is definition-owned; unsupported exact aggregation never
 falls back to approximation. Statistical methods do not
 inherit ordinary scalar Metric backend support.

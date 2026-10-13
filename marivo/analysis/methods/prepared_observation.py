@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 
-import pyarrow as pa
+import pandas as pd
 
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.rules import ObserveCount, ObserveMetric
@@ -24,15 +24,20 @@ class Restriction:
 
 
 def restrict(
-    candidates: pa.Table, selections: tuple[Restriction, ...]
+    candidates: pd.DataFrame, selections: tuple[Restriction, ...]
 ) -> tuple[tuple[Mapping[str, object], ...], ...]:
     """Preserve every contribution use for retained member/time windows."""
     by_subject: dict[tuple[str | int, ...], list[Mapping[str, object]]] = {}
-    member_names = tuple(name for name in candidates.column_names if name.startswith("member_"))
-    for row in candidates.to_pylist():
+    member_names = tuple(name for name in candidates.columns if name.startswith("member_"))
+    for raw in candidates.to_dict("records"):
+        candidate_row: dict[str, object] = {}
+        for name, value in raw.items():
+            if not isinstance(name, str):
+                fail("input_binding", "candidate has a non-string field name", stage="consume")
+            candidate_row[name] = None if pd.isna(value) else value
         subject: list[str | int] = []
         for name in member_names:
-            value = row[name]
+            value = candidate_row[name]
             if isinstance(value, bool) or not isinstance(value, (str, int)) or value == "":
                 fail(
                     "input_binding",
@@ -40,10 +45,10 @@ def restrict(
                     stage="consume",
                 )
             subject.append(value)
-        by_subject.setdefault(tuple(subject), []).append(row)
+        by_subject.setdefault(tuple(subject), []).append(candidate_row)
     if len({selection.key for selection in selections}) != len(selections):
         fail("input_binding", "duplicate complete selected instance keys", stage="consume")
-    result = []
+    result: list[tuple[Mapping[str, object], ...]] = []
     for selection in selections:
         if (
             len(selection.subject) != len(member_names)
@@ -52,7 +57,7 @@ def restrict(
             or selection.start >= selection.end
         ):
             fail("preparation_bounds", "invalid actual member/time window", stage="consume")
-        rows = []
+        rows: list[Mapping[str, object]] = []
         for row in by_subject.get(selection.subject, []):
             point = row["event_time"]
             if not isinstance(point, datetime) or point.utcoffset() is None:
@@ -107,6 +112,13 @@ def state(
         value = row["amount"]
         if value is None:
             continue
+        if (
+            params.amount_type == "int64"
+            and type(value) is float
+            and math.isfinite(value)
+            and value.is_integer()
+        ):
+            value = int(value)
         if (
             type(value) not in (int, float)
             or not isinstance(value, (int, float))

@@ -128,12 +128,16 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
         expression = _partition_projection(
             relation, request.partition_columns, request.order, request.limit
         )
-        rows = session.collect_bounded(
+        frame = session.collect_bounded(
             expression,
             source_identities=(identity,),
             purpose="datasource.partition_metadata",
             max_rows=request.limit,
-        ).to_pylist()
+        )
+        rows: list[dict[str, object]] = [
+            {str(name): value for name, value in row.items()}
+            for row in frame.to_dict(orient="records")
+        ]
     return PartitionProbeResult(rows=tuple(rows), value_source="metadata")
 
 

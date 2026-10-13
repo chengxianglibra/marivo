@@ -189,7 +189,7 @@ def extract(
     else:
         original = captured_f.declaration
         rows = sorted(
-            load(state_f.views).to_pylist(),
+            load(state_f.views).to_pandas().to_dict(orient="records"),
             key=lambda r: tuple(r[k] for k in result.contract.key_fields),
         )
         subject_f = t.ForecastFindingSubjectV2(

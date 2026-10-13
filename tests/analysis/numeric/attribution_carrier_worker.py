@@ -11,11 +11,13 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization import graph_local_execution
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -24,7 +26,8 @@ from tests.shared_fixtures import run_ids
 from tests.support.json import Json, arr, checked, encode, obj, read
 
 
-def table_rows(table: pa.Table) -> list[Json]:
+def table_rows(frame: pd.DataFrame, schema: pa.Schema) -> list[Json]:
+    table = to_arrow(frame, schema)
     for index, field in enumerate(table.schema):
         if pa.types.is_duration(field.type):
             table = table.set_column(index, field.name, table[field.name].cast(pa.int64()))
@@ -34,12 +37,19 @@ def table_rows(table: pa.Table) -> list[Json]:
 def parts(value: _MaterializedRead) -> dict[str, Json]:
     assert value._dataset is not None
     verified = value._dataset.verified()
+    schemas = {part.role: part.schema for part in verified.contract.parts}
     return {
         **{
-            part.role: {"schema": str(part.table.schema), "rows": table_rows(part.table)}
+            part.role: {
+                "schema": str(schemas[part.role]),
+                "rows": table_rows(part.table, schemas[part.role]),
+            }
             for part in verified.parts
         },
-        "primary": {"schema": str(verified.primary.schema), "rows": table_rows(verified.primary)},
+        "primary": {
+            "schema": str(verified.contract.schema),
+            "rows": table_rows(verified.primary, verified.contract.schema),
+        },
     }
 
 
@@ -47,7 +57,8 @@ def check_allocation(result: mv.MaterializedAttributionResult, kind: str) -> Non
     assert result._dataset is not None
     verified = result._dataset.verified()
     allocation = next(part.table for part in verified.parts if part.role == "allocation")
-    rows = [obj(row) for row in table_rows(allocation)]
+    schema = next(part.schema for part in verified.contract.parts if part.role == "allocation")
+    rows = [obj(row) for row in table_rows(allocation, schema)]
     assert [row["key_1"] for row in rows] == ["Other", "app", "web"]
     assert all(row["key_0"] == 1 and row["key_2"] == 0 for row in rows)
     current = {"web": Fraction(12), "app": Fraction(6), "Other": Fraction()}

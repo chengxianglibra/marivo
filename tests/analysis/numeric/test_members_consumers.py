@@ -107,7 +107,7 @@ def test_complete_versioned_members(
             raise AssertionError("Missing version attempted a business read or Run admission")
 
         with monkeypatch.context() as construction:
-            for name in ("bind", "compile", "batches"):
+            for name in ("bind", "compile", "execute"):
                 construction.setattr(SourceSession, name, no_construction_read)
             from marivo.analysis.materialization import graph_store
 
@@ -203,7 +203,7 @@ def test_complete_versioned_members(
             def forbidden(*args: object, **kwargs: object) -> None:
                 raise AssertionError("Member construction submitted business rows")
 
-            construction.setattr(SourceSession, "batches", forbidden)
+            construction.setattr(SourceSession, "execute", forbidden)
             construction.setattr(SourceSession, "compile", forbidden)
             current = session.members(entity, at=august)
             with pytest.raises(AnalysisError):
@@ -231,7 +231,7 @@ def test_complete_versioned_members(
                 def no_business_rows(*args: object, **kwargs: object) -> None:
                     raise AssertionError("Unsupported Boolean submitted business rows")
 
-                unsupported.setattr(SourceSession, "batches", no_business_rows)
+                unsupported.setattr(SourceSession, "execute", no_business_rows)
                 with pytest.raises(AnalysisError, match="enabled: int8"):
                     current.read(ms.ref.dimension("sales.subjects.enabled"), at=august)
             booleans = current.read(ms.ref.dimension("sales.subjects.enabled_predicate"), at=august)

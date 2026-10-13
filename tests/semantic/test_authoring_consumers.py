@@ -4,11 +4,12 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
@@ -35,13 +36,16 @@ def test_public_metadata_and_bounded_sample(
     )
     profile = {"trino": "iceberg", "clickhouse": "mergetree"}.get(backend, "table")
     owners: list[SourceSession] = []
-    original = SourceSession.batches
+    frames: list[pd.DataFrame] = []
+    original = SourceSession.execute
 
-    def batches(owner: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         owners.append(owner)
-        return original(owner, read, chunk_size=chunk_size)
+        frame = original(owner, read)
+        frames.append(frame)
+        return frame
 
-    monkeypatch.setattr(SourceSession, "batches", batches)
+    monkeypatch.setattr(SourceSession, "execute", execute)
     with source_case(backend, profile, tmp_path, monkeypatch) as case:
         assert isinstance(case.source, TableSourceIR)
         arguments = {
@@ -84,8 +88,10 @@ def test_public_metadata_and_bounded_sample(
             ),
         )
         assert rows == ROWS
-        assert all(type(row["id"]) is int for row in rows)
         assert snapshot.coverage.retained_row_count == 3
+        assert len(owners) == len(frames) == 1
+        assert isinstance(frames[0], pd.DataFrame)
+        assert len(frames[0]) == 3
         assert len(owners) == 1 and owners[0]._closed
         submissions = [asdict(item) for item in owners[0].submissions]
         assert submissions and all(

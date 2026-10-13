@@ -6,12 +6,12 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource import adapters
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
@@ -55,19 +55,16 @@ def test_mysql_sample_native_timeout_releases_reader_without_kill(
             )
         try:
             inspection = md.inspect(ms.ref.datasource("warehouse"), md.table(view))
-            native = adapters._native_cursor
             owners: list[SourceSession] = []
             identities: list[int] = []
-            original = SourceSession.batches
+            original = SourceSession.execute
 
-            def batches(
-                owner: SourceSession, read: adapters.CompiledRead, *, chunk_size: int
-            ) -> adapters.SourceBatchStream:
+            def execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
                 owners.append(owner)
                 identities.append(owner._backend.con.thread_id())
-                return original(owner, read, chunk_size=chunk_size)
+                return original(owner, read)
 
-            monkeypatch.setattr(SourceSession, "batches", batches)
+            monkeypatch.setattr(SourceSession, "execute", execute)
             started = time.monotonic()
             with pytest.raises(DatasourceAuthoringError) as error:
                 inspection.sample(

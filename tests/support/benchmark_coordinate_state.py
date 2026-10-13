@@ -7,20 +7,19 @@ import os
 import re
 import resource
 import tracemalloc
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
 from time import perf_counter
 from typing import ParamSpec, TypeVar
 
 import duckdb
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization import graph_source_execution
-from marivo.datasource.adapters import SourceBatchStream, SourceSession
+from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
 from tests.support.execution_logs import execution_records
 
@@ -63,29 +62,12 @@ def test_coordinate_state_cost(
 
         return decorate
 
-    original_iterate = SourceBatchStream._iterate
-
-    def iterate(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-        active = original_iterate(stream)
-        while True:
-            start = perf_counter()
-            try:
-                batch = next(active)
-            except StopIteration:
-                costs["driver_fetch_arrow_seconds"] = (
-                    costs.get("driver_fetch_arrow_seconds", 0.0) + perf_counter() - start
-                )
-                return
-            costs["driver_fetch_arrow_seconds"] = (
-                costs.get("driver_fetch_arrow_seconds", 0.0) + perf_counter() - start
-            )
-            yield batch
-
     monkeypatch.setattr(
         SourceSession, "compile", measured("compile_seconds")(SourceSession.compile)
     )
-    monkeypatch.setattr(SourceSession, "batches", measured("submit_seconds")(SourceSession.batches))
-    monkeypatch.setattr(SourceBatchStream, "_iterate", iterate)
+    monkeypatch.setattr(
+        SourceSession, "execute", measured("execute_seconds")(SourceSession.execute)
+    )
     monkeypatch.setattr(
         graph_source_execution,
         "_result",
@@ -189,7 +171,7 @@ def test_coordinate_state_cost(
                 "workers": 1,
                 "database_threads": 1,
                 "tracemalloc": True,
-                "phase_cost_boundary": "submit includes database execution; fetch includes driver and Arrow conversion; exchange excludes publication; query duration also includes consumer time",
+                "phase_cost_boundary": "execute includes Ibis provider execution, fetch, conversion, and pandas materialization; exchange excludes publication; query duration also includes consumer time",
                 "phases": phases,
             },
             indent=2,

@@ -52,7 +52,7 @@ def _forbid_source(monkeypatch: pytest.MonkeyPatch) -> None:
     def forbidden(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("fixed selection accessed a source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
 
 
 def _publications(session: mv.Session) -> tuple[int, ...]:
@@ -91,9 +91,9 @@ def test_public_selection_parts_contract_members_summary_rollup_and_cache(
     exchange = result._dataset.verified()
     parts = {part.role: part.table for part in exchange.parts}
     assert {"subject", "original_state", "coverage"} <= set(parts)
-    assert parts["original_state"]["original_state__sum"].to_pylist() == [60]
-    assert parts["original_state"]["original_state__non_null_count"].to_pylist() == [1]
-    assert parts["coverage"]["coverage__complete"].to_pylist() == [True]
+    assert parts["original_state"]["original_state__sum"].tolist() == [60]
+    assert parts["original_state"]["original_state__non_null_count"].tolist() == [1]
+    assert parts["coverage"]["coverage__complete"].tolist() == [True]
     assert result.members().execute().to_pandas().member.tolist() == ["A"]
     assert result.aggregate(mv.sum()).execute().to_pandas().value.tolist() == [60]
     assert result.rollup().execute().to_pandas().value.tolist() == [60]
@@ -286,7 +286,7 @@ def test_fixed_difference_endpoints_follow_selected_complete_keys(
         "correspondence",
     }
     for part in exchange.parts:
-        assert part.table["key_0"].to_pylist() == ["A", "D"]
+        assert part.table["key_0"].tolist() == ["A", "D"]
 
 
 def test_display_and_fixed_reference_selection_keep_the_original_scope(

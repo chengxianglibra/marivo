@@ -8,17 +8,13 @@ from pathlib import Path
 from threading import get_ident
 from unittest.mock import Mock
 
-import ibis
-import pyarrow as pa
 import pytest
 from ibis.backends import BaseBackend
 
 from marivo.datasource import adapters, backends, manage, runtime
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import (
-    SourceBatchStream,
     SourceSession,
-    SourceSubmission,
     provider_for,
 )
 from marivo.datasource.engines import mysql
@@ -252,48 +248,6 @@ def test_probe_timeout_requires_native_evidence_and_retains_backend_diagnostics(
     assert result.failure.timeout_seconds == (7 if native else None)
 
 
-@pytest.mark.parametrize("backend_kind", ("mysql", "clickhouse"))
-@pytest.mark.parametrize("owns_backend", (False, True))
-def test_cleanup_visits_remaining_resources_after_cursor_failure(
-    backend_kind: str, owns_backend: bool, tmp_path: Path
-) -> None:
-    backend = Mock(spec=BaseBackend)
-    backend.name = backend_kind
-    session = SourceSession(
-        provider_for(backend_kind),
-        datasource(backend_kind, {}),
-        backend,
-        owns_backend=owns_backend,
-        project_root=tmp_path,
-    )
-    cursors = [Mock(), Mock()]
-    cursors[0].close.side_effect = OSError("native cursor release failed")
-    submissions = []
-    for cursor in cursors:
-        submission = SourceSubmission("fixture", "facts", 1, "SELECT value FROM facts")
-        submissions.append(submission)
-        session.submissions.append(submission)
-        session._streams.add(
-            SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
-        )
-    with pytest.raises(OSError, match="native cursor release failed"):
-        session.close()
-    for cursor in cursors:
-        cursor.close.assert_called_once_with()
-    assert not session._streams
-    if owns_backend:
-        backend.disconnect.assert_called_once_with()
-        assert all(submission.connection_disconnected for submission in submissions)
-    else:
-        backend.disconnect.assert_not_called()
-        assert submissions[0].cursor_state == "close_failed"
-        backend.disconnect()
-        session.mark_backend_disconnected()
-        assert all(submission.connection_disconnected for submission in submissions)
-    assert all(submission.termination == "remote_unknown" for submission in submissions)
-    assert not hasattr(session, "_cancel_control")
-
-
 def test_failed_disconnect_cannot_confirm_cleanup(tmp_path: Path) -> None:
     backend = Mock(spec=BaseBackend)
     backend.name = "mysql"
@@ -304,44 +258,6 @@ def test_failed_disconnect_cannot_confirm_cleanup(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="disconnect unconfirmed"):
         session.close()
     assert not session._backend_disconnected
-
-
-def test_cleanup_releases_stages_and_connection_after_stream_failure(tmp_path: Path) -> None:
-    backend = Mock(spec=BaseBackend)
-    backend.name = "duckdb"
-    session = SourceSession(
-        provider_for("duckdb"), datasource("duckdb", {}), backend, project_root=tmp_path
-    )
-    events: list[str] = []
-
-    def fail_close() -> None:
-        events.append("cursor")
-        raise OSError("cursor release failed")
-
-    cursor = Mock()
-    cursor.close.side_effect = fail_close
-    submission = SourceSubmission("fixture", "facts", 1, "SELECT value FROM facts")
-    session._streams.add(
-        SourceBatchStream(session, cursor, pa.schema([("value", pa.int64())]), 1, submission)
-    )
-    for name in ("first_stage", "second_stage"):
-        relation = ibis.table({"value": "int64"}, name=name)
-        session._staged_relations[relation.op()] = (frozenset({"facts"}), name)
-
-    def drop_table(name: str, *, force: bool) -> None:
-        assert force
-        events.append(name)
-        if name == "first_stage":
-            raise OSError("stage release failed")
-
-    backend.drop_table.side_effect = drop_table
-    backend.disconnect.side_effect = lambda: events.append("connection")
-    with pytest.raises(OSError, match="cursor release failed"):
-        session.close()
-    session.close()
-    assert events == ["cursor", "first_stage", "second_stage", "connection"]
-    assert not session._streams and not session._staged_relations
-    assert session._backend_disconnected
 
 
 def test_connection_service_closes_other_owners_after_source_cleanup_failure(

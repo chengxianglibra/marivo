@@ -149,7 +149,7 @@ def test_native_independent_multiroot_fixed_and_cold(
         )
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "compile", forbidden)
-            construction.setattr(SourceSession, "batches", forbidden)
+            construction.setattr(SourceSession, "execute", forbidden)
             relations = {
                 "linear": members.observe(
                     mv.runtime_metric.linear(

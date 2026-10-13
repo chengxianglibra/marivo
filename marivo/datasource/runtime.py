@@ -392,7 +392,7 @@ class DatasourceConnectionService:
         session = self._source_sessions.get(_storage_name(name))
         if session is None:
             raise RuntimeError("source expression has no session binding")
-        frame = session.collect_bounded(expression, purpose=purpose, max_rows=max_rows).to_pandas()
+        frame = session.collect_bounded(expression, purpose=purpose, max_rows=max_rows)
         if not isinstance(frame, pd.DataFrame):
             raise TypeError("source collection must produce a pandas DataFrame")
         return frame

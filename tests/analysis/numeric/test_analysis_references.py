@@ -4,12 +4,14 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Literal
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import Defined, Null, Undefined, Unknown
 from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.methods.references import standardize, weight_sum
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
@@ -40,48 +42,28 @@ def test_exact_standardization_and_zero_weight_cells() -> None:
 def test_standardization_proof_uses_keys_and_preserves_damage(
     damage: Literal["value", "duplicate"] | None,
 ) -> None:
-    import pyarrow as pa
-
     from marivo.analysis.core.model import Binding, Coordinate, DomainSignature
     from marivo.analysis.core.rules import ReferenceDerive
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_exchange import ExchangePart
     from marivo.analysis.materialization.graph_reference import finish
 
-    schema = pa.schema(
-        [
-            pa.field("key_0", pa.string()),
-            pa.field("value", pa.int64()),
-            pa.field("cell_tag", pa.string()),
-            pa.field("cell_reason", pa.string()),
-            pa.field("error_bound", pa.float64()),
-        ]
+    values = pd.DataFrame(
+        {
+            "key_0": ["a", "b"],
+            "value": [2, 4],
+            "cell_tag": ["defined", "defined"],
+            "cell_reason": [None, None],
+            "error_bound": [0.0, 0.0],
+        }
     )
-    values = pa.Table.from_pylist(
-        [
-            {
-                "key_0": "a",
-                "value": 2,
-                "cell_tag": "defined",
-                "cell_reason": None,
-                "error_bound": 0.0,
-            },
-            {
-                "key_0": "b",
-                "value": 4,
-                "cell_tag": "defined",
-                "cell_reason": None,
-                "error_bound": 0.0,
-            },
-        ],
-        schema=schema,
-    )
-    proof = values.take([1, 0])
+    proof = values.iloc[[1, 0]].reset_index(drop=True)
     if damage == "value":
-        proof = proof.set_column(1, schema.field("value"), pa.array([5, 2], type=pa.int64()))
+        proof["value"] = [5, 2]
     elif damage == "duplicate":
-        proof = proof.take([0, 1, 1])
-    weights = values.set_column(1, pa.field("value", pa.float64()), pa.array([0.5, 0.5]))
+        proof = pd.concat((proof, proof.iloc[[1]]), ignore_index=True)
+    weights = values.copy()
+    weights["value"] = [0.5, 0.5]
     domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
     params = ReferenceDerive(
         "standardize",
@@ -96,10 +78,10 @@ def test_standardization_proof_uses_keys_and_preserves_damage(
         ExchangePart("stratum_values", values),
         ExchangePart("reference_proof", proof),
         ExchangePart("fixed_reference", weights),
-        ExchangePart("strata", weights.select(["key_0"]).take([1, 0])),
+        ExchangePart("strata", weights[["key_0"]].iloc[[1, 0]].reset_index(drop=True)),
     )
     if damage is None:
-        assert finish(params, ScalarType("float64"), parts)["value"].to_pylist() == [3.0]
+        assert finish(params, ScalarType("float64"), parts)["value"].tolist() == [3.0]
     else:
         with pytest.raises(AnalysisError, match="proof differs"):
             finish(params, ScalarType("float64"), parts)
@@ -149,7 +131,7 @@ def test_public_references_source_and_fixed(
     expected_shares = {key: float(Fraction(value, total_count)) for key, value in counts.items()}
     assert dict(zip(frame.member, frame.value, strict=True)) == expected_shares
     selected = shares.where(shares.value.gt(1)).execute()
-    assert selected._dataset.verified().parts[0].table.num_rows == 1
+    assert len(selected._dataset.verified().parts[0].table) == 1
     assert "relation.rollup()" not in {action.call for action in selected.contract().actions}
     assert (
         dict(selected.contract()._facts)["reference"] == dict(shares.contract()._facts)["reference"]
@@ -594,16 +576,24 @@ def test_public_exact_integer_reference_weights(
             )
         ).execute()
         assert result.to_pandas().value.tolist() == [float(Fraction(1))]
-        assert result._dataset.verified().parts[0].table.schema.field("value").type == pa.int64()
+        exchange = result._dataset.verified()
+        assert exchange.contract.parts[0].schema.field("value").type == pa.int64()
         standardized = receiver.standardize(
             reference=mv.reference_weights(
                 current, strata=(classification,), unit=ms.ref.entity("sales.order")
             )
         ).execute()
         assert standardized.to_pandas().value.tolist() == [float(Fraction(kept[5]))]
-        retained = standardized._dataset.verified().parts
-        stratum_values = next(part.table for part in retained if part.role == "stratum_values")
-        assert cell_column(stratum_values, "cell_tag").to_pylist().count("null") == 2
+        exchange = standardized._dataset.verified()
+        stratum_values = next(
+            part.table for part in exchange.parts if part.role == "stratum_values"
+        )
+        schema = next(
+            part.schema for part in exchange.contract.parts if part.role == "stratum_values"
+        )
+        assert (
+            cell_column(to_arrow(stratum_values, schema), "cell_tag").to_pylist().count("null") == 2
+        )
 
 
 @pytest.mark.slow
@@ -705,7 +695,7 @@ def test_static_reference_rejections_are_zero_read(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("reference construction cannot read business rows")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     groups = values.group_by(category).rollup()
     weights = groups.share_of(groups.rollup())
     reference = mv.reference_weights(weights, strata=(category,), unit=ms.ref.entity("sales.order"))
@@ -827,7 +817,7 @@ def test_zero_and_signed_share_support(analysis_dsl_case_factory: DslCaseFactory
     limited = values.where(values.value.gt(0))
     result = limited.share_of(reference).execute()
     assert result.to_pandas().value.sum() == pytest.approx(1.2)
-    assert result._dataset.verified().parts[0].table["value"].to_pylist() == [150]
+    assert result._dataset.verified().parts[0].table["value"].tolist() == [150]
     with pytest.raises(AnalysisError):
         values.share_of(limited.rollup())
 
@@ -976,7 +966,7 @@ def test_fixed_selected_original_can_use_retained_full_reference(
         "A": float(Fraction(1, 3)),
         "B": float(Fraction(2, 3)),
     }
-    assert result._dataset.verified().parts[0].table["value"].to_pylist() == [180]
+    assert result._dataset.verified().parts[0].table["value"].tolist() == [180]
 
 
 def test_reference_preparation_captures_independent_source_origins(
@@ -1061,7 +1051,7 @@ def test_reference_preparation_captures_independent_source_origins(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("unproved statistical units must reject before business reads")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     assert any("share_of(" in action.call for action in linear.contract().actions)
     assert not any("standardize(" in action.call for action in linear.contract().actions)
     with pytest.raises(AnalysisError):
@@ -1093,48 +1083,30 @@ def test_zero_weight_error_propagation(cell: object) -> None:
 def test_penetration_proof_uses_complete_keys(
     damage: Literal["identity", "duplicate", "null", "reference_duplicate"] | None,
 ) -> None:
-    import pyarrow as pa
-
     from marivo.analysis.core.model import Binding, DomainSignature
     from marivo.analysis.core.rules import ReferenceDerive
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_exchange import ExchangePart
     from marivo.analysis.materialization.graph_reference import finish
 
-    schema = pa.schema(
-        [
-            pa.field("key_0", pa.string()),
-            pa.field("key_1", pa.int64()),
-            pa.field("key_2", pa.int64()),
-        ]
+    members = pd.DataFrame(
+        {
+            "key_0": ["a", "a", "b"],
+            "key_1": [9007199254740992, 9007199254740993, 9007199254740993],
+            "key_2": [1, 2, 1],
+        }
     )
-    members = pa.Table.from_pylist(
-        [
-            {"key_0": "a", "key_1": 9007199254740992, "key_2": 1},
-            {"key_0": "a", "key_1": 9007199254740993, "key_2": 2},
-            {"key_0": "b", "key_1": 9007199254740993, "key_2": 1},
-        ],
-        schema=schema,
-    )
-    values = members.take([0, 1])
-    reference = members.cast(
-        pa.schema([pa.field(field.name, field.type, nullable=False) for field in schema])
-    )
+    values = members.iloc[[0, 1]].reset_index(drop=True)
+    reference = members.copy()
     if damage == "null":
-        values = values.set_column(
-            0, schema.field("key_0"), pa.array(["a", None], type=pa.string())
-        )
+        values["key_0"] = ["a", None]
     elif damage == "reference_duplicate":
-        reference = reference.take([0, 1, 2, 2])
-    proof = values.take([1, 0])
+        reference = pd.concat((reference, reference.iloc[[2]]), ignore_index=True)
+    proof = values.iloc[[1, 0]].reset_index(drop=True)
     if damage == "identity":
-        proof = proof.set_column(
-            1,
-            schema.field("key_1"),
-            pa.array([9007199254740992, 9007199254740992], type=pa.int64()),
-        )
+        proof["key_1"] = [9007199254740992, 9007199254740992]
     elif damage == "duplicate":
-        proof = proof.take([0, 1, 1])
+        proof = pd.concat((proof, proof.iloc[[1]]), ignore_index=True)
     domain = DomainSignature(Binding("proof", "sales", "facts", "all"), "singleton", (), (), "all")
     params = ReferenceDerive("penetration", domain, "members", None, "untimed")
     parts = (
@@ -1143,7 +1115,7 @@ def test_penetration_proof_uses_complete_keys(
         ExchangePart("fixed_reference", reference),
     )
     if damage is None:
-        assert finish(params, ScalarType("float64"), parts)["value"].to_pylist() == [
+        assert finish(params, ScalarType("float64"), parts)["value"].tolist() == [
             float(Fraction(2, 3))
         ]
     else:

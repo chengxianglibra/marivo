@@ -189,23 +189,13 @@ def test_float_sum_requires_finite_complete_absolute_state() -> None:
     assert state_matches("original_sum", primary, {**state, "original_state__absolute_sum": 2e16})
 
 
-@pytest.mark.parametrize("reverse,batch_size", [(False, 1), (True, 2), (True, 1024)])
+@pytest.mark.parametrize("reverse", [False, True])
 def test_numeric_raw_order_and_exchange_batches(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     reverse: bool,
-    batch_size: int,
 ) -> None:
     from fractions import Fraction
-
-    from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
-
-    original_batches = SourceSession.batches
-    submitted: list[int] = []
-
-    def batches(self: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
-        submitted.append(batch_size)
-        return original_batches(self, read, chunk_size=batch_size)
 
     case = analysis_dsl_case_factory("j1")
     facts = [("A", 1e16), ("A", 1.0), ("A", -1e16), ("B", 0.25), ("C", 3.0)]
@@ -224,7 +214,6 @@ def test_numeric_raw_order_and_exchange_batches(
         )
     )
     ms.load(workspace_dir=case.root)
-    monkeypatch.setattr(SourceSession, "batches", batches)
     logical = case.session.members(ms.ref.entity("sales.customer")).observe(
         mv.runtime_metric.aggregate(ms.ref.measure("sales.order.amount"), agg="sum", label="sum"),
         via=ms.ref.relationship("sales.order_buyer"),
@@ -235,4 +224,3 @@ def test_numeric_raw_order_and_exchange_batches(
     bound = sum(abs(value) for _, value in facts) * 1e-12 + 1e-12
     for result in (logical.rollup().execute(), fixed.rollup().execute()):
         assert abs(result.to_pandas().value.iloc[0] - float(exact)) <= bound
-    assert submitted and set(submitted) == {batch_size}

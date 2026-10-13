@@ -1,29 +1,22 @@
 """Owned, expression-only source reads for governed datasource consumers.
 
 Provider selection is pure. Opening a selected session is the only step that
-loads its optional backend driver. The session owns every issued read and cursor.
+loads its optional backend driver. The session owns issued reads and its backend lifetime.
 """
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import closing
-from contextvars import ContextVar
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime
 from decimal import Decimal
-from importlib import import_module
-from itertools import islice
-from math import isfinite
 from pathlib import Path
-from typing import Literal, Protocol, cast, runtime_checkable
-from uuid import uuid4
+from typing import Literal
 
 import ibis
-import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
 from ibis.backends import BaseBackend
 
@@ -84,36 +77,27 @@ def provider_names() -> tuple[str, ...]:
 def _probe_backend(backend_name: str, backend: BaseBackend) -> None:
     expression = ibis.literal(1).name("probe").as_table()
     sql = backend.compile(expression, limit=None)
-    query: _execution_log.QueryLog | None = None
-
-    def submitted() -> None:
-        nonlocal query
-        query = _execution_log.QueryLog(
-            sql,
-            backend=backend_name,
-            purpose="datasource.connectivity",
-            sensitive=bool(cr.injected_values(backend)),
-        )
-
-    token = _BEFORE_SUBMIT.set(submitted)
+    query = _execution_log.QueryLog(
+        sql,
+        backend=backend_name,
+        purpose="datasource.connectivity",
+        sensitive=bool(cr.injected_values(backend)),
+    )
     try:
-        cursor = _native_cursor(backend, backend_name, sql)
-        try:
-            rows = cursor.fetchmany(2)
-            if query is not None:
-                query.rows = len(rows)
-            if len(rows) != 1 or len(rows[0]) != 1 or rows[0][0] != 1:
-                raise _invalid("one Ibis literal result equal to 1", repr(rows))
-        finally:
-            cursor.close()
+        result = backend.execute(expression, params={}, limit=None)
+        if (
+            not isinstance(result, pd.DataFrame)
+            or tuple(result.columns) != ("probe",)
+            or len(result) != 1
+            or result.iloc[0, 0] != 1
+        ):
+            raise _invalid("one Ibis literal result equal to 1", repr(result))
+        query.rows = len(result)
     except BaseException as error:
-        if query is not None:
-            query.error = error
+        query.error = error
         raise
     finally:
-        _BEFORE_SUBMIT.reset(token)
-        if query is not None:
-            query.finish("failed" if query.error is not None else "succeeded")
+        query.finish("failed" if query.error is not None else "succeeded")
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,7 +157,6 @@ class _IssuedRead:
     purpose: str
     schema: pa.Schema
     source_identity: str
-    inline_relations: tuple[ops.Relation, ...]
 
 
 @dataclass(slots=True)
@@ -182,571 +165,9 @@ class SourceSubmission:
     source_identity: str
     expression_identity: int
     sql: str
-    state: Literal["submitted", "succeeded", "failed", "closed_early"] = "submitted"
-    cursor_state: Literal["open", "closed", "connection_owned", "close_failed"] = "open"
+    state: Literal["submitted", "succeeded", "failed"] = "submitted"
     connection_disconnected: bool = False
     termination: Termination | None = None
-
-
-@runtime_checkable
-class _Cursor(Protocol):
-    def fetchmany(self, size: int) -> Sequence[Sequence[object]]: ...
-    def close(self) -> None: ...
-
-
-_CURSOR_OWNER: ContextVar[Callable[[_Cursor], None] | None] = ContextVar(
-    "source_cursor_owner", default=None
-)
-_BEFORE_SUBMIT: ContextVar[Callable[[], None] | None] = ContextVar(
-    "source_before_submit", default=None
-)
-
-
-class _ClickHouseNativeStream(Protocol):
-    def __enter__(self) -> Iterator[Sequence[object]]: ...
-    def __exit__(self, *args: object) -> object: ...
-
-
-class _ClickHouseCursor:
-    """Own the ClickHouse row stream returned for one compiled expression."""
-
-    def __init__(self, native: _ClickHouseNativeStream):
-        self._native = native
-        self._closed = False
-        self._rows: Iterator[Sequence[object]] = iter(())
-        try:
-            owner = _CURSOR_OWNER.get()
-            if owner is not None:
-                owner(self)
-            self._rows = iter(native.__enter__())
-        except BaseException:
-            self.close()
-            raise
-
-    def fetchmany(self, size: int) -> Sequence[Sequence[object]]:
-        if self._closed:
-            raise _invalid("an open ClickHouse row stream", "closed stream")
-        return tuple(tuple(row) for row in islice(self._rows, size))
-
-    def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            self._native.__exit__(None, None, None)
-
-
-@runtime_checkable
-class _DuckDBNativeResult(Protocol):
-    def fetchmany(self, size: int) -> Sequence[Sequence[object]]: ...
-
-
-class _DuckDBCursor:
-    """Keep connection-local file and JSON registrations on their owning backend."""
-
-    def __init__(self, connection: _DuckDBNativeResult):
-        self._connection = connection
-        self._closed = False
-
-    def fetchmany(self, size: int) -> Sequence[Sequence[object]]:
-        if self._closed:
-            raise _invalid("an open DuckDB result", "closed result")
-        return self._connection.fetchmany(size)
-
-    def close(self) -> None:
-        self._closed = True
-
-
-class _MySQLCursor:
-    """Restore exact temporal converters when an unbuffered result closes."""
-
-    def __init__(self, native: _Cursor, converter: dict[int, object], original: dict[int, object]):
-        self._native = native
-        self._converter = converter
-        self._original = original
-        self._closed = False
-
-    def fetchmany(self, size: int) -> Sequence[Sequence[object]]:
-        return self._native.fetchmany(size)
-
-    def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            try:
-                self._native.close()
-            finally:
-                self._converter.update(self._original)
-
-
-def _native_cursor(backend: BaseBackend, backend_name: str, sql: str) -> _Cursor:
-    connection = getattr(backend, "con", None)
-    if backend_name == "duckdb":
-        execute = getattr(connection, "execute", None)
-        if not callable(execute) or not isinstance(connection, _DuckDBNativeResult):
-            raise _invalid("a DuckDB connection-local result", "connection unavailable")
-        _log_native_submission()
-        execute(sql)
-        return _DuckDBCursor(connection)
-    if backend_name == "clickhouse":
-        stream = getattr(connection, "query_rows_stream", None)
-        if not callable(stream):
-            raise _invalid("a ClickHouse row stream", "stream unavailable")
-        _log_native_submission()
-        cursor = _ClickHouseCursor(stream(sql))
-        return cursor
-    factory = getattr(connection, "cursor", None)
-    if not callable(factory):
-        raise _invalid("a selected backend native cursor", "cursor unavailable")
-    converter: dict[int, object] | None = None
-    original: dict[int, object] | None = None
-    if backend_name == "mysql":
-        assert connection is not None
-        field_type = import_module("MySQLdb.constants.FIELD_TYPE")
-        selected = (field_type.DATE, field_type.DATETIME, field_type.TIMESTAMP)
-        converter = connection.converter
-        original = {kind: converter[kind] for kind in selected}
-
-        def exact_temporal(raw: str | bytes) -> str:
-            return raw if isinstance(raw, str) else raw.decode("ascii")
-
-        converter.update(dict.fromkeys(selected, exact_temporal))
-        try:
-            cursor = factory(import_module("MySQLdb.cursors").SSCursor)
-        except BaseException:
-            converter.update(original)
-            raise
-    else:
-        cursor = factory()
-    pending: _Cursor | None = (
-        _MySQLCursor(cursor, converter, original)
-        if converter is not None and original is not None and isinstance(cursor, _Cursor)
-        else cursor
-        if isinstance(cursor, _Cursor)
-        else None
-    )
-    owner = _CURSOR_OWNER.get()
-    try:
-        if backend_name in ("mysql", "trino") and pending is not None and owner is not None:
-            owner(pending)
-        _log_native_submission()
-        cursor.execute(sql)
-    except BaseException:
-        if backend_name == "mysql" and owner is not None:
-            raise
-        try:
-            cursor.close()
-        finally:
-            if converter is not None and original is not None:
-                converter.update(original)
-        raise
-    if not isinstance(cursor, _Cursor):
-        cursor.close()
-        if converter is not None and original is not None:
-            converter.update(original)
-        raise _invalid("a closable native batch cursor", type(cursor).__name__)
-    return (
-        pending
-        if converter is not None and original is not None and pending is not None
-        else cursor
-    )
-
-
-def _log_native_submission() -> None:
-    before_submit = _BEFORE_SUBMIT.get()
-    if before_submit is not None:
-        before_submit()
-
-
-def _exact_array(
-    values: list[object], field: pa.Field, *, backend_name: str | None = None
-) -> pa.Array:
-    arrow_type = field.type
-    normalized_values: list[object] = []
-    for value in values:
-        if value is None:
-            if not field.nullable:
-                raise _invalid(f"non-null {field.name}", "null driver value")
-            normalized_values.append(None)
-            continue
-        if pa.types.is_boolean(arrow_type):
-            if backend_name in ("mysql", "clickhouse") and type(value) is int and value in (0, 1):
-                value = bool(value)
-            valid = type(value) is bool
-        elif pa.types.is_integer(arrow_type):
-            if (
-                backend_name in ("postgres", "mysql")
-                and type(value) is Decimal
-                and value.is_finite()
-                and value == value.to_integral_value()
-            ):
-                value = int(value)
-            valid = type(value) is int
-        elif pa.types.is_floating(arrow_type):
-            valid = type(value) is float and isfinite(value)
-        elif pa.types.is_decimal(arrow_type):
-            valid = type(value) is Decimal
-        elif pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-            valid = type(value) is str
-        elif (
-            pa.types.is_binary(arrow_type)
-            or pa.types.is_large_binary(arrow_type)
-            or pa.types.is_fixed_size_binary(arrow_type)
-        ):
-            valid = type(value) is bytes
-        elif pa.types.is_timestamp(arrow_type):
-            if backend_name == "mysql" and type(value) is str:
-                if not re.fullmatch(
-                    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,6})?(?:[+-][0-9]{2}:[0-9]{2})?",
-                    value,
-                ):
-                    raise _invalid(f"exact {arrow_type} value for {field.name}", "text timestamp")
-                try:
-                    value = datetime.fromisoformat(value)
-                except ValueError as exc:
-                    raise _invalid(
-                        f"exact {arrow_type} value for {field.name}", "invalid text timestamp"
-                    ) from exc
-            # These UTC readers return naive native/text carriers. Only an
-            # explicitly UTC Arrow schema authorizes restoring the zone.
-            if (
-                backend_name in ("clickhouse", "mysql")
-                and arrow_type.tz == "UTC"
-                and type(value) is datetime
-                and value.tzinfo is None
-            ):
-                value = value.replace(tzinfo=timezone.utc)
-            valid = type(value) is datetime and (value.tzinfo is not None) == (
-                arrow_type.tz is not None
-            )
-        elif pa.types.is_date(arrow_type):
-            if backend_name == "mysql" and type(value) is str:
-                try:
-                    value = date.fromisoformat(value)
-                except ValueError as exc:
-                    raise _invalid(
-                        f"exact {arrow_type} value for {field.name}", "invalid text date"
-                    ) from exc
-            valid = type(value) is date
-        elif pa.types.is_time(arrow_type):
-            valid = type(value) is time
-        elif pa.types.is_duration(arrow_type):
-            valid = type(value) is timedelta
-        elif pa.types.is_struct(arrow_type):
-            trino_row = (
-                backend_name == "trino"
-                and type(value).__module__ == "trino.types"
-                and type(value).__name__ == "NamedRowTuple"
-            )
-            if type(value) is tuple or trino_row:
-                row_values = cast("tuple[object, ...]", value)
-                if len(row_values) != len(arrow_type):
-                    raise _invalid(
-                        f"exact {arrow_type} value for {field.name}", "tuple field count changed"
-                    )
-                if trino_row:
-                    names = getattr(value, "_names", None)
-                    if names != list(arrow_type.names):
-                        raise _invalid(
-                            f"exact {arrow_type} value for {field.name}", "row field names changed"
-                        )
-                value = dict(zip(arrow_type.names, row_values, strict=True))
-            valid = type(value) is dict
-            if valid:
-                record = cast("dict[str, object]", value)
-                valid = set(record) == set(arrow_type.names)
-                if valid:
-                    normalized_record: dict[str, object] = {}
-                    for child in arrow_type:
-                        child_value = record[child.name]
-                        if (
-                            backend_name == "postgres"
-                            and type(child_value) is str
-                            and pa.types.is_integer(child.type)
-                            and re.fullmatch(r"(?:0|-[1-9][0-9]*|[1-9][0-9]*)", child_value)
-                        ):
-                            child_value = int(child_value)
-                        normalized_child: object = _exact_array(
-                            [child_value], child, backend_name=backend_name
-                        )[0].as_py()
-                        normalized_record[child.name] = normalized_child
-                    value = normalized_record
-        elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-            valid = type(value) is list
-            if valid:
-                normalized_items: list[object] = _exact_array(
-                    cast("list[object]", value), arrow_type.value_field, backend_name=backend_name
-                ).to_pylist()
-                value = normalized_items
-        else:
-            valid = False
-        if not valid:
-            raise _invalid(f"exact {arrow_type} value for {field.name}", type(value).__name__)
-        normalized_values.append(value)
-    try:
-        result = pa.array(normalized_values, type=arrow_type, safe=True)
-    except (pa.ArrowException, OverflowError, TypeError, ValueError) as exc:
-        raise _invalid(f"exact {arrow_type} value for {field.name}", type(exc).__name__) from exc
-    if any(
-        original != decoded
-        for original, decoded in zip(normalized_values, result.to_pylist(), strict=True)
-    ):
-        raise _invalid(f"lossless {arrow_type} value for {field.name}", "value changed")
-    return result
-
-
-class SourceBatchStream:
-    """One-shot native cursor stream with a schema fixed before the first row."""
-
-    def __init__(
-        self,
-        session: SourceSession,
-        cursor: _Cursor,
-        schema: pa.Schema,
-        chunk_size: int,
-        submission: SourceSubmission,
-    ):
-        self._session = session
-        self._cursor = cursor
-        self._schema = schema
-        self._chunk_size = chunk_size
-        self._submission = submission
-        self._query_log = session._query_logs.get(id(submission))
-        self._started = False
-        self._closed = False
-        self._active: Iterator[pa.RecordBatch] | None = None
-
-    @property
-    def schema(self) -> pa.Schema:
-        return self._schema
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        if self._started or self._closed:
-            raise _invalid("one open, unconsumed batch stream", "closed or repeated stream")
-        self._started = True
-        self._active = self._iterate()
-        return self._active
-
-    def _iterate(self) -> Iterator[pa.RecordBatch]:
-        try:
-            while rows := self._cursor.fetchmany(self._chunk_size):
-                if any(len(row) != len(self._schema) for row in rows):
-                    raise _invalid("rows matching the fixed schema", "driver column count changed")
-                arrays = [
-                    _exact_array(
-                        [row[index] for row in rows],
-                        field,
-                        backend_name=self._session.provider.name,
-                    )
-                    for index, field in enumerate(self._schema)
-                ]
-                batch = pa.RecordBatch.from_arrays(arrays, schema=self._schema)
-                if self._query_log is not None:
-                    self._query_log.rows += batch.num_rows
-                    self._query_log.arrow_bytes = (self._query_log.arrow_bytes or 0) + batch.nbytes
-                yield batch
-            self._submission.state = "succeeded"
-        except GeneratorExit:
-            raise
-        except BaseException as error:
-            self._submission.state = "failed"
-            if self._query_log is not None:
-                self._query_log.error = error
-            raise
-        finally:
-            self._active = None
-            self.close()
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        query = self._query_log
-        failed = False
-        try:
-            self._close()
-        except BaseException as error:
-            failed = True
-            if query is not None:
-                query.error = error
-            if isinstance(error, Exception) and cr.injected_values(self._session._backend):
-                raise cr.safe_backend_exception(error, self._session._backend) from None
-            raise
-        finally:
-            if query is not None:
-                state: _execution_log.QueryState = (
-                    "failed"
-                    if failed or self._submission.state == "failed"
-                    else "succeeded"
-                    if self._submission.state == "succeeded"
-                    else "closed_early"
-                )
-                query.finish(
-                    state,
-                    cursor_state=self._submission.cursor_state,
-                    termination=self._submission.termination,
-                )
-
-    def _close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            if self._submission.state == "submitted":
-                self._submission.state = "closed_early"
-            try:
-                if self._active is not None:
-                    active = self._active
-                    self._active = None
-                    close_active = getattr(active, "close", None)
-                    if callable(close_active):
-                        close_active()
-            finally:
-                try:
-                    self._session._release_cursor(self._cursor, self._submission)
-                except BaseException as error:
-                    self._submission.state = "failed"
-                    if self._query_log is not None:
-                        self._query_log.error = error
-                    raise
-                finally:
-                    self._session._streams.discard(self)
-
-
-def _capture_indices(count: int) -> ir.Table:
-    """Build every capture index with a small product of two-row digits."""
-    if count < 2:
-        raise _invalid("at least two captured rows", str(count))
-    relation: ir.Table | None = None
-    fields = tuple(f"capture_bit_{bit}" for bit in range((count - 1).bit_length()))
-    for field in fields:
-        digit = (
-            ibis.literal(0, type="int64")
-            .name(field)
-            .as_table()
-            .union(ibis.literal(1, type="int64").name(field).as_table(), distinct=False)
-            .view()
-        )
-        relation = digit if relation is None else relation.cross_join(digit)
-    assert relation is not None
-    index: ir.Value = ibis.literal(0, type="int64")
-    for bit, field in enumerate(fields):
-        index = index + relation[field] * (1 << bit)
-    indices = relation.select(capture_index=index)
-    return indices.filter(indices.capture_index < count).limit(count)
-
-
-def _inline_exchange(table: pa.Table, backend: str) -> ir.Table:
-    """Represent a complete captured exchange as typed read-only Ibis literals."""
-    schema = ibis.schema(table.schema)
-    if not schema.names:
-        raise _invalid("a nonempty captured schema", "zero columns")
-
-    def scalar(value: object, dtype: dt.DataType) -> ir.Value:
-        if value is None:
-            return ibis.null().cast(dtype)
-        if dtype.is_string() and isinstance(value, str):
-            return ibis.literal(value, type=dtype)
-        if dtype.is_boolean() and type(value) is bool:
-            return ibis.literal(value, type=dtype)
-        if dtype.is_integer() and type(value) is int:
-            return ibis.literal(str(value)).cast(dtype)
-        if dtype.is_floating() and type(value) is float and isfinite(value):
-            return ibis.literal(repr(value)).cast(dtype)
-        if dtype.is_decimal() and isinstance(value, Decimal) and value.is_finite():
-            return ibis.literal(str(value)).cast(dtype)
-        if dtype.is_timestamp() and isinstance(value, datetime):
-            if dtype.timezone == "UTC" and value.tzinfo is not None:
-                value = value.astimezone(timezone.utc).replace(tzinfo=None)
-            elif dtype.timezone is not None or value.tzinfo is not None:
-                raise _invalid("a captured UTC or unzoned timestamp", str(dtype))
-            return ibis.literal(value.isoformat(sep=" ", timespec="microseconds")).cast(dtype)
-        if dtype.is_date() and isinstance(value, date) and not isinstance(value, datetime):
-            return ibis.literal(value.isoformat()).cast(dtype)
-        raise _invalid(f"a captured scalar matching {dtype}", type(value).__name__)
-
-    def empty_value(dtype: dt.DataType) -> object:
-        if dtype.nullable:
-            return None
-        if dtype.is_string():
-            return ""
-        if dtype.is_boolean():
-            return False
-        if dtype.is_integer():
-            return 0
-        if dtype.is_floating():
-            return 0.0
-        if dtype.is_decimal():
-            return Decimal(0)
-        if dtype.is_timestamp():
-            return datetime(1970, 1, 1, tzinfo=timezone.utc if dtype.timezone == "UTC" else None)
-        if dtype.is_date():
-            return date(1970, 1, 1)
-        raise _invalid(f"an empty captured scalar matching {dtype}", "unsupported type")
-
-    rows: list[ir.Table] = []
-    array_rows: list[ir.Value] = []
-    array_exchange = backend in ("clickhouse", "trino")
-    captured: dict[str, list[ir.Value]] = {name: [] for name in schema.names}
-    for index in range(max(1, table.num_rows)):
-        columns = {
-            name: scalar(
-                table.column(name)[index].as_py() if table.num_rows else empty_value(dtype), dtype
-            ).name(name)
-            for name, dtype in schema.items()
-        }
-        first, *rest = schema.names
-        if table.num_rows > 1 and array_exchange:
-            array_rows.append(ibis.struct(columns))
-        elif table.num_rows > 1:
-            for name, value in columns.items():
-                captured[name].append(value)
-            if backend != "mysql":
-                rows.append(ibis.literal(index, type="int64").name("capture_index").as_table())
-        else:
-            row = columns[first].as_table().mutate(**{name: columns[name] for name in rest})
-            rows.append(row if table.num_rows else row.filter(ibis.literal(False)))
-    if array_rows:
-        if backend == "trino":
-            indices = _capture_indices(table.num_rows)
-            nested = indices.select(captured_row=ibis.array(array_rows)[indices.capture_index])
-        else:
-            nested = ibis.array(array_rows).unnest().name("captured_row").as_table()
-        payload = nested.captured_row
-        relation = nested.select(
-            **{name: payload[name].cast(dtype) for name, dtype in schema.items()}
-        ).view()
-        if not relation.schema().to_pyarrow().equals(table.schema, check_metadata=False):
-            raise _invalid("the complete captured schema", str(relation.schema()))
-        return relation
-    while len(rows) > 1:
-        rows = [
-            rows[index].union(rows[index + 1], distinct=False)
-            if index + 1 < len(rows)
-            else rows[index]
-            for index in range(0, len(rows), 2)
-        ]
-    relation = (
-        _capture_indices(table.num_rows) if backend == "mysql" and table.num_rows > 1 else rows[0]
-    )
-    if table.num_rows > 1:
-        # Unique row indices preserve duplicate captured rows while the narrow
-        # union avoids repeating every typed column in each native branch.
-        relation = relation.distinct().limit(table.num_rows)
-        relation = relation.select(
-            **{
-                name: ibis.cases(
-                    *(
-                        (relation.capture_index == index, value)
-                        for index, value in enumerate(captured[name][:-1])
-                    ),
-                    else_=captured[name][-1],
-                ).cast(dtype)
-                for name, dtype in schema.items()
-            }
-        )
-    if backend == "mysql" and table.num_rows > 1:
-        # Keep the complete typed projection behind the same exact cardinality
-        # barrier, rather than letting native joins duplicate every CASE branch.
-        relation = relation.limit(table.num_rows)
-    relation = relation.view()
-    if not relation.schema().to_pyarrow().equals(table.schema, check_metadata=False):
-        raise _invalid("the complete captured schema", str(relation.schema()))
-    return relation
 
 
 class SourceSession:
@@ -779,15 +200,10 @@ class SourceSession:
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._bound_sources: dict[str, BoundSource] = {}
-        self._staged_relations: dict[ops.Relation, tuple[frozenset[str], str]] = {}
-        self._inline_relations: dict[ops.Relation, frozenset[str]] = {}
-        self._streams: set[SourceBatchStream] = set()
         self._closed = False
         self.submissions: list[SourceSubmission] = []
         self._query_logs: dict[int, _execution_log.QueryLog] = {}
-        self._pending_cursor: _Cursor | None = None
         self.domain_authority: dict[str, object] | None = None
-        self.domain_time_units: dict[tuple[str, str], str] = {}
 
     def __enter__(self) -> SourceSession:
         self._ensure_open()
@@ -991,22 +407,6 @@ class SourceSession:
             for item in sources
             if any(node == item.binding.relation.op() for node in expression_relations)
         }
-        present_staged = tuple(
-            (relation, origins)
-            for relation, (origins, _name) in self._staged_relations.items()
-            if any(node == relation for node in expression_relations)
-        )
-        present_inline = tuple(
-            (relation, origins)
-            for relation, origins in self._inline_relations.items()
-            if any(node == relation for node in expression_relations)
-        )
-        for _relation, origins in (*present_staged, *present_inline):
-            if not origins <= selected_ids:
-                raise _invalid(
-                    "only staged results of the selected sources", "foreign staged source"
-                )
-            present_ids.update(origins)
         if present_ids != selected_ids:
             raise _invalid("an expression derived from the bound relation", "unbound expression")
         physical_leaves = (
@@ -1018,11 +418,8 @@ class SourceSession:
         allowed_leaves = {
             node for relation_node in relation_nodes for node in relation_node.find(physical_leaves)
         }
-        allowed_leaves.update(
-            leaf for relation, _origins in present_staged for leaf in relation.find(physical_leaves)
-        )
         observed_leaves = set(expression.op().find(physical_leaves))
-        if (not observed_leaves and not present_inline) or not observed_leaves <= allowed_leaves:
+        if not observed_leaves <= allowed_leaves:
             raise _invalid(
                 "only physical inputs from the bound source", "additional physical input"
             )
@@ -1052,80 +449,16 @@ class SourceSession:
                 purpose,
                 expected_schema,
                 source_identity,
-                tuple(relation for relation, _origins in present_inline),
             ),
         )
         return issued
 
-    def stage_derived(self, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-        """Capture one exact read into an owned Ibis relation without remote writes."""
-        self._ensure_open()
-        stored = self._issued.get(id(read))
-        if stored is None or stored[0] is not read or read._owner is not self._token:
-            raise _invalid("an exact local read issued by this session", "unowned stage")
-        with closing(self.batches(read, chunk_size=1024)) as stream:
-            table = pa.Table.from_batches(stream, schema=stored[1].schema)
-        return self.stage_calculated(read, table), table
-
-    def stage_calculated(self, read: CompiledRead, table: pa.Table) -> ir.Table:
-        """Stage an exact-schema method exchange with its issued source provenance."""
-        self._ensure_open()
-        stored = self._issued.get(id(read))
-        if stored is None or stored[0] is not read or read._owner is not self._token:
-            raise _invalid("an exact read owned by this session", "unowned calculated exchange")
-        if not table.schema.equals(stored[1].schema, check_metadata=False):
-            raise _invalid("the issued exchange schema", str(table.schema))
-        if self.provider.name != "duckdb":
-            relation = _inline_exchange(table, self.provider.name)
-            self._inline_relations[relation.op()] = frozenset(stored[1].source_identity.split("|"))
-            return relation
-        name = "mv_graph_" + uuid4().hex
-        try:
-            relation = self._backend.create_table(name, table, temp=True)
-            if not isinstance(relation, ir.Table):
-                raise _invalid("one temporary Ibis relation", type(relation).__name__)
-        except BaseException:
-            self._backend.drop_table(name, force=True)
-            raise
-        self._staged_relations[relation.op()] = (
-            frozenset(stored[1].source_identity.split("|")),
-            name,
-        )
-        return relation
-
-    def release_staged(self, relations: Sequence[ir.Table]) -> None:
-        """Release only the captured relations owned by this invocation."""
-        self._ensure_open()
-        failure: BaseException | None = None
-        for relation in reversed(tuple(relations)):
-            if relation.op() in self._inline_relations:
-                del self._inline_relations[relation.op()]
-                continue
-            owned = self._staged_relations.get(relation.op())
-            if owned is None:
-                if failure is None:
-                    failure = _invalid(
-                        "an owned staged relation", "foreign or already released stage"
-                    )
-                continue
-            try:
-                self._backend.drop_table(owned[1], force=True)
-                del self._staged_relations[relation.op()]
-            except BaseException as error:
-                if failure is None:
-                    failure = error
-        if failure is not None:
-            raise failure
-
-    def batches(self, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
-        """Submit only the exact artifact issued by this open session."""
+    def _issued_read(self, read: CompiledRead) -> _IssuedRead:
         self._ensure_open()
         stored = self._issued.get(id(read))
         if read._owner is not self._token or stored is None or stored[0] is not read:
             raise _invalid("a compiled read issued by this session", "foreign or fabricated read")
         proof = stored[1]
-        if any(relation not in self._inline_relations for relation in proof.inline_relations):
-            raise _invalid("live captured relations owned by this session", "released inline stage")
         if (
             read.sql != proof.sql
             or read.expression is not proof.expression
@@ -1135,91 +468,55 @@ class SourceSession:
             or not read.schema.equals(proof.schema, check_metadata=False)
         ):
             raise _invalid("the unchanged compiled read", "altered compiled read")
-        if type(chunk_size) is not int or chunk_size < 1:
-            raise _invalid("a positive batch size", repr(chunk_size))
-        if self._streams:
-            raise _invalid("one active result per source session", "concurrent source streams")
+        return proof
+
+    def execute(self, read: CompiledRead) -> pd.DataFrame:
+        """Execute one session-issued Ibis read and return its pandas result."""
+        proof = self._issued_read(read)
+        with cr.backend_errors(self._backend):
+            current_sql = self._backend.compile(
+                proof.expression.as_table(), params=dict(proof.params), limit=None
+            )
+        if current_sql != proof.sql:
+            raise _invalid("the unchanged compiled read", "backend compilation changed")
+
         submission = SourceSubmission(
             proof.purpose, proof.source_identity, id(proof.expression.op()), proof.sql
         )
         self.submissions.append(submission)
-
-        query: _execution_log.QueryLog | None = None
-
-        def submitted() -> None:
-            nonlocal query
-            query = _execution_log.QueryLog(
-                proof.sql,
-                backend=self.provider.name,
-                purpose=proof.purpose,
-                sensitive=bool(cr.injected_values(self._backend)),
-                project_root=self._log_root,
-                datasource=self.datasource.name,
-                source_identity=proof.source_identity,
-            )
-            query.arrow_bytes = 0
-            self._query_logs[id(submission)] = query
-
-        cursor: _Cursor | None = None
-        owner_token = _CURSOR_OWNER.set(self._own_pending_cursor)
-        log_token = _BEFORE_SUBMIT.set(submitted)
+        query = _execution_log.QueryLog(
+            proof.sql,
+            backend=self.provider.name,
+            purpose=proof.purpose,
+            sensitive=bool(cr.injected_values(self._backend)),
+            project_root=self._log_root,
+            datasource=self.datasource.name,
+            source_identity=proof.source_identity,
+        )
+        self._query_logs[id(submission)] = query
         try:
-            cursor = _native_cursor(self._backend, self.provider.name, proof.sql)
-        except BaseException as error:
-            if query is not None:
-                query.error = error
-            try:
-                selected_cursor = (
-                    cursor
-                    if cursor is not None
-                    else self._pending_cursor
-                    if self.provider.name in {"mysql", "clickhouse"}
-                    else None
+            with cr.backend_errors(self._backend):
+                result = self._backend.execute(
+                    proof.expression.as_table(), params=dict(proof.params), limit=None
                 )
-                self._release_cursor(selected_cursor, submission)
-            except BaseException:
-                if (
-                    self.provider.name == "mysql"
-                    and isinstance(error, KeyboardInterrupt)
-                    and self._backend_lease is not None
-                ):
-                    self._release_backend()
-                    submission.cursor_state = "closed"
-                else:
-                    submission.cursor_state = "close_failed"
-                    raise
-            finally:
-                submission.state = "failed"
+            if not isinstance(result, pd.DataFrame):
+                raise _invalid("an Ibis pandas DataFrame result", type(result).__name__)
+            if tuple(result.columns) != tuple(proof.schema.names):
+                raise _invalid(
+                    f"DataFrame columns in compiled order {proof.schema.names!r}",
+                    repr(tuple(result.columns)),
+                )
+            query.rows = len(result)
+            submission.state = "succeeded"
+            return result
+        except BaseException as error:
+            submission.state = "failed"
+            query.error = error
             if isinstance(error, Exception) and cr.injected_values(self._backend):
                 raise cr.safe_backend_exception(error, self._backend) from None
             raise
         finally:
-            self._pending_cursor = None
-            _CURSOR_OWNER.reset(owner_token)
-            _BEFORE_SUBMIT.reset(log_token)
-            if query is not None and query.error is not None:
-                query.finish(
-                    "failed",
-                    cursor_state=submission.cursor_state,
-                    termination=submission.termination,
-                )
-        if not isinstance(cursor, _Cursor):
-            close = getattr(cursor, "close", None)
-            if callable(close):
-                close()
-            submission.state = "failed"
-            submission.cursor_state = "closed"
-            error = _invalid("a closable native batch cursor", type(cursor).__name__)
-            if query is not None:
-                query.error = error
-                query.finish("failed", cursor_state=submission.cursor_state)
-            raise error
-        stream = SourceBatchStream(self, cursor, proof.schema, chunk_size, submission)
-        self._streams.add(stream)
-        return stream
-
-    def _own_pending_cursor(self, cursor: _Cursor) -> None:
-        self._pending_cursor = cursor
+            query.finish("failed" if query.error is not None else "succeeded")
 
     def collect_bounded(
         self,
@@ -1228,9 +525,8 @@ class SourceSession:
         source_identities: Sequence[str] | None = None,
         purpose: str,
         max_rows: int,
-        chunk_size: int = 1024,
-    ) -> pa.Table:
-        """Collect a guarded authoring read through the session's exact bindings."""
+    ) -> pd.DataFrame:
+        """Execute a row-bounded authoring read through the session's exact bindings."""
         if type(max_rows) is not int or max_rows < 1:
             raise _invalid("a positive authoring row bound", repr(max_rows))
         if source_identities is None:
@@ -1256,42 +552,13 @@ class SourceSession:
             purpose=purpose,
             expected_schema=bounded.schema().to_pyarrow(),
         )
-        with closing(self.batches(read, chunk_size=chunk_size)) as stream:
-            return pa.Table.from_batches(stream, schema=stream.schema)
-
-    def _release_cursor(self, cursor: _Cursor | None, submission: SourceSubmission) -> None:
-        try:
-            if cursor is not None:
-                cursor.close()
-        except BaseException:
-            submission.cursor_state = "close_failed"
-            raise
-        else:
-            submission.cursor_state = (
-                "connection_owned" if self.provider.name == "duckdb" else "closed"
-            )
-            if submission.state in {"failed", "closed_early"}:
-                submission.termination = "remote_unknown"
+        return self.execute(read)
 
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
         failure: BaseException | None = None
-        for stream in tuple(self._streams):
-            try:
-                stream.close()
-            except BaseException as error:
-                if failure is None:
-                    failure = error
-        for _relation, (_origins, name) in tuple(self._staged_relations.items()):
-            try:
-                self._backend.drop_table(name, force=True)
-            except BaseException as error:
-                if failure is None:
-                    failure = error
-        self._staged_relations.clear()
-        self._inline_relations.clear()
         self._issued.clear()
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
@@ -1316,9 +583,7 @@ class SourceSession:
         self._backend_disconnected = True
         for submission in self.submissions:
             submission.connection_disconnected = True
-            if submission.cursor_state == "close_failed":
-                submission.cursor_state = "closed"
-            if submission.state in {"failed", "closed_early"}:
+            if submission.state == "failed":
                 submission.termination = (
                     "local_closed" if self.provider.name == "duckdb" else "remote_unknown"
                 )
@@ -1329,5 +594,4 @@ class SourceSession:
                         context=query.context,
                         termination=submission.termination,
                         connection_disconnected=True,
-                        cursor_state=submission.cursor_state,
                     )

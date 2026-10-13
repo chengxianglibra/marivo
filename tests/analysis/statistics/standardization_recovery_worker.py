@@ -25,14 +25,16 @@ from tests.support.json import Json, checked, encode, obj, read
 
 def parts(value: _MaterializedRead) -> dict[str, Json]:
     assert value._dataset is not None
+    verified = value._dataset.verified()
+    schemas = {part.role: part.schema for part in verified.contract.parts}
     return {
         part.role: checked(
             {
-                "schema": str(part.table.schema),
-                "rows": json.loads(json.dumps(part.table.to_pylist(), default=str)),
+                "schema": str(schemas[part.role]),
+                "rows": json.loads(json.dumps(part.table.to_dict(orient="records"), default=str)),
             }
         )
-        for part in value._dataset.verified().parts
+        for part in verified.parts
     }
 
 

@@ -95,12 +95,15 @@ def clickhouse_system_parts_target(
         .select("engine", "engine_full")
         .limit(1)
     )
-    rows = session.collect_bounded(
+    frame = session.collect_bounded(
         expression,
         source_identities=(identity,),
         purpose="datasource.partition_topology",
         max_rows=1,
-    ).to_pylist()
+    )
+    rows: list[dict[str, object]] = [
+        {str(name): value for name, value in row.items()} for row in frame.to_dict(orient="records")
+    ]
     if not rows:
         raise RuntimeError("ClickHouse system.tables cannot resolve the selected source")
     engine = str(rows[0].get("engine") or "")
@@ -134,12 +137,16 @@ def inspect_partition_values(request: PartitionProbeRequest) -> PartitionProbeRe
         expression = _system_parts_projection(
             relation, database, table, column, request.order, request.limit
         )
-        rows = session.collect_bounded(
+        frame = session.collect_bounded(
             expression,
             source_identities=(identity,),
             purpose="datasource.partition_metadata",
             max_rows=request.limit,
-        ).to_pylist()
+        )
+        rows: list[dict[str, object]] = [
+            {str(name): value for name, value in row.items()}
+            for row in frame.to_dict(orient="records")
+        ]
     return PartitionProbeResult(rows=tuple(rows), value_source="system_catalog")
 
 

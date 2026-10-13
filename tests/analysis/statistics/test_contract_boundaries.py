@@ -30,7 +30,7 @@ def test_artifact_rejects_unknown_evidence_without_source_replay(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("unknown metadata recovery tried to replay the source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     try:
         for field in ("unowned_evidence",):
             payload = {**__import__("json").loads(saved), field: {"kind": "unknown"}}

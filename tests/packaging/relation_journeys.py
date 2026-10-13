@@ -14,6 +14,7 @@ from typing import Literal
 
 import duckdb
 import ibis
+import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -21,7 +22,8 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_protocol
-from marivo.analysis.materialization.cell_arrow import logical_table, pack
+from marivo.analysis.materialization.cell_arrow import logical_table
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.public_dsl import _MaterializedValue
 from tests.packaging.graph_journeys import NAMES
 from tests.shared_fixtures import (
@@ -147,16 +149,18 @@ def _snapshot(value: Saved) -> dict[str, object]:
     dataset = value._dataset
     assert dataset is not None
     verified = dataset.verified()
+    part_schemas = {part.role: part.schema for part in verified.contract.parts}
     parts = []
     for part in verified.parts:
+        table = to_arrow(part.table, part_schemas[part.role])
         sink = pa.BufferOutputStream()
-        with pa.ipc.new_stream(sink, part.table.schema) as writer:
-            writer.write_table(part.table)
+        with pa.ipc.new_stream(sink, table.schema) as writer:
+            writer.write_table(table)
         parts.append(
             {
                 "role": part.role,
-                "schema": str(part.table.schema),
-                "rows": part.table.num_rows,
+                "schema": str(table.schema),
+                "rows": table.num_rows,
                 "sha256": hashlib.sha256(sink.getvalue().to_pybytes()).hexdigest(),
             }
         )
@@ -513,6 +517,7 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
     """Exercise existing Cells at the fixed consumer boundary, without a new producer."""
     from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
     from marivo.analysis.compiler.graph_plan import LocalMethodStage
+    from marivo.analysis.materialization.graph_exchange import from_pandas
     from marivo.analysis.materialization.graph_local_execution import _cohort_stage
     from marivo.analysis.methods.builtin import implementations
     from marivo.analysis.methods.semantics import MethodKey
@@ -538,7 +543,7 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
     grid = values._node.root.signature.domain.time_grid
     assert grid is not None
     cells = tuple(cell.identity for cell in grid.cells)
-    logical = logical_table(supplied.primary)
+    logical = logical_table(to_arrow(supplied.primary, supplied.contract.schema)).to_pandas()
     reasons = (
         ("unknown", ("controlled_consumer",)),
         ("undefined", ("controlled_consumer",)),
@@ -555,7 +560,7 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
         ("undecidable_unknown", ("defined",) * 3 + ("unknown",), (1, 1, 0, None), None),
         ("undefined_hard_failure", ("defined",) * 3 + ("undefined",), (1, 1, 1, None), None),
     ):
-        rows = logical.to_pylist()
+        rows = logical.to_dict(orient="records")
         for row in rows:
             index = cells.index(row["key_1"])
             row.update(
@@ -563,11 +568,13 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
                 cell_tag=tags[index],
                 cell_reason=None if tags[index] == "defined" else "controlled_consumer",
             )
-        primary = pack(pa.Table.from_pylist(rows, schema=logical.schema), reasons)
-        controlled = replace(
-            supplied,
-            primary=primary,
-            contract=replace(supplied.contract, schema=primary.schema, cell_reasons=reasons),
+        primary = pd.DataFrame(rows, columns=logical.columns)
+        controlled = from_pandas(
+            primary,
+            replace(supplied.contract, cell_reasons=reasons, _frozen=None),
+            parts=supplied.parts,
+            completed_checks=supplied.completed_checks,
+            method_state=supplied.method_state,
         )
         if expected is None:
             with pytest.raises(AnalysisError, match=r"undecidable|Cell tag undefined"):
@@ -577,7 +584,7 @@ def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
             result = _cohort_stage(stage, target, (controlled,), "controlled")
             assert len(result.primary) == (len(target.primary) if expected else 0)
             decision = next(part.table for part in result.parts if part.role == "cohort_decision")
-            assert set(decision["cohort_decision__accepted"].to_pylist()) == {expected}
+            assert set(decision["cohort_decision__accepted"].tolist()) == {expected}
             checks[name] = True
     return checks
 
@@ -645,21 +652,22 @@ def _produce(
         saved["branch_ratio"] = targets.observe(
             branch, during=august, via=via, by=(mv.member(),)
         ).execute()
-        from marivo.datasource.adapters import SourceSession
+        from marivo.datasource.adapters import CompiledRead, SourceSession
 
-        stage = SourceSession.stage_derived
-        captures = []
+        execute = SourceSession.execute
+        captures: list[tuple[CompiledRead, pd.DataFrame]] = []
 
-        def counted_stage(source_session, read):
-            result = stage(source_session, read)
+        def counted_execute(source_session: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            result = execute(source_session, read)
             if "original_state__sum" in read.schema.names:
-                captures.append(read)
+                captures.append((read, result))
             return result
 
         with pytest.MonkeyPatch.context() as counted_patch:
-            counted_patch.setattr(SourceSession, "stage_derived", counted_stage)
+            counted_patch.setattr(SourceSession, "execute", counted_execute)
             saved["shared_ratio"] = current.ratio(current).execute()
         assert len(captures) == 1
+        assert tuple(captures[0][1].columns) == tuple(captures[0][0].schema.names)
         shared_nodes["reused_observation"] = len(captures)
         grids = [
             mv.time_grid(during=mv.time_scope(start=start, end=end), grain=mv.grain("month"))

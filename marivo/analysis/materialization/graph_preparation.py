@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime
 
-import ibis.expr.operations as ops
-import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import (
@@ -57,11 +55,11 @@ from marivo.analysis.core.rules import (
     TimeRunRead,
     TimeRuns,
 )
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
     ExchangePart,
     ExchangeResult,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.consumer_rules import prepared_numeric
@@ -71,8 +69,12 @@ from marivo.datasource.adapters import SourceSession
 
 
 def _observation(
-    stage: LoweredLocal, candidates: pa.Table, selected: ExchangeResult, original: pa.Table
-) -> tuple[pa.Table, tuple[ExchangePart, ...]]:
+    stage: LoweredLocal,
+    candidates: pd.DataFrame,
+    candidate_schema: pa.Schema,
+    selected: ExchangeResult,
+    original: pd.DataFrame,
+) -> tuple[pd.DataFrame, pa.Schema, tuple[ExchangePart, ...]]:
     params = stage.stage.node.parameters
     assert isinstance(params, PreparedObservation)
     observation = params.observation
@@ -80,19 +82,20 @@ def _observation(
     keys = selected.contract.key_fields
     subject = next(p for p in selected.contract.signature.parts if isinstance(p, SubjectPart))
     subject_table = next(p.table for p in selected.parts if p.role == "subject")
+    subject_schema = next(p.schema for p in selected.contract.parts if p.role == "subject")
     subject_rows = {
         tuple(row[name] for name in keys): tuple(
             row[f"subject__key_{i}"] for i in range(len(subject.subject_key))
         )
-        for row in subject_table.to_pylist()
+        for row in subject_table.to_dict("records")
     }
     original_keys = tuple(f"key_{i}" for i in range(len(subject.subject_key)))
-    envelope = {tuple(row[name] for name in original_keys) for row in original.to_pylist()}
+    envelope = {tuple(row[name] for name in original_keys) for row in original.to_dict("records")}
     default_window: tuple[datetime, datetime] | None = None
     anchor_position: int | None = None
     grid_windows: dict[str | int, tuple[datetime, datetime]] = {}
     selections = []
-    for row in selected.primary.to_pylist():
+    for row in selected.primary.to_dict("records"):
         identity: list[str | int] = []
         for name in keys:
             value = row[name]
@@ -192,11 +195,12 @@ def _observation(
         for name in original_state.components:
             columns["original_state__" + name].append(components[name])
         if coordinate is not None:
-            grouped: dict[tuple[str, ...], list[Mapping[str, object]]] = {}
-            for row in rows:
+            grouped: dict[tuple[str, ...], list[dict[str, object]]] = {}
+            for member in rows:
+                normalized = {str(name): value for name, value in member.items()}
                 labels: list[str] = []
                 for name in coordinate.columns:
-                    label = row[name]
+                    label = normalized[name]
                     if not isinstance(label, str):
                         fail(
                             "input_binding",
@@ -204,7 +208,7 @@ def _observation(
                             stage="consume",
                         )
                     labels.append(label)
-                grouped.setdefault(tuple(labels), []).append(row)
+                grouped.setdefault(tuple(labels), []).append(normalized)
             for group_labels, members in grouped.items():
                 totals = state(observation, tuple(members))
                 coordinate_rows.append(
@@ -226,7 +230,7 @@ def _observation(
     )
     for name in layout.columns:
         dtype = (
-            selected.primary.schema.field(name).type
+            selected.contract.schema.field(name).type
             if name in keys
             else arrow_scalar_type(stage.stage.node.value_type)
             if name == "value"
@@ -234,7 +238,7 @@ def _observation(
             if name in ("cell_tag", "cell_reason")
             else pa.bool_()
             if name in ("coverage__complete", "coordinate_state__present")
-            else subject_table.schema.field(name).type
+            else subject_schema.field(name).type
             if name.startswith("subject__key_")
             else pa.int64()
             if "count" in name
@@ -242,32 +246,29 @@ def _observation(
         )
         fields.append(pa.field(name, dtype))
     metadata = {
-        **(selected.primary.schema.metadata or {}),
-        **(candidates.schema.metadata or {}),
+        **(selected.contract.schema.metadata or {}),
+        **(candidate_schema.metadata or {}),
         b"r7.restriction": json.dumps(
             {
                 "scope": stage.stage.node.signature.domain.binding.scope_id,
-                "original_member_rows": original.num_rows,
-                "selected_member_rows": selected.primary.num_rows,
-                "candidate_rows": candidates.num_rows,
-                "candidate_arrow_bytes": candidates.nbytes,
+                "original_member_rows": len(original),
+                "selected_member_rows": len(selected.primary),
+                "candidate_rows": len(candidates),
                 "window": [observation.start, observation.end],
                 "components": original_state.components,
             },
             sort_keys=True,
         ).encode(),
     }
-    table = pa.Table.from_arrays(
-        [pa.array(columns[field.name], type=field.type) for field in fields],
-        schema=pa.schema(fields, metadata=metadata),
-    )
+    schema = pa.schema(fields, metadata=metadata)
+    table = pd.DataFrame(columns, columns=layout.columns)
     retained: tuple[ExchangePart, ...] = ()
     if coordinate is not None:
         from marivo.analysis.methods.coordinate_state import component_type, retain
 
         full_schema = pa.schema(
             [
-                *(table.schema.field(k) for k in keys),
+                *(schema.field(k) for k in keys),
                 *((name, pa.string()) for name in coordinate.columns),
                 *(
                     (name, component_type(coordinate, name).to_pyarrow())
@@ -279,25 +280,25 @@ def _observation(
         retained = (
             ExchangePart(
                 "coordinate_state",
-                retain(stage.stage.node.signature, "coordinate_state", full, table),
+                retain(
+                    stage.stage.node.signature,
+                    "coordinate_state",
+                    full,
+                    to_arrow(table, schema),
+                ).to_pandas(),
             ),
         )
-    return table, retained
+    return table, schema, retained
 
 
 def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession) -> ExchangeResult:
-    owned: list[ir.Table] = []
-    try:
-        return _execute(prepared, lowered, source, owned)
-    finally:
-        source.release_staged(owned)
+    return _execute(prepared, lowered, source)
 
 
 def _execute(
     prepared: PreparedGraph,
     lowered: LoweredPlan,
     source: SourceSession,
-    lookup_relations: list[ir.Table],
 ) -> ExchangeResult:
     from marivo.analysis.materialization.graph_local_execution import (
         _row_result,
@@ -409,12 +410,12 @@ def _execute(
     completed: list[CompletedCheck] = []
     for requirement in lowered.checks:
         if isinstance(requirement, (IntegrityCheck, SemanticCheck, TemporalCheck)):
-            proof = _check(source, lowered, requirement, {})
+            proof = _check(source, lowered, requirement)
             if proof is not None:
                 completed.append(proof)
     relations = {item.output: item for item in lowered.stages if isinstance(item, LoweredRelation)}
-    tables: dict[str, pa.Table] = {}
-    replacements: dict[ops.Node, ops.Node] = {}
+    tables: dict[str, pd.DataFrame] = {}
+    table_schemas: dict[str, pa.Schema] = {}
     results: dict[str, ExchangeResult] = {}
     originals = {
         item.stage.node.inputs[1].node.identity
@@ -435,38 +436,38 @@ def _execute(
             and not _field_lookup(stage)
         ):
             continue
-        table = _read(
+        table, source_schema = _read(
             source,
             lowered,
             stage.transport if stage.transport is not None else stage.expression,
             purpose="analysis.domain.prepare",
-            replacements=replacements,
             keys=tuple(key.column for key in stage.layout.keys),
             validate_cells=False,
         )
-        retained_parts: tuple[ExchangePart, ...] = ()
-        if stage.transport is not None:
-            from marivo.analysis.materialization.graph_source_execution import _split_transport
-
-            table, retained_parts = _split_transport(stage, table)
-        _consume_field(stage, table)
-        if _field_lookup(stage):
-            issued = _issue(
+        stage_schema = (
+            source_schema
+            if stage.transport is None
+            else _issue(
                 source,
                 lowered,
                 stage.expression,
                 purpose="analysis.domain.prepare",
-                replacements=replacements,
-            )
-            staged = source.stage_calculated(issued, table)
-            lookup_relations.append(staged)
-            replacements[stage.expression.op()] = staged.op()
+            ).schema
+        )
+        retained_parts: tuple[ExchangePart, ...] = ()
+        retained_schemas: dict[str, pa.Schema] = {}
+        if stage.transport is not None:
+            from marivo.analysis.materialization.graph_source_execution import _split_transport
+
+            table, retained_parts, retained_schemas = _split_transport(stage, table, stage_schema)
+        _consume_field(stage, table, stage_schema)
         if isinstance(params, PreparedObservation):
-            table = table.replace_schema_metadata(
+            stage_schema = stage_schema.with_metadata(
                 {
+                    **(stage_schema.metadata or {}),
                     b"r7.capture_authority": json.dumps(
                         source.domain_authority, sort_keys=True
-                    ).encode()
+                    ).encode(),
                 }
             )
         if (
@@ -474,8 +475,17 @@ def _execute(
             and not isinstance(params, PreparedObservation)
             and stage.output not in results
         ):
-            results[stage.output] = _result(stage, table, (), (), retained_parts)
+            results[stage.output] = _result(
+                stage,
+                table,
+                (),
+                (),
+                retained_parts,
+                stage_schema,
+                retained_schemas,
+            )
         tables[stage.output] = table
+        table_schemas[stage.output] = stage_schema
     for item in locals_:
         params = item.stage.node.parameters
         for requirement in prepared.admitted.checks:
@@ -515,8 +525,8 @@ def _execute(
             # fixed() verifies complete key pairing and partition Cells before
             # returning. Bind those checks to this local invocation, not SQL.
             proof_digest = hashlib.sha256(
-                result.primary.schema.serialize().to_pybytes()
-                + repr(cell_rows(result.primary)).encode()
+                result.contract.schema.serialize().to_pybytes()
+                + repr(result.primary.to_dict("records")).encode()
             ).hexdigest()
             for requirement in prepared.admitted.checks:
                 if requirement.node_id != item.stage.node.identity or any(
@@ -603,12 +613,15 @@ def _execute(
             values = tuple(results[key] for key in item.stage.inputs)
             input_digest = hashlib.sha256()
             for value in values:
-                input_digest.update(value.primary.schema.serialize().to_pybytes())
-                input_digest.update(repr(cell_rows(value.primary)).encode())
+                input_digest.update(value.contract.schema.serialize().to_pybytes())
+                input_digest.update(repr(value.primary.to_dict("records")).encode())
                 for part in value.parts:
                     input_digest.update(part.role.encode())
-                    input_digest.update(part.table.schema.serialize().to_pybytes())
-                    input_digest.update(repr(cell_rows(part.table)).encode())
+                    part_schema = next(
+                        p.schema for p in value.contract.parts if p.role == part.role
+                    )
+                    input_digest.update(part_schema.serialize().to_pybytes())
+                    input_digest.update(repr(part.table.to_dict("records")).encode())
             receipt_hash = input_digest.hexdigest()
             owned = tuple(
                 c for c in prepared.admitted.checks if c.node_id == item.stage.node.identity
@@ -671,9 +684,9 @@ def _execute(
                     in ("source.contribution_partition@v1", "source.complete_coverage@v1")
                 ):
                     proof_digest = hashlib.sha256(
-                        result.primary.schema.serialize().to_pybytes()
+                        result.contract.schema.serialize().to_pybytes()
                         + repr(
-                            [(part.role, cell_rows(part.table)) for part in result.parts]
+                            [(part.role, part.table.to_dict("records")) for part in result.parts]
                         ).encode()
                     ).hexdigest()
                     completed.append(CompletedCheck(requirement, proof_digest))
@@ -745,9 +758,15 @@ def _execute(
                 for key, relation in relations.items()
                 if relation.node.identity == item.stage.node.inputs[1].node.identity
             )
-            table, coordinate_parts = _observation(item, candidates, selected, original)
+            table, table_schema, coordinate_parts = _observation(
+                item,
+                candidates,
+                table_schemas[item.stage.inputs[1]],
+                selected,
+                original,
+            )
             state_digest = hashlib.sha256(
-                table.schema.serialize().to_pybytes() + repr(cell_rows(table)).encode()
+                table_schema.serialize().to_pybytes() + repr(table.to_dict("records")).encode()
             ).hexdigest()
             completed.extend(
                 CompletedCheck(requirement, state_digest)
@@ -780,6 +799,7 @@ def _execute(
                     if any(proof.requirement == c for proof in completed)
                 ),
                 coordinate_parts,
+                table_schema,
             )
         for requirement in prepared.admitted.checks:
             if requirement.node_id != item.stage.node.identity or any(
@@ -803,8 +823,8 @@ def _execute(
                 # and cohort opportunity coverage before returning selected rows.
                 selected = results[item.stage.output]
                 proof_digest = hashlib.sha256(
-                    selected.primary.schema.serialize().to_pybytes()
-                    + repr(cell_rows(selected.primary)).encode()
+                    selected.contract.schema.serialize().to_pybytes()
+                    + repr(selected.primary.to_dict("records")).encode()
                 ).hexdigest()
             else:
                 prior = next(
@@ -825,9 +845,9 @@ def _execute(
                 proof_digest = prior.result_digest
             completed.append(CompletedCheck(requirement, proof_digest))
     result = results[lowered.primary_output]
-    from marivo.analysis.materialization.graph_exchange import from_arrow
+    from marivo.analysis.materialization.graph_exchange import from_pandas
 
-    return from_arrow(
+    return from_pandas(
         result.primary,
         replace(result.contract, pending_checks=prepared.admitted.checks),
         parts=result.parts,

@@ -6,6 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -75,37 +76,6 @@ def test_fixed_reader_failure_cannot_admit_or_publish_scoring(
         assert closed == [True]
         assert case.session.runs().items == runs
         assert case.session._runtime.store.resources(case.session.id) == ()
-
-
-def test_source_close_failure_is_atomic_after_scoring_admission(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.datasource.adapters import SourceBatchStream
-
-    case = analysis_dsl_case_factory("j2")
-    source = case.session.members(ms.ref.entity("sales.order")).read(
-        ms.ref.measure("sales.order.amount")
-    )
-    original = source.execute()
-    close = SourceBatchStream.close
-    closed: list[bool] = []
-
-    def fail(self: SourceBatchStream) -> None:
-        close(self)
-        closed.append(True)
-        raise pa.ArrowInvalid("injected scoring source close failure")
-
-    monkeypatch.setattr(SourceBatchStream, "close", fail)
-    with pytest.raises(AnalysisError):
-        source.deviation(method="zscore").execute()
-    assert closed
-    runtime = case.session._runtime
-    assert runtime.store.resources(runtime.session_ref) == ()
-    assert len(original.to_pandas()) == 11
-    with runtime.store._connection() as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert connection.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
 
 
 def test_decimal_output_overflow_is_rejection_not_positive_qualification(
@@ -229,23 +199,24 @@ def test_lost_commit_ack_returns_verified_fit_without_source_replay(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import SourceBatchStream
+    from marivo.datasource.adapters import CompiledRead, SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    iterate = SourceBatchStream._iterate
+    execute = SourceSession.execute
     reads: list[bool] = []
     committed_read_counts: list[int] = []
 
-    def read(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
+    def read(source: SourceSession, compiled: CompiledRead) -> pd.DataFrame:
+        frame = execute(source, compiled)
         reads.append(True)
-        yield from iterate(stream)
+        return frame
 
     def lose_ack(point: str) -> None:
         if point == "after_commit":
             committed_read_counts.append(len(reads))
             raise OSError("lost scoring commit acknowledgement")
 
-    monkeypatch.setattr(SourceBatchStream, "_iterate", read)
+    monkeypatch.setattr(SourceSession, "execute", read)
     runtime = case.session._runtime
     runtime._hook = lose_ack
     result = (
@@ -256,7 +227,7 @@ def test_lost_commit_ack_returns_verified_fit_without_source_replay(
     )
     assert result._dataset is not None
     checked = result._dataset.verified()
-    assert checked.primary.num_rows == 11
+    assert len(checked.primary) == 11
     assert {part.role for part in checked.parts} >= {
         "fit_inputs",
         "fit_state",

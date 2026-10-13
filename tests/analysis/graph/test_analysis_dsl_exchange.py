@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -25,25 +23,23 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.datasets import descriptors as d
-from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
-    CheckedStream,
+    ArrowPart,
+    ExchangePart,
+    ExchangeResult,
     FixedInput,
     FixedPartInput,
     PartContract,
+    _pandas_records,
     from_arrow,
     from_pandas,
     from_receipts,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract as GraphExchangeContract,
-)
-from marivo.analysis.materialization.graph_exchange import (
-    ExchangePart as GraphExchangePart,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_local_execution import (
@@ -89,6 +85,24 @@ class _PartWrite:
 class _WrittenExchange:
     primary_receipt: LocalReceipt
     retained_parts: tuple[_PartWrite, ...]
+
+
+def _arrow_table(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
+    return to_arrow(frame, schema)
+
+
+def _arrow_parts(result: ExchangeResult) -> tuple[ArrowPart, ...]:
+    return tuple(
+        ArrowPart(part.role, _arrow_table(part.table, declared.schema))
+        for part, declared in zip(result.parts, result.contract.parts, strict=True)
+    )
+
+
+def _arrow_method_state(result: ExchangeResult) -> pa.Table | None:
+    if result.method_state is None:
+        return None
+    assert result.contract.state_schema is not None
+    return _arrow_table(result.method_state, result.contract.state_schema)
 
 
 def _write_exchange(
@@ -216,32 +230,6 @@ def _batch(binding: _TestBinding) -> pa.RecordBatch:
     )
 
 
-class _MemoryStream:
-    def __init__(
-        self,
-        schema: pa.Schema,
-        batches: tuple[pa.RecordBatch, ...],
-        *,
-        fail: bool = False,
-        close_fail: bool = False,
-    ):
-        self.schema = schema
-        self.batches = batches
-        self.fail = fail
-        self.close_fail = close_fail
-        self.closed = False
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        yield from self.batches
-        if self.fail:
-            raise ValueError("private-key-canary")
-
-    def close(self) -> None:
-        self.closed = True
-        if self.close_fail:
-            raise ValueError("private-close-canary")
-
-
 def _exchange_signature() -> Signature:
     domain = DomainSignature(
         Binding("r43", "sales", "customers", "current"),
@@ -301,12 +289,12 @@ def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> Non
     source = from_arrow(
         pa.Table.from_batches((primary_batch,)),
         contract,
-        parts=(GraphExchangePart("sum", shuffled),),
+        parts=(ArrowPart("sum", shuffled),),
     )
     pandas = from_pandas(
         pa.Table.from_batches((primary_batch,)).to_pandas(types_mapper=pd.ArrowDtype),
         contract,
-        parts=(GraphExchangePart("sum", shuffled),),
+        parts=(ExchangePart("sum", shuffled.to_pandas(types_mapper=pd.ArrowDtype)),),
     )
     fixed = from_receipts(
         FixedInput(
@@ -319,23 +307,19 @@ def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> Non
         ),
         contract,
     )
-    assert logical_table(source.primary).equals(logical_table(pandas.primary))
-    assert logical_table(source.primary).equals(logical_table(fixed.primary))
-    assert source.parts[0].table.num_rows == fixed.parts[0].table.num_rows == 4
-    assert source.primary["value"].to_pylist()[0] == 2**53 + 7
-    assert cell_column(source.primary, "cell_tag").to_pylist() == [
-        "defined",
-        "null",
-        "undefined",
-        "unknown",
-    ]
+    assert source.primary.equals(pandas.primary)
+    assert source.primary.equals(fixed.primary)
+    assert len(source.parts[0].table) == len(fixed.parts[0].table) == 4
+    source_rows = _pandas_records(source.primary, source.contract.schema)
+    assert source_rows[0]["value"] == float(2**53 + 7)
+    assert [row["cell_tag"] for row in source_rows] == ["defined", "null", "undefined", "unknown"]
     with pytest.raises(MaterializationError, match="missing, reordered or extra"):
         from_arrow(pa.Table.from_batches((primary_batch,)), contract)
     with pytest.raises(MaterializationError, match="complete keys differ"):
         from_arrow(
             pa.Table.from_batches((primary_batch,)),
             contract,
-            parts=(GraphExchangePart("sum", part_table.slice(1)),),
+            parts=(ArrowPart("sum", part_table.slice(1)),),
         )
 
 
@@ -373,11 +357,11 @@ def test_empty_three_producers_keep_schema_and_verified_empty_part(
         event=lambda _name: None,
     )
     outputs = (
-        from_arrow(primary, contract, parts=(GraphExchangePart("sum", part),)),
+        from_arrow(primary, contract, parts=(ArrowPart("sum", part),)),
         from_pandas(
             primary.to_pandas(types_mapper=pd.ArrowDtype),
             contract,
-            parts=(GraphExchangePart("sum", part),),
+            parts=(ExchangePart("sum", part.to_pandas(types_mapper=pd.ArrowDtype)),),
         ),
         from_receipts(
             FixedInput(
@@ -391,50 +375,14 @@ def test_empty_three_producers_keep_schema_and_verified_empty_part(
             contract,
         ),
     )
-    assert all(item.primary.num_rows == 0 and item.parts[0].table.num_rows == 0 for item in outputs)
+    assert all(len(item.primary) == 0 and len(item.parts[0].table) == 0 for item in outputs)
     from marivo.analysis.materialization.cell_arrow import logical_schema
 
     expected = [(field.name, field.type) for field in binding.schema]
     assert all(
-        [(field.name, field.type) for field in logical_schema(item.primary.schema)] == expected
+        [(field.name, field.type) for field in logical_schema(item.contract.schema)] == expected
         for item in outputs
     )
-    assert all(item.primary.schema.equals(outputs[0].primary.schema) for item in outputs)
-
-
-def test_checked_stream_early_close_never_completes() -> None:
-    binding = _binding()
-    raw = _MemoryStream(binding.schema, (_batch(binding),))
-    stream = CheckedStream(raw, binding.schema, ("id",), binding.method.cell_reasons)
-    next(iter(stream))
-    stream.close()
-    assert not stream.completed
-
-
-def test_checked_stream_failure_and_cancel_never_complete() -> None:
-    binding = _binding()
-    batch = _batch(binding)
-    for source in (
-        _MemoryStream(binding.schema, (batch,), fail=True),
-        _MemoryStream(binding.schema, (batch,), close_fail=True),
-    ):
-        stream = CheckedStream(source, binding.schema, ("id",), binding.method.cell_reasons)
-        with pytest.raises(ValueError):
-            list(stream)
-        assert source.closed and not stream.completed
-
-    class CancelledStream(_MemoryStream):
-        def __iter__(self) -> Iterator[pa.RecordBatch]:
-            yield batch
-            raise asyncio.CancelledError
-
-    cancelled_source = CancelledStream(binding.schema, ())
-    cancelled = CheckedStream(
-        cancelled_source, binding.schema, ("id",), binding.method.cell_reasons
-    )
-    with pytest.raises(asyncio.CancelledError):
-        list(cancelled)
-    assert cancelled_source.closed and not cancelled.completed
 
 
 @pytest.mark.parametrize("method_name,expected", [("count", 4), ("count_defined", 1)])
@@ -514,21 +462,24 @@ def test_fixed_count_reads_verified_receipts_without_duckdb(
     )
     execute = execute_fixed_count if method_name == "count" else execute_fixed_row
     result = execute(PreparedGraph(admitted), lowered, selected, contract)
-    assert cell_rows(result.primary) == [
+    assert _pandas_records(result.primary, result.contract.schema) == [
         {"value": expected, "cell_tag": "defined", "cell_reason": None}
     ]
-    assert result.parts[0].table[f"row_state__{method_name}"].to_pylist() == [expected]
+    assert result.parts[0].table[f"row_state__{method_name}"].tolist() == [expected]
     assert len(result.completed_checks) == (0 if method_name == "count" else 1)
     part = result.parts[0]
     for invalid_count in (-1, expected + 1):
-        corrupted = part.table.set_column(0, part.table.schema.field(0), pa.array([invalid_count]))
+        part_schema = next(item.schema for item in result.contract.parts if item.role == part.role)
+        corrupted = _arrow_table(part.table, part_schema).set_column(
+            0, part_schema.field(0), pa.array([invalid_count])
+        )
         with pytest.raises(MaterializationError, match="numerical state disagree"):
             from_arrow(
-                result.primary,
+                _arrow_table(result.primary, result.contract.schema),
                 result.contract,
-                parts=(GraphExchangePart(part.role, corrupted),),
+                parts=(ArrowPart(part.role, corrupted),),
                 completed_checks=result.completed_checks,
-                method_state=result.method_state,
+                method_state=_arrow_method_state(result),
             )
     from marivo.analysis.materialization import graph_local_execution
 
@@ -606,25 +557,37 @@ def test_fixed_arithmetic_uses_verified_cells_and_state(
         (FixedPartInput("sum", written.retained_parts[0].storage_receipt),),
     )
     result = execute_fixed_row(PreparedGraph(admitted), lowered, selected, contract)
-    assert result.primary["value"].to_pylist() == [expected]
-    assert result.parts[0].table["row_state__sum"].to_pylist() == [14]
+    assert result.primary["value"].tolist() == [expected]
+    assert result.parts[0].table["row_state__sum"].tolist() == [14]
     assert len(result.completed_checks) == 1
     assert result.completed_checks[0].requirement.obligation.check_id == (
         "source.finite_numeric@v1"
     )
     if method == "mean":
-        assert result.parts[0].table["row_state__count"].to_pylist() == [4]
+        assert result.parts[0].table["row_state__count"].tolist() == [4]
     part = result.parts[0]
-    corrupted = part.table.set_column(0, part.table.schema.field(0), pa.array([999]))
-    for producer in (from_arrow, from_pandas):
-        with pytest.raises(MaterializationError, match="numerical state disagree"):
-            producer(
-                result.primary if producer is from_arrow else result.primary.to_pandas(),
-                result.contract,
-                parts=(GraphExchangePart(part.role, corrupted),),
-                completed_checks=result.completed_checks,
-                method_state=result.method_state,
-            )
+    part_schema = next(item.schema for item in result.contract.parts if item.role == part.role)
+    corrupted = _arrow_table(part.table, part_schema).set_column(
+        0, part_schema.field(0), pa.array([999])
+    )
+    with pytest.raises(MaterializationError, match="numerical state disagree"):
+        from_arrow(
+            _arrow_table(result.primary, result.contract.schema),
+            result.contract,
+            parts=(ArrowPart(part.role, corrupted),),
+            completed_checks=result.completed_checks,
+            method_state=_arrow_method_state(result),
+        )
+    corrupted_frame = part.table.copy()
+    corrupted_frame.iloc[0, 0] = 999
+    with pytest.raises(MaterializationError, match="numerical state disagree"):
+        from_pandas(
+            result.primary,
+            result.contract,
+            parts=(ExchangePart(part.role, corrupted_frame),),
+            completed_checks=result.completed_checks,
+            method_state=result.method_state,
+        )
 
 
 def test_fixed_spearman_pairs_complete_keys_without_source_or_duckdb(
@@ -726,39 +689,40 @@ def test_fixed_spearman_pairs_complete_keys_without_source_or_duckdb(
     result = execute_fixed_spearman(
         PreparedGraph(admitted), lowered, (inputs[0], inputs[1]), (contracts[0], contracts[1])
     )
-    assert cell_rows(result.primary) == [
+    assert _pandas_records(result.primary, result.contract.schema) == [
         {"status": "valid", "value": -1.0, "cell_tag": "defined", "cell_reason": None}
     ]
-    assert result.parts[0].table["pair_counts__complete_pair_count"].to_pylist() == [4]
+    assert result.parts[0].table["pair_counts__complete_pair_count"].tolist() == [4]
     assert len(result.completed_checks) == 2
     assert result.method_state is not None
-    assert result.method_state["status"].to_pylist() == ["valid"]
+    assert result.method_state["status"].tolist() == ["valid"]
     part = result.parts[0]
+    part_schema = next(item.schema for item in result.contract.parts if item.role == part.role)
     for invalid_count in (-1, 0, 5):
-        index = part.table.schema.get_field_index("pair_counts__complete_pair_count")
-        corrupted = part.table.set_column(
-            index, part.table.schema.field(index), pa.array([invalid_count])
+        index = part_schema.get_field_index("pair_counts__complete_pair_count")
+        corrupted = _arrow_table(part.table, part_schema).set_column(
+            index, part_schema.field(index), pa.array([invalid_count])
         )
         with pytest.raises(MaterializationError, match="numerical state disagree"):
             from_arrow(
-                result.primary,
+                _arrow_table(result.primary, result.contract.schema),
                 result.contract,
-                parts=(GraphExchangePart(part.role, corrupted),),
+                parts=(ArrowPart(part.role, corrupted),),
                 completed_checks=result.completed_checks,
-                method_state=result.method_state,
+                method_state=_arrow_method_state(result),
             )
     with pytest.raises(MaterializationError, match="method state vector"):
         from_arrow(
-            result.primary,
+            _arrow_table(result.primary, result.contract.schema),
             result.contract,
-            parts=result.parts,
+            parts=_arrow_parts(result),
             completed_checks=result.completed_checks,
         )
     with pytest.raises(MaterializationError, match="state and primary Cell disagree"):
         from_arrow(
-            result.primary,
+            _arrow_table(result.primary, result.contract.schema),
             result.contract,
-            parts=result.parts,
+            parts=_arrow_parts(result),
             completed_checks=result.completed_checks,
             method_state=pa.table({"status": ["constant_a"]}),
         )
@@ -790,7 +754,7 @@ def test_fixed_spearman_pairs_complete_keys_without_source_or_duckdb(
         (inputs[0], inputs[0]),
         (contracts[0], contracts[0]),
     )
-    assert self_result.primary["value"].to_pylist() == [1.0]
+    assert self_result.primary["value"].tolist() == [1.0]
     assert reads == [inputs[0].artifact_ref]
     with pytest.raises(MaterializationError, match="missing, reordered or extra"):
         execute_fixed_spearman(

@@ -114,7 +114,6 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
             submissions = [submission for owner in owners for submission in owner.submissions]
             assert len(submissions) == 1
             assert submissions[0].state == "failed"
-            assert submissions[0].cursor_state == "closed"
             assert submissions[0].connection_disconnected
             assert (native_ids[0], submissions[0].sql) in native_sql
             controls = [item for owner in owners for item in provider_statement_log(owner._backend)]

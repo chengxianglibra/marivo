@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+import pandas as pd
+import pyarrow as pa
 from pydantic import TypeAdapter, ValidationError
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
@@ -17,6 +19,7 @@ from marivo.analysis.evidence._dataset_codec import (
 )
 from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangePart,
     ExchangeResult,
 )
@@ -70,10 +73,16 @@ class Policy:
 POLICY = TypeAdapter(Policy)
 
 
-def _policy(parts: tuple[ExchangePart, ...]) -> Policy:
-    payload = next(p.table for p in parts if p.role == "finding_policy")[
-        "finding_policy__retained"
-    ][0].as_py()
+def _policy(parts: tuple[ExchangePart | ArrowPart, ...]) -> Policy:
+    table = next(p.table for p in parts if p.role == "finding_policy")
+    if isinstance(table, pd.DataFrame):
+        payload = table["finding_policy__retained"].iloc[0]
+    elif isinstance(table, pa.Table):
+        payload = table["finding_policy__retained"][0].as_py()
+    else:
+        raise invalid("Finding policy is not a tabular retained part")
+    if not isinstance(payload, str):
+        raise invalid("Finding policy payload is not a JSON string")
     try:
         policy = POLICY.validate_json(payload, strict=True)
     except ValidationError:

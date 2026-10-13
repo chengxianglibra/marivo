@@ -20,12 +20,12 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.core.rules import RowState
-from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangeResult,
     from_arrow,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_local_execution import _row_result
 from marivo.analysis.methods.errors import MethodRegistrationError
@@ -146,15 +146,15 @@ def test_decimal_row_statistics_preserve_large_fractional_values_and_sum_scale(
     expected = (
         Decimal("18014398509481986.04") if method == "sum" else Decimal("6004799503160662.013333")
     )
-    assert result.primary["value"].to_pylist() == [expected]
+    assert result.primary["value"].tolist() == [expected]
     output_type = pa.decimal128(38, 2 if method == "sum" else 6)
-    assert result.primary.schema.field("value").type == output_type
+    assert result.contract.schema.field("value").type == output_type
     state = result.parts[0].table
-    assert state.schema.field("row_state__sum").type == pa.decimal128(38, 2)
-    assert state["row_state__sum"].to_pylist() == [Decimal("18014398509481986.04")]
-    assert state["row_state__count"].to_pylist() == [3]
+    assert result.contract.parts[0].schema.field("row_state__sum").type == pa.decimal128(38, 2)
+    assert state["row_state__sum"].tolist() == [Decimal("18014398509481986.04")]
+    assert state["row_state__count"].tolist() == [3]
     merged = _reduce(result, method, DecimalType(38, 2 if method == "sum" else 6), merge=True)
-    assert logical_table(merged.primary).equals(logical_table(result.primary))
+    assert merged.primary.equals(result.primary)
     assert merged.parts[0].table.equals(state)
 
 
@@ -170,7 +170,7 @@ def test_decimal_mean_rounds_half_even_once_from_exact_sum_count(total: str, exp
 @pytest.mark.parametrize("method", ["sum", "mean"])
 def test_decimal_empty_row_statistics_and_retained_merge(method: Literal["sum", "mean"]) -> None:
     result = _reduce(_input(()), method, DecimalType(18, 2))
-    assert cell_rows(result.primary) == [
+    assert cell_rows(to_arrow(result.primary, result.contract.schema)) == [
         {
             "value": Decimal("0.00") if method == "sum" else None,
             "cell_tag": "defined" if method == "sum" else "undefined",
@@ -178,7 +178,7 @@ def test_decimal_empty_row_statistics_and_retained_merge(method: Literal["sum", 
         }
     ]
     merged = _reduce(result, method, DecimalType(38, 2 if method == "sum" else 6), merge=True)
-    assert logical_table(merged.primary).equals(logical_table(result.primary))
+    assert merged.primary.equals(result.primary)
     assert merged.parts[0].table.equals(result.parts[0].table)
 
 

@@ -491,7 +491,7 @@ def test_computed_measure_graph_rejects_before_business_reads_and_run(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("unqualified computed graph read business rows")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     members = computation_session.members(ms.ref.entity("sales.orders"))
     with pytest.raises(AnalysisError, match="Measure is not a frozen direct column"):
         members.observe(ms.ref.metric(f"sales.{metric}"), by=(mv.member(),))

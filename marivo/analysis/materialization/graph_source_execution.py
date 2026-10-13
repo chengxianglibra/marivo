@@ -8,8 +8,8 @@ from dataclasses import replace
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
@@ -21,7 +21,14 @@ from marivo.analysis.compiler.graph_lowering import (
     TemporalCheck,
 )
 from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.cell_encoding import CellBook, CellEncoding, CellFields, EncodedCell
+from marivo.analysis.core.cell_encoding import (
+    CellBook,
+    CellEncoding,
+    CellFields,
+    EncodedCell,
+    KnownCell,
+    ValidityCell,
+)
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
 from marivo.analysis.core.rules import (
@@ -45,81 +52,145 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.cell_arrow import (
+    binding,
     from_rows,
     project,
-    rename,
     required,
     rows,
     schema_binding,
 )
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
-    CheckedStream,
     CompletedCheck,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
-    from_arrow,
+    from_pandas,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
-from marivo.analysis.methods.comparison import propagated_error
+from marivo.analysis.methods.comparison import propagated_cell, propagated_error
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import CompiledRead, SourceSession
 
 
+def _as_arrow(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
+    try:
+        return pa.Table.from_pandas(frame, schema=schema, preserve_index=False, safe=False)
+    except (pa.ArrowException, TypeError, ValueError) as error:
+        raise _invalid(
+            f"pandas result cannot enter the frozen Arrow schema: {type(error).__name__}"
+        ) from error
+
+
+def _validate_pandas_cells(frame: pd.DataFrame, schema: pa.Schema) -> None:
+    for cell in binding(schema, exact=True).cells:
+        values = frame[cell.fields.value]
+        missing = values.isna()
+        if isinstance(cell, KnownCell):
+            if len(frame) and (missing.any() if cell.code == 0 else not missing.all()):
+                raise _invalid("source result disagrees with its known Cell")
+        elif isinstance(cell, ValidityCell):
+            continue
+        else:
+            codes = frame[cell.state]
+            if codes.isna().any():
+                raise _invalid("source result contains an absent Cell state code")
+            admitted = {0, *cell.book.codes()}
+            if cell.optional:
+                admitted.add(-1)
+            for raw, value_is_missing in zip(codes, missing, strict=True):
+                if isinstance(raw, bool):
+                    raise _invalid("source result contains a non-integer Cell state")
+                if not isinstance(raw, int | float):
+                    try:
+                        code = int(raw)
+                    except (OverflowError, TypeError, ValueError) as error:
+                        raise _invalid("source result contains a non-integer Cell state") from error
+                    if code != raw:
+                        raise _invalid("source result contains a non-integer Cell state")
+                else:
+                    code = int(raw)
+                if code not in admitted:
+                    raise _invalid("source result contains an undeclared Cell state")
+                if (code == 0) == value_is_missing:
+                    raise _invalid("source result disagrees with its Cell state")
+                if code > 0:
+                    cell.book.decode(code)
+
+
+def _project_schema(schema: pa.Schema, columns: tuple[str, ...]) -> pa.Schema:
+    empty = pa.Table.from_batches((), schema=schema)
+    return project(empty, columns).schema
+
+
 def _split_transport(
-    stage: LoweredRelation, table: pa.Table
-) -> tuple[pa.Table, tuple[ExchangePart, ...]]:
+    stage: LoweredRelation, table: pd.DataFrame, schema: pa.Schema
+) -> tuple[pd.DataFrame, tuple[ExchangePart, ...], dict[str, pa.Schema]]:
     from marivo.analysis.compiler.coordinate_state import physical
 
-    if "__marivo_coordinate_row" in table.column_names:
+    if "__marivo_coordinate_row" in table.columns:
         from marivo.analysis.core.model import CoordinateStatePart, part_role
         from marivo.analysis.methods.coordinate_state import retain
 
         keys = tuple(key.column for key in stage.layout.keys)
         positions: dict[tuple[object, ...], int] = {}
-        for index, row in enumerate(
-            table.select(keys).to_pylist() if keys else [{} for _ in range(len(table))]
+        for index, key in enumerate(
+            table.loc[:, keys].itertuples(index=False, name=None)
+            if keys
+            else (() for _ in range(len(table)))
         ):
-            positions.setdefault(tuple(row[key] for key in keys), index)
-        primary = project(
-            table.take(pa.array(list(positions.values()), type=pa.int64())), stage.layout.columns
-        )
+            positions.setdefault(tuple(key), index)
+        primary = table.iloc[list(positions.values())].loc[:, stage.layout.columns].copy()
         part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
-        actual = table.filter(table["__marivo_coordinate_row"])
-        full = pa.Table.from_arrays(
-            [
-                *(actual[k] for k in keys),
-                *(actual["__coordinate__" + name] for name in (*part.columns, *part.components)),
-            ],
-            names=[*keys, *part.columns, *part.components],
-        )
-        return primary, (
-            ExchangePart(
-                part_role(part), retain(stage.node.signature, part_role(part), full, primary)
+        actual = table.loc[table["__marivo_coordinate_row"].fillna(False)]
+        full = pa.Table.from_pandas(
+            actual.loc[
+                :,
+                [*keys, *("__coordinate__" + name for name in (*part.columns, *part.components))],
+            ].rename(
+                columns={
+                    "__coordinate__" + name: name for name in (*part.columns, *part.components)
+                }
             ),
+            preserve_index=False,
+        )
+        retained = retain(
+            stage.node.signature,
+            part_role(part),
+            full,
+            _as_arrow(primary, _project_schema(schema, stage.layout.columns)),
+        )
+        return (
+            primary,
+            (ExchangePart(part_role(part), retained.to_pandas()),),
+            {part_role(part): retained.schema},
         )
 
     children = physical(stage)
     kinds = table["__marivo_row_kind"]
-    if kinds.null_count or any(
-        value not in range(len(children) + 1) for value in kinds.to_pylist()
-    ):
+    if kinds.isna().any() or any(value not in range(len(children) + 1) for value in kinds):
         raise _invalid("terminal transport contains an absent or unknown row kind")
-    result: list[pa.Table] = []
+    result: list[pd.DataFrame] = []
     for index, expression in enumerate((stage.expression, *(value for _, value in children))):
-        selected = table.filter(pc.equal(table["__marivo_row_kind"], index))
+        selected = table.loc[table["__marivo_row_kind"] == index]
         names = tuple(expression.columns)
         result.append(
-            rename(project(selected, tuple(f"__part_{index}__{name}" for name in names)), names)
+            selected.loc[:, [f"__part_{index}__{name}" for name in names]]
+            .rename(
+                columns=dict(zip((f"__part_{index}__{name}" for name in names), names, strict=True))
+            )
+            .reset_index(drop=True)
         )
-    return result[0], tuple(
-        ExchangePart(role, value) for (role, _), value in zip(children, result[1:], strict=True)
+    return (
+        result[0],
+        tuple(
+            ExchangePart(role, value) for (role, _), value in zip(children, result[1:], strict=True)
+        ),
+        {role: expression.schema().to_pyarrow() for role, expression in children},
     )
 
 
@@ -138,7 +209,6 @@ def _issue(
     expression: ir.Table,
     *,
     purpose: str,
-    replacements: dict[ops.Node, ops.Node],
 ) -> CompiledRead:
     bindings = lowered.sources_for(expression)
     if not bindings:
@@ -166,28 +236,7 @@ def _issue(
             if not any(old.fields == fields for old in previous):
                 raw_cells[relation] = (*previous, encoded)
     compact = lower_cells(expression, raw_cells=raw_cells, stage_policies=stage_policies)
-    physical_replacements: dict[ops.Node, ops.Node] = {}
-    for original, replacement in replacements.items():
-        if not isinstance(original, ops.Relation) or not isinstance(replacement, ops.Relation):
-            raise _invalid("staged replacement lacks an exact relation")
-        emitted = lower_cells(
-            original.to_expr(), raw_cells=raw_cells, stage_policies=stage_policies
-        ).expression
-        staged = replacement.to_expr()
-        # Staged backends may widen integers or forget SQL nullability.
-        staged = staged.mutate(
-            **{
-                name: staged[name].cast(dtype)
-                for name, dtype in emitted.schema().items()
-                if staged[name].type() != dtype
-            }
-        )
-        physical_replacements[emitted.op()] = staged.op()
-    rewritten = (
-        compact.expression.op().replace(physical_replacements).to_expr()
-        if physical_replacements
-        else compact.expression
-    )
+    rewritten = compact.expression
     if not isinstance(rewritten, ir.Table):
         raise _invalid("rewritten stage is not an Ibis table")
     # Ibis outer joins can widen state nullability; the Cell carrier is still
@@ -218,37 +267,54 @@ def _read(
     expression: ir.Table,
     *,
     purpose: str,
-    replacements: dict[ops.Node, ops.Node],
     keys: tuple[str, ...] = (),
     validate_cells: bool = False,
     cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
-) -> pa.Table:
-    issued = _issue(source, lowered, expression, purpose=purpose, replacements=replacements)
-    schema = issued.schema
-    stream = CheckedStream(
-        source.batches(issued, chunk_size=1024),
-        schema,
-        keys,
-        cell_reasons,
-        validate_cells=validate_cells,
-    )
-    try:
-        table = pa.Table.from_batches(tuple(stream), schema=schema)
-    finally:
-        stream.close()
-    if not stream.completed:
-        raise _invalid("source stream was not exhausted")
-    return table
+) -> tuple[pd.DataFrame, pa.Schema]:
+    issued = _issue(source, lowered, expression, purpose=purpose)
+    frame = source.execute(issued)
+    if tuple(frame.columns) != tuple(issued.schema.names):
+        raise _invalid("source DataFrame columns differ from the issued schema")
+    if binding(issued.schema).cells:
+        _validate_pandas_cells(frame, issued.schema)
+    if keys and (
+        frame.loc[:, list(keys)].isna().to_numpy().any() or frame.duplicated(list(keys)).any()
+    ):
+        raise _invalid("source result contains a null or duplicate complete key")
+    if validate_cells and {"value", "cell_tag", "cell_reason"} <= set(frame.columns):
+        reasons = dict(cell_reasons)
+        for row in frame.loc[:, ["value", "cell_tag", "cell_reason"]].to_dict("records"):
+            value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+            if tag == "defined":
+                if pd.isna(value) or not pd.isna(reason):
+                    raise _invalid("source result contains an invalid Defined Cell")
+            elif (
+                tag not in ("null", "undefined", "unknown")
+                or not pd.isna(value)
+                or reason not in reasons.get(tag, ())
+            ):
+                raise _invalid("source result contains an invalid non-Defined Cell")
+    return frame, issued.schema
 
 
-def _consume_field(stage: LoweredRelation, table: pa.Table) -> None:
+def _consume_field(stage: LoweredRelation, table: pd.DataFrame, schema: pa.Schema) -> None:
     """Require the operand returned by a field lookup, without proving its mapping."""
     params = stage.node.parameters if isinstance(stage.node, MethodNode) else None
     if not isinstance(params, BindProject) or params.field_contract is None:
         return
     cell = stage.layout.cell
     assert cell is not None
-    missing = cell_column(table, cell.tag).null_count
+    encoding = next(
+        (item for item in binding(schema, exact=True).cells if item.fields.tag == cell.tag),
+        None,
+    )
+    if encoding is None:
+        raise _invalid("required field Cell tag has no exact schema binding")
+    missing = (
+        int((table[encoding.state] == -1).sum())
+        if isinstance(encoding, EncodedCell) and encoding.optional
+        else 0
+    )
     if missing:
         raise MaterializationError(
             expected=f"an owner operand for {params.ref.path} on every consumed complete key",
@@ -274,14 +340,12 @@ def _check(
     source: SourceSession,
     lowered: LoweredPlan,
     check: IntegrityCheck | SemanticCheck | TemporalCheck,
-    replacements: dict[ops.Node, ops.Node],
 ) -> CompletedCheck | None:
-    table = _read(
+    table, _schema = _read(
         source,
         lowered,
         check.violations,
         purpose="analysis.graph.check",
-        replacements=replacements,
         validate_cells=False,
     )
     if isinstance(check, TemporalCheck):
@@ -289,7 +353,7 @@ def _check(
 
         from marivo.analysis.core.time_grid import instant
 
-        for row in table.to_pylist():
+        for row in table.to_dict("records"):
             raw, actual = row["raw_time"], row["normalized_time"]
             if raw is None and actual is None:
                 continue
@@ -322,7 +386,7 @@ def _check(
             if actual != expected_time:
                 raise _invalid("source engine timezone rules differ from frozen temporal authority")
         return None
-    if table.num_rows:
+    if not table.empty:
         expected = (
             check.expected
             if isinstance(check, IntegrityCheck)
@@ -382,17 +446,19 @@ def _check(
                 expected.split(":", 1)[0],
                 "prepare",
                 expected,
-                f"{table.num_rows} violating captured rows",
+                f"{len(table)} violating captured rows",
                 "Correct the named occurrence keys, participant or version before retrying.",
             )
         raise MaterializationError(
             expected=expected,
-            received=f"{table.num_rows} violating rows",
+            received=f"{len(table)} violating rows",
             repair=repair,
             stage="graph_check",
         )
     if isinstance(check, SemanticCheck):
-        digest = hashlib.sha256(table.schema.serialize().to_pybytes()).hexdigest()
+        digest = hashlib.sha256(
+            repr((tuple(table.columns), tuple(map(str, table.dtypes)))).encode()
+        ).hexdigest()
         return CompletedCheck(check.requirement, digest, check.consumers)
     return None
 
@@ -421,56 +487,26 @@ def _ordered_checks(
 
 def _result(
     stage: LoweredRelation,
-    table: pa.Table,
+    table: pd.DataFrame,
     completed: tuple[CompletedCheck, ...],
     pending: tuple[CheckRequirement, ...],
     retained_parts: tuple[ExchangePart, ...] = (),
+    schema: pa.Schema | None = None,
+    retained_schemas: dict[str, pa.Schema] | None = None,
 ) -> ExchangeResult:
     if not isinstance(stage.node, MethodNode):
         raise _invalid("root must be a registered method node")
-    if "original_state__samples" in table.column_names:
+    if schema is None:
+        raise _invalid("pandas source result lacks its issued Arrow schema")
+    if "original_state__samples" in table.columns:
         from marivo.analysis.methods.temporal_fold import decode_samples, encode_samples
 
         try:
-            canonical_samples = [
-                encode_samples(decode_samples(value))
-                for value in table["original_state__samples"].to_pylist()
-            ]
+            table["original_state__samples"] = table["original_state__samples"].map(
+                lambda value: encode_samples(decode_samples(value))
+            )
         except (ValueError, TypeError, OverflowError) as error:
             raise _invalid("invalid source pre-fold samples") from error
-        table = table.set_column(
-            table.schema.get_field_index("original_state__samples"),
-            "original_state__samples",
-            pa.array(canonical_samples, type=pa.string()),
-        )
-    from marivo.analysis.methods.physical import DurationType
-
-    if isinstance(stage.node.value_type, DurationType) and "value" in table.column_names:
-        table = table.set_column(
-            table.schema.get_field_index("value"),
-            "value",
-            table["value"].cast(pa.duration(stage.node.value_type.unit), safe=True),
-        )
-    from marivo.analysis.core.model import DisplayPart
-
-    for display_part in stage.node.signature.parts:
-        if isinstance(display_part, DisplayPart):
-            for component, dtype in zip(display_part.components, display_part.types, strict=True):
-                name = f"{display_part.role}__{component}"
-                if dtype.startswith("interval(") and name in table.column_names:
-                    import ibis.expr.datatypes as dt
-
-                    table = table.set_column(
-                        table.schema.get_field_index(name),
-                        name,
-                        table[name].cast(dt.dtype(dtype).to_pyarrow()),
-                    )
-                    if display_part.role == "columns":
-                        table = table.set_column(
-                            table.schema.get_field_index(component),
-                            component,
-                            table[component].cast(dt.dtype(dtype).to_pyarrow()),
-                        )
     key_names = tuple(item.column for item in stage.layout.keys)
     cell_names = (
         ()
@@ -482,33 +518,23 @@ def _result(
         )
     )
     primary_names = (*key_names, *stage.layout.extras, *cell_names)
-    primary = project(table, primary_names)
+    primary_schema = _project_schema(schema, primary_names)
+    primary = table.loc[:, list(primary_schema.names)].copy()
+    saved_schemas = retained_schemas or {}
     part_contracts: list[PartContract] = []
     parts: list[ExchangePart] = []
-    from marivo.analysis.core.model import AttributionPart, part_role
+    from marivo.analysis.core.model import part_role
 
     for part in stage.layout.parts:
         role = part_role(part.part)
         names = (*key_names, *(component.column for component in part.columns))
-        selected = next(
-            (item.table for item in retained_parts if item.role == role), project(table, names)
+        selected_schema = saved_schemas.get(role, _project_schema(schema, names))
+        retained = next((item for item in retained_parts if item.role == role), None)
+        selected = (
+            retained.table.loc[:, list(selected_schema.names)].copy()
+            if retained is not None
+            else table.loc[:, list(selected_schema.names)].copy()
         )
-        if isinstance(stage.node.value_type, DurationType) and isinstance(
-            part.part, AttributionPart
-        ):
-            for name in (
-                ("contribution", "current", "baseline")
-                if role == "allocation"
-                else ("target", "total")
-                if role == "reconciliation"
-                else ()
-            ):
-                column = role + "__" + name
-                selected = selected.set_column(
-                    selected.schema.get_field_index(column),
-                    column,
-                    selected[column].cast(pa.duration(stage.node.value_type.unit), safe=True),
-                )
         from marivo.analysis.materialization.graph_reference import part_keys
         from marivo.analysis.methods.coordinate_state import (
             PartitionCoordinateLayout,
@@ -523,7 +549,7 @@ def _result(
             if isinstance(spec, PartitionCoordinateLayout)
             else part_keys(stage.node.signature, role)
         )
-        part_contracts.append(PartContract(role, selected.schema, retained_keys))
+        part_contracts.append(PartContract(role, selected_schema, retained_keys))
         parts.append(ExchangePart(role, selected))
     from marivo.analysis.methods.coordinate_state import (
         KeyedCoordinateLayout,
@@ -544,64 +570,71 @@ def _result(
             if isinstance(spec, PartitionCoordinateLayout)
             else spec.keys
         )
+        selected_schema = saved_schemas.get(retained.role)
+        if selected_schema is None:
+            raise _invalid("retained source part lacks its frozen schema")
         parts.append(retained)
-        part_contracts.append(PartContract(retained.role, retained.table.schema, keys))
+        part_contracts.append(PartContract(retained.role, selected_schema, keys))
     source_ids = ",".join(stage.source_ids)
     state_kind = REGISTRY.lookup(stage.node.method).semantics.persistent_state_kind
     if state_kind is None:
         raise _invalid(f"method {stage.node.method} has no durable state qualification")
     if state_kind == "spearman":
-        for status, value in zip(
-            primary["status"].to_pylist(), primary["value"].to_pylist(), strict=True
-        ):
+        for status, value in zip(primary["status"], primary["value"], strict=True):
             if status == "valid" and (
                 type(value) is not float or not math.isfinite(value) or abs(value) > 1 + 1e-12
             ):
                 raise _invalid(
                     "finite valid Spearman coefficient in [-1, 1] required at conversion"
                 )
-    state = None
+    state: pd.DataFrame | None = None
+    state_schema: pa.Schema | None = None
     if state_kind != "none":
         statuses = (
-            pa.array(["accepted"] * len(primary), type=pa.string())
+            ["accepted"] * len(primary)
             if state_kind
             in (
                 "cohort",
                 "table",
             )
-            else primary.column("status")
+            else primary["status"].tolist()
             if state_kind == "spearman"
-            else cell_column(primary, "cell_tag")
+            else _pandas_cell_values(primary, primary_schema, "cell_tag")
         )
-        state = pa.Table.from_arrays(
-            [*(primary.column(name) for name in key_names), statuses],
-            names=[*key_names, "status"],
-        )
+        state_values: dict[str, object] = {key: primary[key].tolist() for key in key_names}
+        state_values["status"] = statuses
+        state_fields = [
+            *(primary_schema.field(name) for name in key_names),
+            pa.field("status", pa.string()),
+        ]
         if (
             state_kind in ("share", "penetration", "standardized")
             and isinstance(stage.node.signature.quantity, DerivedQuantity)
             and stage.node.signature.quantity.method_version.startswith("reference.")
         ):
             from marivo.analysis.materialization.graph_exchange import reference_parameters
-            from marivo.analysis.materialization.graph_reference import error_bounds
+            from marivo.analysis.materialization.graph_reference import _pandas_error_bounds
 
-            state = state.append_column(
-                "error_bound",
-                pa.array(
-                    error_bounds(reference_parameters(stage.node.signature), tuple(parts), primary),
-                    type=pa.float64(),
-                ),
+            state_values["error_bound"] = _pandas_error_bounds(
+                reference_parameters(stage.node.signature),
+                tuple(parts),
+                primary,
+                {part.role: part.schema for part in part_contracts},
+                primary_schema,
             )
+            state_fields.append(pa.field("error_bound", pa.float64()))
+        state_schema = pa.schema(state_fields)
+        state = pd.DataFrame(state_values)
     contract = ExchangeContract(
         stage.node.signature,
         stage.node.method,
         source_ids,
-        primary.schema,
+        primary_schema,
         key_names,
         tuple(part_contracts),
         stage.cell_reasons,
         state_kind,
-        None if state is None else state.schema,
+        state_schema,
         pending,
         (
             isinstance(stage.node.parameters, (CellDerive, DisplayRank, DisplayTable))
@@ -616,7 +649,7 @@ def _result(
         and not key_names,
         stage.column_reasons,
     )
-    return from_arrow(
+    return from_pandas(
         primary,
         contract,
         parts=tuple(parts),
@@ -624,6 +657,28 @@ def _result(
         method_state=state,
         validate=False,
     )
+
+
+def _pandas_cell_values(frame: pd.DataFrame, schema: pa.Schema, name: str) -> list[str | None]:
+    if name in frame.columns:
+        return [None if pd.isna(value) else str(value) for value in frame[name].tolist()]
+    cell = next(
+        (item for item in binding(schema, exact=True).cells if item.fields.tag == name), None
+    )
+    if cell is None:
+        raise _invalid(f"pandas exchange lacks the logical Cell field {name}")
+    if isinstance(cell, KnownCell):
+        tag, _reason = cell.book.decode(cell.code)
+        return [tag] * len(frame)
+    if isinstance(cell, ValidityCell):
+        defined = cell.book.decode(0)[0]
+        missing = cell.book.decode(cell.missing_code)[0]
+        return [missing if absent else defined for absent in frame[cell.fields.value].isna()]
+    result: list[str | None] = []
+    for raw in frame[cell.state].tolist():
+        code = int(raw)
+        result.append(None if code == -1 else cell.book.decode(code)[0])
+    return result
 
 
 def execute_source_graph(
@@ -709,12 +764,13 @@ def execute_source_graph(
         isinstance(stage, LoweredRelation) for stage in lowered.stages
     )
     completed: list[CompletedCheck] = []
-    replacements: dict[ops.Node, ops.Node] = {}
-    tables: dict[str, pa.Table] = {}
-    owned: list[ir.Table] = []
+    tables: dict[str, pd.DataFrame] = {}
     issued_reads: dict[str, CompiledRead] = {}
+    read_schemas: dict[str, pa.Schema] = {}
     final_local: LoweredRelation | None = None
     coordinate_parts: dict[str, tuple[ExchangePart, ...]] = {}
+    coordinate_schemas: dict[str, dict[str, pa.Schema]] = {}
+    reference_results: dict[str, ExchangeResult] = {}
     try:
         for stage in lowered.stages:
             if isinstance(stage, LoweredLocal):
@@ -732,35 +788,46 @@ def execute_source_graph(
                 ):
                     from marivo.analysis.materialization.graph_attribution import pack, result
 
+                    schemas = dict(coordinate_schemas.get(predecessor.output, {}))
+                    endpoint_parts: list[ExchangePart] = []
+                    for role, expression in predecessor.part_expressions:
+                        if role not in ("current_endpoint", "baseline_endpoint", "basis"):
+                            continue
+                        endpoint_parts.append(
+                            ExchangePart(
+                                role,
+                                tables[predecessor.output].loc[:, list(expression.columns)].copy(),
+                            )
+                        )
+                        schemas[role] = expression.schema().to_pyarrow()
                     retained = (
                         *coordinate_parts.get(predecessor.output, ()),
-                        *(
-                            ExchangePart(
-                                role, project(tables[predecessor.output], expression.columns)
-                            )
-                            for role, expression in predecessor.part_expressions
-                            if role in ("current_endpoint", "baseline_endpoint", "basis")
-                        ),
+                        *endpoint_parts,
                     )
                     finished = result(
                         stage.stage.node.signature,
                         stage.stage.node.value_type,
                         retained,
                         ",".join(predecessor.source_ids),
+                        schemas=schemas,
                     )
-                    table = pack(finished, tables[predecessor.output].schema)
+                    table = pack(finished, read_schemas[predecessor.output])
                     coordinate_parts[stage.stage.output] = finished.parts
-                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
-                    owned.append(staged)
+                    coordinate_schemas[stage.stage.output] = {
+                        part.role: contract_part.schema
+                        for part, contract_part in zip(
+                            finished.parts, finished.contract.parts, strict=True
+                        )
+                    }
                     tables[stage.stage.output] = table
-                    replacements[predecessor.expression.op()] = staged.op()
+                    read_schemas[stage.stage.output] = read_schemas[predecessor.output]
                     final_local = replace(predecessor, output=stage.stage.output)
                     for check in lowered.checks:
                         if (
                             isinstance(check, SemanticCheck)
                             and check.requirement.stage_output == stage.stage.output
                         ):
-                            proof = _check(source, lowered, check, replacements)
+                            proof = _check(source, lowered, check)
                             if proof is not None:
                                 completed.append(proof)
                     continue
@@ -769,21 +836,25 @@ def execute_source_graph(
                 ):
                     from marivo.analysis.materialization.graph_display import finish
 
-                    table = finish(stage.stage.node, tables[predecessor.output])
+                    table = finish(
+                        stage.stage.node,
+                        tables[predecessor.output],
+                    )
                     final_local = replace(predecessor, output=stage.stage.output)
                     coordinate_parts[stage.stage.output] = coordinate_parts.get(
                         predecessor.output, ()
                     )
-                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
-                    owned.append(staged)
+                    coordinate_schemas[stage.stage.output] = coordinate_schemas.get(
+                        predecessor.output, {}
+                    )
                     tables[stage.stage.output] = table
-                    replacements[predecessor.expression.op()] = staged.op()
+                    read_schemas[stage.stage.output] = read_schemas[predecessor.output]
                     for check in lowered.checks:
                         if (
                             isinstance(check, SemanticCheck)
                             and check.requirement.stage_output == stage.stage.output
                         ):
-                            proof = _check(source, lowered, check, replacements)
+                            proof = _check(source, lowered, check)
                             if proof is not None:
                                 completed.append(proof)
                     continue
@@ -791,42 +862,94 @@ def execute_source_graph(
                     stage.stage.node.parameters, ReferenceDerive
                 ):
                     from marivo.analysis.materialization.graph_reference import (
+                        _ReferenceParts,
+                    )
+                    from marivo.analysis.materialization.graph_reference import (
                         result as reference_result,
                     )
 
-                    parts = tuple(
-                        ExchangePart(
-                            role,
-                            _read(
+                    part_frames: list[ExchangePart] = []
+                    part_schemas: dict[str, pa.Schema] = {}
+                    for role, expression in predecessor.part_expressions:
+                        part_index = (
+                            1
+                            if role in ("fixed_reference", "strata")
+                            else 2
+                            if role == "reference_proof"
+                            and stage.stage.node.parameters.kind == "share"
+                            else 0
+                        )
+                        input_identity = stage.stage.node.inputs[part_index].node.identity
+                        prior = reference_results.get(input_identity)
+                        if prior is not None:
+                            from marivo.analysis.materialization.graph_exchange import (
+                                _pandas_records,
+                            )
+
+                            schema = expression.schema().to_pyarrow()
+                            prior_rows = _pandas_records(prior.primary, prior.contract.schema)
+                            if "error_bound" in schema.names:
+                                assert prior.method_state is not None
+                                bounds = {
+                                    tuple(item[name] for name in prior.contract.key_fields): item[
+                                        "error_bound"
+                                    ]
+                                    for item in prior.method_state.to_dict("records")
+                                }
+                                for prior_row in prior_rows:
+                                    key = tuple(
+                                        prior_row[name] for name in prior.contract.key_fields
+                                    )
+                                    prior_row["error_bound"] = bounds[key]
+                            frame = pd.DataFrame.from_records(
+                                (
+                                    {name: prior_row[name] for name in schema.names}
+                                    for prior_row in prior_rows
+                                ),
+                                columns=schema.names,
+                            )
+                        else:
+                            frame, schema = _read(
                                 source,
                                 lowered,
                                 expression,
                                 purpose="analysis.graph.reference",
-                                replacements=replacements,
                                 cell_reasons=next(
                                     part.cell_reasons
                                     for part in predecessor.node.signature.parts
                                     if isinstance(part, ReferenceStatePart) and part.role == role
                                 ),
-                            ),
-                        )
-                        for role, expression in predecessor.part_expressions
-                    )
+                            )
+                        part_frames.append(ExchangePart(role, frame))
+                        part_schemas[role] = schema
+                    parts = _ReferenceParts(tuple(part_frames), part_schemas)
                     finished = reference_result(
                         stage.stage.node, parts, ",".join(predecessor.source_ids)
                     )
+                    reference_results[stage.stage.node.identity] = finished
+                    coordinate_parts[stage.stage.output] = finished.parts
+                    coordinate_schemas[stage.stage.output] = {
+                        contract_part.role: contract_part.schema
+                        for contract_part in finished.contract.parts
+                    }
                     table = tables[predecessor.output]
                     keys = tuple(key.column for key in predecessor.layout.keys)
+                    from marivo.analysis.materialization.graph_exchange import _pandas_records
+
                     finished_rows = {
-                        tuple(row[name] for name in keys): row for row in rows(finished.primary)
+                        tuple(row[name] for name in keys): row
+                        for row in _pandas_records(finished.primary, finished.contract.schema)
                     }
                     assert finished.method_state is not None
                     bounds = {
                         tuple(row[name] for name in keys): row["error_bound"]
-                        for row in finished.method_state.to_pylist()
+                        for row in finished.method_state.to_dict("records")
                     }
-                    output_rows = []
-                    for row in rows(table):
+                    reference_rows: list[dict[str, object]] = []
+                    for raw in table.to_dict("records"):
+                        row: dict[str, object] = {
+                            name: value for name, value in raw.items() if isinstance(name, str)
+                        }
                         key = tuple(row[name] for name in keys)
                         row.update(
                             {
@@ -835,19 +958,19 @@ def execute_source_graph(
                             }
                         )
                         row["reference_proof__retained"] = bounds[key]
-                        output_rows.append(row)
-                    table = from_rows(output_rows, issued_reads[predecessor.output].schema)
-                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
-                    owned.append(staged)
+                        reference_rows.append(row)
+                    table = pd.DataFrame(
+                        reference_rows, columns=issued_reads[predecessor.output].schema.names
+                    )
                     tables[stage.stage.output] = table
-                    replacements[predecessor.expression.op()] = staged.op()
+                    read_schemas[stage.stage.output] = issued_reads[predecessor.output].schema
                     final_local = replace(predecessor, output=stage.stage.output)
                     for check in lowered.checks:
                         if (
                             isinstance(check, SemanticCheck)
                             and check.requirement.stage_output == stage.stage.output
                         ):
-                            proof = _check(source, lowered, check, replacements)
+                            proof = _check(source, lowered, check)
                             if proof is not None:
                                 completed.append(proof)
                     continue
@@ -856,11 +979,70 @@ def execute_source_graph(
                     params = node.parameters
                     assert isinstance(params, CellDerive)
                     table = tables[predecessor.output]
-                    output_rows = []
-                    for row in rows(table):
-                        if row["cell_tag"] != "defined":
+                    from marivo.analysis.materialization.graph_exchange import _pandas_records
+
+                    for side, input_index in (("current", 0), ("baseline", 1)):
+                        prior = reference_results.get(node.inputs[input_index].node.identity)
+                        if prior is None:
+                            continue
+                        if prior.method_state is None:
+                            raise _invalid("source reference result lacks retained error bounds")
+                        prior_rows = _pandas_records(prior.primary, prior.contract.schema)
+                        key_fields = prior.contract.key_fields
+                        values_by_key = {
+                            tuple(row[name] for name in key_fields): row for row in prior_rows
+                        }
+                        bounds_by_key = {
+                            tuple(row[name] for name in key_fields): row["error_bound"]
+                            for row in prior.method_state.to_dict("records")
+                        }
+                        if values_by_key.keys() != bounds_by_key.keys():
+                            raise _invalid("source reference primary and error-bound keys differ")
+                        updated_rows: list[dict[str, object]] = [
+                            {str(name): value for name, value in record.items()}
+                            for record in table.to_dict("records")
+                        ]
+                        for row in updated_rows:
+                            key = tuple(
+                                row[f"correspondence__{side}_key_{index}"]
+                                for index in range(len(key_fields))
+                            )
+                            value = values_by_key.get(key)
+                            if value is None or key not in bounds_by_key:
+                                raise _invalid(
+                                    f"source reference result lacks a matched {side} endpoint"
+                                )
+                            row.update(
+                                {
+                                    f"{side}_endpoint__value": value["value"],
+                                    f"{side}_endpoint__cell_tag": value["cell_tag"],
+                                    f"{side}_endpoint__cell_reason": value["cell_reason"],
+                                    f"correspondence__{side}_error_bound": bounds_by_key[key],
+                                }
+                            )
+                        table = pd.DataFrame.from_records(updated_rows, columns=table.columns)
+                    comparison_rows: list[dict[str, object]] = []
+                    schema = read_schemas[predecessor.output]
+                    logical_rows = rows(_as_arrow(table, schema))
+                    for row in logical_rows:
+                        left_tag = required(row["current_endpoint__cell_tag"], str)
+                        right_tag = required(row["baseline_endpoint__cell_tag"], str)
+                        left_reason = (
+                            ""
+                            if left_tag == "defined"
+                            else required(row["current_endpoint__cell_reason"], str)
+                        )
+                        right_reason = (
+                            ""
+                            if right_tag == "defined"
+                            else required(row["baseline_endpoint__cell_reason"], str)
+                        )
+                        propagated = propagated_cell(left_tag, left_reason, right_tag, right_reason)
+                        if propagated is not None:
+                            row["value"] = None
+                            row["cell_tag"], row["cell_reason"] = propagated
                             row["correspondence__result_error_bound"] = 0.0
-                            output_rows.append(row)
+                            comparison_rows.append(row)
                             continue
                         try:
                             cell = evaluate_comparison(
@@ -886,24 +1068,32 @@ def execute_source_graph(
                         row["value"] = cell.value if isinstance(cell, Defined) else None
                         row["cell_tag"] = "defined" if isinstance(cell, Defined) else "undefined"
                         row["cell_reason"] = None if isinstance(cell, Defined) else cell.reason
-                        output_rows.append(row)
-                    table = from_rows(output_rows, issued_reads[predecessor.output].schema)
+                        comparison_rows.append(row)
+                    table = from_rows(comparison_rows, schema).to_pandas()
                     final_local = replace(predecessor, output=stage.stage.output)
                     # Validate the finished Cell, endpoint and correspondence exchange before use.
                     coordinate_parts[stage.stage.output] = coordinate_parts.get(
                         predecessor.output, ()
                     )
-                    _result(final_local, table, (), (), coordinate_parts[stage.stage.output])
-                    staged = source.stage_calculated(issued_reads[predecessor.output], table)
-                    owned.append(staged)
+                    coordinate_schemas[stage.stage.output] = coordinate_schemas.get(
+                        predecessor.output, {}
+                    )
+                    _result(
+                        final_local,
+                        table,
+                        (),
+                        (),
+                        coordinate_parts[stage.stage.output],
+                        issued_reads[predecessor.output].schema,
+                    )
                     tables[stage.stage.output] = table
-                    replacements[predecessor.expression.op()] = staged.op()
+                    read_schemas[stage.stage.output] = schema
                     for check in lowered.checks:
                         if (
                             isinstance(check, SemanticCheck)
                             and check.requirement.stage_output == stage.stage.output
                         ):
-                            proof = _check(source, lowered, check, replacements)
+                            proof = _check(source, lowered, check)
                             if proof is not None:
                                 completed.append(proof)
                     continue
@@ -918,19 +1108,34 @@ def execute_source_graph(
                     raise _invalid("missing exact paired source preparation")
                 paired = tables[predecessor.output]
                 keys = tuple(item.column for item in predecessor.layout.keys)
-                left = rename(
-                    project(paired, (*keys, "va", "taga", "reasona")),
-                    [*keys, "value", "cell_tag", "cell_reason"],
+                left_schema = pa.schema(
+                    [
+                        *(read_schemas[predecessor.output].field(key) for key in keys),
+                        read_schemas[predecessor.output].field("va").with_name("value"),
+                        read_schemas[predecessor.output].field("taga").with_name("cell_tag"),
+                        read_schemas[predecessor.output].field("reasona").with_name("cell_reason"),
+                    ]
                 )
-                right = rename(
-                    project(paired, (*keys, "vb", "tagb", "reasonb")),
-                    [*keys, "value", "cell_tag", "cell_reason"],
+                right_schema = pa.schema(
+                    [
+                        *(read_schemas[predecessor.output].field(key) for key in keys),
+                        read_schemas[predecessor.output].field("vb").with_name("value"),
+                        read_schemas[predecessor.output].field("tagb").with_name("cell_tag"),
+                        read_schemas[predecessor.output].field("reasonb").with_name("cell_reason"),
+                    ]
+                )
+                left = paired.loc[:, [*keys, "va", "taga", "reasona"]].rename(
+                    columns={"va": "value", "taga": "cell_tag", "reasona": "cell_reason"}
+                )
+                right = paired.loc[:, [*keys, "vb", "tagb", "reasonb"]].rename(
+                    columns={"vb": "value", "tagb": "cell_tag", "reasonb": "cell_reason"}
                 )
                 return finish_spearman(
                     stage,
                     left,
                     right,
                     keys,
+                    (left_schema, right_schema),
                     ",".join(predecessor.source_ids),
                     _ordered_checks(completed, lowered.admitted.checks),
                     lowered.admitted.checks,
@@ -943,67 +1148,41 @@ def execute_source_graph(
                     and check.requirement.stage_output == stage.output
                     and check.requirement.obligation.before == "consume"
                 ):
-                    proof = _check(source, lowered, check, replacements)
+                    proof = _check(source, lowered, check)
                     if proof is not None:
                         completed.append(proof)
-            if direct_native:
-                if stage.output == lowered.primary_output or _field_lookup(stage):
-                    expression = (
-                        stage.transport if stage.transport is not None else stage.expression
-                    )
-                    received = _read(
-                        source,
-                        lowered,
-                        expression,
-                        purpose="analysis.graph.stage",
-                        replacements=replacements,
-                        cell_reasons=stage.cell_reasons,
-                    )
-                    if stage.transport is not None:
-                        received, retained = _split_transport(stage, received)
-                        coordinate_parts[stage.output] = retained
-                    _consume_field(stage, received)
-                    tables[stage.output] = received
-                    if stage.output != lowered.primary_output:
-                        issued = _issue(
-                            source,
-                            lowered,
-                            stage.expression,
-                            purpose="analysis.graph.stage",
-                            replacements=replacements,
-                        )
-                        staged = source.stage_calculated(issued, received)
-                        owned.append(staged)
-                        replacements[stage.expression.op()] = staged.op()
+            if (
+                direct_native
+                and stage.output != lowered.primary_output
+                and not _field_lookup(stage)
+            ):
+                continue
+            issued = _issue(
+                source,
+                lowered,
+                stage.expression,
+                purpose="analysis.graph.stage",
+            )
+            issued_reads[stage.output] = issued
+            read_schemas[stage.output] = issued.schema
+            expression = stage.transport if stage.transport is not None else stage.expression
+            if stage.transport is None:
+                table = source.execute(issued)
             else:
-                issued = _issue(
+                received, _transport_schema = _read(
                     source,
                     lowered,
-                    stage.expression,
+                    expression,
                     purpose="analysis.graph.stage",
-                    replacements=replacements,
+                    cell_reasons=stage.cell_reasons,
                 )
-                issued_reads[stage.output] = issued
-                if stage.transport is None:
-                    staged, table = source.stage_derived(issued)
-                else:
-                    received = _read(
-                        source,
-                        lowered,
-                        stage.transport,
-                        purpose="analysis.graph.stage",
-                        replacements=replacements,
-                        cell_reasons=stage.cell_reasons,
-                    )
-                    table, retained = _split_transport(stage, received)
-                    coordinate_parts[stage.output] = retained
-                    if table.schema != issued.schema:
-                        table = from_rows(rows(table), issued.schema)
-                    staged = source.stage_calculated(issued, table)
-                owned.append(staged)
-                _consume_field(stage, table)
-                tables[stage.output] = table
-                replacements[stage.expression.op()] = staged.op()
+                table, retained, retained_schemas = _split_transport(stage, received, issued.schema)
+                coordinate_parts[stage.output] = retained
+                coordinate_schemas[stage.output] = retained_schemas
+                if tuple(table.columns) != tuple(issued.schema.names):
+                    raise _invalid("split transport columns differ from the issued graph stage")
+            _consume_field(stage, table, issued.schema)
+            tables[stage.output] = table
             for check in lowered.checks:
                 if (
                     isinstance(check, (IntegrityCheck, TemporalCheck))
@@ -1013,43 +1192,42 @@ def execute_source_graph(
                     and check.requirement.stage_output == stage.output
                     and check.requirement.obligation.before == "publish"
                 ):
-                    proof = _check(source, lowered, check, replacements)
+                    proof = _check(source, lowered, check)
                     if proof is not None:
                         completed.append(proof)
         if final_local is not None and final_local.output == lowered.primary_output:
             primary = final_local
         assert primary is not None
-        retained_parts = (
-            *coordinate_parts.get(primary.output, ()),
-            *tuple(
-                ExchangePart(
-                    role,
-                    _read(
-                        source,
-                        lowered,
-                        expression,
-                        purpose="analysis.graph.part",
-                        replacements=replacements,
-                        cell_reasons=next(
-                            (
-                                part.cell_reasons
-                                for part in primary.node.signature.parts
-                                if isinstance(part, ReferenceStatePart) and part.role == role
-                            ),
-                            (),
-                        ),
+        retained_parts = list(coordinate_parts.get(primary.output, ()))
+        retained_schemas = dict(coordinate_schemas.get(primary.output, {}))
+        retained_roles = {part.role for part in retained_parts}
+        for role, expression in primary.part_expressions:
+            if role in retained_roles:
+                continue
+            frame, part_schema = _read(
+                source,
+                lowered,
+                expression,
+                purpose="analysis.graph.part",
+                cell_reasons=next(
+                    (
+                        part.cell_reasons
+                        for part in primary.node.signature.parts
+                        if isinstance(part, ReferenceStatePart) and part.role == role
                     ),
-                )
-                for role, expression in primary.part_expressions
-                if role not in {p.role for p in coordinate_parts.get(primary.output, ())}
-            ),
-        )
+                    (),
+                ),
+            )
+            retained_parts.append(ExchangePart(role, frame))
+            retained_schemas[role] = part_schema
         return _result(
             primary,
             tables[primary.output],
             _ordered_checks(completed, lowered.admitted.checks),
             lowered.admitted.checks,
-            retained_parts,
+            tuple(retained_parts),
+            read_schemas[primary.output],
+            retained_schemas,
         )
     finally:
-        source.release_staged(owned)
+        pass

@@ -87,16 +87,20 @@ def test_period_alignment_native_carriers(
             assert set(missing[field + "_cell_reason"]) == {"missing_side"}
         assert result._dataset is not None
         exchange = result._dataset.verified()
-        assert exchange.primary.schema.field("key_3").type == pa.string()
+        assert exchange.contract.schema.field("key_3").type == pa.string()
         correspondence = next(p.table for p in exchange.parts if p.role == "correspondence")
-        assert correspondence.schema.field("correspondence__baseline_key_3").type == pa.string()
+        correspondence_schema = next(
+            p.schema for p in exchange.contract.parts if p.role == "correspondence"
+        )
+        assert correspondence_schema.field("correspondence__baseline_key_3").type == pa.string()
         assert (
-            correspondence.filter(
-                pa.compute.equal(
-                    correspondence["key_3"],
-                    "ordinal:3" if kind == "ordinal" else "holiday_then_weekday:holiday:1",
-                )
-            )["correspondence__current_key_3"].null_count
+            correspondence.loc[
+                correspondence["key_3"]
+                == ("ordinal:3" if kind == "ordinal" else "holiday_then_weekday:holiday:1"),
+                "correspondence__current_key_3",
+            ]
+            .isna()
+            .sum()
             == 2
         )
         source_trace.record(single)

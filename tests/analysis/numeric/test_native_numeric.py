@@ -199,7 +199,7 @@ def _clickhouse_weight_state_overflow(
         before = publication_counts(session)
         with monkeypatch.context() as offline:
             if saved is not None:
-                offline.setattr(SourceSession, "batches", forbidden)
+                offline.setattr(SourceSession, "execute", forbidden)
             with pytest.raises(MaterializationError) as raised:
                 (saved if saved is not None else observed).rollup().execute()
         cause = str(raised.value.__cause__)
@@ -466,7 +466,7 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
     change = current.compare(baseline).absolute
     fixed = change.execute()
     assert fixed._dataset is not None
-    assert fixed._dataset.verified().primary.schema.field("value").type == pa.decimal128(38, scale)
+    assert fixed._dataset.verified().contract.schema.field("value").type == pa.decimal128(38, scale)
     for relation in (change, fixed):
         rows = relation.attribute(axes=(axis,)).execute().to_pandas()
         assert rows.value.tolist() == [Decimal("1.01")]
@@ -551,4 +551,4 @@ def test_native_linear_comparison_uses_represented_cells_in_both_routes(
             part.table for part in result._dataset.verified().parts if part.role == "correspondence"
         )
         for side in ("current", "baseline"):
-            assert correspondence[f"correspondence__{side}_error_bound"].to_pylist() == [0.0]
+            assert correspondence[f"correspondence__{side}_error_bound"].tolist() == [0.0]

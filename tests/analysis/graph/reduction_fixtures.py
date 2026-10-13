@@ -21,11 +21,12 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.rules import OriginalReduce
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
-    ExchangePart,
     PartContract,
     VerifiedFixedInput,
     from_arrow,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
@@ -58,7 +59,8 @@ def reduction_input(
         if carrier == "float64"
         else pa.int64()
     )
-    base = saved.result.primary.select(("key_0", "key_1"))
+    primary_input = to_arrow(saved.result.primary, saved.result.contract.schema)
+    base = primary_input.select(("key_0", "key_1"))
     components: dict[str, list[int | float | Decimal]] = {}
     values: list[int | float | Decimal] = []
     for i in range(count):
@@ -131,7 +133,7 @@ def reduction_input(
         _, nonempty = reduction_input(1, method=method, carrier=carrier)
         components = {
             name.removeprefix("original_state__"): []
-            for name in nonempty.result.parts[1].table.column_names
+            for name in nonempty.result.parts[1].table.columns
             if name.startswith("original_state__")
         }
     names = tuple(components)
@@ -180,7 +182,24 @@ def reduction_input(
             else physical
         )
         state = state.append_column("original_state__" + name, pa.array(magnitudes, type=dtype))
-    parts = (saved.result.parts[0], ExchangePart("original_state", state), saved.result.parts[2])
+    saved_part_schemas = {part.role: part.schema for part in saved.result.contract.parts}
+    parts = (
+        ArrowPart(
+            "subject",
+            to_arrow(
+                saved.result.parts[0].table,
+                saved_part_schemas[saved.result.parts[0].role],
+            ),
+        ),
+        ArrowPart("original_state", state),
+        ArrowPart(
+            "coverage",
+            to_arrow(
+                saved.result.parts[2].table,
+                saved_part_schemas[saved.result.parts[2].role],
+            ),
+        ),
+    )
     contract = ExchangeContract(
         signature,
         saved.result.contract.method,

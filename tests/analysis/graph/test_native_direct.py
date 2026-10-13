@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal, NoReturn
+from typing import Literal
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -24,8 +25,6 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.materialization import graph_source_execution as native
-from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
@@ -34,8 +33,7 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.session._lazy_read_model import FailedRun
-from marivo.datasource import adapters
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.physical_workloads import Workload, workload
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -77,25 +75,16 @@ def _scalar_parts(
     assert result._dataset is not None
     checked = result._dataset.verified()
     assert checked.primary is not None
-    assert checked.primary.schema.field("value").type == pa.int64()
-    assert cell_rows(checked.primary) == [
+    assert checked.contract.schema.field("value").type == pa.int64()
+    assert checked.primary.to_dict("records") == [
         {"value": total, "cell_tag": "defined", "cell_reason": None}
     ]
     parts = {part.role: part.table for part in checked.parts}
     assert {"original_state", "coverage"} <= set(parts)
-    assert parts["original_state"].to_pylist() == [
+    assert parts["original_state"].to_dict("records") == [
         {"original_state__sum": total, "original_state__non_null_count": support}
     ]
-    assert parts["coverage"].to_pylist() == [{"coverage__complete": True}]
-
-
-def _forbid_staging(monkeypatch: pytest.MonkeyPatch) -> None:
-    def forbidden(*args: object, **kwargs: object) -> NoReturn:
-        pytest.fail("Pure-native execution captured or restaged an intermediate exchange")
-
-    monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
-    monkeypatch.setattr(SourceSession, "stage_calculated", forbidden)
-    monkeypatch.setattr(adapters, "_inline_exchange", forbidden)
+    assert parts["coverage"].to_dict("records") == [{"coverage__complete": True}]
 
 
 def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
@@ -112,14 +101,12 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         assert not mandatory
         purposes: list[str] = []
         proofs: list[tuple[CompletedCheck, ...]] = []
-        batches = SourceSession.batches
+        execute = SourceSession.execute
         ordered = native._ordered_checks
 
-        def read(
-            source: SourceSession, issued: CompiledRead, *, chunk_size: int
-        ) -> SourceBatchStream:
+        def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
             purposes.append(issued.purpose)
-            return batches(source, issued, chunk_size=chunk_size)
+            return execute(source, issued)
 
         def completed(
             actual: list[CompletedCheck], pending: tuple[CheckRequirement, ...]
@@ -133,9 +120,8 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             return result
 
         with monkeypatch.context() as patch:
-            patch.setattr(SourceSession, "batches", read)
+            patch.setattr(SourceSession, "execute", read)
             patch.setattr(native, "_ordered_checks", completed)
-            _forbid_staging(patch)
             results = []
             for _ in range(2):
                 before = len(purposes)
@@ -156,21 +142,20 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
             assert len(work.session.runs().items) == 2
             assert work.session._runtime.store.resources(work.session.id) == ()
 
-        _forbid_staging(monkeypatch)
         result = _values(work).execute()
         assert result._dataset is not None
         checked = result._dataset.verified()
         assert checked.primary is not None
         keys = checked.contract.key_fields
         assert keys == ("key_0", "key_1", "key_2")
-        assert [checked.primary.schema.field(key).type for key in keys] == [
+        assert [checked.contract.schema.field(key).type for key in keys] == [
             pa.string(),
             pa.int64(),
             pa.int64(),
         ]
         actual = {
             tuple(row[key] for key in keys): (row["value"], row["cell_tag"], row["cell_reason"])
-            for row in cell_rows(checked.primary)
+            for row in checked.primary.to_dict("records")
         }
         expected = {
             (row["tenant"], row["id"], row["revision"]): (
@@ -184,13 +169,15 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         parts = {part.role: part.table for part in checked.parts}
         support = {
             tuple(row[key] for key in keys): row["original_state__non_null_count"]
-            for row in parts["original_state"].to_pylist()
+            for row in parts["original_state"].to_dict("records")
         }
         assert support == {
             (row["tenant"], row["id"], row["revision"]): int(row["amount"] is not None)
             for row in work.rows
         }
-        assert all(row["coverage__complete"] is True for row in parts["coverage"].to_pylist())
+        assert all(
+            row["coverage__complete"] is True for row in parts["coverage"].to_dict("records")
+        )
         assert work.session._runtime.store.resources(work.session.id) == ()
 
 
@@ -200,7 +187,6 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
     for scenario in ("all_null", "empty"):
         root = tmp_path / scenario
         with workload("duckdb", "ordinary-table", 64, scenario, root, monkeypatch) as work:
-            _forbid_staging(monkeypatch)
             _scalar_parts(_sum(work).execute(), 0, 0)
             assert work.session._runtime.store.resources(work.session.id) == ()
 
@@ -263,7 +249,6 @@ def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
         monkeypatch.setattr(native, "_read", read)
         if defect == "checks":
             monkeypatch.setattr(native, "_ordered_checks", missing_proofs)
-        _forbid_staging(monkeypatch)
         with pytest.raises(MaterializationError):
             logical.execute()
         assert len(corrupted) == 1
@@ -287,19 +272,6 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
             ms.ref.metric("sales.total"), by=(mv.member(),)
         )
         assert isinstance(values, mv.LogicalNumericRelation)
-        derived, calculated = SourceSession.stage_derived, SourceSession.stage_calculated
-        calls: list[str] = []
-
-        def capture(source: SourceSession, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-            calls.append("derived")
-            return derived(source, read)
-
-        def stage(source: SourceSession, read: CompiledRead, table: pa.Table) -> ir.Table:
-            calls.append("calculated")
-            return calculated(source, read, table)
-
-        monkeypatch.setattr(SourceSession, "stage_derived", capture)
-        monkeypatch.setattr(SourceSession, "stage_calculated", stage)
         result = values.ratio(values).execute()
         frame = result.to_pandas().set_index(["member", "coord_0", "coord_1"])
         assert frame.value.dropna().to_dict() == {
@@ -314,8 +286,6 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         assert frame.cell_reason.dropna().to_dict() == {
             ("a", 9007199254740993, 2): "zero_denominator"
         }
-        assert calls.count("derived") > 0
-        assert calls.count("calculated") > calls.count("derived")
         assert session._runtime.store.resources(session.id) == ()
 
 
@@ -345,7 +315,7 @@ def test_final_exchange_owner_distinguishes_nullable_attribution_axes_from_ident
         )
         if role == "group":
             result = from_arrow(primary, contract)
-            assert logical_table(result.primary).equals(primary)
+            assert result.primary.equals(primary.to_pandas())
         else:
             with pytest.raises(MaterializationError, match="null or duplicate complete key"):
                 from_arrow(primary, contract)

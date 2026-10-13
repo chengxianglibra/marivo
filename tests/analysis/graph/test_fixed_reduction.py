@@ -8,6 +8,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import NoReturn
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -15,15 +16,12 @@ from marivo.analysis.compiler.graph_lowering import LoweredLocal
 from marivo.analysis.core.graph import Edge, method_node
 from marivo.analysis.core.rules import CellDerive
 from marivo.analysis.materialization import graph_local_execution as local
-from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
+from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     ExchangeResult,
     from_arrow,
-    numeric_primary,
 )
 from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 from marivo.analysis.methods import numeric_state
@@ -83,12 +81,12 @@ def test_direct_reduction_cells_components_identity_and_work(
         ordinary_boundaries = exchanges.call_count
     assert grouped_boundaries == 2 and ordinary_boundaries == 3
     assert visits[1:] == [4, 4, 4, 3]
-    assert logical_table(result.primary).equals(logical_table(ordinary.primary))
+    assert result.primary.equals(ordinary.primary)
     assert result.contract == ordinary.contract
     assert result.method_state is not None and ordinary.method_state is not None
     assert result.method_state.equals(ordinary.method_state)
-    assert [(p.role, p.table.to_pylist()) for p in result.parts] == [
-        (p.role, p.table.to_pylist()) for p in ordinary.parts
+    assert [(p.role, p.table.to_dict("records")) for p in result.parts] == [
+        (p.role, p.table.to_dict("records")) for p in ordinary.parts
     ]
     expected: int | float | Decimal = (
         24
@@ -107,13 +105,13 @@ def test_direct_reduction_cells_components_identity_and_work(
         expected = Decimal(str(expected)).quantize(Decimal("0.01"))
     if carrier == "duration":
         expected = round(Fraction(78, 24)) if method == "mean" else int(expected)
-    assert numeric_primary(result.primary)["value"].to_pylist() == [expected]
-    assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
+    assert result.primary["value"].tolist() == [expected]
+    assert result.primary["cell_tag"].tolist() == ["defined"]
     state = next(p.table for p in result.parts if p.role == "original_state")
-    for name in state.column_names:
+    for name in state.columns:
         source = next(p.table for p in verified.result.parts if p.role == "original_state")
         if name.startswith("original_state__"):
-            assert state[name].to_pylist() == [sum(source[name].to_pylist())]
+            assert state[name].tolist() == [sum(source[name].tolist())]
     assert before == (root.fingerprint, freeze_graph(root), plan_digest(prepared.admitted))
     assert result.completed_checks == ()
 
@@ -130,12 +128,15 @@ def test_empty_state_is_complete_and_keeps_owning_finish(method: OriginalMethod)
         if method in ("sum_zero", "count")
         else {"value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     )
-    assert cell_rows(result.primary) == [expected]
+    row = result.primary.to_dict("records")[0]
+    if pd.isna(row["value"]):
+        row["value"] = None
+    assert [row] == [expected]
     assert all(
         value == 0
         for p in result.parts
         if p.role == "original_state"
-        for value in p.table.to_pylist()[0].values()
+        for value in p.table.to_dict("records")[0].values()
     )
 
 
@@ -165,7 +166,7 @@ def test_shared_output_ends_group_and_is_consumed_once(monkeypatch: pytest.Monke
     ) as grouped:
         result = local.execute_verified_fixed(prepared, lowered, (verified,))
     assert grouped.call_count == 1
-    assert result.primary["value"].to_pylist() == [0]
+    assert result.primary["value"].tolist() == [0]
 
 
 @pytest.mark.parametrize(
@@ -183,19 +184,17 @@ def test_consumed_damage_fails_without_retry(
     else:
         state = parts[1].table
         if violation == "duplicate":
-            state = pa.concat_tables((state, state.slice(0, 1)))
+            state = pd.concat((state, state.iloc[:1]), ignore_index=True)
         elif violation == "column":
             state = state.drop(["original_state__sum"])
         elif violation == "coverage":
-            table = parts[2].table.set_column(2, "coverage__complete", pa.array([False, True]))
+            table = parts[2].table.copy()
+            table["coverage__complete"] = [False, True]
             parts[2] = ExchangePart("coverage", table)
         else:
-            state = state.set_column(
-                2, "original_state__sum", pa.array([2**63 - 1, 1], type=pa.int64())
-            )
-            primary = verified.result.primary.set_column(
-                2, "value", pa.array([2**63 - 1, 1], type=pa.int64())
-            )
+            state["original_state__sum"] = pd.Series([2**63 - 1, 1], dtype=object)
+            primary = verified.result.primary.copy()
+            primary["value"] = pd.Series([2**63 - 1, 1], dtype=object)
             verified = replace(verified, result=replace(verified.result, primary=primary))
         parts[1] = ExchangePart("original_state", state)
     verified = replace(verified, result=replace(verified.result, parts=tuple(parts)))
@@ -228,7 +227,7 @@ def test_execution_never_constructs_another_semantic_graph(monkeypatch: pytest.M
     monkeypatch.setattr(graph_attribution, "method_node", forbidden)
     assert local.execute_verified_fixed(prepared, lowered, (verified,)).primary[
         "value"
-    ].to_pylist() == [78]
+    ].tolist() == [78]
 
 
 def test_terminal_groups_and_subject_transport_match_independent_keys() -> None:
@@ -236,7 +235,7 @@ def test_terminal_groups_and_subject_transport_match_independent_keys() -> None:
     root = reduction(reduction(leaf, keep=(0, 1)), keep=(0,))
     prepared, lowered = reduction_plan(root)
     result = local.execute_verified_fixed(prepared, lowered, (verified,))
-    assert result.primary.select(("key_0", "value")).to_pylist() == [
+    assert result.primary.loc[:, ["key_0", "value"]].to_dict("records") == [
         {"key_0": 0, "value": 22},
         {"key_0": 1, "value": 26},
         {"key_0": 2, "value": 30},
@@ -247,8 +246,8 @@ def test_terminal_groups_and_subject_transport_match_independent_keys() -> None:
     result = local.execute_verified_fixed(prepared, lowered, (verified,))
     subject = next(p.table for p in result.parts if p.role == "subject")
     ordered = sorted(range(12), key=lambda i: (i % 3, str(i)))
-    assert subject["subject__key_0"].to_pylist() == [i % 3 for i in ordered]
-    assert subject["subject__key_1"].to_pylist() == [str(i) for i in ordered]
+    assert subject["subject__key_0"].tolist() == [i % 3 for i in ordered]
+    assert subject["subject__key_1"].tolist() == [str(i) for i in ordered]
 
 
 def test_coordinate_partition_is_an_explicit_fusion_boundary() -> None:
@@ -282,34 +281,33 @@ def test_zero_denominator_preserves_distinct_cell_policies(method: OriginalMetho
     denominator = (
         "original_state__denominator_sum" if method == "ratio" else "original_state__weight_sum"
     )
-    state = state.set_column(
-        state.schema.get_field_index(denominator), denominator, pa.array([0, 0], type=pa.int64())
-    )
+    state[denominator] = [0, 0]
     parts[1] = ExchangePart("original_state", state)
     tag, reason = (
         ("undefined", "zero_denominator") if method == "ratio" else ("null", "zero_weight_sum")
     )
-    from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
-
     primary = from_rows(
         (
             dict(row, value=None, cell_tag=tag, cell_reason=reason)
-            for row in cell_rows(verified.result.primary)
+            for row in verified.result.primary.to_dict("records")
         ),
-        compact_schema(verified.result.primary.schema, ((tag, (reason,)),)),
+        compact_schema(verified.result.contract.schema, ((tag, (reason,)),)),
     )
     verified = replace(
         verified,
         result=replace(
             verified.result,
-            primary=primary,
+            primary=primary.to_pandas(),
             parts=tuple(parts),
             contract=replace(verified.result.contract, schema=primary.schema),
         ),
     )
     prepared, lowered = reduction_plan(reduction_chain(leaf))
     result = local.execute_verified_fixed(prepared, lowered, (verified,))
-    assert cell_rows(result.primary) == [{"value": None, "cell_tag": tag, "cell_reason": reason}]
+    row = result.primary.to_dict("records")[0]
+    assert pd.isna(row["value"])
+    row["value"] = None
+    assert row == {"value": None, "cell_tag": tag, "cell_reason": reason}
 
 
 def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> None:
@@ -323,11 +321,10 @@ def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> N
     state = parts[1].table
     for name, data in (("sum", values), ("absolute_sum", [abs(v) for v in values])):
         column = "original_state__" + name
-        state = state.set_column(
-            state.schema.get_field_index(column), column, pa.array(data, type=pa.float64())
-        )
+        state[column] = data
     parts[1] = ExchangePart("original_state", state)
-    primary = verified.result.primary.set_column(2, "value", pa.array(values))
+    primary = verified.result.primary.copy()
+    primary["value"] = values
     verified = replace(
         verified, result=replace(verified.result, primary=primary, parts=tuple(parts))
     )
@@ -337,16 +334,16 @@ def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> N
         ordinary = local.execute_verified_fixed(prepared, lowered, (verified,))
     oracle = sum(Fraction(v) for v in values)
     assert oracle == 2
-    assert grouped.primary["value"].to_pylist() == [2.0]
-    assert ordinary.primary["value"].to_pylist() == [1.0]
+    assert grouped.primary["value"].tolist() == [2.0]
+    assert ordinary.primary["value"].tolist() == [1.0]
     assert grouped.contract == ordinary.contract
     for result in (grouped, ordinary):
-        assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
+        assert result.primary["cell_tag"].tolist() == ["defined"]
         retained = next(p.table for p in result.parts if p.role == "original_state")
-        magnitude = retained["original_state__absolute_sum"][0].as_py()
+        magnitude = retained["original_state__absolute_sum"].iloc[0]
         assert magnitude == float(sum(Fraction(abs(v)) for v in values))
-        assert retained["original_state__non_null_count"].to_pylist() == [7]
-        assert abs(result.primary["value"][0].as_py() - float(oracle)) <= roundoff(magnitude)
+        assert retained["original_state__non_null_count"].tolist() == [7]
+        assert abs(result.primary["value"].iloc[0] - float(oracle)) <= roundoff(magnitude)
 
 
 def test_pending_checks_end_original_reduction_groups() -> None:
@@ -405,6 +402,6 @@ def test_group_preserves_each_node_proof_for_downstream_completed_checks() -> No
     grouped = local.execute_verified_fixed(prepared, lowered, (verified,))
     with patch.object(local, "_reduction_groups", return_value={}):
         ordinary = local.execute_verified_fixed(prepared, lowered, (verified,))
-    assert grouped.primary["value"].to_pylist() == [78.0]
+    assert grouped.primary["value"].tolist() == [78.0]
     assert grouped.completed_checks and grouped.completed_checks == ordinary.completed_checks
     assert grouped.contract == ordinary.contract

@@ -220,11 +220,9 @@ def test_relative_decimal_overflow_prevents_absolute_publication(
 def test_dual_exchange_rejects_incomplete_or_forged_views(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from dataclasses import replace
 
-    from marivo.analysis.materialization.cell_arrow import logical_table
     from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import from_arrow
+    from marivo.analysis.materialization.graph_exchange import from_pandas
 
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -243,12 +241,11 @@ def test_dual_exchange_rejects_incomplete_or_forged_views(
     saved = current.compare(baseline).execute()
     assert saved._dataset is not None
     checked = saved._dataset.verified()
-    primary, parts = logical_table(checked.primary), checked.parts
-    parts = tuple(part for part in parts if part.role != "comparison")
+    parts = tuple(part for part in checked.parts if part.role != "comparison")
     with pytest.raises(MaterializationError, match="missing, reordered or extra method state part"):
-        from_arrow(
-            primary,
-            replace(checked.contract, schema=primary.schema, _frozen=None),
+        from_pandas(
+            checked.primary,
+            checked.contract,
             parts=parts,
             completed_checks=checked.completed_checks,
         )

@@ -69,8 +69,11 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         exchange = result._dataset.verified()
         assert exchange.contract.signature.domain.time_grid is None
         assert exchange.contract.signature.domain.instance_key[1].role == "aligned"
-        assert exchange.primary.schema.field("key_1").type == pa.string()
+        assert exchange.contract.schema.field("key_1").type == pa.string()
         mapping = next(p.table for p in exchange.parts if p.role == "correspondence")
+        mapping_schema = next(
+            p.schema for p in exchange.contract.parts if p.role == "correspondence"
+        )
         declaration = next(
             p for p in exchange.contract.signature.parts if isinstance(p, CorrespondencePart)
         )
@@ -82,8 +85,8 @@ def test_period_outer_keeps_time_missing_and_original_keys(
             strict=True,
         ):
             original = {aligned: bucket for bucket, aligned in table}
-            assert mapping.schema.field(f"correspondence__{side}_key_1").type == pa.string()
-            for row in mapping.to_pylist():
+            assert mapping_schema.field(f"correspondence__{side}_key_1").type == pa.string()
+            for row in mapping.to_dict(orient="records"):
                 assert row[f"correspondence__{side}_present"] == (row["key_1"] in original)
                 assert row[f"correspondence__{side}_key_1"] == original.get(row["key_1"])
                 if row["key_1"] not in original:
@@ -94,12 +97,10 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         selected = result.absolute.where(result.absolute.value.is_defined())
         assert len(selected.members().execute().to_pandas()) == 4
     assert results[0].to_pandas().equals(results[1].to_pandas())
-    from marivo.analysis.materialization.cell_arrow import logical_table
-
     first, second = (result._dataset for result in results)
     assert first is not None and second is not None
-    left_parts = {part.role: logical_table(part.table) for part in first.verified().parts}
-    right_parts = {part.role: logical_table(part.table) for part in second.verified().parts}
+    left_parts = {part.role: part.table for part in first.verified().parts}
+    right_parts = {part.role: part.table for part in second.verified().parts}
     assert left_parts.keys() == right_parts.keys()
     assert all(table.equals(right_parts[role]) for role, table in left_parts.items())
 
@@ -286,8 +287,8 @@ def test_equal_period_empty_finish_allows_missing_non_time_groups(
         correspondence = next(
             p.table for p in result._dataset.verified().parts if p.role == "correspondence"
         )
-        assert correspondence["correspondence__current_present"].to_pylist().count(False) == 3
-        assert correspondence["correspondence__baseline_present"].to_pylist().count(False) == 3
+        assert correspondence["correspondence__current_present"].tolist().count(False) == 3
+        assert correspondence["correspondence__baseline_present"].tolist().count(False) == 3
 
 
 @pytest.mark.slow
@@ -366,9 +367,8 @@ def test_period_exchange_checks_original_projections_presence_and_both_views(
 ) -> None:
     from dataclasses import replace
 
-    from marivo.analysis.materialization.cell_arrow import logical_table
     from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import from_arrow
+    from marivo.analysis.materialization.graph_exchange import from_pandas
 
     case = analysis_dsl_case_factory("j2")
     members = case.session.members(ms.ref.entity("sales.customer"))
@@ -377,29 +377,29 @@ def test_period_exchange_checks_original_projections_presence_and_both_views(
     saved = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
     assert saved._dataset is not None
     checked = saved._dataset.verified()
-    primary = logical_table(checked.primary)
-    contract = replace(checked.contract, schema=primary.schema, _frozen=None)
-    from_arrow(primary, contract, parts=checked.parts, completed_checks=checked.completed_checks)
+    primary = checked.primary
+    contract = checked.contract
+    from_pandas(primary, contract, parts=checked.parts, completed_checks=checked.completed_checks)
     correspondence = next(p for p in checked.parts if p.role == "correspondence")
     table = correspondence.table
     for field, values in (
-        ("correspondence__current_key_1", pa.array(["forged"] * table.num_rows)),
-        ("correspondence__baseline_key_1", pa.array([1] * table.num_rows, type=pa.int64())),
-        ("correspondence__current_present", pa.array([True] * table.num_rows)),
+        ("correspondence__current_key_1", ["forged"] * len(table)),
+        ("correspondence__baseline_key_1", [1] * len(table)),
+        ("correspondence__current_present", [True] * len(table)),
     ):
-        changed = table.set_column(table.schema.get_field_index(field), field, values)
+        changed = table.copy()
+        changed[field] = values
         parts = tuple(
             replace(p, table=changed) if p.role == "correspondence" else p for p in checked.parts
         )
         with pytest.raises(MaterializationError):
-            from_arrow(primary, contract, parts=parts, completed_checks=checked.completed_checks)
+            from_pandas(primary, contract, parts=parts, completed_checks=checked.completed_checks)
     for field in ("absolute", "relative"):
         column = field + "__cell_reason"
-        changed = primary.set_column(
-            primary.schema.get_field_index(column), column, pa.array(["forged"] * primary.num_rows)
-        )
+        changed = primary.copy()
+        changed[column] = ["forged"] * len(primary)
         with pytest.raises(MaterializationError):
-            from_arrow(
+            from_pandas(
                 changed, contract, parts=checked.parts, completed_checks=checked.completed_checks
             )
 

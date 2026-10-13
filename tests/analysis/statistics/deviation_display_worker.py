@@ -123,7 +123,7 @@ def run(root: Path, phase: str) -> None:
             patch.object(SemanticProject, "load", forbidden),
             patch.object(ms, "load", forbidden),
             patch.object(SourceSession, "__enter__", forbidden),
-            patch.object(SourceSession, "batches", forbidden),
+            patch.object(SourceSession, "execute", forbidden),
             patch.object(duckdb, "connect", forbidden),
             patch.object(ibis.duckdb, "connect", forbidden),
         ):

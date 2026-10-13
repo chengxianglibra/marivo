@@ -11,6 +11,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.methods.comparison import propagated_cell
 from marivo.refs import MetricKind, Ref
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
@@ -54,11 +55,15 @@ def _endpoint_cell(
     result: mv.MaterializedNumericRelation, role: str, member: str
 ) -> tuple[object, object]:
     assert result._dataset is not None
-    table = next(part.table for part in result._dataset.verified().parts if part.role == role)
-    index = table["key_0"].to_pylist().index(member)
+    exchange = result._dataset.verified()
+    part = next(part for part in exchange.parts if part.role == role)
+    table = part.table
+    schema = next(part.schema for part in exchange.contract.parts if part.role == role)
+    index = table["key_0"].tolist().index(member)
+    encoded = to_arrow(table, schema)
     return (
-        cell_column(table, f"{role}__cell_tag").to_pylist()[index],
-        cell_column(table, f"{role}__cell_reason").to_pylist()[index],
+        cell_column(encoded, f"{role}__cell_tag").to_pylist()[index],
+        cell_column(encoded, f"{role}__cell_reason").to_pylist()[index],
     )
 
 

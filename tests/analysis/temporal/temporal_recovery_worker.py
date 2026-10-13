@@ -56,7 +56,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         assert value.to_pandas().set_index("member").value.to_dict() == {key_a: 18.0, key_b: 150.0}
         assert value._dataset is not None
         rows = next(
-            part.table.to_pylist()
+            part.table.to_dict(orient="records")
             for part in value._dataset.verified().parts
             if part.role == "original_state"
         )

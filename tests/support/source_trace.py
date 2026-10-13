@@ -6,15 +6,14 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import pandas as pd
 import pytest
-from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
-import marivo.datasource.adapters as adapters
 from marivo.analysis.core.graph import Node
 from marivo.analysis.core.model import SubjectPart
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, schema_from
-from marivo.datasource.adapters import SourceSession, _Cursor
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.support.json import key_json
 
 
@@ -116,7 +115,6 @@ class SourceTrace:
         assert submissions and self.native_sql
         assert all(owner._closed for owner in executions)
         assert all(item["connection_disconnected"] is True for item in submissions)
-        assert all(item["cursor_state"] in ("closed", "connection_owned") for item in submissions)
         assert all(item["state"] == "succeeded" for item in submissions)
         assert all(item["sql"] in self.native_sql for item in submissions)
         if result is not None:
@@ -134,7 +132,7 @@ class SourceTrace:
                         "submissions": submissions,
                         "actual_native_submissions": self.native_sql,
                         "connection_disconnected": True,
-                        "boundary": "Source execution witness; independent cancellation and complete family binding remain required",
+                        "boundary": "Ibis execute witness; independent cancellation and complete family binding remain required",
                     },
                     sort_keys=True,
                 )
@@ -143,18 +141,22 @@ class SourceTrace:
 
 def capture_source(monkeypatch: pytest.MonkeyPatch) -> SourceTrace:
     trace = SourceTrace()
-    native = adapters._native_cursor
+    execute = SourceSession.execute
     enter = SourceSession.__enter__
 
-    def capture(owner: BaseBackend, name: str, sql: str) -> _Cursor:
-        trace.native_sql.append(sql)
-        return native(owner, name, sql)
+    def captured_execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        submitted_before = len(owner.submissions)
+        try:
+            return execute(owner, read)
+        finally:
+            if len(owner.submissions) > submitted_before:
+                trace.native_sql.append(read.sql)
 
     def entered(owner: SourceSession) -> SourceSession:
         result = enter(owner)
         trace.owners.append(owner)
         return result
 
-    monkeypatch.setattr(adapters, "_native_cursor", capture)
+    monkeypatch.setattr(SourceSession, "execute", captured_execute)
     monkeypatch.setattr(SourceSession, "__enter__", entered)
     return trace

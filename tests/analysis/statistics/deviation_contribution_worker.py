@@ -6,13 +6,13 @@ import hashlib
 import json
 import os
 import sys
-from collections.abc import Iterator
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 from unittest.mock import patch
 
+import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
@@ -26,7 +26,7 @@ from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import NoTime, QualificationKey
-from marivo.datasource.adapters import SourceBatchStream
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected
 from tests.analysis.statistics.deviation_time_worker import publish_calendar
 from tests.support.json import Json, key_json
@@ -66,15 +66,12 @@ def accept_chain(
     assert isinstance(observed, mv.LogicalNumericRelation)
     trace: list[str] = []
     fits: list[dict[str, Json]] = []
-    next_batch, execute = (
-        SourceBatchStream._iterate,
-        scoring.execute,
-    )
+    source_execute, execute = SourceSession.execute, scoring.execute
 
-    def read(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-        for batch in next_batch(stream):
-            trace.append("source_read")
-            yield batch
+    def read(source: SourceSession, compiled: CompiledRead) -> pd.DataFrame:
+        result = source_execute(source, compiled)
+        trace.append("source_read")
+        return result
 
     def score(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
         if isinstance(node.parameters, DeviationFit):
@@ -129,7 +126,7 @@ def accept_chain(
         return result
 
     with (
-        patch.object(SourceBatchStream, "_iterate", read),
+        patch.object(SourceSession, "execute", read),
         patch.object(scoring, "execute", score),
     ):
         followup = observed.execute()
@@ -158,7 +155,7 @@ def accept_chain(
             else:
                 wanted[prefix] = raw[selected_index]
         keys = checked.contract.key_fields
-        actual_rows = checked.primary.to_pylist()
+        actual_rows = checked.primary.to_dict(orient="records")
         assert (
             len(actual_rows) == len(wanted)
             and {tuple(row[key] for key in keys): row["value"] for row in actual_rows} == wanted
@@ -167,9 +164,9 @@ def accept_chain(
         components = next(p.table for p in checked.parts if p.role == "original_state")
         assert {
             tuple(row[key] for key in keys): row["original_state__sum"]
-            for row in components.to_pylist()
+            for row in components.to_dict(orient="records")
         } == wanted
-        assert sorted(components["original_state__non_null_count"].to_pylist()) == [0] * (
+        assert sorted(components["original_state__non_null_count"].tolist()) == [0] * (
             len(wanted) - len(selected_indices)
         ) + [1] * len(selected_indices)
         assert len(fits) == 1 and "local_consume" in trace

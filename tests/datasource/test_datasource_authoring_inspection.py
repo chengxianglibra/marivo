@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -13,6 +12,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
 from marivo.datasource.engines.duckdb import PROFILE as DUCKDB_PROFILE
 from marivo.datasource.errors import (
@@ -39,35 +39,15 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
-    from ibis.backends.duckdb import Backend
-
-    from marivo.datasource import adapters
-
     spy = _QuerySpy()
-    original_execute = Backend.execute
-    original_raw_sql = Backend.raw_sql
-    original_native_cursor = adapters._native_cursor
+    original_execute = SourceSession.execute
 
-    def counted_execute(self: Backend, *args: object, **kwargs: object) -> object:
+    def counted_execute(owner: SourceSession, read: CompiledRead) -> object:
         spy.user_data_queries += 1
-        return original_execute(self, *args, **kwargs)
+        spy.user_data_sql = (*spy.user_data_sql, read.sql)
+        return original_execute(owner, read)
 
-    def counted_raw_sql(self: Backend, query: object, *args: object, **kwargs: object) -> object:
-        query_text = str(query)
-        if re.search(r"\bFROM\s+(?:\"?main\"?\.)?\"?orders\"?\b", query_text, re.IGNORECASE):
-            spy.user_data_queries += 1
-            spy.user_data_sql = (*spy.user_data_sql, query_text)
-        return original_raw_sql(self, query, *args, **kwargs)
-
-    def counted_native_cursor(backend: Backend, name: str, query: str) -> object:
-        if re.search(r"\bFROM\s+(?:\"?main\"?\.)?\"?orders\"?\b", query, re.IGNORECASE):
-            spy.user_data_queries += 1
-            spy.user_data_sql = (*spy.user_data_sql, query)
-        return original_native_cursor(backend, name, query)
-
-    monkeypatch.setattr(Backend, "execute", counted_execute)
-    monkeypatch.setattr(Backend, "raw_sql", counted_raw_sql)
-    monkeypatch.setattr(adapters, "_native_cursor", counted_native_cursor)
+    monkeypatch.setattr(SourceSession, "execute", counted_execute)
     return spy
 
 

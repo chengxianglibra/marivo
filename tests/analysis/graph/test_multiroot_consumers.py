@@ -4,7 +4,7 @@ import json
 import math
 import os
 from collections.abc import Callable, Sequence
-from contextlib import ExitStack, closing
+from contextlib import ExitStack
 from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from decimal import ROUND_HALF_EVEN, Decimal, localcontext
@@ -15,7 +15,6 @@ from typing import Literal, NoReturn
 import ibis
 import ibis.expr.datatypes as dt
 import numpy as np
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -82,16 +81,11 @@ def test_wide_decimal_finish_keeps_extremes_and_half_even(
             expected_schema=expression.schema().to_pyarrow(),
         )
         actual: dict[int, Decimal] = {}
-        with closing(case.session.batches(read, chunk_size=2)) as batches:
-            for batch in batches:
-                assert batch.schema.field("numeric_result").type == pa.decimal128(38, 6)
-                for identity, value in zip(
-                    batch.column("id").to_pylist(),
-                    batch.column("numeric_result").to_pylist(),
-                    strict=True,
-                ):
-                    assert isinstance(identity, int) and isinstance(value, Decimal)
-                    actual[identity] = value
+        frame = case.session.execute(read)
+        assert str(frame["numeric_result"].dtype) == "object"
+        for identity, value in zip(frame["id"], frame["numeric_result"], strict=True):
+            assert isinstance(identity, int) and isinstance(value, Decimal)
+            actual[identity] = value
         assert actual == expected
     source_trace.save(
         f"c04-{backend}-decimal-finishing",
@@ -556,7 +550,7 @@ def test_independent_roots_and_temporal_fold(
         if spatial_fold:
             assert result._dataset is not None
             state_rows = next(
-                part.table.to_pylist()
+                part.table.to_dict("records")
                 for part in result._dataset.verified().parts
                 if part.role == "original_state"
             )
@@ -619,7 +613,7 @@ def test_independent_roots_and_temporal_fold(
 
             submissions_before = len(source_trace.native_sql)
             with monkeypatch.context() as isolated:
-                isolated.setattr(SourceSession, "batches", forbid_source)
+                isolated.setattr(SourceSession, "execute", forbid_source)
                 rolled = result.rollup().execute()
                 rolled_frame = rolled.to_pandas()
             assert len(rolled_frame) == 1

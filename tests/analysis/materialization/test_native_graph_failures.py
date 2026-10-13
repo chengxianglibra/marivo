@@ -1,19 +1,19 @@
-"""Graph failure atomicity and native errors without an execution clock."""
+"""Graph failure atomicity and source errors without an execution clock."""
 
-from collections.abc import Iterator
-
-import pyarrow as pa
+import pandas as pd
 import pytest
 
 import marivo.semantic as ms
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.datasource.adapters import SourceBatchStream
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import DslCaseFactory
 
 
-@pytest.mark.parametrize("phase", ("fetch", "graph_admitted", "before_commit", "after_commit"))
+@pytest.mark.parametrize(
+    "phase", ("source_execute", "graph_admitted", "before_commit", "after_commit")
+)
 @pytest.mark.parametrize("interruption", (False, True))
-def test_native_and_python_failures_preserve_atomic_publication(
+def test_source_and_python_failures_preserve_atomic_publication(
     phase: str,
     interruption: bool,
     analysis_dsl_case_factory: DslCaseFactory,
@@ -35,13 +35,14 @@ def test_native_and_python_failures_preserve_atomic_publication(
             raise KeyboardInterrupt("injected caller interruption")
         raise TimeoutError("injected native timeout")
 
-    if phase == "fetch":
+    if phase == "source_execute":
 
-        def failed_fetch(_stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
+        def failed_execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            del owner, read
             fail()
-            yield pa.record_batch({"unused": []})
+            raise AssertionError("injected source failure unexpectedly returned")
 
-        monkeypatch.setattr(SourceBatchStream, "_iterate", failed_fetch)
+        monkeypatch.setattr(SourceSession, "execute", failed_execute)
     else:
 
         def event(point: str) -> None:

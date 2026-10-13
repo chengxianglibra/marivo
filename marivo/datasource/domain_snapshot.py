@@ -9,12 +9,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import replace
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import NoReturn
 from uuid import uuid4
-
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
@@ -88,71 +84,60 @@ def capture(
             stage="admission",
         )
     manifest: list[dict[str, object]] = []
-    with TemporaryDirectory(prefix="marivo-r7-capture-") as directory:
-        for identity, binding in tuple(source._bound_sources.items()):
-            original = binding.source
-            if isinstance(original, ParquetSourceIR):
-                path = Path(original.path)
-                if not path.is_file():
-                    fail(
-                        "physical_qualification",
-                        "domain file capture requires an exact local Parquet file",
-                        stage="admission",
-                    )
-                captured = Path(directory) / (uuid4().hex + ".parquet")
-                before = path.stat()
-                with path.open("rb") as reader, captured.open("wb") as writer:
-                    while block := reader.read(1024 * 1024):
-                        writer.write(block)
-                content_digest = _hash(captured)
-                after = path.stat()
-                if (before.st_ino, before.st_size, before.st_mtime_ns) != (
-                    after.st_ino,
-                    after.st_size,
-                    after.st_mtime_ns,
-                ) or _hash(path) != content_digest:
-                    fail(
-                        "input_binding", "Parquet changed during immutable capture", stage="prepare"
-                    )
-                captured.chmod(0o400)
-                for field in pq.read_schema(captured):
-                    if pa.types.is_timestamp(field.type):
-                        source.domain_time_units[identity, field.name] = field.type.unit
-                relation = backend.read_parquet(
-                    str(captured), hive_partitioning=original.hive_partitioning
-                )
-                if original.columns is not None:
-                    relation = relation.select(*original.columns)
-                replacement = replace(binding, relation=relation)
-                source._bound_sources[identity] = replacement
-                manifest.append(
-                    {
-                        "source_id": identity,
-                        "path": str(path.resolve()),
-                        "sha256": content_digest,
-                        "bytes": captured.stat().st_size,
-                    }
-                )
-            elif not isinstance(original, TableSourceIR):
+    fingerprints: list[tuple[Path, tuple[int, int, int], str]] = []
+    for identity, binding in tuple(source._bound_sources.items()):
+        original = binding.source
+        if isinstance(original, ParquetSourceIR):
+            path = Path(original.path)
+            if not path.is_file():
                 fail(
                     "physical_qualification",
-                    "domain capture supports native table and local Parquet only",
+                    "domain file capture requires an exact local Parquet file",
                     stage="admission",
                 )
-        authority: dict[str, object] = {
-            "kind": "immutable_manifest" if manifest else "duckdb_transaction",
-            "capture_id": uuid4().hex,
-            "files": manifest,
-        }
-        authority["digest"] = hashlib.sha256(
-            json.dumps(authority, sort_keys=True).encode()
-        ).hexdigest()
-        begin()
-        try:
-            yield authority
-        finally:
-            if sys.exc_info()[0] is None:
+            before = path.stat()
+            content_digest = _hash(path)
+            after = path.stat()
+            file_identity = (before.st_ino, before.st_size, before.st_mtime_ns)
+            if file_identity != (after.st_ino, after.st_size, after.st_mtime_ns):
+                fail("input_binding", "Parquet changed during source binding", stage="prepare")
+            fingerprints.append((path, file_identity, content_digest))
+            relation = backend.read_parquet(str(path), hive_partitioning=original.hive_partitioning)
+            if original.columns is not None:
+                relation = relation.select(*original.columns)
+            source._bound_sources[identity] = replace(binding, relation=relation)
+            manifest.append(
+                {
+                    "source_id": identity,
+                    "path": str(path.resolve()),
+                    "sha256": content_digest,
+                    "bytes": before.st_size,
+                }
+            )
+        elif not isinstance(original, TableSourceIR):
+            fail(
+                "physical_qualification",
+                "domain capture supports native table and local Parquet only",
+                stage="admission",
+            )
+    authority: dict[str, object] = {
+        "kind": "file_manifest" if manifest else "duckdb_transaction",
+        "capture_id": uuid4().hex,
+        "files": manifest,
+    }
+    authority["digest"] = hashlib.sha256(json.dumps(authority, sort_keys=True).encode()).hexdigest()
+    begin()
+    try:
+        yield authority
+        for path, original_identity, original_digest in fingerprints:
+            current = path.stat()
+            if (current.st_ino, current.st_size, current.st_mtime_ns) != original_identity or _hash(
+                path
+            ) != original_digest:
+                fail("input_binding", "Parquet changed during prepared analysis", stage="execute")
+    finally:
+        if sys.exc_info()[0] is None:
+            rollback()
+        else:
+            with suppress(Exception):
                 rollback()
-            else:
-                with suppress(Exception):
-                    rollback()

@@ -8,12 +8,12 @@ from datetime import date, datetime
 from decimal import Decimal
 from fractions import Fraction
 
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import LocalMethodStage
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
-from marivo.analysis.materialization.cell_arrow import logical_schema, rows
 from marivo.analysis.methods.association_numeric import score
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 
@@ -42,7 +42,11 @@ class SpearmanResult:
 
 
 def score_spearman(
-    stage: LocalMethodStage, left: pa.Table, right: pa.Table, keys: tuple[str, ...]
+    stage: LocalMethodStage,
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    keys: tuple[str, ...],
+    schemas: tuple[pa.Schema, pa.Schema],
 ) -> SpearmanResult:
     """Pair exact retained keys and score complete finite Cells with average ranks."""
     if (
@@ -56,9 +60,12 @@ def score_spearman(
             "Use registered pair inputs.",
             "analysis.local",
         )
+    from marivo.analysis.materialization.cell_arrow import logical_schema
+    from marivo.analysis.materialization.graph_exchange import _pandas_records
+
     expected = {*keys, "value", "cell_tag", "cell_reason"}
-    if not expected <= set(logical_schema(left.schema).names) or not expected <= set(
-        logical_schema(right.schema).names
+    if not expected <= set(logical_schema(schemas[0]).names) or not expected <= set(
+        logical_schema(schemas[1]).names
     ):
         reject(
             "two complete keyed Cell inputs",
@@ -67,9 +74,9 @@ def score_spearman(
             "analysis.local",
         )
     paired: list[dict[tuple[object, ...], tuple[str, int | float | None]]] = []
-    for table in (left, right):
+    for frame, schema in zip((left, right), schemas, strict=True):
         mapping: dict[tuple[object, ...], tuple[str, int | float | None]] = {}
-        for row in rows(table):
+        for row in _pandas_records(frame, schema):
             identity = tuple(row[key] for key in keys)
             tag, value, reason = row["cell_tag"], row["value"], row["cell_reason"]
             if any(item is None for item in identity) or identity in mapping:

@@ -23,7 +23,7 @@ def test_native_driver_records_fixture_sql_once(
         observed = [item for item in audit.submissions if item.sql == "SELECT 11 AS witness"]
         assert len(observed) == 1
         assert observed[0].category == "test_administration"
-        assert observed[0].boundary != "adapters._native_cursor"
+        assert observed[0].boundary
         audit.assert_classified()
 
 

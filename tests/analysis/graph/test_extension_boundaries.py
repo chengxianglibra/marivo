@@ -201,4 +201,3 @@ def test_wrong_schema_refuses_before_compilation_or_submission(
         assert caught.value.repair is not None
         assert caught.value.expected and caught.value.received and caught.value.repair.action
         assert not session.submissions
-        assert not session._issued and not session._streams

@@ -6,6 +6,7 @@ from decimal import Decimal, localcontext
 from fractions import Fraction
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -149,7 +150,7 @@ def test_f11_complete_source_chain(
     profile: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+    from marivo.datasource.adapters import CompiledRead, SourceSession
 
     case = analysis_dsl_case_factory("j2")
     with duckdb.connect(str(case.database_path)) as db:
@@ -184,17 +185,18 @@ def test_f11_complete_source_chain(
     )
     followup = selected.observe(metric, during=grid, via=via, by=(mv.member(),))
     trace: list[str] = []
-    source_batches, original_fit = SourceSession.batches, numeric.fit
+    source_execute, original_fit = SourceSession.execute, numeric.fit
 
-    def batches(self: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def execute(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        frame = source_execute(self, read)
         trace.append("source")
-        return source_batches(self, read, chunk_size=chunk_size)
+        return frame
 
     def fitting(xs: tuple[Fraction, ...], algorithm: numeric.DeviationMethod) -> numeric.Fit:
         trace.append("local")
         return original_fit(xs, algorithm)
 
-    monkeypatch.setattr(SourceSession, "batches", batches)
+    monkeypatch.setattr(SourceSession, "execute", execute)
     monkeypatch.setattr(numeric, "fit", fitting)
     assert followup.aggregate(method=mv.count_defined()).execute().to_pandas().value.tolist() == [2]
     assert trace.count("local") == 1
@@ -468,7 +470,7 @@ def test_construction_mode_identity_and_zero_business_reads(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction read business rows")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     logical = values.deviation(method=method, partition_by=(category,))
     assert isinstance(logical, mv.LogicalDeviationResult)
     assert "fit_scope" in dict(logical.contract()._facts)

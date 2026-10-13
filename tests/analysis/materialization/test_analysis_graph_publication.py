@@ -252,16 +252,16 @@ def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
     forward = difference(a, b)
     saved = case[0]._execute_graph(forward, (RouteChoice(forward.identity, "artifact_python"),))
     actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].to_pylist() == [3, 4, 1]
-    assert actual.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7, 9]
-    assert actual.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3, 8]
+    assert actual.primary["value"].tolist() == [3, 4, 1]
+    assert actual.parts[0].table["current_endpoint__value"].tolist() == [4, 7, 9]
+    assert actual.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3, 8]
     reverse = difference(b, a)
     reversed_saved = case[0]._execute_graph(
         reverse, (RouteChoice(reverse.identity, "artifact_python"),)
     )
     assert read_result(case[0].store.project_root, reversed_saved.descriptor).primary[
         "value"
-    ].to_pylist() == [-3, -4, -1]
+    ].tolist() == [-3, -4, -1]
     assert saved.execution_key_digest != reversed_saved.execution_key_digest
     assert len(case[4]) == before_opens
     source_path = case[0].store.project_root / "source.duckdb"
@@ -291,7 +291,7 @@ root = method_node(
     value_type=prior.value_type,
 )
 saved = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-assert read_result(store.project_root, saved.descriptor).primary["value"].to_pylist() == [3, 4, 1]
+assert read_result(store.project_root, saved.descriptor).primary["value"].tolist() == [3, 4, 1]
 assert saved.producing_run_ref != sys.argv[4]
 """,
                 str(case[0].store.project_root),
@@ -311,9 +311,9 @@ assert saved.producing_run_ref != sys.argv[4]
 def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: pytest.MonkeyPatch):
     first = _execute(case)
     runtime, root, _, _, opens, backend = case
-    assert read_result(runtime.store.project_root, first.descriptor).primary[
-        "value"
-    ].to_pylist() == [3]
+    assert read_result(runtime.store.project_root, first.descriptor).primary["value"].tolist() == [
+        3
+    ]
     assert thaw_graph(freeze_graph(root)).fingerprint == root.fingerprint
     assert decode(encode(first.descriptor, DESCRIPTOR), DESCRIPTOR) == first.descriptor
     backend.insert(
@@ -330,9 +330,9 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: py
     second = _execute(case)
     assert first.artifact_ref != second.artifact_ref
     assert first.producing_run_ref != second.producing_run_ref
-    assert read_result(runtime.store.project_root, second.descriptor).primary[
-        "value"
-    ].to_pylist() == [4]
+    assert read_result(runtime.store.project_root, second.descriptor).primary["value"].tolist() == [
+        4
+    ]
     fixed = _fixed(_capture(case))
     schedule_calls: list[LoweredPlan] = []
     validate = graph_local_execution.validate_fixed_schedule
@@ -345,9 +345,9 @@ def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: py
     monkeypatch.setattr(graph_local_execution, "validate_fixed_schedule", validate_once)
     result = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
     assert len(schedule_calls) == 1
-    assert read_result(runtime.store.project_root, result.descriptor).primary[
-        "value"
-    ].to_pylist() == [4]
+    assert read_result(runtime.store.project_root, result.descriptor).primary["value"].tolist() == [
+        4
+    ]
     before = _counts(runtime.store)
     assert (
         runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),)) == result
@@ -384,7 +384,7 @@ def test_fixed_spearman_accepts_independent_captures_of_one_frozen_membership(ca
     before = _counts(case[0].store)
     saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
     actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].to_pylist() == [1.0]
+    assert actual.primary["value"].tolist() == [1.0]
     assert _counts(case[0].store)[0] == before[0] + 1
     assert case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),)) == saved
 
@@ -407,7 +407,7 @@ def test_fixed_transport_filters_exact_saved_rows_without_source_open(case):
     before_opens = len(case[4])
     saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
     actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].to_pylist() == [7, 9]
+    assert actual.primary["value"].tolist() == [7, 9]
     assert len(case[4]) == before_opens
 
 
@@ -452,9 +452,9 @@ def test_fixed_filter_then_count_defined_uses_one_graph_run(case):
             RouteChoice(root.identity, "artifact_python"),
         ),
     )
-    assert read_result(case[0].store.project_root, saved.descriptor).primary[
-        "value"
-    ].to_pylist() == [expected]
+    assert read_result(case[0].store.project_root, saved.descriptor).primary["value"].tolist() == [
+        expected
+    ]
     assert _counts(case[0].store)[0] == before_runs + 1
     assert len(case[4]) == before_opens
 
@@ -515,7 +515,7 @@ def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch)
     )
     saved = case[0]._execute_graph(root, routes)
     actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].to_pylist() == [0]
+    assert actual.primary["value"].tolist() == [0]
     assert calls == ["difference"]
     assert _counts(case[0].store) == (before[0] + 1, before[1] + 1, before[2] + 1, 0)
     assert len(case[4]) == before_opens
@@ -552,7 +552,7 @@ def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
         selected_root, (RouteChoice(selected_root.identity, "artifact_python"),)
     )
     result = read_result(case[0].store.project_root, selected.descriptor)
-    assert result.primary["value"].to_pylist() == [1.0]
+    assert result.primary["value"].tolist() == [1.0]
     assert tuple(part.role for part in result.parts) == ("pair_counts",)
     rejected_root = method_node(
         (Edge("quantity", fixed),),
@@ -569,8 +569,8 @@ def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
         rejected_root, (RouteChoice(rejected_root.identity, "artifact_python"),)
     )
     empty = read_result(case[0].store.project_root, rejected.descriptor)
-    assert empty.primary.num_rows == 0
-    assert empty.parts[0].table.num_rows == 0
+    assert empty.primary.empty
+    assert empty.parts[0].table.empty
     assert rejected.descriptor.row_set_contract.kind == "optional_singleton"
     source_path = case[0].store.project_root / "source.duckdb"
     offline_path = source_path.with_suffix(".offline")
@@ -591,8 +591,8 @@ with store._read() as conn:
     saved = graph_store.artifact(store, conn, sys.argv[2])
 assert saved is not None
 result = read_result(store.project_root, saved.descriptor)
-assert result.primary.num_rows == 0
-assert result.parts[0].table.num_rows == 0
+assert result.primary.empty
+assert result.parts[0].table.empty
 """,
                 str(case[0].store.project_root),
                 rejected.artifact_ref,
@@ -691,14 +691,14 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
         source_factory=source,
     )
     actual = read_result(runtime.store.project_root, saved.descriptor)
-    assert actual.primary["value"].to_pylist() == [3, 4, 1]
+    assert actual.primary["value"].tolist() == [3, 4, 1]
     assert tuple(part.role for part in actual.parts) == (
         "current_endpoint",
         "baseline_endpoint",
         "correspondence",
     )
-    assert actual.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7, 9]
-    assert actual.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3, 8]
+    assert actual.parts[0].table["current_endpoint__value"].tolist() == [4, 7, 9]
+    assert actual.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3, 8]
     fixed = FixedLeaf(
         ArtifactRef(saved.artifact_ref),
         saved.descriptor.definition_fingerprint,
@@ -721,9 +721,9 @@ def test_source_difference_retains_both_ordered_endpoint_parts(case):
         continuation, (RouteChoice(continuation.identity, "artifact_python"),)
     )
     retained = read_result(runtime.store.project_root, continued.descriptor)
-    assert retained.primary["value"].to_pylist() == [3, 4]
-    assert retained.parts[0].table["current_endpoint__value"].to_pylist() == [4, 7]
-    assert retained.parts[1].table["baseline_endpoint__value"].to_pylist() == [1, 3]
+    assert retained.primary["value"].tolist() == [3, 4]
+    assert retained.parts[0].table["current_endpoint__value"].tolist() == [4, 7]
+    assert retained.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3]
 
 
 def test_faults_have_no_success_and_clean_only_own_run(case):
@@ -753,9 +753,9 @@ def test_faults_have_no_success_and_clean_only_own_run(case):
         after = _counts(runtime.store)
         assert after == (before[0] + 1, before[1], before[2] + 1, before[3])
     runtime._hook = None
-    assert read_result(runtime.store.project_root, saved.descriptor).primary[
-        "value"
-    ].to_pylist() == [3]
+    assert read_result(runtime.store.project_root, saved.descriptor).primary["value"].tolist() == [
+        3
+    ]
 
 
 def test_lost_ack_returns_original_without_replay(case):
@@ -785,7 +785,7 @@ def test_publication_requires_all_run_resources_discharge(case):
     assert _counts(runtime.store) == (1, 0, 1, 0)
     runtime._hook = None
     saved = _execute(case)
-    assert read_result(runtime.store.project_root, saved.descriptor).primary.num_rows == 1
+    assert len(read_result(runtime.store.project_root, saved.descriptor).primary) == 1
 
 
 def test_independent_semantic_dependency_digest_is_preserved(case):
@@ -933,9 +933,9 @@ def test_method_state_and_completed_evidence_roundtrip(case):
         source_bindings=(case[2],),
         source_factory=case[3],
     )
-    assert read_result(case[0].store.project_root, record.descriptor).primary[
-        "value"
-    ].to_pylist() == [expected]
+    assert read_result(case[0].store.project_root, record.descriptor).primary["value"].tolist() == [
+        expected
+    ]
     assert record.descriptor.completed_checks
 
 
@@ -959,8 +959,8 @@ def test_spearman_shared_node_preserves_frozen_identity_and_parts(case, route):
         source_factory=case[3],
     )
     result = read_result(case[0].store.project_root, record.descriptor)
-    assert result.primary["value"].to_pylist() == pytest.approx([1.0])
-    assert result.parts[0].table["pair_counts__complete_pair_count"].to_pylist() == [3]
+    assert result.primary["value"].tolist() == pytest.approx([1.0])
+    assert result.parts[0].table["pair_counts__complete_pair_count"].tolist() == [3]
     frozen = thaw_graph(freeze_graph(root))
     assert frozen.inputs[0].node is frozen.inputs[1].node
 
@@ -1018,7 +1018,7 @@ def test_process_exit_coordinates_original_run_without_replay(case, point):
     _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
     assert _finish(_worker(store, saved.artifact_ref, "reconcile")) == "reconciled"
     assert _counts(store) == ((2, 2, 2, 0) if point == "after_commit" else (2, 1, 2, 0))
-    assert read_result(store.project_root, saved.descriptor).primary.num_rows == 3
+    assert len(read_result(store.project_root, saved.descriptor).primary) == 3
 
 
 @pytest.mark.slow
@@ -1061,7 +1061,7 @@ def test_missing_live_method_part_never_publishes(case, monkeypatch):
         return replace(result, parts=())
 
     monkeypatch.setattr(publication, "execute_source_graph", inconsistent)
-    with pytest.raises(Exception, match="missing, reordered or extra method state part"):
+    with pytest.raises(IntegrityError, match="required roles"):
         _execute(case)
     assert _counts(case[0].store) == (1, 0, 1, 0)
 
@@ -1073,12 +1073,12 @@ def test_empty_source_and_empty_fixed_input_publish_truthful_state(case):
         overwrite=True,
     )
     saved = _capture(case)
-    assert read_result(case[0].store.project_root, saved.descriptor).primary.num_rows == 0
+    assert read_result(case[0].store.project_root, saved.descriptor).primary.empty
     root = _fixed(saved)
     result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
     data = read_result(case[0].store.project_root, result.descriptor)
-    assert data.primary["value"].to_pylist() == [0]
-    assert data.parts[0].table["row_state__count"].to_pylist() == [0]
+    assert data.primary["value"].tolist() == [0]
+    assert data.parts[0].table["row_state__count"].tolist() == [0]
 
 
 def test_unknown_precommit_preserves_original_resources(case, monkeypatch):
@@ -1172,6 +1172,25 @@ def test_storage_rejects_symlink_before_writing(tmp_path):
     assert not list(foreign.iterdir())
 
 
+def test_storage_write_failure_removes_run_owned_staging(tmp_path, monkeypatch):
+    import marivo.analysis.materialization.graph_storage as storage
+
+    staging = tmp_path / "run" / "output" / "primary"
+
+    def fail(*args, **kwargs):
+        raise OSError("write denied")
+
+    monkeypatch.setattr(storage.pq, "write_table", fail)
+    with pytest.raises(MaterializationError, match="local Parquet write failed"):
+        storage.write_table(
+            tmp_path,
+            staging,
+            tmp_path / "artifact" / "primary",
+            pa.table({"id": [1]}),
+        )
+    assert not staging.exists()
+
+
 def _fixed_pair(first, second):
     from marivo.analysis.core.rules import AssociationScore
 
@@ -1204,7 +1223,7 @@ def test_shared_fixed_spearman_preserves_ordered_slots_and_reads_once(case, monk
     assert reads.count(record.descriptor.primary_receipt.local.project_relative_path) == 1
     assert read_result(case[0].store.project_root, result.descriptor).primary[
         "value"
-    ].to_pylist() == pytest.approx([1.0])
+    ].tolist() == pytest.approx([1.0])
     run = case[0].store._graph_run(result.producing_run_ref)
     assert run.input_artifact_refs == (record.artifact_ref, record.artifact_ref)
 
@@ -1337,7 +1356,7 @@ def test_fixed_reads_without_producer_registry(case, monkeypatch, capsys):
     monkeypatch.setattr(MethodRegistry, "select", unavailable)
     monkeypatch.setattr(graph_protocol, "make_plan", unavailable)
     descriptor = decode(encode(output.descriptor, DESCRIPTOR), DESCRIPTOR)
-    assert read_result(case[0].store.project_root, descriptor).primary["value"].to_pylist() == [3]
+    assert read_result(case[0].store.project_root, descriptor).primary["value"].tolist() == [3]
     with case[0].store._read() as connection:
         recovered = graph_store.artifact(case[0].store, connection, output.artifact_ref)
     assert recovered is not None
@@ -1408,17 +1427,17 @@ def test_materialized_show_without_original_implementation(case, monkeypatch, ca
 
 
 def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
-    from marivo.analysis.materialization import graph_exchange, graph_findings
+    from marivo.analysis.materialization import graph_findings, graph_storage
 
     output = _execute(case)
 
     def forbidden(*args, **kwargs):
         raise AssertionError("committed read repeated production work")
 
-    monkeypatch.setattr(graph_exchange, "collect", forbidden)
+    monkeypatch.setattr(graph_storage, "read_table", forbidden)
     monkeypatch.setattr(graph_findings, "extract", forbidden)
     result = read_result(case[0].store.project_root, output.descriptor)
-    assert result.primary.num_rows == output.descriptor.primary_receipt.local.realized_row_count
+    assert len(result.primary) == output.descriptor.primary_receipt.local.realized_row_count
     with case[0].store._read() as connection:
         findings, evidence = graph_findings.collection(
             case[0].store, connection, output.descriptor, output.artifact_ref
@@ -1574,8 +1593,11 @@ def test_compact_binding_has_one_frozen_storage_owner(case):
     )
     assert b"marivo.analysis.cell_table" not in (pq.read_schema(path).metadata or {})
     recovered = read_result(case[0].store.project_root, descriptor)
-    assert recovered.primary.schema.equals(schema, check_metadata=True)
-    assert column(recovered.primary, "cell_tag").to_pylist() == ["defined"] * 3
+    from marivo.analysis.materialization.graph_exchange import to_arrow
+
+    physical = to_arrow(recovered.primary, schema)
+    assert physical.schema.equals(schema, check_metadata=True)
+    assert column(physical, "cell_tag").to_pylist() == ["defined"] * 3
     assert descriptor.schema == "marivo.analysis.artifact_descriptor/v6"
     assert descriptor.method_state.schema == "marivo.analysis.method_state/v2"
     assert descriptor.method_state.contract_version == 4

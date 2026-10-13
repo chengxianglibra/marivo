@@ -165,8 +165,8 @@ def test_source_and_retained(
 
                 fixed_change = change.execute()
                 submissions_before = len(source_trace.native_sql)
-                original_batches = SourceSession.batches
-                monkeypatch.setattr(SourceSession, "batches", forbid)
+                original_execute = SourceSession.execute
+                monkeypatch.setattr(SourceSession, "execute", forbid)
                 fixed = fixed_change.attribute(axes=axes).execute()
                 assert (
                     fixed.contribution.to_pandas()
@@ -177,7 +177,7 @@ def test_source_and_retained(
                 )
                 assert len(source_trace.native_sql) == submissions_before
                 assert session._runtime.store.resources(session._runtime.session_ref) == ()
-                monkeypatch.setattr(SourceSession, "batches", original_batches)
+                monkeypatch.setattr(SourceSession, "execute", original_execute)
             source_trace.save(
                 f"c09-source-{backend}-{metric_kind}-{axis_kind}",
                 {**case.environment, "profile": profile},

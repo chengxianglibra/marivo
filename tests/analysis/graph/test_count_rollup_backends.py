@@ -174,7 +174,7 @@ def test_native_count_rollup_and_group_state(
             assert result.to_pandas()["value"].tolist() == [first_day_count]
             assert _stage_rows(tmp_path, offset) == [1]
             assert result._dataset is not None
-            assert all(part.table.num_rows == 1 for part in result._dataset.verified().parts)
+            assert all(len(part.table) == 1 for part in result._dataset.verified().parts)
         offset = len(execution_records(tmp_path))
         saved_groups = grouped.execute()
         frame = saved_groups.to_pandas()
@@ -187,7 +187,7 @@ def test_native_count_rollup_and_group_state(
         coordinate = next(
             p for p in saved_groups._dataset.verified().parts if p.role == "coordinate_state"
         )
-        assert coordinate.table.column_names == ["key_0", "coordinate_state__present"]
+        assert list(coordinate.table.columns) == ["key_0", "coordinate_state__present"]
         if backend == "duckdb" and key_type == "int64":
             descriptor = saved_groups._dataset.artifact.descriptor
             receipt = next(p for p in descriptor.parts if p.role == "coordinate_state")

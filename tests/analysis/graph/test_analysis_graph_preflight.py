@@ -14,6 +14,7 @@ from typing import Literal
 
 import duckdb
 import ibis
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -34,7 +35,6 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import BindProject, MapCorrespond, PartsTransport
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
@@ -59,6 +59,13 @@ from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract
 from marivo.semantic.validator import normalize_target_dimension
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
+
+
+def _records(frame: pd.DataFrame) -> list[dict[str, object]]:
+    return [
+        {str(name): None if pd.isna(value) else value for name, value in row.items()}
+        for row in frame.to_dict("records")
+    ]
 
 
 def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
@@ -142,7 +149,7 @@ def test_coordinate_rollup_has_one_singleton_target(
                 root, (RouteChoice(root.identity, "artifact_python"),)
             )
         )
-        rows = cell_rows(read_result(case.root, result.descriptor).primary)
+        rows = _records(read_result(case.root, result.descriptor).primary)
         assert len(rows) == 1
         assert rows[0]["value"] == (None if empty else 1100)
         assert rows[0]["cell_tag"] == ("null" if empty else "defined")
@@ -197,7 +204,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     assert public_result.state.artifact_ref.ref == saved.artifact_ref
     assert public_result.state.producing_run_ref == saved.producing_run_ref
     assert sorted(public_result.to_pandas()["member"].tolist()) == ["A", "B", "C", "D"]
-    assert sorted(actual.primary.column("key_0").to_pylist()) == ["A", "B", "C", "D"]
+    assert sorted(actual.primary["key_0"].tolist()) == ["A", "B", "C", "D"]
     assert tuple(part.role for part in actual.parts) == ("subject",)
     assert store._graph_run(saved.producing_run_ref) is not None
     region = ms.ref.dimension(f"{case.names.domain}.{case.names.customer}.{case.names.region}")
@@ -205,7 +212,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     with pytest.raises(DatasetConstructionError, match="exact physical type"):
         read.where(ValuePredicate(graph.root.signature.domain.binding, "eq", 1))
     read_result_value = read_result(fresh, read.execute().descriptor)
-    assert sorted(read_result_value.primary.column("value").to_pylist()) == [
+    assert sorted(read_result_value.primary["value"].tolist()) == [
         "east",
         "east",
         "south",
@@ -213,9 +220,9 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     ]
     selected = read.where(ValuePredicate(graph.root.signature.domain.binding, "eq", "west"))
     selected_result = read_result(fresh, selected.execute().descriptor)
-    assert selected_result.primary.column("key_0").to_pylist() == ["D"]
+    assert selected_result.primary["key_0"].tolist() == ["D"]
     grouped = read_result(fresh, graph.group_by_value(region).execute().descriptor)
-    assert sorted(grouped.primary.column("key_0").to_pylist()) == ["east", "south", "west"]
+    assert sorted(grouped.primary["key_0"].tolist()) == ["east", "south", "west"]
     import marivo.analysis as mv
     from marivo.analysis.materialization.graph_observation import observe_members
 
@@ -232,7 +239,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     )
     saved_observation = observed.execute()
     observation = read_result(fresh, saved_observation.descriptor)
-    rows = {row["key_0"]: row for row in cell_rows(observation.primary)}
+    rows = {row["key_0"]: row for row in _records(observation.primary)}
     assert sum(row["value"] or 0 for row in rows.values()) == 1000
     assert rows["D"]["cell_tag"] == "null"
     assert rows["D"]["cell_reason"] == "empty_contribution"
@@ -242,7 +249,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         "coverage",
         "coordinate_state",
     )
-    coordinate_rows = observation.parts[-1].table.to_pylist()
+    coordinate_rows = observation.parts[-1].table.to_dict("records")
     assert not any(row["key_0"] == "D" for row in coordinate_rows)
     coordinate_total: int | float = 0
     for row in coordinate_rows:
@@ -267,7 +274,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         value_type=ScalarType(numeric_type),
     )
     total = replace(observed, root=rolled).execute()
-    assert read_result(fresh, total.descriptor).primary["value"].to_pylist() == [1000]
+    assert read_result(fresh, total.descriptor).primary["value"].tolist() == [1000]
     fixed = FixedLeaf(
         ArtifactRef(ref=saved_observation.artifact_ref),
         saved_observation.descriptor.definition_fingerprint,
@@ -294,7 +301,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         (Edge("quantity", observed.root),), group_params, value_type=ScalarType(numeric_type)
     )
     grouped_saved = replace(observed, root=group_root).execute()
-    grouped_rows = cell_rows(read_result(fresh, grouped_saved.descriptor).primary)
+    grouped_rows = _records(read_result(fresh, grouped_saved.descriptor).primary)
     expected_channels: dict[str, int | float] = {}
     for _, _, label, _, instant, amount in analysis_dsl_rows("j1").orders:
         if "2026-08-01" <= instant < "2026-09-01":
@@ -311,7 +318,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     )
     assert {
         row["key_0"]: row["value"]
-        for row in cell_rows(read_result(fresh, grouped_saved.descriptor).primary)
+        for row in _records(read_result(fresh, grouped_saved.descriptor).primary)
     } == expected_channels
     fixed_total = method_node(
         (Edge("quantity", fixed),), OriginalReduce(singleton), value_type=ScalarType(numeric_type)
@@ -319,7 +326,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     saved_total = runtime._execute_graph(
         fixed_total, (RouteChoice(fixed_total.identity, "artifact_python"),)
     )
-    assert read_result(fresh, saved_total.descriptor).primary["value"].to_pylist() == [1000]
+    assert read_result(fresh, saved_total.descriptor).primary["value"].tolist() == [1000]
     for zone, expected in (("Asia/Shanghai", 677), ("America/Los_Angeles", 649)):
         zoned = observe_members(
             graph,
@@ -334,7 +341,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
                 value or 0
                 for value in read_result(fresh, zoned.execute().descriptor)
                 .primary["value"]
-                .to_pylist()
+                .tolist()
             )
             == expected
         )
@@ -346,7 +353,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         sidecar=catalog._state.sidecar,
         report_timezone="UTC",
     )
-    filtered_rows = cell_rows(read_result(fresh, filtered_observation.execute().descriptor).primary)
+    filtered_rows = _records(read_result(fresh, filtered_observation.execute().descriptor).primary)
     assert filtered_rows == [
         {"key_0": "D", "value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     ]
@@ -364,7 +371,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         target_keys=(classification.classification_coordinate(),),
     )
     group_result = read_result(fresh, grouped_observation.execute().descriptor)
-    assert {row["key_0"]: row["value"] for row in cell_rows(group_result.primary)} == {
+    assert {row["key_0"]: row["value"] for row in _records(group_result.primary)} == {
         "east": 600,
         "south": 400,
         "west": None,
@@ -383,7 +390,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         report_timezone="UTC",
     )
     counted_artifact = counted.execute()
-    counted_rows = cell_rows(read_result(fresh, counted_artifact.descriptor).primary)
+    counted_rows = _records(read_result(fresh, counted_artifact.descriptor).primary)
     assert {row["key_0"]: row["value"] for row in counted_rows} == {"A": 1, "B": 1, "C": 1, "D": 0}
     assert all(row["cell_tag"] == "defined" for row in counted_rows)
     count_root = method_node(
@@ -395,7 +402,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     )
     assert read_result(fresh, replace(counted, root=count_root).execute().descriptor).primary[
         "value"
-    ].to_pylist() == [3]
+    ].tolist() == [3]
     count_leaf = FixedLeaf(
         ArtifactRef(ref=counted_artifact.artifact_ref),
         counted_artifact.descriptor.definition_fingerprint,
@@ -411,15 +418,15 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     count_total = runtime._execute_graph(
         fixed_count_root, (RouteChoice(fixed_count_root.identity, "artifact_python"),)
     )
-    assert read_result(fresh, count_total.descriptor).primary["value"].to_pylist() == [3]
+    assert read_result(fresh, count_total.descriptor).primary["value"].tolist() == [3]
     from marivo.analysis.core.graph import topology
     from marivo.analysis.materialization.graph_composition import combine_observations
 
     association = combine_observations(observed, counted, "spearman")
     assert len([node for node in topology(association.root) if isinstance(node, SourceLeaf)]) == 2
     association_result = read_result(fresh, association.execute().descriptor)
-    assert association_result.primary["status"].to_pylist() == ["constant_b"]
-    assert association_result.parts[0].table["pair_counts__complete_pair_count"].to_pylist() == [3]
+    assert association_result.primary["status"].tolist() == ["constant_b"]
+    assert association_result.parts[0].table["pair_counts__complete_pair_count"].tolist() == [3]
     offline = case.database_path.with_suffix(".offline")
     models_offline = fresh / "models.offline"
     case.database_path.rename(offline)
@@ -466,7 +473,7 @@ root = method_node((Edge("quantity", leaf),),
 runtime = DatasetRuntime(store, saved.session_ref)
 output = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
 assert output.producing_run_ref != saved.producing_run_ref
-assert read_result(store.project_root, output.descriptor).primary["value"].to_pylist() == [1000]
+assert read_result(store.project_root, output.descriptor).primary["value"].tolist() == [1000]
 """,
                 str(fresh),
                 saved_observation.artifact_ref,
@@ -569,7 +576,7 @@ def test_string_member_view_uses_exact_graph_and_source_read(
         layout = RelationLayout((CoordinateColumn(coordinate, case.names.customer_id),), None)
         lowered = lower(prepared.admitted, bindings=(SourceBinding(leaf, bound, layout),))
         result = execute_source_graph(prepared, lowered, source)
-    assert sorted(result.primary.column("key_0").to_pylist()) == ["A", "B", "C", "D"]
+    assert sorted(result.primary["key_0"].tolist()) == ["A", "B", "C", "D"]
 
 
 def test_string_dimension_binding_uses_exact_graph_and_source_read(
@@ -637,8 +644,8 @@ def test_string_dimension_binding_uses_exact_graph_and_source_read(
         result = execute_source_graph(prepared, lowered, source)
     assert dict(
         zip(
-            result.primary.column("key_0").to_pylist(),
-            result.primary.column("value").to_pylist(),
+            result.primary["key_0"].tolist(),
+            result.primary["value"].tolist(),
             strict=True,
         )
     ) == {"A": "east", "B": "east"}
@@ -701,7 +708,7 @@ def test_string_group_is_a_qualified_source_graph_method(
             ),
         )
         result = execute_source_graph(prepared, lowered, source)
-    assert sorted(result.primary.column("key_0").to_pylist()) == ["east", "south", "west"]
+    assert sorted(result.primary["key_0"].tolist()) == ["east", "south", "west"]
 
 
 @pytest.mark.slow
@@ -779,7 +786,7 @@ def test_v7_member_subject_part_survives_publication_and_exact_read(
         source_schemas=(selected_schema,),
     )
     restored = read_result(tmp_path, saved.descriptor)
-    assert sorted(restored.primary.column("key_0").to_pylist()) == ["A", "B"]
+    assert sorted(restored.primary["key_0"].tolist()) == ["A", "B"]
     assert tuple(part.role for part in restored.parts) == ("subject",)
     mapped_root = method_node(
         (Edge("subject", leaf),),
@@ -793,9 +800,10 @@ def test_v7_member_subject_part_survives_publication_and_exact_read(
         source_factory=source,
         source_schemas=(selected_schema,),
     )
-    assert sorted(
-        read_result(tmp_path, mapped_saved.descriptor).primary.column("key_0").to_pylist()
-    ) == ["A", "B"]
+    assert sorted(read_result(tmp_path, mapped_saved.descriptor).primary["key_0"].tolist()) == [
+        "A",
+        "B",
+    ]
     dimension_ref = ms.ref.dimension("inventory.product.region")
     dimension = TargetDimensionContract(
         RefPayloadV1.from_ref(dimension_ref),
@@ -829,8 +837,8 @@ def test_v7_member_subject_part_survives_publication_and_exact_read(
         source_schemas=(selected_schema,),
     )
     selected_result = read_result(tmp_path, selected_saved.descriptor)
-    assert selected_result.primary.column("key_0").to_pylist() == ["A"]
-    assert selected_result.primary.column("value").to_pylist() == ["east"]
+    assert selected_result.primary["key_0"].tolist() == ["A"]
+    assert selected_result.primary["value"].tolist() == ["east"]
     assert tuple(part.role for part in selected_result.parts) == ("subject",)
     offline_path = tmp_path / "source.offline"
     source_path.rename(offline_path)
@@ -850,8 +858,8 @@ with store._read() as conn:
     record = graph_store.artifact(store, conn, sys.argv[2])
 assert record is not None
 result = read_result(store.project_root, record.descriptor)
-assert result.primary.column('key_0').to_pylist() == ['A']
-assert result.primary.column('value').to_pylist() == ['east']
+    assert result.primary['key_0'].tolist() == ['A']
+    assert result.primary['value'].tolist() == ['east']
 assert tuple(part.role for part in result.parts) == ('subject',)
 """,
                 str(tmp_path),
@@ -938,8 +946,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     assert len([node for node in nodes if isinstance(node, SourceLeaf)]) == 2
     physical_reads = []
     purposes = []
-    staged = []
-    original_compile, original_stage = SourceSession.compile, SourceSession.stage_derived
+    original_compile = SourceSession.compile
 
     def compile_read(self, qualified, expression, **kwargs):
         purposes.append(kwargs["purpose"])
@@ -950,17 +957,11 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
         )
         return original_compile(self, qualified, expression, **kwargs)
 
-    def stage_read(self, read):
-        staged.append(read.purpose)
-        return original_stage(self, read)
-
     with monkeypatch.context() as patch:
         patch.setattr(SourceSession, "compile", compile_read)
-        patch.setattr(SourceSession, "stage_derived", stage_read)
         saved = composed.execute()
     assert set(physical_reads) == {case.names.customer, case.names.order}
     assert purposes.count("analysis.graph.stage") == 1
-    assert staged == []
     with store._read() as conn:
         assert conn.execute("SELECT COUNT(*) FROM analysis_action_runs").fetchone()[0] == 1
     result = read_result(fresh, saved.descriptor)
@@ -980,7 +981,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     if scenario == "j2":
         current, baseline = totals(8), totals(7)
         expected = {key: current[key] - baseline[key] for key in keys}
-        assert {row["key_0"]: row["value"] for row in cell_rows(result.primary)} == expected
+        assert {row["key_0"]: row["value"] for row in _records(result.primary)} == expected
         assert tuple(part.role for part in result.parts) == (
             "subject",
             "current_endpoint",
@@ -1013,7 +1014,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
             report_timezone="UTC",
         )
         next_result = read_result(fresh, september.execute().descriptor)
-        assert {row["key_0"]: row["value"] for row in cell_rows(next_result.primary)} == {
+        assert {row["key_0"]: row["value"] for row in _records(next_result.primary)} == {
             key: value for key, value in totals(9).items() if expected[key] < 0
         }
         return
@@ -1032,8 +1033,8 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     expected_coefficient = correlation(
         ranks(list(totals_by_key.values())), ranks(list(counts_by_key.values()))
     )
-    assert result.primary["value"].to_pylist() == pytest.approx([expected_coefficient])
-    assert result.primary["status"].to_pylist() == ["valid"]
+    assert result.primary["value"].tolist() == pytest.approx([expected_coefficient])
+    assert result.primary["status"].tolist() == ["valid"]
     leaf = FixedLeaf(
         ArtifactRef(saved.artifact_ref),
         saved.descriptor.definition_fingerprint,
@@ -1078,7 +1079,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
                 ),
             )
             assert output.producing_run_ref != before
-            row = cell_rows(read_result(fresh, output.descriptor).primary)[0]
+            row = _records(read_result(fresh, output.descriptor).primary)[0]
             if method == "count":
                 assert row["value"] == int(accepted)
             elif accepted:
@@ -1137,8 +1138,8 @@ def test_two_hop_original_sum_zero_preserves_component_state(
         key: sum(amount for _, order, amount in facts.lines if order_owner[order] == key)
         for key, _ in facts.customers
     }
-    assert {row["key_0"]: row["value"] for row in cell_rows(result.primary)} == expected
-    assert all(row["cell_tag"] == "defined" for row in cell_rows(result.primary))
+    assert {row["key_0"]: row["value"] for row in _records(result.primary)} == expected
+    assert all(row["cell_tag"] == "defined" for row in _records(result.primary))
     singleton = DomainSignature(
         observed.root.signature.domain.binding, "singleton", (), (), "component-total"
     )
@@ -1150,7 +1151,7 @@ def test_two_hop_original_sum_zero_preserves_component_state(
         value_type=ScalarType("int64"),
     )
     total = replace(observed, root=root).execute()
-    assert read_result(fresh, total.descriptor).primary["value"].to_pylist() == [
+    assert read_result(fresh, total.descriptor).primary["value"].tolist() == [
         sum(expected.values())
     ]
     leaf = FixedLeaf(
@@ -1168,7 +1169,7 @@ def test_two_hop_original_sum_zero_preserves_component_state(
     total = runtime._execute_graph(
         fixed_root, (RouteChoice(fixed_root.identity, "artifact_python"),)
     )
-    assert read_result(fresh, total.descriptor).primary["value"].to_pylist() == [
+    assert read_result(fresh, total.descriptor).primary["value"].tolist() == [
         sum(expected.values())
     ]
 
@@ -1258,7 +1259,7 @@ def _assert_original_ratio_preserves_independent_root_components(
         )
         expected_rows[(owner, channel)] = numerator / denominator if denominator else None
     assert {
-        (row["key_0"], row["key_1"]): row["value"] for row in cell_rows(result.primary)
+        (row["key_0"], row["key_1"]): row["value"] for row in _records(result.primary)
     } == expected_rows
     singleton = DomainSignature(ratio.root.signature.domain.binding, "singleton", (), (), "total")
     root = method_node(
@@ -1269,7 +1270,10 @@ def _assert_original_ratio_preserves_independent_root_components(
         value_type=ScalarType("float64"),
     )
     total = replace(ratio, root=root).execute()
-    actual = read_result(fresh, total.descriptor).primary["value"].to_pylist()
+    actual = [
+        None if pd.isna(value) else value
+        for value in read_result(fresh, total.descriptor).primary["value"].tolist()
+    ]
     assert actual == [sum(sums.values()) / sum(counts.values()) if sum(counts.values()) else None]
 
     from marivo.analysis.core.graph import FixedLeaf
@@ -1290,7 +1294,7 @@ def _assert_original_ratio_preserves_independent_root_components(
         value_type=ScalarType("float64"),
     )
     fixed = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    assert read_result(fresh, fixed.descriptor).primary["value"].to_pylist() == actual
+    assert read_result(fresh, fixed.descriptor).primary["value"].tolist() == actual
     channel = ms.ref.dimension(f"{case.names.domain}.{case.names.order}.{case.names.channel}")
     key = (
         Coordinate(ms.ref.entity(f"{case.names.domain}.{case.names.order}"), channel.path, "group"),
@@ -1319,7 +1323,7 @@ def _assert_original_ratio_preserves_independent_root_components(
     }
     assert {
         row["key_0"]: row["value"]
-        for row in cell_rows(read_result(fresh, group_saved.descriptor).primary)
+        for row in _records(read_result(fresh, group_saved.descriptor).primary)
     } == expected_groups
     fixed_group = method_node(
         (Edge("quantity", leaf),),
@@ -1331,7 +1335,7 @@ def _assert_original_ratio_preserves_independent_root_components(
     )
     assert {
         row["key_0"]: row["value"]
-        for row in cell_rows(read_result(fresh, group_saved.descriptor).primary)
+        for row in _records(read_result(fresh, group_saved.descriptor).primary)
     } == expected_groups
     from marivo.analysis.materialization.graph_dataset import GraphDataset
     from marivo.analysis.materialization.graph_relation import Relation
@@ -1387,14 +1391,14 @@ root = method_node((Edge('quantity', leaf),), OriginalReduce(domain, method='rat
                    value_type=ScalarType('float64'))
 runtime = DatasetRuntime(store, record.session_ref)
 saved = runtime._execute_graph(root, (RouteChoice(root.identity, 'artifact_python'),))
-assert read_result(store.project_root, saved.descriptor).primary['value'].to_pylist() == json.loads(sys.argv[3])
+assert read_result(store.project_root, saved.descriptor).primary['value'].tolist() == json.loads(sys.argv[3])
 coordinate = next(part for part in signature.parts if isinstance(part, CoordinateStatePart))
 key = (Coordinate(coordinate.owner, coordinate.dimension.path, 'group'),)
 domain = DomainSignature(signature.domain.binding, 'group', key, key, 'cold-ratio-channels')
 root = method_node((Edge('quantity', leaf),),
     OriginalReduce(domain, method='ratio', coordinates=domain.instance_key), value_type=ScalarType('float64'))
 saved = runtime._execute_graph(root, (RouteChoice(root.identity, 'artifact_python'),))
-assert {row['key_0']: row['value'] for row in read_result(store.project_root, saved.descriptor).primary.to_pylist()} == json.loads(sys.argv[4])
+assert {row['key_0']: row['value'] for row in read_result(store.project_root, saved.descriptor).primary.to_dict("records")} == json.loads(sys.argv[4])
 """,
                 str(fresh),
                 saved.artifact_ref,

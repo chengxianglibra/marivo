@@ -34,7 +34,7 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         raise AssertionError("Member construction read business rows")
 
     with monkeypatch.context() as patch:
-        patch.setattr(SourceSession, "batches", forbidden)
+        patch.setattr(SourceSession, "execute", forbidden)
         logical = _members(case)
         logical.contract().show()
         assert case.session.runs().items == ()
@@ -64,7 +64,7 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
     def fail(*args: object, **kwargs: object) -> NoReturn:
         raise RuntimeError("synthetic source failure")
 
-    monkeypatch.setattr(SourceSession, "batches", fail)
+    monkeypatch.setattr(SourceSession, "execute", fail)
     run_ids: list[str] = []
     for _ in range(2):
         with pytest.raises(MaterializationError) as caught:
@@ -106,7 +106,7 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
         raise original
 
     with monkeypatch.context() as patch:
-        patch.setattr(SourceSession, "batches", fail_with_typed_error)
+        patch.setattr(SourceSession, "execute", fail_with_typed_error)
         with pytest.raises(MaterializationError) as caught:
             logical.execute()
     assert caught.value is original
@@ -200,7 +200,7 @@ def test_control_exception_keeps_its_type_and_cleans_the_admitted_run(
     def fail(*args: object, **kwargs: object) -> NoReturn:
         raise original
 
-    monkeypatch.setattr(SourceSession, "batches", fail)
+    monkeypatch.setattr(SourceSession, "execute", fail)
     with pytest.raises(KeyboardInterrupt) as caught:
         logical.execute()
     assert caught.value is original

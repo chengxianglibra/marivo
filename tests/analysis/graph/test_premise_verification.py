@@ -6,6 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -15,24 +16,21 @@ from marivo.analysis.core.graph import MethodNode, SourceLeaf
 from marivo.analysis.core.model import available_facts
 from marivo.analysis.core.rules import derive
 from marivo.analysis.materialization import graph_source_execution as native
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.shared_fixtures import DslCaseFactory
 
 
-def _reads(monkeypatch: pytest.MonkeyPatch, sql: list[str] | None = None) -> list[str]:
+def _reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     purposes: list[str] = []
-    original = SourceSession.batches
+    original = SourceSession.execute
 
-    def read(source: SourceSession, issued: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def read(source: SourceSession, issued: CompiledRead) -> pd.DataFrame:
         purposes.append(issued.purpose)
-        if sql is not None:
-            sql.append(issued.sql)
-        return original(source, issued, chunk_size=chunk_size)
+        return original(source, issued)
 
-    monkeypatch.setattr(SourceSession, "batches", read)
+    monkeypatch.setattr(SourceSession, "execute", read)
     return purposes
 
 
@@ -85,13 +83,12 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     values = case.session.members(ms.ref.entity("sales.order")).read(
         ms.ref.dimension("sales.customer.region"), via=ms.ref.relationship("sales.order_buyer")
     )
-    sql: list[str] = []
-    purposes = _reads(monkeypatch, sql)
+    purposes = _reads(monkeypatch)
     result = values.execute()
     assert result._dataset is not None
-    records = cell_rows(result._dataset.verified().primary)
+    records = result._dataset.verified().primary.to_dict("records")
     assert any(row["value"] is not None and row["cell_tag"] == "defined" for row in records)
-    nulls = [row for row in records if row["value"] is None]
+    nulls = [row for row in records if pd.isna(row["value"])]
     assert nulls and all(
         row["cell_tag"] == "null" and row["cell_reason"] == "source_null" for row in nulls
     )
@@ -104,8 +101,6 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
         "analysis.graph.stage",
         "analysis.graph.stage",
     ]
-    assert "mv_graph_" in sql[-1]
-    assert '"customer"' not in sql[-1] and '"order"' not in sql[-1]
     with duckdb.connect(str(case.database_path)) as database:
         database.execute("DELETE FROM customer WHERE customer_id='A'")
     checks: list[str] = []
@@ -147,7 +142,7 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
         assert result._dataset is not None
         exchange = result._dataset.verified()
-        rows = cell_rows(exchange.primary)
+        rows = exchange.primary.to_dict("records")
         assert rows == [
             {
                 "value": sum(row["amount"] for row in work.rows if isinstance(row["amount"], int)),
@@ -190,11 +185,15 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
             item.fact.kind == "key_set_equal"
             for item in result._dataset.artifact.descriptor.completed_checks
         )
-        assert all(row["value"] == 1.0 for row in cell_rows(result._dataset.verified().primary))
+        assert all(
+            row["value"] == 1.0 for row in result._dataset.verified().primary.to_dict("records")
+        )
         first, second, wrong = left.execute(), matching.execute(), unequal.execute()
         fixed = first.ratio(second, align=mv.exact()).execute()
         assert fixed._dataset is not None
-        assert all(row["value"] == 1.0 for row in cell_rows(fixed._dataset.verified().primary))
+        assert all(
+            row["value"] == 1.0 for row in fixed._dataset.verified().primary.to_dict("records")
+        )
         with pytest.raises(MaterializationError, match="key sets differ"):
             first.ratio(wrong).execute()
 
@@ -256,7 +255,7 @@ def test_checked_pairing_survives_source_offline_cold_recovery(
         assert saved._dataset is not None
         descriptor = saved._dataset.artifact.descriptor
         assert any(item.fact.kind == "key_set_equal" for item in descriptor.completed_checks)
-        expected = saved._dataset.verified().primary.num_rows
+        expected = len(saved._dataset.verified().primary)
         (tmp_path / "models").rename(tmp_path / "models.offline")
         env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[3]))
         worker = subprocess.run(
@@ -274,7 +273,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError("cold fixed continuation must not load or read sources")
 ms.load = forbidden
 SourceSession.bind = forbidden
-SourceSession.batches = forbidden
+SourceSession.execute = forbidden
 graph_exchange.collect = forbidden
 session = mv.session.resume(sys.argv[1])
 saved = session.artifact(sys.argv[2])
@@ -283,7 +282,7 @@ evidence = saved._node.root.signature.evidence
 assert not any(item.basis == "assumption" and item.fact.kind == "key_set_equal" for item in evidence)
 assert any(item.fact.kind == "key_set_equal" for item in saved._dataset.artifact.descriptor.completed_checks)
 result = saved.aggregate(mv.sum()).execute()
-assert result._dataset.verified().primary["value"].to_pylist() == [float(sys.argv[3])]
+assert result._dataset.verified().primary["value"].tolist() == [float(sys.argv[3])]
 """,
                 work.session.id,
                 str(saved.state.artifact_ref),

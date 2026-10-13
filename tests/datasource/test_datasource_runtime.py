@@ -199,7 +199,6 @@ def test_cached_backend_release_records_only_successful_disconnect(
         expression_identity=1,
         sql="SELECT 1",
         state="succeeded",
-        cursor_state="closed",
     )
     source.submissions.append(submission)
     lease = service._leases["warehouse"]

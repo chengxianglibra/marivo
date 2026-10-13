@@ -9,6 +9,7 @@ from decimal import Decimal
 from fractions import Fraction
 
 import duckdb
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -17,6 +18,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.materialization.cell_arrow import column as cell_column
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from tests.shared_fixtures import DslCase, DslCaseFactory, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
 
@@ -138,7 +140,7 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     analysis_dsl_case_factory: DslCaseFactory, parquet: bool
 ) -> None:
     from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
 
     case = analysis_dsl_case_factory("j2")
     if parquet:
@@ -168,13 +170,10 @@ def test_comparison_v2_cold_continuation_and_correspondence_integrity(
     )
     checked = dataset.verified()
     mapping = next(part.table for part in checked.parts if part.role == "correspondence")
-    corrupted = mapping.set_column(
-        mapping.schema.get_field_index("correspondence__baseline_present"),
-        "correspondence__baseline_present",
-        pa.array([False] * mapping.num_rows),
-    )
+    corrupted = mapping.copy()
+    corrupted["correspondence__baseline_present"] = [False] * len(mapping)
     with pytest.raises(MaterializationError, match="correspondence"):
-        from_arrow(
+        from_pandas(
             checked.primary,
             checked.contract,
             parts=tuple(
@@ -304,7 +303,7 @@ def unavailable(*args, **kwargs):
     raise AssertionError("nested cold recovery cannot reopen sources or Semantic")
 duckdb.connect = unavailable
 ms.load = unavailable
-SourceSession.stage_derived = unavailable
+SourceSession.execute = unavailable
 saved = mv.session.resume(sys.argv[1], by="id").artifact(sys.argv[2])
 assert freeze_graph(saved._node.definition) == Path("expected-definition.txt").read_text()
 first, second = _comparison_operands(saved._node.definition)
@@ -417,8 +416,10 @@ def test_union_keep_distinguishes_missing_coordinate_and_rejects_filtered_empty(
         assert result._dataset is not None
         checked = result._dataset.verified()
         correspondence = next(
-            part.table for part in checked.parts if part.role == "correspondence"
-        ).to_pylist()
+            part.table.to_dict(orient="records")
+            for part in checked.parts
+            if part.role == "correspondence"
+        )
         missing = next(row for row in correspondence if row["key_0"] == "C")
         assert missing["correspondence__current_present"] is False
         assert missing["correspondence__baseline_present"] is True
@@ -516,8 +517,8 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             part.table for part in saved._dataset.verified().parts if part.role == "correspondence"
         )
         assert (
-            mapping["correspondence__current_key_1"].to_pylist()
-            != mapping["correspondence__baseline_key_1"].to_pylist()
+            mapping["correspondence__current_key_1"].tolist()
+            != mapping["correspondence__baseline_key_1"].tolist()
         )
         selected = left.where(left.value.gt(0))
         with pytest.raises(AnalysisError, match=r"period buckets|endpoint key|key_set_equal"):
@@ -760,8 +761,6 @@ def test_float_sum_envelope_and_native_mean_cell_boundary(
 def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import ibis.expr.types as ir
-
     from marivo.analysis.errors import AnalysisError
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
@@ -779,24 +778,39 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
         via=ms.ref.relationship("sales.order_buyer"),
         by=(mv.member(),),
     )
-    original = SourceSession.stage_derived
-    captured: list[pa.Table] = []
+    original = SourceSession.execute
+    captured: list[tuple[str, str, str, tuple[str, ...], tuple[str, ...], int]] = []
 
-    def stage(session: SourceSession, read: CompiledRead) -> tuple[ir.Table, pa.Table]:
-        relation, table = original(session, read)
+    def execute(session: SourceSession, read: CompiledRead) -> pd.DataFrame:
+        frame = original(session, read)
         if "original_state__sum" in read.schema.names:
-            captured.append(table)
-        return relation, table
+            captured.append(
+                (
+                    read.purpose,
+                    read.source_identity,
+                    read.sql,
+                    tuple(read.schema.names),
+                    tuple(frame.columns),
+                    len(frame),
+                )
+            )
+        return frame
 
-    monkeypatch.setattr(SourceSession, "stage_derived", stage)
+    monkeypatch.setattr(SourceSession, "execute", execute)
     ratio = observed.ratio(observed)
     with pytest.raises(AnalysisError, match="only one comparison condition"):
         observed.compare(independent)
     assert not captured
     first = ratio.execute()
     assert len(captured) == 1
+    assert captured[0][0] == "analysis.graph.stage"
+    assert captured[0][1] and captured[0][2]
+    assert captured[0][3] == captured[0][4]
     second = ratio.execute()
     assert len(captured) == 2
+    assert captured[1][0] == "analysis.graph.stage"
+    assert captured[1][1] and captured[1][2]
+    assert captured[1][3] == captured[1][4]
     assert first.state.artifact_ref != second.state.artifact_ref
     assert first.to_pandas().equals(second.to_pandas())
 
@@ -885,7 +899,11 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         assert frame["cell_reason"].tolist().count("missing_side") == 2
         assert saved._dataset is not None
         checked = saved._dataset.verified()
-        endpoint = next(part.table for part in checked.parts if part.role == "baseline_endpoint")
+        endpoint_part = next(part for part in checked.parts if part.role == "baseline_endpoint")
+        endpoint_schema = next(
+            part.schema for part in checked.contract.parts if part.role == "baseline_endpoint"
+        )
+        endpoint = to_arrow(endpoint_part.table, endpoint_schema)
         assert kind in cell_column(endpoint, "baseline_endpoint__cell_tag").to_pylist()
         empty = left.compare(right, align=mv.outer(missing="empty_value")).absolute.execute()
         empty_frame = empty.to_pandas().set_index("group")

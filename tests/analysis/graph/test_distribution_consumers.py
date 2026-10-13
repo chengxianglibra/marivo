@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal, NoReturn
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -14,7 +15,7 @@ import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.errors import MethodRegistrationError
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
+from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
@@ -167,17 +168,16 @@ def test_native_distribution(
             label="distribution",
         )
         submissions: list[dict[str, str]] = []
-        original_batches = SourceSession.batches
+        source_execute = SourceSession.execute
 
-        def traced_batches(
-            self: SourceSession, read: CompiledRead, *, chunk_size: int
-        ) -> SourceBatchStream:
+        def traced_execute(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            frame = source_execute(self, read)
             submissions.append(
                 {"sql": read.sql, "purpose": read.purpose, "source_identity": read.source_identity}
             )
-            return original_batches(self, read, chunk_size=chunk_size)
+            return frame
 
-        monkeypatch.setattr(SourceSession, "batches", traced_batches)
+        monkeypatch.setattr(SourceSession, "execute", traced_execute)
         native_before = len(source_trace.native_sql)
         before_runs = run_ids(session)
         if backend == "mysql" and carrier == "boolean":

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
+import pandas as pd
 import pytest
 from ibis.backends.duckdb import Backend
 
@@ -27,7 +28,7 @@ from marivo.analysis.materialization.errors import SessionBusyError
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.datasource import backends
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.backends import (
     BuiltDatasourceBackend,
     EffectiveDatasourceKwargs,
@@ -66,13 +67,13 @@ def test_busy_contender_preserves_real_producer(
     case = retained_coordinates_case
     runtime = case.session._runtime
     reads: list[CompiledRead] = []
-    batches = SourceSession.batches
+    execute = SourceSession.execute
 
-    def capture(source: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def capture(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
         reads.append(read)
-        return batches(source, read, chunk_size=chunk_size)
+        return execute(source, read)
 
-    monkeypatch.setattr(SourceSession, "batches", capture)
+    monkeypatch.setattr(SourceSession, "execute", capture)
     committed = case.session.members(ms.ref.entity("sales.customer")).execute()
     logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"

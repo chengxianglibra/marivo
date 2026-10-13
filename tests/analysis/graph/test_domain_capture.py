@@ -1,13 +1,16 @@
-"""Remote prefix reads retain actual inputs without cross-read snapshot guarantees."""
+"""Prepared inputs record their source identity without temporary file copies."""
 
 import json
 import os
-from contextlib import nullcontext
+from collections.abc import Iterable
 from pathlib import Path
 
+import ibis.expr.types as ir
 import pytest
 
 import marivo.datasource.domain_snapshot as snapshots
+from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.ir import ParquetSourceIR
 from tests.datasource.source_cases import source_case, source_params
 from tests.support.source_trace import SourceTrace
 
@@ -19,8 +22,6 @@ def test_remote_preparation_records_independent_reads(
     monkeypatch: pytest.MonkeyPatch,
     source_trace: SourceTrace,
 ) -> None:
-    from contextlib import closing
-
     from marivo.datasource.adapters import PhysicalRequirement
     from marivo.datasource.capabilities import provider_statement_log
 
@@ -35,18 +36,14 @@ def test_remote_preparation_records_independent_reads(
             qualified, table, purpose="capture", expected_schema=table.schema().to_pyarrow()
         )
         before = len(source_trace.native_sql)
-        with snapshots.capture(
-            case.session, checkpoint=lambda: None, guard=lambda _: nullcontext()
-        ) as authority:
+        with snapshots.capture(case.session) as authority:
             assert authority["kind"] == "independent_reads"
             assert authority["files"] == []
             for iteration in range(2):
-                with closing(case.session.batches(read, chunk_size=1)) as batches:
-                    assert [
-                        value for batch in batches for value in batch.column("amount").to_pylist()
-                    ] == (
-                        [99, 99, 99] if backend == "postgres" and iteration == 1 else [2, None, 4]
-                    )
+                frame = case.session.execute(read)
+                expected = [99, 99] if backend == "postgres" and iteration == 1 else [2, 4]
+                assert frame["amount"].isna().tolist() == [False, True, False]
+                assert frame.loc[frame["amount"].notna(), "amount"].tolist() == expected
                 if backend == "postgres" and iteration == 0:
                     from psycopg import sql
 
@@ -85,3 +82,30 @@ def test_remote_preparation_records_independent_reads(
         Path(directory, f"{backend}-independent-reads.json").write_text(
             json.dumps(observed, sort_keys=True)
         )
+
+
+def test_local_parquet_preparation_uses_declared_file_and_detects_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with source_case("duckdb", "parquet", tmp_path, monkeypatch) as case:
+        assert isinstance(case.source, ParquetSourceIR)
+        path = Path(case.source.path).resolve()
+        case.session.bind(case.source, source_identity="facts")
+        backend = case.session._backend
+        read_parquet = backend.read_parquet
+        read_paths: list[str] = []
+
+        def track_read(paths: str | Path | Iterable[str | Path], /, **kwargs: object) -> ir.Table:
+            assert isinstance(paths, (str, Path))
+            read_paths.append(str(paths))
+            return read_parquet(paths, **kwargs)
+
+        monkeypatch.setattr(backend, "read_parquet", track_read)
+        with (
+            pytest.raises(DatasourceSourceCapabilityError) as failure,
+            snapshots.capture(case.session) as authority,
+        ):
+            assert authority["kind"] == "file_manifest"
+            assert read_paths == [str(path)]
+            path.write_bytes(path.read_bytes() + b"changed")
+        assert failure.value.received == "Parquet changed during prepared analysis"

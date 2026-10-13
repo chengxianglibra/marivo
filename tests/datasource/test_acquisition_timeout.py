@@ -10,11 +10,12 @@ from pathlib import Path
 from typing import NoReturn
 
 import ibis
+import pandas as pd
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.authoring_store import AuthoringStore
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import TableSourceIR
@@ -105,13 +106,13 @@ def test_native_sample_timeout_prevents_snapshot_publication(
 
     monkeypatch.setattr(AuthoringStore, "write_snapshot", forbidden)
     owners: list[SourceSession] = []
-    original = SourceSession.batches
+    original = SourceSession.execute
 
-    def batches(owner: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         owners.append(owner)
-        return original(owner, read, chunk_size=chunk_size)
+        return original(owner, read)
 
-    monkeypatch.setattr(SourceSession, "batches", batches)
+    monkeypatch.setattr(SourceSession, "execute", execute)
     profile = {"clickhouse": "mergetree", "trino": "iceberg"}.get(backend, "table")
     with source_case(backend, profile, tmp_path, monkeypatch) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
@@ -162,7 +163,7 @@ def test_native_sample_timeout_prevents_snapshot_publication(
                 "actual_native_submissions": native,
                 "submissions": submissions,
                 "snapshot_publication_forbidden": True,
-                "boundary": "Native acquisition timeout; independent server/fetch/resource race coverage belongs to cancellation tests",
+                "boundary": "Ibis acquisition timeout; remote reader termination is verified independently",
             }
     if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
         Path(directory, f"acquisition-timeout-{backend}.json").write_text(

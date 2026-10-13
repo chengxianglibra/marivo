@@ -8,6 +8,7 @@ from typing import Literal
 from unittest.mock import patch
 
 import ibis
+import pandas as pd
 import pyarrow as pa
 import pytest
 import sqlglot
@@ -60,7 +61,6 @@ from marivo.analysis.core.rules import (
     entity_members,
 )
 from marivo.analysis.core.time_grid import bind_grid
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods import registry as registry_module
 from marivo.analysis.methods.errors import MethodRegistrationError
@@ -72,7 +72,7 @@ from marivo.analysis.methods.physical import (
     TimeShape,
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession, provider_for
+from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.refs import RefPayloadV1, ref
 from marivo.semantic.ir import TargetDimensionContract, TargetEntityContract, TimestampParse
@@ -605,14 +605,14 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     reads: list[str] = []
-    original = SourceSession.batches
+    original = SourceSession.execute
 
-    def traced(self: SourceSession, read: CompiledRead, *, chunk_size: int) -> SourceBatchStream:
+    def traced(self: SourceSession, read: CompiledRead) -> pd.DataFrame:
         if read.purpose == "analysis.graph.stage":
             reads.append(read.sql)
-        return original(self, read, chunk_size=chunk_size)
+        return original(self, read)
 
-    monkeypatch.setattr(SourceSession, "batches", traced)
+    monkeypatch.setattr(SourceSession, "execute", traced)
     members = case.session.members(ms.ref.entity(f"{case.names.domain}.{case.names.order}"))
     observed = members.observe(
         ms.ref.metric(f"{case.names.domain}.{case.names.revenue}"),
@@ -622,7 +622,10 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     result = observed.execute()
     assert result._dataset is not None
     exchange = result._dataset.verified()
-    assert {row["key_0"]: row["value"] for row in cell_rows(exchange.primary)} == {
+    assert {
+        row["key_0"]: None if pd.isna(row["value"]) else row["value"]
+        for row in exchange.primary.to_dict("records")
+    } == {
         "j1_a": 450,
         "j1_b": 150,
         "j1_c": 400,
@@ -630,7 +633,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
         "j1_september": None,
     }
     assert {part.role for part in exchange.parts} == {"subject", "original_state", "coverage"}
-    assert all(part.table.num_rows == 5 for part in exchange.parts)
+    assert all(len(part.table) == 5 for part in exchange.parts)
     assert len(reads) == 1
     assert "SELECT DISTINCT" not in reads[0]
     assert "INNER JOIN" not in reads[0]

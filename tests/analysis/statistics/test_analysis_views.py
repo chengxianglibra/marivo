@@ -7,7 +7,6 @@ from typing import Literal, TypeAlias
 
 import pandas as pd
 import pytest
-from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -72,23 +71,18 @@ def test_frozen_views_scope_sharing_quantity_and_k(
     )
     issued: list[str] = []
     submitted: list[str] = []
-    original_batches, original_cursor = adapters.SourceSession.batches, adapters._native_cursor
+    original_execute = adapters.SourceSession.execute
 
-    def audited(
-        self: adapters.SourceSession, read: adapters.CompiledRead, *, chunk_size: int
-    ) -> adapters.SourceBatchStream:
+    def audited(self: adapters.SourceSession, read: adapters.CompiledRead) -> pd.DataFrame:
         assert read.sql == self._backend.compile(
             read.expression.as_table(), params=dict(read.params), limit=None
         )
         issued.append(read.sql)
-        return original_batches(self, read, chunk_size=chunk_size)
+        result = original_execute(self, read)
+        submitted.append(self.submissions[-1].sql)
+        return result
 
-    def cursor(backend: BaseBackend, name: str, sql: str) -> adapters._Cursor:
-        submitted.append(sql)
-        return original_cursor(backend, name, sql)
-
-    monkeypatch.setattr(adapters.SourceSession, "batches", audited)
-    monkeypatch.setattr(adapters, "_native_cursor", cursor)
+    monkeypatch.setattr(adapters.SourceSession, "execute", audited)
     result: Result
     numeric: mv.MaterializedNumericRelation | mv.MaterializedCoefficientRelation
     views: dict[str, View]

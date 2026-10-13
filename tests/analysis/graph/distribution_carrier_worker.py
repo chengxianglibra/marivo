@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 import duckdb
 import ibis
+import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
@@ -16,7 +17,6 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_local_execution
 from marivo.analysis.materialization.cell_arrow import number, required
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.public_dsl import _MaterializedRead
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -30,10 +30,17 @@ class Continuation(Protocol):
     def execute(self) -> _MaterializedRead: ...
 
 
+def _records(frame: pd.DataFrame) -> list[dict[str, object]]:
+    return [
+        {str(name): None if pd.isna(value) else value for name, value in row.items()}
+        for row in frame.to_dict("records")
+    ]
+
+
 def check_original(value: mv.MaterializedNumericRelation, physical: str, kind: str) -> None:
     assert value._dataset is not None
     table = value._dataset.verified().primary
-    records = sorted(cell_rows(table), key=lambda record: required(record["key_0"], str))
+    records = sorted(_records(table), key=lambda record: required(record["key_0"], str))
     assert [record["key_0"] for record in records] == ["A", "B", "C", "D"]
     if physical == "decimal":
         assert kind == "quantile"
@@ -180,7 +187,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
             for name, method, expected in reductions:
                 result = execute(kind + ":" + name, selected.aggregate(method))
                 assert result._dataset is not None
-                rows = cell_rows(result._dataset.verified().primary)
+                rows = _records(result._dataset.verified().primary)
                 assert len(rows) == 1 and rows[0]["cell_tag"] == "defined"
                 actual = rows[0]["value"]
                 if isinstance(expected, Decimal):
@@ -190,13 +197,16 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                 if physical == "decimal" and name in ("sum", "mean"):
                     assert isinstance(result, mv.MaterializedStatisticRelation)
                     verified = result._dataset.verified()
-                    assert verified.primary.schema.field("value").type == pa.decimal128(
+                    assert verified.contract.schema.field("value").type == pa.decimal128(
                         38, 2 if name == "sum" else 6
                     )
                     row_state = next(p.table for p in verified.parts if p.role == "row_state")
-                    assert row_state.schema.field("row_state__sum").type == pa.decimal128(38, 2)
-                    assert row_state.schema.field("row_state__count").type == pa.int64()
-                    assert row_state.to_pylist() == [
+                    state_schema = next(
+                        p.schema for p in verified.contract.parts if p.role == "row_state"
+                    )
+                    assert state_schema.field("row_state__sum").type == pa.decimal128(38, 2)
+                    assert state_schema.field("row_state__count").type == pa.int64()
+                    assert row_state.to_dict("records") == [
                         {"row_state__sum": Decimal("3.07"), "row_state__count": 3}
                     ]
                     if phase == "fixed" and name == "sum":
@@ -213,7 +223,7 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                     assert isinstance(result, mv.MaterializedStatisticRelation)
                     assert result._dataset is not None
                     verified = result._dataset.verified()
-                    assert cell_rows(verified.primary) == [
+                    assert _records(verified.primary) == [
                         {
                             "value": Decimal("0.00") if name == "sum" else None,
                             "cell_tag": "defined" if name == "sum" else "undefined",
@@ -221,8 +231,11 @@ def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
                         }
                     ]
                     row_state = next(p.table for p in verified.parts if p.role == "row_state")
-                    assert row_state.schema.field("row_state__sum").type == pa.decimal128(38, 2)
-                    assert row_state.to_pylist() == [
+                    state_schema = next(
+                        p.schema for p in verified.contract.parts if p.role == "row_state"
+                    )
+                    assert state_schema.field("row_state__sum").type == pa.decimal128(38, 2)
+                    assert row_state.to_dict("records") == [
                         {"row_state__sum": Decimal("0.00"), "row_state__count": 0}
                     ]
                     if phase == "fixed" and name == "sum":

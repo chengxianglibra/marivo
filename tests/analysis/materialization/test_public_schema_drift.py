@@ -64,7 +64,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
     try:
         with monkeypatch.context() as patch:
-            for method in ("compile", "batches", "stage_derived"):
+            for method in ("compile", "execute"):
                 patch.setattr(SourceSession, method, forbidden)
             with pytest.raises(DatasetConstructionError) as caught:
                 logical.execute()

@@ -20,13 +20,13 @@ Marivo 自己拥有的 SQL 提交始终记录到项目本地文件：
 注册的 provider 元数据和控制语句，以及 `md.raw_sql()`。只生成但未提交的 SQL 不会被记作
 实际执行。第三方驱动/Ibis 的内部初始化 SQL、Store 自身的 SQLite 持久化语句不在覆盖范围内。
 
-`query.submitted` 在驱动调用前保存完整 SQL 和独立 `query_id`；`query.completed`
-记录耗时、结果状态及实际消费行数，受治理的 Arrow 流还记录实际消费的 Arrow 字节数。
-流式查询在消费结束或提前关闭并释放游标后才记录结束，不能把 execute 调用成功当作完整
-查询成功。`closed_early` 不代表完整消费；后续连接拥有者的释放事实可以记录为
-`query.cleanup`。执行拥有者未确认远端终止时，日志仍保留未知状态。
+`query.submitted` 在来源执行前保存完整 SQL 和独立 `query_id`；受治理读取记录绑定 Ibis
+表达式编译出的 SQL，以及对应的用途和来源身份。`query.completed`
+记录耗时、结果状态及 Ibis `execute()` 返回的行数。受治理读取在完成 pandas DataFrame
+物化后记录结束；Marivo 不再记录自有 Arrow 消费字节数、流耗尽状态或游标关闭字段。
+后续连接拥有者的释放事实可以记录为 `query.cleanup`。执行拥有者未确认远端终止时，日志仍保留未知状态。
 
-Analysis 日志记录执行和阶段的开始/结束、结果统计及缓存复用；Python/Arrow 阶段没有 SQL
+Analysis 日志记录执行和阶段的开始/结束、结果统计及缓存复用；Python/pandas 阶段没有 SQL
 时不会编造 SQL。实际可用的 operation、session、run、datasource、backend 和 stage 标识
 用于关联记录。`execution.reused` 表示命中已保留的 Artifact，不代表发起新源查询。
 错误记录包含类型、实际可用的后端错误码和有界脱敏摘要。参数化凭据语句只记录模板，不记录

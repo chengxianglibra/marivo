@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
@@ -51,35 +52,13 @@ END = START + timedelta(days=2)
 WIDE = 2**53 + 17
 
 
-@dataclass
-class _TableSpy:
-    table: pa.Table
-    conversions: int = 0
-
-    def to_pylist(self) -> list[dict[str, object]]:
-        self.conversions += 1
-        rows: list[dict[str, object]] = self.table.to_pylist()
-        return rows
-
-    @property
-    def schema(self) -> pa.Schema:
-        return self.table.schema
-
-    @property
-    def num_rows(self) -> int:
-        return int(self.table.num_rows)
-
-    def __getitem__(self, name: str) -> pa.ChunkedArray:
-        raise AssertionError(f"Selected output must reuse validated restrictions, not {name}")
-
-
 @dataclass(frozen=True)
 class _Case:
     stage: LoweredLocal
     selected: ExchangeResult
     original: pa.Table
     candidates: pa.Table
-    primary: _TableSpy
+    primary: pd.DataFrame
     grid: BoundTimeGrid
 
 
@@ -219,20 +198,21 @@ def _case() -> _Case:
         )
     ]
     key_schema = pa.schema([("key_0", pa.string()), ("key_1", pa.int64()), ("key_2", pa.string())])
-    primary = _TableSpy(pa.Table.from_pylist(rows, schema=key_schema))
-    subject_table = pa.Table.from_pylist(
-        [{**row, "subject__key_0": row["key_0"], "subject__key_1": row["key_1"]} for row in rows],
-        schema=key_schema.append(pa.field("subject__key_0", pa.string())).append(
-            pa.field("subject__key_1", pa.int64())
-        ),
+    primary = pd.DataFrame(rows)
+    subject_rows = [
+        {**row, "subject__key_0": row["key_0"], "subject__key_1": row["key_1"]} for row in rows
+    ]
+    subject_schema = key_schema.append(pa.field("subject__key_0", pa.string())).append(
+        pa.field("subject__key_1", pa.int64())
     )
+    subject_table = pd.DataFrame(subject_rows)
     contract = ExchangeContract(
         selected_signature,
         MethodKey("bind_project"),
         "selected-capture",
         key_schema,
         ("key_0", "key_1", "key_2"),
-        (PartContract("subject", subject_table.schema, ("key_0", "key_1", "key_2")),),
+        (PartContract("subject", subject_schema, ("key_0", "key_1", "key_2")),),
     )
     selected = ExchangeResult(contract, primary, (ExchangePart("subject", subject_table),), ())
     original = pa.table(
@@ -275,13 +255,18 @@ def test_preparation_reuses_selected_rows_and_exact_subject_grid(
             return datetime.fromisoformat(value)
 
     monkeypatch.setattr(preparation, "datetime", DateParser)
-    output, _ = preparation._observation(case.stage, case.candidates, case.selected, case.original)
-    rows = output.to_pylist()
+    output, _schema, _retained = preparation._observation(
+        case.stage,
+        case.candidates.to_pandas(),
+        case.candidates.schema,
+        case.selected,
+        case.original.to_pandas(),
+    )
+    rows = output.to_dict("records")
     assert [row["value"] for row in rows] == [5, 0, 5, 7, 0]
-    assert case.primary.conversions == 1
     assert calls == [START.isoformat(), END.isoformat()]
     assert [tuple(row[f"key_{i}"] for i in range(3)) for row in rows] == [
-        tuple(row[f"key_{i}"] for i in range(3)) for row in case.primary.table.to_pylist()
+        tuple(row[f"key_{i}"] for i in range(3)) for row in case.primary.to_dict("records")
     ]
     assert [(row["subject__key_0"], row["subject__key_1"]) for row in rows] == [
         (row["key_0"], row["key_1"]) for row in rows
@@ -292,14 +277,23 @@ def test_preparation_reuses_selected_rows_and_exact_subject_grid(
 
 def test_preparation_does_not_cache_across_calls() -> None:
     case = _case()
-    first, _ = preparation._observation(case.stage, case.candidates, case.selected, case.original)
-    assert first["value"].to_pylist() == [5, 0, 5, 7, 0]
-    assert first["original_state__sum"].to_pylist() == first["value"].to_pylist()
-    empty, _ = preparation._observation(
-        case.stage, case.candidates.slice(0, 0), case.selected, case.original
+    first, _schema, _retained = preparation._observation(
+        case.stage,
+        case.candidates.to_pandas(),
+        case.candidates.schema,
+        case.selected,
+        case.original.to_pandas(),
     )
-    assert empty["value"].to_pylist() == [0] * 5
-    assert case.primary.conversions == 2
+    assert first["value"].tolist() == [5, 0, 5, 7, 0]
+    assert first["original_state__sum"].tolist() == first["value"].tolist()
+    empty, _schema, _retained = preparation._observation(
+        case.stage,
+        case.candidates.to_pandas().iloc[0:0],
+        case.candidates.schema,
+        case.selected,
+        case.original.to_pandas(),
+    )
+    assert empty["value"].tolist() == [0] * 5
 
 
 def test_preparation_retains_complete_key_and_subject_window_rejections(
@@ -309,30 +303,32 @@ def test_preparation_retains_complete_key_and_subject_window_rejections(
         case = _case()
         selected = case.selected
         parts = selected.parts
-        rows = case.primary.table.to_pylist()
+        rows = case.primary.to_dict("records")
         if failure == "key":
+            invalid_primary = case.primary.copy()
+            invalid_primary["key_1"] = [True] * len(invalid_primary)
             selected = replace(
                 selected,
-                primary=case.primary.table.set_column(1, "key_1", pa.array([True] * len(rows))),
+                primary=invalid_primary,
             )
         elif failure == "envelope":
-            subject_rows = parts[0].table.to_pylist()
+            subject_rows = parts[0].table.to_dict("records")
             subject_rows[0]["subject__key_0"] = "escaped"
             selected = replace(
-                selected, parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),)
+                selected, parts=(ExchangePart("subject", pd.DataFrame(subject_rows)),)
             )
         elif failure == "grid":
             rows[0]["key_2"] = "outside-grid"
-            subject_rows = parts[0].table.to_pylist()
+            subject_rows = parts[0].table.to_dict("records")
             subject_rows[0]["key_2"] = "outside-grid"
             selected = replace(
                 selected,
-                primary=pa.Table.from_pylist(rows),
-                parts=(ExchangePart("subject", pa.Table.from_pylist(subject_rows)),),
+                primary=pd.DataFrame(rows),
+                parts=(ExchangePart("subject", pd.DataFrame(subject_rows)),),
             )
         else:
             rows.append(rows[0])
-            selected = replace(selected, primary=pa.Table.from_pylist(rows))
+            selected = replace(selected, primary=pd.DataFrame(rows))
         calls: list[str] = []
 
         class DateParser:
@@ -344,7 +340,13 @@ def test_preparation_retains_complete_key_and_subject_window_rejections(
         with monkeypatch.context() as patch:
             patch.setattr(preparation, "datetime", DateParser)
             with pytest.raises(DomainPreparationError) as caught:
-                preparation._observation(case.stage, case.candidates, selected, case.original)
+                preparation._observation(
+                    case.stage,
+                    case.candidates.to_pandas(),
+                    case.candidates.schema,
+                    selected,
+                    case.original.to_pandas(),
+                )
         assert caught.value.constraint_id == "r7.input_binding"
         assert calls == (
             [] if failure in ("key", "envelope") else [START.isoformat(), END.isoformat()]
@@ -361,7 +363,7 @@ def test_preparation_empty_selection_does_not_eagerly_parse_or_require_grid(
     )
     selected = replace(
         case.selected,
-        primary=case.primary.table.slice(0, 0),
+        primary=case.primary.iloc[0:0].copy(),
         contract=replace(case.selected.contract, signature=signature),
     )
 
@@ -371,12 +373,24 @@ def test_preparation_empty_selection_does_not_eagerly_parse_or_require_grid(
             raise AssertionError(f"Empty selection must not resolve unused bounds {value}")
 
     monkeypatch.setattr(preparation, "datetime", DateParser)
-    output, _ = preparation._observation(case.stage, case.candidates, selected, case.original)
-    assert output.num_rows == 0
-    assert output.column_names == list(case.stage.output_layout.columns)
+    output, _schema, _retained = preparation._observation(
+        case.stage,
+        case.candidates.to_pandas(),
+        case.candidates.schema,
+        selected,
+        case.original.to_pandas(),
+    )
+    assert output.empty
+    assert list(output.columns) == list(case.stage.output_layout.columns)
 
 
 def test_preparation_has_no_execution_clock() -> None:
     case = _case()
-    result = preparation._observation(case.stage, case.candidates, case.selected, case.original)
+    result = preparation._observation(
+        case.stage,
+        case.candidates.to_pandas(),
+        case.candidates.schema,
+        case.selected,
+        case.original.to_pandas(),
+    )
     assert result is not None

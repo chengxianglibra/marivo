@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections import Counter
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Literal
 
+import pandas as pd
 import pyarrow as pa
 
+from marivo.analysis.materialization.cell_arrow import (
+    compact_schema,
+    from_rows,
+    logical_schema,
+    required,
+)
 from marivo.analysis.materialization.cell_arrow import number as arrow_number
-from marivo.analysis.materialization.cell_arrow import project as cell_project
-from marivo.analysis.materialization.cell_arrow import required
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 
 if TYPE_CHECKING:
@@ -50,11 +57,13 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
-    from_arrow,
+    _pandas_records,
+    from_pandas,
     numeric_primary,
     reference_parameters,
 )
@@ -308,56 +317,103 @@ def cell(row: dict[str, object], physical: ValueType) -> Cell:
     raise invalid("invalid retained Cell tag")
 
 
+@dataclass(frozen=True, slots=True)
+class _ReferenceParts:
+    parts: tuple[ExchangePart, ...]
+    schemas: Mapping[str, pa.Schema]
+
+
+def _schema_for(
+    frame: pd.DataFrame, schemas: Mapping[str, pa.Schema] | None, role: str
+) -> pa.Schema:
+    schema = schemas.get(role) if schemas is not None else None
+    return schema if schema is not None else pa.Schema.from_pandas(frame, preserve_index=False)
+
+
+def _rows(
+    part: ExchangePart,
+    schemas: Mapping[str, pa.Schema] | None,
+) -> list[dict[str, object]]:
+    return _pandas_records(part.table, _schema_for(part.table, schemas, part.role))
+
+
+def _frame_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
+    return [{str(name): value for name, value in row.items()} for row in frame.to_dict("records")]
+
+
+def _missing(value: object) -> bool:
+    return bool(pd.isna(pd.Series([value], dtype="object")).iloc[0])
+
+
+def _same_rows(
+    left: list[dict[str, object]], right: list[dict[str, object]], names: tuple[str, ...]
+) -> bool:
+    left_rows = Counter(tuple(row[name] for name in names) for row in left)
+    right_rows = Counter(tuple(row[name] for name in names) for row in right)
+    return left_rows == right_rows
+
+
 def finish(
-    params: ReferenceDerive, value_type: ValueType, parts: tuple[ExchangePart, ...]
-) -> pa.Table:
-    tables = {part.role: part.table for part in parts}
-    values, reference = tables["stratum_values"], tables["fixed_reference"]
+    params: ReferenceDerive,
+    value_type: ValueType,
+    parts: tuple[ExchangePart, ...],
+    *,
+    schemas: Mapping[str, pa.Schema] | None = None,
+) -> pd.DataFrame:
+    by_role = {part.role: part for part in parts}
+    value_part, reference_part = by_role["stratum_values"], by_role["fixed_reference"]
+    values_schema = _schema_for(value_part.table, schemas, value_part.role)
+    reference_schema = _schema_for(reference_part.table, schemas, reference_part.role)
+    values, reference = _rows(value_part, schemas), _rows(reference_part, schemas)
     keys = tuple(f"key_{index}" for index in range(len(params.output_domain.instance_key)))
     result: list[tuple[tuple[object, ...], Cell]]
     if params.kind == "penetration":
-        proof = tables["reference_proof"]
-        ordering = [(name, "ascending") for name in values.column_names]
-        if not proof.schema.equals(values.schema, check_metadata=False) or not proof.sort_by(
-            ordering
-        ).equals(values.sort_by(ordering)):
+        proof_part = by_role["reference_proof"]
+        proof_schema = _schema_for(proof_part.table, schemas, proof_part.role)
+        proof = _rows(proof_part, schemas)
+        names = tuple(values_schema.names)
+        if not proof_schema.equals(values_schema, check_metadata=False) or not _same_rows(
+            proof, values, names
+        ):
             raise invalid("intersection proof differs from retained complete identities")
-        names = tuple(reference.column_names)
-        if tuple(values.column_names) != names or tuple(
-            field.type for field in values.schema
-        ) != tuple(field.type for field in reference.schema):
+        names = tuple(reference_schema.names)
+        if tuple(values_schema.names) != names or tuple(
+            field.type for field in values_schema
+        ) != tuple(field.type for field in reference_schema):
             raise invalid("complete identity schemas differ")
-        if any(table[name].null_count for table in (values, reference) for name in names):
+        if any(
+            _missing(row[name]) for rows in (values, reference) for row in rows for name in names
+        ):
             raise invalid("complete identities cannot contain null coordinates")
-        first = {tuple(row[name] for name in names) for row in cell_rows(values)}
-        second = {tuple(row[name] for name in names) for row in cell_rows(reference)}
-        if len(first) != values.num_rows or len(second) != reference.num_rows:
+        first = {tuple(row[name] for name in names) for row in values}
+        second = {tuple(row[name] for name in names) for row in reference}
+        if len(first) != len(values) or len(second) != len(reference):
             raise invalid("complete identities cannot contain duplicate rows")
         result = [((), penetration(len(first & second), len(second)))]
     else:
-        value_physical = physical_type(values.schema.field("value").type)
-        weight_physical = physical_type(reference.schema.field("value").type)
+        value_physical = physical_type(values_schema.field("value").type)
+        weight_physical = physical_type(reference_schema.field("value").type)
         if reference_type(params.kind, value_physical, weight_physical) != value_type:
             raise invalid("numeric schemas disagree with the frozen result type")
-        rows = cell_rows(numeric_primary(values))
-        refs = cell_rows(numeric_primary(reference))
+        rows, refs = values, reference
         if params.kind == "share":
             if len(refs) != 1 or refs[0]["cell_tag"] != "defined":
                 raise invalid("share reference must be one finite Defined denominator")
             denominator = number(refs[0]["value"], weight_physical)
             from marivo.analysis.methods.numeric_state import merge_original
 
-            proof = tables["reference_proof"]
+            proof_part = by_role["reference_proof"]
+            proof_schema = _schema_for(proof_part.table, schemas, proof_part.role)
+            proof = _rows(proof_part, schemas)
             state = params.share_state
             if state is None:
                 raise invalid("share lost its original additive support state")
             components = tuple(
-                {name: row["original_state__" + name] for name in state.components}
-                for row in cell_rows(proof)
+                {name: row["original_state__" + name] for name in state.components} for row in proof
             )
             _, reproduced, tag, _ = merge_original(
                 components,
-                proof.schema,
+                proof_schema,
                 state.components,
                 state.method_version.removesuffix("@v1"),
                 weight_physical,
@@ -365,9 +421,7 @@ def finish(
             )
             if tag != "defined" or reproduced != denominator:
                 raise invalid("reference denominator differs from complete additive support")
-            support = {
-                tuple(row[key] for key in keys): row for row in cell_rows(numeric_primary(proof))
-            }
+            support = {tuple(row[key] for key in keys): row for row in proof}
             result = []
             for row in rows:
                 key = tuple(row[key] for key in keys)
@@ -387,7 +441,7 @@ def finish(
         else:
             names = tuple(f"key_{index}" for index in range(len(params.strata)))
             if any(
-                values.schema.field(name).type != reference.schema.field(name).type
+                values_schema.field(name).type != reference_schema.field(name).type
                 for name in names
             ):
                 raise invalid("stratum coordinate physical types differ")
@@ -404,12 +458,16 @@ def finish(
                 )
             if any(row["cell_tag"] != "defined" for row in refs):
                 raise invalid("reference weights must all be finite Defined")
-            ordering = [(name, "ascending") for name in names]
-            if cell_rows(tables["strata"].sort_by(ordering)) != cell_rows(
-                cell_project(reference, names).sort_by(ordering)
-            ):
+            strata_part = by_role["strata"]
+            strata = _rows(strata_part, schemas)
+            if not _same_rows(strata, reference, names):
                 raise invalid("retained strata differ from the complete reference key image")
-            if not tables["reference_proof"].sort_by(ordering).equals(values.sort_by(ordering)):
+            proof_part = by_role["reference_proof"]
+            proof_schema = _schema_for(proof_part.table, schemas, proof_part.role)
+            proof = _rows(proof_part, schemas)
+            if not proof_schema.equals(values_schema, check_metadata=False) or not _same_rows(
+                proof, values, tuple(values_schema.names)
+            ):
                 raise invalid("standardization proof differs from retained stratum values")
             result = [
                 (
@@ -422,15 +480,7 @@ def finish(
                     ),
                 )
             ]
-    schema = pa.schema(
-        [
-            *(pa.field(name, values.schema.field(name).type) for name in keys),
-            pa.field("value", arrow_scalar_type(value_type)),
-            pa.field("cell_tag", pa.string()),
-            pa.field("cell_reason", pa.string()),
-        ]
-    )
-    return pa.Table.from_pylist(
+    return pd.DataFrame.from_records(
         [
             {
                 **dict(zip(keys, key, strict=True)),
@@ -440,12 +490,12 @@ def finish(
             }
             for key, item in result
         ],
-        schema=schema,
+        columns=[*keys, "value", "cell_tag", "cell_reason"],
     )
 
 
 def error_bounds(
-    params: ReferenceDerive, parts: tuple[ExchangePart, ...], primary: pa.Table
+    params: ReferenceDerive, parts: tuple[ArrowPart, ...], primary: pa.Table
 ) -> list[float]:
     from marivo.analysis.methods.comparison import propagated_error, roundoff
 
@@ -492,38 +542,113 @@ def error_bounds(
     ]
 
 
-def result(node: MethodNode, parts: tuple[ExchangePart, ...], binding: str) -> ExchangeResult:
+def _pandas_error_bounds(
+    params: ReferenceDerive,
+    parts: tuple[ExchangePart, ...],
+    primary: pd.DataFrame,
+    schemas: Mapping[str, pa.Schema],
+    primary_schema: pa.Schema,
+) -> list[float]:
+    from marivo.analysis.methods.comparison import propagated_error, roundoff
+
+    by_role = {part.role: part for part in parts}
+    primary_rows = _pandas_records(primary, primary_schema)
+    if params.kind == "penetration":
+        return [
+            roundoff(row["value"]) if type(row["value"]) is float else 0.0 for row in primary_rows
+        ]
+    values = _rows(by_role["stratum_values"], schemas)
+    refs = _rows(by_role["fixed_reference"], schemas)
+    names = tuple(
+        f"key_{index}"
+        for index in range(
+            len(
+                params.strata if params.kind == "standardize" else params.output_domain.instance_key
+            )
+        )
+    )
+    by_key = {tuple(row[name] for name in names): row for row in values}
+    value_physical = physical_type(schemas["stratum_values"].field("value").type)
+    if params.kind == "share":
+        ref = refs[0]
+        return [
+            propagated_error(
+                "ratio",
+                by_key[tuple(row[name] for name in names)]["value"],
+                ref["value"],
+                row["value"],
+                required(by_key[tuple(row[name] for name in names)]["error_bound"], float),
+                required(ref["error_bound"], float),
+            )
+            for row in primary_rows
+        ]
+    ordered = tuple(by_key[tuple(row[name] for name in names)] for row in refs)
+    return [
+        standardized_error(
+            tuple(cell(row, value_physical) for row in ordered),
+            tuple(row["value"] for row in refs),
+            tuple(required(row["error_bound"], float) for row in ordered),
+            tuple(required(row["error_bound"], float) for row in refs),
+            row["value"],
+        )
+        for row in primary_rows
+    ]
+
+
+def result(node: MethodNode, parts: _ReferenceParts, binding: str) -> ExchangeResult:
     params = node.parameters
     assert isinstance(params, ReferenceDerive)
+    exchange_parts, schemas = parts.parts, parts.schemas
     try:
-        primary = finish(params, node.value_type, parts)
-        bounds = error_bounds(params, parts, primary)
+        primary = finish(params, node.value_type, exchange_parts, schemas=schemas)
     except (ValueError, OverflowError) as error:
         raise invalid(str(error)) from error
     keys = tuple(f"key_{index}" for index in range(len(node.signature.domain.instance_key)))
-    state = pa.Table.from_arrays(
+    value_schema = schemas.get("stratum_values")
+    if value_schema is None:
+        value_schema = pa.Schema.from_pandas(
+            next(part.table for part in exchange_parts if part.role == "stratum_values"),
+            preserve_index=False,
+        )
+    primary_schema = pa.schema(
         [
-            *(primary[key] for key in keys),
-            primary["cell_tag"],
-            pa.array(bounds, type=pa.float64()),
-        ],
-        names=[*keys, "status", "error_bound"],
+            *(pa.field(key, value_schema.field(key).type) for key in keys),
+            pa.field("value", arrow_scalar_type(node.value_type)),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
+    )
+    bounds = _pandas_error_bounds(params, exchange_parts, primary, schemas, primary_schema)
+    state = pd.DataFrame(
+        {
+            **{key: primary[key].tolist() for key in keys},
+            "status": primary["cell_tag"].tolist(),
+            "error_bound": bounds,
+        },
+        columns=[*keys, "status", "error_bound"],
+    )
+    state_schema = pa.schema(
+        [
+            *(primary_schema.field(key) for key in keys),
+            pa.field("status", pa.string()),
+            pa.field("error_bound", pa.float64()),
+        ]
     )
     contract = ExchangeContract(
         node.signature,
         node.method,
         binding,
-        primary.schema,
+        primary_schema,
         keys,
         tuple(
-            PartContract(part.role, part.table.schema, part_keys(node.signature, part.role))
-            for part in parts
+            PartContract(part.role, schemas[part.role], part_keys(node.signature, part.role))
+            for part in exchange_parts
         ),
         (("undefined", ("empty_reference", "zero_denominator")),),
         "standardized" if params.kind == "standardize" else params.kind,
-        state.schema,
+        state_schema,
     )
-    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
+    return from_pandas(primary, contract, parts=exchange_parts, method_state=state, validate=False)
 
 
 def physical_type(dtype: pa.DataType) -> ValueType:
@@ -548,11 +673,16 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
     params = reference_parameters(checked.contract.signature)
     tables = {part.role: part.table for part in checked.parts}
     reference, values = tables["fixed_reference"], tables["stratum_values"]
+    from marivo.analysis.materialization.graph_exchange import _pandas_records
+
+    schemas = {part.role: part.schema for part in checked.contract.parts}
+    reference_rows = _pandas_records(reference, schemas["fixed_reference"])
+    value_rows = _pandas_records(values, schemas["stratum_values"])
     facts: list[tuple[str, str]] = [("retained_reference", params.reference_id)]
     if params.kind == "penetration":
-        names = reference.column_names
-        members = {tuple(row[name] for name in names) for row in cell_rows(values)}
-        population = {tuple(row[name] for name in names) for row in cell_rows(reference)}
+        names = tuple(reference.columns)
+        members = {tuple(row[name] for name in names) for row in value_rows}
+        population = {tuple(row[name] for name in names) for row in reference_rows}
         facts.extend(
             (
                 ("reference_members", str(len(population))),
@@ -560,11 +690,13 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
             )
         )
     elif params.kind == "share":
-        denominator = reference["value"][0].as_py()
+        denominator = arrow_number(reference_rows[0]["value"])
         names = checked.contract.key_fields
-        support = cell_rows(tables["reference_proof"])
+        proof_schema = schemas["reference_proof"]
+        support = _pandas_records(tables["reference_proof"], proof_schema)
         complete = {tuple(row[name] for name in names) for row in support}
-        current = {tuple(row[name] for name in names) for row in cell_rows(checked.primary)}
+        current_rows = _pandas_records(checked.primary, checked.contract.schema)
+        current = {tuple(row[name] for name in names) for row in current_rows}
         nonnegative = denominator > 0 and all(
             row["cell_tag"] == "defined" and arrow_number(row["value"]) >= 0 for row in support
         )
@@ -577,29 +709,30 @@ def disclosure(checked: ExchangeResult) -> tuple[tuple[str, str], ...]:
         )
     else:
         total = weight_sum(
-            tuple(reference["value"].to_pylist()),
-            physical_type(reference.schema.field("value").type),
+            tuple(row["value"] for row in reference_rows),
+            physical_type(schemas["fixed_reference"].field("value").type),
         )
         facts.extend(
             (
                 ("represented_weight_sum_deviation", str(total - 1)),
-                ("retained_strata", str(reference.num_rows)),
+                ("retained_strata", str(len(reference))),
             )
         )
     if checked.method_state is not None:
         facts.append(
             (
                 "arithmetic_error_bound",
-                repr(max(checked.method_state["error_bound"].to_pylist(), default=0.0)),
+                repr(max(checked.method_state["error_bound"].tolist(), default=0.0)),
             )
         )
     return tuple(facts)
 
 
-def fixed_parts(node: MethodNode, inputs: tuple[ExchangeResult, ...]) -> tuple[ExchangePart, ...]:
+def fixed_parts(node: MethodNode, inputs: tuple[ExchangeResult, ...]) -> _ReferenceParts:
     params = node.parameters
     assert isinstance(params, ReferenceDerive)
     parts: list[ExchangePart] = []
+    schemas: dict[str, pa.Schema] = {}
     for declaration in node.signature.parts:
         assert isinstance(declaration, ReferenceStatePart)
         index = (
@@ -610,47 +743,62 @@ def fixed_parts(node: MethodNode, inputs: tuple[ExchangeResult, ...]) -> tuple[E
             else 0
         )
         source = inputs[index]
-        table = source.primary
-        if declaration.role != "strata" and "value" in table.column_names:
-            from marivo.analysis.materialization.graph_local_execution import (
-                _fixed_operand_bound,
-                _operand_components,
-            )
-
-            components = _operand_components(source)
-            table = table.append_column(
-                "error_bound",
-                pa.array(
-                    [
-                        _fixed_operand_bound(
-                            source,
-                            row,
-                            components.get(
-                                tuple(row[name] for name in source.contract.key_fields), {}
-                            ),
-                        )
-                        for row in cell_rows(numeric_primary(source.primary))
-                    ],
-                    type=pa.float64(),
-                ),
-            )
+        source_schema = source.contract.schema
+        logical_source_schema = logical_schema(source_schema).remove_metadata()
+        source_rows = _pandas_records(source.primary, source_schema)
         if declaration.role == "strata":
-            table = cell_project(table, source.contract.key_fields)
-        if declaration.original_state is not None:
-            state = next(part.table for part in source.parts if part.role == "original_state")
-            keys = source.contract.key_fields
-            rows = {tuple(row[key] for key in keys): row for row in state.to_pylist()}
-            for name in declaration.original_state.components:
-                column = "original_state__" + name
-                table = table.append_column(
-                    column,
-                    pa.array(
-                        [
-                            rows[tuple(row[key] for key in keys)][column]
-                            for row in table.to_pylist()
-                        ],
-                        type=state.schema.field(column).type,
-                    ),
+            frame = pd.DataFrame.from_records(
+                ({key: row[key] for key in source.contract.key_fields} for row in source_rows),
+                columns=source.contract.key_fields,
+            )
+            schema = pa.schema(
+                [logical_source_schema.field(key) for key in source.contract.key_fields]
+            )
+        else:
+            frame = pd.DataFrame.from_records(source_rows, columns=logical_source_schema.names)
+            fields = list(logical_source_schema)
+            if "value" in logical_source_schema.names:
+                from marivo.analysis.materialization.graph_local_execution import (
+                    _fixed_operand_bound,
+                    _operand_components,
                 )
-        parts.append(ExchangePart(declaration.role, table))
-    return tuple(parts)
+
+                components = _operand_components(source)
+                frame["error_bound"] = [
+                    _fixed_operand_bound(
+                        source,
+                        row,
+                        components.get(tuple(row[name] for name in source.contract.key_fields), {}),
+                    )
+                    for row in source_rows
+                ]
+                fields.append(pa.field("error_bound", pa.float64()))
+            schema = pa.schema(fields)
+            if declaration.original_state is not None:
+                state_part = next(part for part in source.parts if part.role == "original_state")
+                state_schema = next(
+                    part.schema for part in source.contract.parts if part.role == "original_state"
+                )
+                logical_state_schema = logical_schema(state_schema).remove_metadata()
+                state_rows = _pandas_records(state_part.table, state_schema)
+                indexed_state = {
+                    tuple(row[key] for key in source.contract.key_fields): row for row in state_rows
+                }
+                for name in declaration.original_state.components:
+                    column = "original_state__" + name
+                    frame[column] = pd.Series(
+                        [
+                            indexed_state[tuple(row[key] for key in source.contract.key_fields)][
+                                column
+                            ]
+                            for row in source_rows
+                        ],
+                        dtype="object",
+                    )
+                    fields.append(logical_state_schema.field(column))
+                schema = pa.schema(fields)
+            schema = compact_schema(schema, declaration.cell_reasons)
+            frame = from_rows(_frame_rows(frame), schema).to_pandas()
+        parts.append(ExchangePart(declaration.role, frame))
+        schemas[declaration.role] = schema
+    return _ReferenceParts(tuple(parts), schemas)

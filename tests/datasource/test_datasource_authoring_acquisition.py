@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import cast, get_type_hints
 
 import ibis
+import ibis.expr.types as ir
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
@@ -35,17 +38,15 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
-    from marivo.datasource import adapters
-
     spy = _QuerySpy()
-    original_native_cursor = adapters._native_cursor
+    original_execute = SourceSession.execute
 
-    def counted_native_cursor(backend: object, name: str, sql: str) -> object:
+    def counted_execute(owner: SourceSession, read: CompiledRead) -> object:
         spy.user_data_queries += 1
-        spy.user_data_sql.append(sql)
-        return original_native_cursor(backend, name, sql)
+        spy.user_data_sql.append(read.sql)
+        return original_execute(owner, read)
 
-    monkeypatch.setattr(adapters, "_native_cursor", counted_native_cursor)
+    monkeypatch.setattr(SourceSession, "execute", counted_execute)
     return spy
 
 
@@ -648,8 +649,6 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
 ) -> None:
     from ibis.backends.duckdb import Backend
 
-    from marivo.datasource import adapters
-
     class ExecutionError(RuntimeError):
         code = 107
         name = "FILE_DOESNT_EXIST"
@@ -657,17 +656,30 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     disconnected = 0
     original_disconnect = Backend.disconnect
 
-    def fail_cursor(_backend: object, _name: str, _sql: str) -> object:
-        raise ExecutionError(
-            "Code: 107. Storage file missing (FILE_DOESNT_EXIST); token=super-secret"
-        )
+    original_execute = Backend.execute
+
+    def fail_execute(
+        self: Backend,
+        expression: ir.Expr,
+        /,
+        *,
+        params: Mapping[ir.Scalar, object] | None = None,
+        limit: int | str | None = None,
+        **kwargs: object,
+    ) -> object:
+        sql = self.compile(expression, params=params, limit=limit)
+        if "orders" in sql.lower():
+            raise ExecutionError(
+                "Code: 107. Storage file missing (FILE_DOESNT_EXIST); token=super-secret"
+            )
+        return original_execute(self, expression, params=params, limit=limit, **kwargs)
 
     def tracked_disconnect(self: Backend) -> None:
         nonlocal disconnected
         disconnected += 1
         original_disconnect(self)
 
-    monkeypatch.setattr(adapters, "_native_cursor", fail_cursor)
+    monkeypatch.setattr(Backend, "execute", fail_execute)
     monkeypatch.setattr(Backend, "disconnect", tracked_disconnect)
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:

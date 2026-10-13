@@ -249,13 +249,11 @@ def test_all_time_keys_source_fixed_and_native_sql(
     assert source.to_pandas().equals(fixed.to_pandas())
     assert single_sql_difference(comparison).to_pandas().equals(source.absolute.to_pandas())
     assert source._dataset is not None and fixed._dataset is not None
-    from marivo.analysis.materialization.cell_arrow import logical_table
-
-    source_parts = {p.role: logical_table(p.table) for p in source._dataset.verified().parts}
-    fixed_parts = {p.role: logical_table(p.table) for p in fixed._dataset.verified().parts}
+    source_parts = {p.role: p.table for p in source._dataset.verified().parts}
+    fixed_parts = {p.role: p.table for p in fixed._dataset.verified().parts}
     assert source_parts.keys() == fixed_parts.keys()
     assert all(table.equals(fixed_parts[role]) for role, table in source_parts.items())
-    assert source._dataset.verified().primary.schema.field("key_1").type == pa.string()
+    assert source._dataset.verified().contract.schema.field("key_1").type == pa.string()
     for result in (comparison, source, fixed):
         result.contract().show()
         assert f"aligned_time={kind} string keys" in capsys.readouterr().out

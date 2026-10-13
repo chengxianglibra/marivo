@@ -24,14 +24,13 @@ def test_sql_is_complete_and_independent_of_telemetry(
         log.QueryLog(sql, backend="duckdb", purpose="test.rows") as query,
     ):
         query.rows = 2
-        query.arrow_bytes = 16
     submitted, completed = execution_records(tmp_path)
     assert submitted["sql"] == sql
     assert submitted["query_id"] == completed["query_id"]
     assert submitted["operation_id"] == completed["operation_id"] == "operation"
     assert completed["state"] == "succeeded"
     assert completed["consumed_rows"] == 2
-    assert completed["consumed_arrow_bytes"] == 16
+    assert "consumed_arrow_bytes" not in completed
     assert not (tmp_path / ".marivo" / "telemetry").exists()
     directory = tmp_path / ".marivo" / "logs"
     assert directory.stat().st_mode & 0o777 == 0o700

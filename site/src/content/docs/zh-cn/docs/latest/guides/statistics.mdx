@@ -137,7 +137,7 @@ local_total = values.deviation(method="zscore").observed.rollup().execute()
 
 customer association 示例另需 `customers`、`august_revenue`、`august`、`buyer`
 和已治理 order-count Metric。最后的原始 rollup 示例需要有保留原始组成状态的 `values`。
-本地统计准备可能捕获完整向量；batch transport 不等于算法是流式的。
+本地统计准备可能将完整向量物化到 pandas，因此它是 eager 计算，不是流式算法。
 不支持的数值或来源组合直接拒绝，不切换备用实现。
 
 ## 直接分布聚合

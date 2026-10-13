@@ -439,7 +439,7 @@ def test_original_mean_preserves_component_weights(
         assert fixed.to_pandas().set_index("group").value.to_dict() == {"a": 1.0, "b": 100.0}
         assert fixed._dataset is not None
         state_rows = next(
-            part.table.to_pylist()
+            part.table.to_dict("records")
             for part in fixed._dataset.verified().parts
             if part.role == "original_state"
         )
@@ -453,7 +453,7 @@ def test_original_mean_preserves_component_weights(
 
         submissions_before = len(source_trace.native_sql)
         with monkeypatch.context() as isolated:
-            isolated.setattr(type(case.session), "batches", forbid_source)
+            isolated.setattr(type(case.session), "execute", forbid_source)
             assert fixed.group_by().aggregate(mv.mean()).execute().to_pandas().value.tolist() == [
                 50.5
             ]

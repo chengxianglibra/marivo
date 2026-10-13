@@ -148,7 +148,9 @@ def test_selected_row_groups_preserve_count_mean_state(
         frame = mean.to_pandas().set_index("group")
         assert frame.loc["east", "value"] == 300
         state = next(
-            p.table.to_pylist() for p in mean._dataset.verified().parts if p.role == "row_state"
+            p.table.to_dict(orient="records")
+            for p in mean._dataset.verified().parts
+            if p.role == "row_state"
         )
         assert state == [
             {"key_0": "east", "row_state__sum": 600, "row_state__count": 2},
@@ -158,7 +160,7 @@ def test_selected_row_groups_preserve_count_mean_state(
         assert merged._node.root.signature.quantity == mean._node.root.signature.quantity
         assert (
             next(
-                p.table.to_pylist()
+                p.table.to_dict(orient="records")
                 for p in merged._dataset.verified().parts
                 if p.role == "row_state"
             )
@@ -221,7 +223,7 @@ def test_partial_reduction_matches_components_and_preserves_keys(
 
     def components(result):
         return next(
-            p.table.to_pylist()
+            p.table.to_dict(orient="records")
             for p in result._dataset.verified().parts
             if p.role == "original_state"
         )
@@ -253,9 +255,13 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
     assert result.to_pandas()["value"].tolist() == direct.to_pandas()["value"].tolist()
     assert result._node.root.signature.quantity == grouped._node.root.signature.quantity
     assert next(
-        p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "row_state"
+        p.table.to_dict(orient="records")
+        for p in result._dataset.verified().parts
+        if p.role == "row_state"
     ) == next(
-        p.table.to_pylist() for p in direct._dataset.verified().parts if p.role == "row_state"
+        p.table.to_dict(orient="records")
+        for p in direct._dataset.verified().parts
+        if p.role == "row_state"
     )
 
 
@@ -400,7 +406,7 @@ def test_weighted_coordinates_merge_paired_components(
         total = partial.rollup().execute()
         assert total.to_pandas()["value"].tolist() == pytest.approx([1000 / 3])
         assert next(
-            p.table.to_pylist()
+            p.table.to_dict(orient="records")
             for p in total._dataset.verified().parts
             if p.role == "original_state"
         ) == [
@@ -515,7 +521,7 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
 
     from marivo.analysis.core.model import RowStatePart
     from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import from_arrow
+    from marivo.analysis.materialization.graph_exchange import from_pandas
 
     case = retained_coordinates_case
     result = (
@@ -530,7 +536,7 @@ def test_row_state_version_and_binding_mismatch_reject(retained_coordinates_case
         for p in exchange.contract.signature.parts
     )
     with pytest.raises(AnalysisError):
-        from_arrow(
+        from_pandas(
             exchange.primary,
             replace(exchange.contract, signature=replace(exchange.contract.signature, parts=parts)),
             parts=exchange.parts,
@@ -587,7 +593,9 @@ def test_selected_entities_keep_complete_subject_mapping(
     )
     result = observed.execute().group_by(customer).rollup().execute()
     subject = next(
-        p.table.to_pylist() for p in result._dataset.verified().parts if p.role == "subject"
+        p.table.to_dict(orient="records")
+        for p in result._dataset.verified().parts
+        if p.role == "subject"
     )
     assert subject == [{"key_0": key, "subject__key_0": key} for key in ("A", "B")]
     assert result.to_pandas()["cell_tag"].tolist() == ["defined", "defined"]
@@ -609,7 +617,9 @@ def test_review_selected_category_retains_classification(
     assert current._node.classification_coordinate().field == "sales.customer.region"
     assert statistic.rollup().execute().to_pandas()["value"].tolist() == [2]
     state = next(
-        p.table.to_pylist() for p in statistic._dataset.verified().parts if p.role == "row_state"
+        p.table.to_dict(orient="records")
+        for p in statistic._dataset.verified().parts
+        if p.role == "row_state"
     )
     assert state == [
         {"row_state__count": 2},

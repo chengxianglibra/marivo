@@ -341,10 +341,10 @@ result = (fixed.group_by(mv.grain('month')).rollup() if metric == 'running' else
           fixed.rollup()).execute()
 verified = result._dataset.verified()
 primary = verified.primary
-keys = [(name, 'ascending') for name in primary.column_names if name.startswith('key_')]
-values = (primary.sort_by(keys) if keys else primary)['value'].to_pylist()
+keys = [name for name in primary.columns if name.startswith('key_')]
+values = (primary.sort_values(keys) if keys else primary)['value'].tolist()
 assert values == ([1077,1176,1176] if metric == 'running' else [450,150,400,None] if metric == 'folded' else [1099]), values
-state = next(p.table.to_pylist() for p in verified.parts if p.role == 'original_state')
+state = next(p.table.to_dict(orient='records') for p in verified.parts if p.role == 'original_state')
 print(json.dumps({'value': values, 'state': state, 'K': result._dataset.artifact.descriptor.execution_key_digest}))
 """
     recovered = subprocess.run(

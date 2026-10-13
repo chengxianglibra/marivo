@@ -47,7 +47,7 @@ def assert_scores(result: mv.MaterializedDeviationResult) -> None:
     deviations = result.deviation.to_pandas()
     reference_dataset = result.reference._dataset
     assert reference_dataset is not None
-    output_type = reference_dataset.verified().primary.schema.field("value").type
+    output_type = reference_dataset.verified().contract.schema.field("value").type
     if isinstance(output_type, pa.Decimal128Type):
         assert reference.value.tolist() == [decimal_finish(center, output_type.scale)] * len(values)
         assert deviations.value.tolist() == [
@@ -90,7 +90,7 @@ def run(root: Path, phase: str, method: Literal["zscore", "mad"]) -> None:
             patch.object(SemanticProject, "load", forbidden),
             patch.object(ms, "load", forbidden),
             patch.object(SourceSession, "__enter__", forbidden),
-            patch.object(SourceSession, "batches", forbidden),
+            patch.object(SourceSession, "execute", forbidden),
             patch.object(duckdb, "connect", forbidden),
             patch.object(ibis.duckdb, "connect", forbidden),
         ):

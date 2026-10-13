@@ -22,9 +22,10 @@ from marivo.analysis.methods.registry import REGISTRY
 
 def finish_spearman(
     lowered: LoweredLocal,
-    left: pa.Table,
-    right: pa.Table,
+    left: pd.DataFrame,
+    right: pd.DataFrame,
     keys: tuple[str, ...],
+    schemas: tuple[pa.Schema, pa.Schema],
     binding: str,
     completed: tuple[CompletedCheck, ...],
     pending: tuple[CheckRequirement, ...],
@@ -35,7 +36,7 @@ def finish_spearman(
     quantity_b = stage.node.inputs[1].node.signature.quantity
     assert isinstance(quantity_a, ObservedQuantity)
     assert isinstance(quantity_b, ObservedQuantity)
-    scored = score_spearman(stage, left, right, keys)
+    scored = score_spearman(stage, left, right, keys, schemas)
     primary_schema = pa.schema(
         (
             pa.field("status", pa.string()),
@@ -66,19 +67,15 @@ def finish_spearman(
         pa.schema((pa.field("status", pa.string()),)),
         pending,
     )
-    part = pa.Table.from_pandas(
-        pd.DataFrame(
-            {
-                "pair_counts__metric_key_a": [str(quantity_a.metric_ref)],
-                "pair_counts__metric_key_b": [str(quantity_b.metric_ref)],
-                "pair_counts__input_observation_count": [scored.input_observation_count],
-                "pair_counts__matched_observation_count": [scored.matched_observation_count],
-                "pair_counts__null_pair_count": [scored.null_pair_count],
-                "pair_counts__complete_pair_count": [scored.complete_pair_count],
-            }
-        ),
-        schema=part_schema,
-        preserve_index=False,
+    part = pd.DataFrame(
+        {
+            "pair_counts__metric_key_a": [str(quantity_a.metric_ref)],
+            "pair_counts__metric_key_b": [str(quantity_b.metric_ref)],
+            "pair_counts__input_observation_count": [scored.input_observation_count],
+            "pair_counts__matched_observation_count": [scored.matched_observation_count],
+            "pair_counts__null_pair_count": [scored.null_pair_count],
+            "pair_counts__complete_pair_count": [scored.complete_pair_count],
+        }
     )
     return from_pandas(
         pd.DataFrame(
@@ -93,5 +90,5 @@ def finish_spearman(
         parts=(ExchangePart("pair_counts", part),),
         completed_checks=completed,
         validate=False,
-        method_state=pa.table({"status": pa.array([scored.status], type=pa.string())}),
+        method_state=pd.DataFrame({"status": [scored.status]}),
     )

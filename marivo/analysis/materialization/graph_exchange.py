@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +13,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
-from marivo.analysis.core.cell_encoding import EncodedCell
+from marivo.analysis.core.cell_encoding import KnownCell, ValidityCell
 from marivo.analysis.core.model import (
     AttributionPart,
     ConditionCellsPart,
@@ -37,14 +36,13 @@ from marivo.analysis.materialization.cell_arrow import (
     logical_schema,
     pack,
     required,
+    storage_schema,
 )
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.cell_arrow import validate as validate_cells
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.execution import BatchStream
-from marivo.analysis.materialization.reads import open_receipt_batch_stream
-from marivo.analysis.materialization.storage import _open_payload
+from marivo.analysis.materialization.storage import _open_payload, _realized_schema
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
@@ -63,6 +61,21 @@ def numeric_primary(table: pa.Table) -> pa.Table:
             pa.array([table.schema.field("value").type.unit] * table.num_rows, type=pa.string()),
         )
     return table
+
+
+def to_arrow(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
+    """Encode one pandas result at an explicit Arrow schema boundary."""
+    if tuple(frame.columns) != tuple(schema.names):
+        raise _invalid(
+            f"pandas columns {tuple(frame.columns)!r} differ from frozen schema {tuple(schema.names)!r}"
+        )
+    try:
+        table = pa.Table.from_pandas(frame, schema=schema, preserve_index=False, safe=False)
+        return table.replace_schema_metadata(schema.metadata)
+    except (pa.ArrowException, TypeError, ValueError) as error:
+        raise _invalid(
+            f"pandas result cannot enter the frozen Arrow schema: {type(error).__name__}"
+        ) from error
 
 
 def _invalid(received: str) -> MaterializationError:
@@ -266,143 +279,16 @@ class ExchangeContract:
             raise _invalid("method state lacks exact keys and status")
 
 
-class _TableStream:
-    def __init__(self, table: pa.Table) -> None:
-        self._reader = table.to_reader()
-        self.schema = table.schema
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        return iter(self._reader)
-
-    def close(self) -> None:
-        self._reader.close()
-
-
-class _PartStream:
-    def __init__(self, batches: Iterator[pa.RecordBatch], schema: pa.Schema) -> None:
-        self._batches = batches
-        self.schema = schema
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        return self._batches
-
-    def close(self) -> None:
-        close = getattr(self._batches, "close", None)
-        if close is not None:
-            close()
-
-
-def _key_rows(batch: pa.RecordBatch, fields: tuple[str, ...]) -> Iterator[tuple[object, ...]]:
-
-    for start in range(0, batch.num_rows, 1024):
-        count = min(1024, batch.num_rows - start)
-        if fields:
-            columns: tuple[list[object], ...] = tuple(
-                batch.column(name).slice(start, count).to_pylist() for name in fields
-            )
-            yield from zip(*columns, strict=True)
-        else:
-            for _ in range(count):
-                yield ()
-
-
-class CheckedStream:
-    """Validate one producer; completion requires exhaustion and successful close."""
-
-    def __init__(
-        self,
-        source: BatchStream,
-        schema: pa.Schema,
-        keys: tuple[str, ...],
-        cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
-        validate_cells: bool = True,
-        nullable_keys: frozenset[str] = frozenset(),
-    ) -> None:
-        if not source.schema.equals(schema, check_metadata=False):
-            source.close()
-            raise _invalid("producer schema differs from selected exchange")
-        self._source = source
-        self.schema = schema
-        self._keys = keys
-        self._nullable_keys = nullable_keys
-        self._cell_reasons = dict(cell_reasons)
-        self._validate_cell_values = validate_cells
-        self._started = False
-        self._closed = False
-        self.completed = False
-        self._key_index: set[tuple[object, ...]] | None = None
-
-    def __iter__(self) -> Iterator[pa.RecordBatch]:
-        if self._started or self._closed:
-            raise _invalid("producer was consumed twice or already closed")
-        self._started = True
-        return self._batches()
-
-    def _batches(self) -> Iterator[pa.RecordBatch]:
-
-        seen_keys: set[tuple[object, ...]] = set()
-        exhausted = False
-        try:
-            for batch in self._source:
-                if not batch.schema.equals(self.schema, check_metadata=False):
-                    raise _invalid("batch schema changed")
-                if self._keys:
-                    for key in _key_rows(batch, self._keys):
-                        if (
-                            any(
-                                value is None and name not in self._nullable_keys
-                                for name, value in zip(self._keys, key, strict=True)
-                            )
-                            or key in seen_keys
-                        ):
-                            raise _invalid("null or duplicate complete key")
-                        seen_keys.add(key)
-                if binding(self.schema).cells:
-                    validate_cells(pa.Table.from_batches([batch], schema=self.schema))
-                elif self._validate_cell_values and {"value", "cell_tag", "cell_reason"} <= set(
-                    self.schema.names
-                ):
-                    self._validate_cells(batch)
-                yield batch
-            exhausted = True
-        finally:
-            self._closed = True
-            self._source.close()
-            self.completed = exhausted
-            if exhausted:
-                self._key_index = seen_keys
-
-    def _validate_cells(self, batch: pa.RecordBatch) -> None:
-
-        for start in range(0, batch.num_rows, 1024):
-            values: list[bool] = batch.column("value").slice(start, 1024).is_valid().to_pylist()
-            tags: list[object] = batch.column("cell_tag").slice(start, 1024).to_pylist()
-            reasons: list[object] = batch.column("cell_reason").slice(start, 1024).to_pylist()
-            for valid, tag, reason in zip(values, tags, reasons, strict=True):
-                if tag == "defined":
-                    if not valid or reason is not None:
-                        raise _invalid("invalid Defined Cell")
-                elif (
-                    tag not in ("null", "undefined", "unknown")
-                    or valid
-                    or reason
-                    not in (self._cell_reasons.get(tag, ()) if isinstance(tag, str) else ())
-                ):
-                    raise _invalid("invalid non-Defined Cell")
-
-    def _complete_key_index(self) -> set[tuple[object, ...]]:
-        if not self.completed or self._key_index is None:
-            raise _invalid("producer key validation did not complete")
-        return self._key_index
-
-    def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            self._source.close()
+@dataclass(frozen=True, slots=True)
+class ExchangePart:
+    role: str
+    table: pd.DataFrame
 
 
 @dataclass(frozen=True, slots=True)
-class ExchangePart:
+class ArrowPart:
+    """Arrow table carried only at an explicit typed codec boundary."""
+
     role: str
     table: pa.Table
 
@@ -410,10 +296,10 @@ class ExchangePart:
 @dataclass(frozen=True, slots=True)
 class ExchangeResult:
     contract: ExchangeContract
-    primary: pa.Table
+    primary: pd.DataFrame
     parts: tuple[ExchangePart, ...]
     completed_checks: tuple[CompletedCheck, ...]
-    method_state: pa.Table | None = None
+    method_state: pd.DataFrame | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -428,7 +314,7 @@ class CompletedCheck:
 def _compact_result(
     contract: ExchangeContract,
     primary: pa.Table,
-    parts: tuple[ExchangePart, ...],
+    parts: tuple[ArrowPart, ...],
     completed_checks: tuple[CompletedCheck, ...],
     method_state: pa.Table | None,
 ) -> ExchangeResult:
@@ -437,7 +323,7 @@ def _compact_result(
 
     primary = pack(primary, contract.cell_reasons, contract.column_reasons)
     parts = tuple(
-        ExchangePart(
+        ArrowPart(
             part.role,
             pack(
                 part.table,
@@ -461,32 +347,45 @@ def _compact_result(
             for declared, part in zip(contract.parts, parts, strict=True)
         ),
     )
-    return ExchangeResult(contract, primary, parts, completed_checks, method_state)
+    return ExchangeResult(
+        contract,
+        primary.to_pandas(),
+        tuple(ExchangePart(part.role, part.table.to_pandas()) for part in parts),
+        completed_checks,
+        None if method_state is None else method_state.to_pandas(),
+    )
 
 
-def collect(
-    source: BatchStream,
+def _validate_exchange(
+    primary: pa.Table,
     contract: ExchangeContract,
     *,
-    parts: tuple[ExchangePart, ...] = (),
+    parts: tuple[ArrowPart, ...] = (),
     completed_checks: tuple[CompletedCheck, ...] = (),
     method_state: pa.Table | None = None,
 ) -> ExchangeResult:
-    """Exhaust one producer and validate every independently keyed state part."""
+    """Validate one materialized typed codec result and its independently keyed state parts."""
     nullable = frozenset(
         f"key_{i}"
         for i, c in enumerate(contract.signature.domain.instance_key)
         if c.field.startswith("attribution:axis:")
     )
-    stream = CheckedStream(
-        source, contract.schema, contract.key_fields, contract.cell_reasons, nullable_keys=nullable
-    )
-    try:
-        primary = pa.Table.from_batches(tuple(stream), schema=contract.schema)
-    finally:
-        stream.close()
-    if not stream.completed:
-        raise _invalid("producer did not complete")
+    if not primary.schema.equals(contract.schema, check_metadata=False):
+        raise _invalid("producer schema differs from selected exchange")
+    if binding(contract.schema).cells:
+        validate_cells(primary)
+    elif {"value", "cell_tag", "cell_reason"} <= set(contract.schema.names):
+        for row in primary.to_pylist():
+            value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+            if tag == "defined":
+                if value is None or reason is not None:
+                    raise _invalid("invalid Defined Cell")
+            elif (
+                tag not in ("null", "undefined", "unknown")
+                or value is not None
+                or reason not in dict(contract.cell_reasons).get(tag, ())
+            ):
+                raise _invalid("invalid non-Defined Cell")
     if not contract.key_fields and primary.num_rows not in (
         (0, 1) if contract.allow_empty_singleton else (1,)
     ):
@@ -498,11 +397,7 @@ def collect(
         for p in contract.signature.parts
     ):
         raise _invalid("unsupported required numerical state version")
-    primary_keys = (
-        stream._complete_key_index()
-        if contract.key_fields
-        else _table_keys(primary, contract.key_fields, nullable)
-    )
+    primary_keys = _table_keys(primary, contract.key_fields, nullable)
     for declared, part in zip(contract.parts, parts, strict=True):
         if not part.table.schema.equals(declared.schema, check_metadata=False):
             raise _invalid(f"{declared.role} schema differs")
@@ -617,13 +512,10 @@ def collect(
                     for row in cell_rows(numeric_primary(part.table))
                 ):
                     raise _invalid("reference support Cell disagrees with original additive state")
-            checked = CheckedStream(
-                _TableStream(part.table),
-                part.table.schema,
-                declared.key_fields,
-                reference_part.cell_reasons,
-            )
-            tuple(checked)
+            if binding(part.table.schema).cells:
+                validate_cells(part.table)
+            elif {"value", "cell_tag", "cell_reason"} <= set(part.table.column_names):
+                _validate_arrow_tag_cells(part.table, reference_part.cell_reasons)
             _table_keys(part.table, declared.key_fields)
             continue
         if any(
@@ -743,7 +635,7 @@ def collect(
                 (*contract.key_fields, "value", "cell_tag", "cell_reason")
             )
             adjusted = tuple(
-                ExchangePart(
+                ArrowPart(
                     part.role,
                     part.table.set_column(
                         part.table.schema.get_field_index("correspondence__result_error_bound"),
@@ -907,7 +799,7 @@ def collect(
 
 
 def _verify_difference_parts(
-    contract: ExchangeContract, parts: tuple[ExchangePart, ...], primary: pa.Table
+    contract: ExchangeContract, parts: tuple[ArrowPart, ...], primary: pa.Table
 ) -> None:
     keys = contract.key_fields
     primary_type = numeric_primary(primary).schema.field("value").type
@@ -1140,7 +1032,7 @@ def _verify_difference_parts(
 
 def _verify_single_state_part(
     contract: ExchangeContract,
-    parts: tuple[ExchangePart, ...],
+    parts: tuple[ArrowPart, ...],
     primary: pa.Table,
     states: dict[tuple[object, ...], object],
 ) -> None:
@@ -1198,22 +1090,36 @@ def _verify_single_state_part(
 def _table_keys(
     table: pa.Table, fields: tuple[str, ...], nullable: frozenset[str] = frozenset()
 ) -> set[tuple[object, ...]]:
-
-    for name in fields:
-        table.column(name)
     result: set[tuple[object, ...]] = set()
-    for batch in table.to_batches(max_chunksize=1024):
-        for key in _key_rows(batch, fields):
-            if (
-                any(
-                    value is None and name not in nullable
-                    for name, value in zip(fields, key, strict=True)
-                )
-                or key in result
-            ):
-                raise _invalid("null or duplicate complete part key")
-            result.add(key)
+    columns = tuple(table[name].to_pylist() for name in fields)
+    for key in zip(*columns, strict=True) if fields else (() for _ in range(table.num_rows)):
+        if (
+            any(
+                value is None and name not in nullable
+                for name, value in zip(fields, key, strict=True)
+            )
+            or key in result
+        ):
+            raise _invalid("null or duplicate complete part key")
+        result.add(key)
     return result
+
+
+def _validate_arrow_tag_cells(
+    table: pa.Table, cell_reasons: tuple[tuple[str, tuple[str, ...]], ...]
+) -> None:
+    reasons = dict(cell_reasons)
+    for row in table.to_pylist():
+        value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+        if tag == "defined":
+            if value is None or reason is not None:
+                raise _invalid("invalid Defined Cell")
+        elif (
+            tag not in ("null", "undefined", "unknown")
+            or value is not None
+            or reason not in reasons.get(tag, ())
+        ):
+            raise _invalid("invalid non-Defined Cell")
 
 
 def from_pandas(
@@ -1222,22 +1128,19 @@ def from_pandas(
     *,
     parts: tuple[ExchangePart, ...] = (),
     completed_checks: tuple[CompletedCheck, ...] = (),
-    method_state: pa.Table | None = None,
+    method_state: pd.DataFrame | None = None,
     validate: bool = True,
 ) -> ExchangeResult:
-    """Convert an owned local method through the physical Arrow contract."""
+    """Validate and retain an owned local method as pandas frames."""
     try:
         if binding(contract.schema).cells and tuple(frame.columns) == tuple(contract.schema.names):
-            table = pa.Table.from_pandas(
-                frame, schema=contract.schema, preserve_index=False, safe=True
-            )
+            output = frame
+            schema = contract.schema
         else:
             schema = compact_schema(contract.schema, contract.cell_reasons, contract.column_reasons)
-            declared = binding(schema)
-            if declared.cells:
-                states = {cell.state for cell in declared.cells if isinstance(cell, EncodedCell)}
-                values_schema = pa.schema([field for field in schema if field.name not in states])
-                pa.Table.from_pandas(frame, schema=values_schema, preserve_index=False, safe=True)
+            cell_binding = binding(schema)
+            if cell_binding.cells:
+                _validate_pandas_tag_cells(frame, contract.cell_reasons)
                 table = from_rows(
                     (
                         {str(key): None if pd.isna(value) else value for key, value in row.items()}
@@ -1245,26 +1148,307 @@ def from_pandas(
                     ),
                     schema,
                 )
-                contract = replace(contract, schema=schema)
+                output = table.to_pandas()
             else:
-                table = pa.Table.from_pandas(frame, schema=schema, preserve_index=False, safe=True)
+                if tuple(frame.columns) != tuple(schema.names):
+                    raise _invalid("pandas columns differ from the selected physical schema")
+                output = frame
+            contract = replace(contract, schema=schema)
     except (pa.ArrowException, ValueError, TypeError) as error:
-        raise _invalid(f"lossy pandas-to-Arrow conversion: {type(error).__name__}") from error
-    return from_arrow(
-        table,
-        contract,
-        parts=parts,
-        completed_checks=completed_checks,
-        method_state=method_state,
-        validate=validate,
+        raise _invalid(f"pandas Cell codec failed: {type(error).__name__}") from error
+    if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
+        raise _invalid("missing, reordered or extra method state part")
+    for declared, part in zip(contract.parts, parts, strict=True):
+        if tuple(part.table.columns) != tuple(declared.schema.names):
+            raise _invalid(f"{declared.role} columns differ from its frozen schema")
+    if (method_state is None) != (contract.state_schema is None) or (
+        method_state is not None
+        and contract.state_schema is not None
+        and tuple(method_state.columns) != tuple(contract.state_schema.names)
+    ):
+        raise _invalid("missing or mismatched method state vector")
+    if {item.requirement for item in completed_checks} != set(contract.pending_checks):
+        raise _invalid("method result lacks its exact completed check records")
+    _validate_pandas_cells(output, schema)
+    _validate_pandas_tag_cells(output, contract.cell_reasons)
+    _validate_pandas_finite(output, schema)
+    for declared, part in zip(contract.parts, parts, strict=True):
+        _validate_pandas_cells(part.table, declared.schema)
+        part_reasons = _pandas_part_reasons(contract, declared.role)
+        _validate_pandas_tag_cells(part.table, part_reasons)
+        _validate_pandas_finite(part.table, declared.schema)
+    if method_state is not None and contract.state_schema is not None:
+        _validate_pandas_finite(method_state, contract.state_schema)
+    if validate:
+        _validate_pandas_exchange(output, contract, parts, method_state)
+    return ExchangeResult(contract, output, parts, completed_checks, method_state)
+
+
+def _pandas_part_reasons(
+    contract: ExchangeContract, role: str
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    from marivo.analysis.core.model import ReferenceStatePart
+
+    return next(
+        (
+            item.cell_reasons
+            for item in contract.signature.parts
+            if isinstance(item, ReferenceStatePart) and item.role == role
+        ),
+        contract.cell_reasons,
     )
+
+
+def _pandas_records(frame: pd.DataFrame, schema: pa.Schema) -> list[dict[str, object]]:
+    records = [
+        {name: value for name, value in record.items() if isinstance(name, str)}
+        for record in frame.to_dict("records")
+    ]
+    for cell in binding(schema).cells:
+        if isinstance(cell, KnownCell):
+            tag, reason = cell.book.decode(cell.code)
+            for row in records:
+                row[cell.fields.tag], row[cell.fields.reason] = tag, reason
+        elif isinstance(cell, ValidityCell):
+            missing = cell.book.decode(cell.missing_code)
+            for row in records:
+                row[cell.fields.tag], row[cell.fields.reason] = (
+                    ("defined", None) if not pd.isna(row[cell.fields.value]) else missing
+                )
+        else:
+            for row in records:
+                raw = row.pop(cell.state)
+                if pd.isna(raw):
+                    raise _invalid("physical Cell state cannot be null")
+                code = int(raw)
+                if code == -1 and cell.optional:
+                    row[cell.fields.tag], row[cell.fields.reason] = None, None
+                else:
+                    row[cell.fields.tag], row[cell.fields.reason] = cell.book.decode(code)
+    return records
+
+
+def _validate_pandas_tag_cells(
+    frame: pd.DataFrame, reasons: tuple[tuple[str, tuple[str, ...]], ...]
+) -> None:
+    if not {"value", "cell_tag", "cell_reason"} <= set(frame.columns):
+        return
+    allowed = dict(reasons)
+    for row in frame.loc[:, ["value", "cell_tag", "cell_reason"]].to_dict("records"):
+        value, tag, reason = row["value"], row["cell_tag"], row["cell_reason"]
+        if tag == "defined":
+            if pd.isna(value) or not pd.isna(reason):
+                raise _invalid("invalid Defined Cell")
+        elif (
+            tag not in ("null", "undefined", "unknown")
+            or not pd.isna(value)
+            or not isinstance(reason, str)
+            or reason not in allowed.get(tag, ())
+        ):
+            raise _invalid("invalid non-Defined Cell")
+
+
+def _validate_pandas_finite(frame: pd.DataFrame, schema: pa.Schema) -> None:
+    for field in schema:
+        if not pa.types.is_floating(field.type):
+            continue
+        for value in frame[field.name].dropna().tolist():
+            if not isinstance(value, int | float) or not math.isfinite(value):
+                raise _invalid(f"non-finite numeric output in {field.name}")
+
+
+def _pandas_key_index(
+    frame: pd.DataFrame,
+    fields: tuple[str, ...],
+    nullable: frozenset[str] = frozenset(),
+) -> set[tuple[object, ...]]:
+    missing_fields = tuple(name for name in fields if name not in frame.columns)
+    if missing_fields:
+        raise _invalid(f"missing complete key fields {missing_fields!r}")
+    result: set[tuple[object, ...]] = set()
+    columns = tuple(frame[name].tolist() for name in fields)
+    keys = zip(*columns, strict=True) if fields else (() for _ in range(len(frame)))
+    for key in keys:
+        if (
+            any(
+                bool(pd.isna(value)) and name not in nullable
+                for name, value in zip(fields, key, strict=True)
+            )
+            or key in result
+        ):
+            raise _invalid("null or duplicate complete key")
+        result.add(key)
+    return result
+
+
+def _validate_pandas_exchange(
+    primary: pd.DataFrame,
+    contract: ExchangeContract,
+    parts: tuple[ExchangePart, ...],
+    method_state: pd.DataFrame | None,
+) -> None:
+    nullable = frozenset(
+        f"key_{index}"
+        for index, coordinate in enumerate(contract.signature.domain.instance_key)
+        if coordinate.field.startswith("attribution:axis:")
+    )
+    if not contract.key_fields and len(primary) not in (
+        (0, 1) if contract.allow_empty_singleton else (1,)
+    ):
+        raise _invalid("singleton result has an invalid row count")
+    primary_keys = _pandas_key_index(primary, contract.key_fields, nullable)
+    subset_roles = {"cohort_decision", "ranking_domain", "partitions", "ordering"}
+    closed_roles = {
+        "condition_cells",
+        "run_cells",
+        "pair_inputs",
+        "association_state",
+        "training_inputs",
+        "forecast_state",
+        "future_cells",
+        "fit_inputs",
+        "fit_state",
+        "table_fits",
+        "finding_policy",
+    }
+    for declared, part in zip(contract.parts, parts, strict=True):
+        if declared.role in closed_roles:
+            if (
+                declared.key_fields
+                or len(part.table) != 1
+                or declared.schema.names != [declared.role + "__retained"]
+                or declared.schema.field(0).type != pa.string()
+            ):
+                raise _invalid("closed retained state must be one exact string payload")
+            continue
+        part_keys = _pandas_key_index(part.table, declared.key_fields, nullable)
+        if (
+            declared.key_fields == contract.key_fields
+            and declared.role not in subset_roles
+            and part_keys != primary_keys
+        ):
+            raise _invalid(f"{declared.role} complete keys differ")
+        for name in declared.key_fields:
+            if declared.schema.field(name).type != contract.schema.field(name).type:
+                raise _invalid(f"{declared.role} key types differ")
+    if method_state is None:
+        return
+    if _pandas_key_index(method_state, contract.key_fields, nullable) != primary_keys:
+        raise _invalid("method state keys differ from the primary exchange")
+    primary_rows = _pandas_records(primary, contract.schema)
+    state_rows = _pandas_records(method_state, contract.state_schema or pa.schema([]))
+    states = {tuple(row[name] for name in contract.key_fields): row for row in state_rows}
+    if contract.state_kind in (
+        "difference",
+        "relative_change",
+        "relation_ratio",
+        "share",
+        "penetration",
+        "standardized",
+        "ranking",
+        "attribution_additive",
+        "attribution_component_mix",
+    ):
+        for row in primary_rows:
+            state = states[tuple(row[name] for name in contract.key_fields)]
+            if state.get("status") != row.get("cell_tag"):
+                raise _invalid("method state status differs from its primary Cell")
+    elif contract.state_kind == "table":
+        if any(state.get("status") != "accepted" for state in states.values()):
+            raise _invalid("display method status differs")
+    elif contract.state_kind == "cohort" and any(
+        state.get("status") != "accepted" for state in states.values()
+    ):
+        raise _invalid("cohort state contains an unaccepted target")
+    if contract.state_kind == "spearman" and any(part.role == "pair_inputs" for part in parts):
+        for row in primary_rows:
+            state = states[tuple(row[name] for name in contract.key_fields)]
+            status = state.get("status")
+            if (
+                row.get("status") != status
+                or (status == "valid") != (row.get("cell_tag") == "defined")
+                or (status != "valid" and row.get("cell_reason") != status)
+            ):
+                raise _invalid("Spearman state and primary Cell disagree")
+    if contract.state_kind in (
+        "original_min",
+        "original_max",
+        "original_mean",
+        "original_fold",
+        "original_sum",
+        "original_sum_zero",
+        "original_count",
+        "original_ratio",
+        "original_weighted_mean",
+        "original_linear",
+        "row_min",
+        "row_max",
+        "row_mean",
+        "row_sum",
+        "row_count",
+        "row_count_defined",
+    ):
+        role = "original_state" if contract.state_kind.startswith("original_") else "row_state"
+        state_part = next((part for part in parts if part.role == role), None)
+        if state_part is None:
+            raise _invalid("missing required numerical state part")
+        part_schema = next(part.schema for part in contract.parts if part.role == role)
+        keyed_state = {
+            tuple(row[name] for name in contract.key_fields): row
+            for row in _pandas_records(state_part.table, part_schema)
+        }
+        original = next(
+            (item for item in contract.signature.parts if isinstance(item, OriginalStatePart)),
+            None,
+        )
+        for row in primary_rows:
+            key = tuple(row[name] for name in contract.key_fields)
+            if not state_matches(
+                contract.state_kind,
+                row,
+                keyed_state[key],
+                empty_rules=original.empty_rules if original is not None else (),
+            ):
+                raise _invalid("method part and primary numerical state disagree")
+
+
+def _validate_pandas_cells(frame: pd.DataFrame, schema: pa.Schema) -> None:
+    for cell in binding(schema, exact=True).cells:
+        if cell.fields.value not in frame.columns:
+            raise _invalid("Cell binding refers to an absent value field")
+        missing = frame[cell.fields.value].isna()
+        if isinstance(cell, KnownCell):
+            if len(frame) and (missing.any() if cell.code == 0 else not missing.all()):
+                raise _invalid("Cell state disagrees with value validity")
+            continue
+        if isinstance(cell, ValidityCell):
+            continue
+        states = frame[cell.state]
+        if states.isna().any():
+            raise _invalid("physical Cell state cannot be null")
+        admitted = (
+            *((-1,) if cell.optional else ()),
+            0,
+            *cell.book.codes(),
+        )
+        for state, absent in zip(states, missing, strict=True):
+            if isinstance(state, bool):
+                raise _invalid("physical Cell state is not an integer code")
+            try:
+                code = int(state)
+            except (OverflowError, TypeError, ValueError) as error:
+                raise _invalid("physical Cell state is not an integer code") from error
+            if code != state or code not in admitted:
+                raise _invalid("undeclared physical Cell code")
+            if (code == 0) == bool(absent):
+                raise _invalid("Cell state disagrees with value validity")
 
 
 def from_arrow(
     table: pa.Table,
     contract: ExchangeContract,
     *,
-    parts: tuple[ExchangePart, ...] = (),
+    parts: tuple[ArrowPart, ...] = (),
     completed_checks: tuple[CompletedCheck, ...] = (),
     method_state: pa.Table | None = None,
     validate: bool = True,
@@ -1298,8 +1482,8 @@ def from_arrow(
                 ):
                     raise _invalid(f"non-finite numeric output in {field.name}")
         return _compact_result(contract, table, parts, completed_checks, method_state)
-    return collect(
-        _TableStream(table),
+    return _validate_exchange(
+        table,
         contract,
         parts=parts,
         completed_checks=completed_checks,
@@ -1333,54 +1517,73 @@ class FixedInput:
 
 
 def from_receipts(selected: FixedInput, contract: ExchangeContract) -> ExchangeResult:
-    """Exhaust exact local receipts without opening a source or native scan."""
+    """Read exact local receipts into pandas without opening a source or native scan."""
     if selected.artifact_ref != contract.input_binding:
         raise _invalid("fixed receipt does not match the exact input binding")
     if tuple(item.role for item in selected.parts) != tuple(part.role for part in contract.parts):
         raise _invalid("missing, reordered or extra fixed part receipt")
+
+    def read(receipt: LocalReceipt, expected: pa.Schema) -> pd.DataFrame:
+        import sys
+
+        parquet, path = _open_payload(selected.root, receipt)
+        failed = False
+        try:
+            actual = parquet.schema_arrow
+            if not actual.equals(storage_schema(expected), check_metadata=True):
+                raise _invalid("fixed receipt schema or fingerprint differs")
+            if (
+                parquet.metadata.num_rows != receipt.realized_row_count
+                or len(receipt.file_manifest) != 1
+                or path.stat().st_size != receipt.file_manifest[0].size_bytes
+            ):
+                raise _invalid("fixed receipt content or cardinality differs")
+            if receipt is selected.receipt:
+                if (
+                    selected.rows.cardinality.kind == "singleton"
+                    and receipt.realized_row_count != 1
+                ):
+                    raise _invalid("fixed singleton receipt has an invalid row count")
+                _realized_schema(selected.row, actual)
+                if any(
+                    column.nullable != field.nullable
+                    for column, field in zip(selected.row.schema.columns, actual, strict=True)
+                ):
+                    raise _invalid("fixed primary nullability differs from its row contract")
+            frame = pd.read_parquet(path)
+            if (
+                tuple(frame.columns) != tuple(actual.names)
+                or len(frame) != receipt.realized_row_count
+            ):
+                raise _invalid("fixed pandas payload differs from its receipt")
+            return frame
+        except (OSError, pa.ArrowException, ValueError, TypeError) as error:
+            failed = True
+            if isinstance(error, MaterializationError):
+                raise
+            raise _invalid(
+                f"fixed Parquet payload could not be read: {type(error).__name__}"
+            ) from error
+        finally:
+            failed = failed or sys.exc_info()[0] is not None
+            try:
+                parquet.close()
+            except (OSError, pa.ArrowException):
+                if not failed:
+                    raise _invalid("fixed Parquet reader did not close successfully") from None
+
+    primary = read(selected.receipt, contract.schema)
+    if tuple(primary.columns) != tuple(contract.schema.names):
+        raise _invalid("fixed primary columns differ from its frozen exchange")
+    _validate_pandas_cells(primary, contract.schema)
     checked_parts: list[ExchangePart] = []
     for item, declared in zip(selected.parts, contract.parts, strict=True):
-        reader = _PartStream(
-            _verified_part_batches(selected.root, item.receipt, declared.schema),
-            declared.schema,
-        )
-        stream = CheckedStream(reader, declared.schema, (), validate_cells=False)
-        try:
-            table = pa.Table.from_batches(tuple(stream), schema=declared.schema)
-        finally:
-            stream.close()
-        if not stream.completed:
-            raise _invalid(f"{declared.role} receipt did not complete")
-        checked_parts.append(ExchangePart(item.role, table))
-    primary_reader = open_receipt_batch_stream(
-        selected.root, selected.receipt, selected.row, selected.rows
-    )
-    stream = CheckedStream(primary_reader, contract.schema, (), validate_cells=False)
-    try:
-        primary = pa.Table.from_batches(tuple(stream), schema=contract.schema)
-    finally:
-        stream.close()
-    if not stream.completed:
-        raise _invalid("fixed receipt did not complete")
-    return from_arrow(primary, contract, parts=tuple(checked_parts), validate=False)
-
-
-def _verified_part_batches(
-    root: Path, receipt: LocalReceipt, schema: pa.Schema
-) -> Iterator[pa.RecordBatch]:
-    """Verify a physical part without borrowing a legacy method codec."""
-    parquet, _path = _open_payload(root, receipt)
-    rows = 0
-    try:
-        if not parquet.schema_arrow.equals(schema, check_metadata=False):
-            raise _invalid("fixed part schema or fingerprint differs")
-        for batch in parquet.iter_batches(batch_size=1024):
-            rows += batch.num_rows
-            yield batch
-        if rows != receipt.realized_row_count:
-            raise _invalid("fixed part content or cardinality differs")
-    finally:
-        parquet.close()
+        frame = read(item.receipt, declared.schema)
+        if tuple(frame.columns) != tuple(declared.schema.names):
+            raise _invalid(f"{declared.role} fixed columns differ")
+        _validate_pandas_cells(frame, declared.schema)
+        checked_parts.append(ExchangePart(item.role, frame))
+    return from_pandas(primary, contract, parts=tuple(checked_parts), validate=False)
 
 
 def reference_parameters(signature: Signature) -> ReferenceDerive:
@@ -1425,17 +1628,29 @@ def reference_parameters(signature: Signature) -> ReferenceDerive:
 
 
 def _verify_reference_parts(
-    contract: ExchangeContract, parts: tuple[ExchangePart, ...], primary: pa.Table
+    contract: ExchangeContract, parts: tuple[ArrowPart, ...], primary: pa.Table
 ) -> None:
     from marivo.analysis.materialization.graph_reference import error_bounds, finish, physical_type
 
     params = reference_parameters(contract.signature)
+    schemas = {part.role: part.schema for part in contract.parts}
+    pandas_parts = tuple(ExchangePart(part.role, part.table.to_pandas()) for part in parts)
     try:
-        expected = finish(params, physical_type(primary.schema.field("value").type), parts)
+        expected = finish(
+            params,
+            physical_type(primary.schema.field("value").type),
+            pandas_parts,
+            schemas=schemas,
+        )
         error_bounds(params, parts, primary)
     except (ValueError, OverflowError) as error:
         raise _invalid(str(error)) from error
     names = contract.key_fields
-    rows = {tuple(row[key] for key in names): row for row in expected.to_pylist()}
-    if any(rows.get(tuple(row[key] for key in names)) != row for row in primary.to_pylist()):
+    expected_rows = [
+        {str(name): value for name, value in row.items()} for row in expected.to_dict("records")
+    ]
+    actual_rows = _pandas_records(primary.to_pandas(), contract.schema)
+    expected_by_key = {tuple(row[key] for key in names): row for row in expected_rows}
+    actual_by_key = {tuple(row[key] for key in names): row for row in actual_rows}
+    if expected_by_key != actual_by_key:
         raise _invalid("reference primary differs from its immutable inputs")

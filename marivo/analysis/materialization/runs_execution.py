@@ -9,6 +9,7 @@ from decimal import Decimal
 from math import isfinite
 from typing import Literal
 
+import pandas as pd
 import pyarrow as pa
 from pydantic import TypeAdapter, ValidationError
 
@@ -17,17 +18,17 @@ from marivo.analysis.core.model import ConditionCellsPart, RunCellsPart, Signatu
 from marivo.analysis.core.predicates import ValuePredicate, compose, leaves
 from marivo.analysis.core.rules import TimeRunRead, TimeRuns
 from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.cell_arrow import project as cell_project
-from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.deviation_execution import SavedTable, load, save
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
     from_arrow,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import invalid
 from marivo.analysis.methods.physical import ValueType, matches_arrow_scalar
@@ -79,9 +80,11 @@ _VIEW_SCHEMA = pa.schema(
 )
 
 
-def _index(table: pa.Table, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
+def _index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
     result: dict[tuple[object, ...], int] = {}
-    for i, row in enumerate(table.to_pylist()):
+    frame = table.to_pandas() if isinstance(table, pa.Table) else table
+    rows = frame.to_dict(orient="records")
+    for i, row in enumerate(rows):
         key = tuple(row[k] for k in keys)
         if key in result or any(x is None for x in key):
             raise invalid("runs input has null or duplicate complete coordinates")
@@ -211,21 +214,22 @@ def _condition_scope(
             ):
                 raise invalid("runs input has a malformed Cell or unowned unavailable reason")
 
-    indices = tuple(_index(t, capture.keys) for t in tables)
+    indices = tuple(_index(t.to_pandas(), capture.keys) for t in tables)
     keys = tuple(indices[0])
     if any(set(index) != set(keys) for index in indices[1:]):
         raise invalid("runs condition dependencies have different complete keys")
-    coverage = load(capture.coverage)
+    coverage = load(capture.coverage).to_pandas()
     if set(_index(coverage, capture.keys)) != set(keys) or any(
-        x is not True for x in coverage["complete"].to_pylist()
+        x is not True for x in coverage["complete"].tolist()
     ):
         raise invalid("runs original grid coverage is absent or false")
     semantic_inputs = tuple(
         hashlib.sha256(
             save(
-                table.take(
-                    pa.array([index[key] for key in sorted(keys, key=repr)], type=pa.int64())
-                ).combine_chunks()
+                to_arrow(
+                    table.to_pandas().iloc[[index[key] for key in sorted(keys, key=repr)]],
+                    table.schema,
+                )
             ).data.encode()
         ).hexdigest()
         for table, index in zip(tables, indices, strict=True)
@@ -316,28 +320,40 @@ def compute(
     return pa.Table.from_pylist(output, schema=_VIEW_SCHEMA), tuple(classes), tuple(reasons)
 
 
-def _primary(views: pa.Table, field: str) -> pa.Table:
+def _primary(views: pd.DataFrame, field: str, schema: pa.Schema) -> pa.Table:
     return pa.table(
         {
-            "key_0": views["key_0"],
-            "value": views[field],
+            "key_0": pa.array(views["key_0"], type=pa.string()),
+            "value": pa.array(views[field], type=schema.field(field).type),
             "cell_tag": pa.array(["defined"] * len(views), type=pa.string()),
             "cell_reason": pa.array([None] * len(views), type=pa.string()),
         }
     )
 
 
-def _payload(role: str, value: str) -> ExchangePart:
-    return ExchangePart(role, pa.table({role + "__retained": [value]}))
+def _payload(role: str, value: str) -> ArrowPart:
+    return ArrowPart(role, pa.table({role + "__retained": [value]}))
 
 
-def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Capture, Runs]:
+def _decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Capture, Runs]:
     by_role = {p.role: p for p in parts}
     try:
-        capture = CAPTURE.validate_json(
-            by_role["condition_cells"].table["condition_cells__retained"][0].as_py()
+        capture_table = by_role["condition_cells"].table
+        state_table = by_role["run_cells"].table
+        capture_value = (
+            capture_table["condition_cells__retained"].iloc[0]
+            if isinstance(capture_table, pd.DataFrame)
+            else capture_table["condition_cells__retained"][0].as_py()
         )
-        state = RUNS.validate_json(by_role["run_cells"].table["run_cells__retained"][0].as_py())
+        state_value = (
+            state_table["run_cells__retained"].iloc[0]
+            if isinstance(state_table, pd.DataFrame)
+            else state_table["run_cells__retained"][0].as_py()
+        )
+        if not isinstance(capture_value, str) or not isinstance(state_value, str):
+            raise invalid("runs retained payload is not a JSON string")
+        capture = CAPTURE.validate_json(capture_value)
+        state = RUNS.validate_json(state_value)
     except (KeyError, IndexError, ValidationError) as error:
         raise invalid("runs lacks valid v1 condition_cells/run_cells payloads") from error
     return capture, state
@@ -346,7 +362,7 @@ def _decode(parts: tuple[ExchangePart, ...]) -> tuple[Capture, Runs]:
 def _result(
     node: MethodNode,
     primary: pa.Table,
-    parts: tuple[ExchangePart, ...],
+    parts: tuple[ArrowPart, ...],
     binding: str,
     *,
     validate: bool = False,
@@ -377,29 +393,47 @@ def _result(
 
 def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
     params = node.parameters
+    source = values[0]
+    source_primary = source.primary
+    source_parts = source.parts
     if isinstance(params, TimeRunRead):
-        capture, state = _decode(values[0].parts)
-        views = load(state.views)
+        capture, state = _decode(source_parts)
+        view_table = load(state.views)
+        views = view_table.to_pandas()
         index = _index(views, ("key_0",))
-        selected = views.take(
-            pa.array([index[k] for k in _index(values[0].primary, ("key_0",))], type=pa.int64())
+        selected = views.iloc[[index[k] for k in _index(source_primary, ("key_0",))]]
+        read_parts = tuple(
+            ArrowPart(
+                part.role,
+                to_arrow(
+                    part.table,
+                    next(
+                        declaration.schema
+                        for declaration in source.contract.parts
+                        if declaration.role == part.role
+                    ),
+                ),
+            )
+            for part in source_parts
         )
         return _result(
-            node, _primary(selected, params.field), values[0].parts, binding, validate=False
+            node,
+            _primary(selected, params.field, view_table.schema),
+            read_parts,
+            binding,
+            validate=False,
         )
     assert isinstance(params, TimeRuns)
-    source = values[0]
-    coverage = next((p.table for p in source.parts if p.role == "coverage"), None)
+    coverage = next((p.table for p in source_parts if p.role == "coverage"), None)
     if coverage is not None:
-        coverage = cell_rename(
-            cell_project(coverage, [*source.contract.key_fields, "coverage__complete"]),
-            [*source.contract.key_fields, "complete"],
+        coverage = coverage.loc[:, [*source.contract.key_fields, "coverage__complete"]].rename(
+            columns={"coverage__complete": "complete"}
         )
     else:
-        mapping = next((p.table for p in source.parts if p.role == "grid_cells"), None)
+        mapping = next((p.table for p in source_parts if p.role == "grid_cells"), None)
         if mapping is None:
             endpoints = tuple(
-                next((p.table for p in source.parts if p.role == side + "_endpoint"), None)
+                next((p.table for p in source_parts if p.role == side + "_endpoint"), None)
                 for side in ("current", "baseline")
             )
             if any(t is None for t in endpoints):
@@ -407,7 +441,7 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
             lookup = tuple(
                 _index(t, source.contract.key_fields) for t in endpoints if t is not None
             )
-            keys = tuple(_index(source.primary, source.contract.key_fields))
+            keys = tuple(_index(source_primary, source.contract.key_fields))
             if any(set(i) != set(keys) for i in lookup):
                 raise invalid("runs endpoint coverage has different complete keys")
             if any(
@@ -417,13 +451,13 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
             ):
                 raise invalid("runs endpoint lacks its original captured coverage fact")
             columns = tuple(
-                t[side + "_endpoint__complete"].to_pylist()
+                t[side + "_endpoint__complete"].tolist()
                 for side, t in zip(("current", "baseline"), endpoints, strict=True)
                 if t is not None
             )
-            coverage = pa.table(
+            coverage = pd.DataFrame(
                 {
-                    **{k: source.primary[k] for k in source.contract.key_fields},
+                    **{key: source_primary[key].tolist() for key in source.contract.key_fields},
                     "complete": [
                         all(
                             column[index[key]] is True
@@ -434,19 +468,39 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
                 }
             )
         else:
-            coverage = cell_rename(
-                cell_project(mapping, [*source.contract.key_fields, "grid_cells__coverage"]),
-                [*source.contract.key_fields, "complete"],
+            coverage = mapping.loc[:, [*source.contract.key_fields, "grid_cells__coverage"]].rename(
+                columns={"grid_cells__coverage": "complete"}
             )
-    subject = next((p.table for p in source.parts if p.role == "subject"), None)
+    subject = next((p.table for p in source_parts if p.role == "subject"), None)
     capture = Capture(
         source.contract.signature,
         params.run_id,
         params.predicate,
         source.contract.key_fields,
-        tuple(save(v.primary) for v in values),
-        save(coverage),
-        save(subject) if subject is not None else None,
+        tuple(save(to_arrow(v.primary, v.contract.schema)) for v in values),
+        save(
+            to_arrow(
+                coverage,
+                pa.schema(
+                    [
+                        *(source.contract.schema.field(key) for key in source.contract.key_fields),
+                        pa.field("complete", pa.bool_()),
+                    ]
+                ),
+            )
+        ),
+        save(
+            to_arrow(
+                subject,
+                next(
+                    declaration.schema
+                    for declaration in source.contract.parts
+                    if declaration.role == "subject"
+                ),
+            )
+        )
+        if subject is not None
+        else None,
         tuple(v.contract.input_binding for v in values),
         tuple(v.contract.signature for v in values),
         tuple(e.node.value_type for e in node.inputs),
@@ -455,13 +509,13 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
     views, classes, reasons = compute(capture)
     encoded = CAPTURE.dump_json(capture)
     state = Runs(hashlib.sha256(encoded).hexdigest(), save(views), classes, reasons)
-    parts = [
+    parts: list[ArrowPart] = [
         _payload("condition_cells", encoded.decode()),
         _payload("run_cells", RUNS.dump_json(state).decode()),
     ]
     from marivo.analysis.materialization.graph_findings import POLICY, Policy
 
-    parts.append(ExchangePart("grid_cells", grid_mapping(capture)))
+    parts.append(ArrowPart("grid_cells", grid_mapping(capture)))
     parts.append(
         _payload(
             "finding_policy",
@@ -480,62 +534,67 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
         )
     )
     if subject is not None:
-        parts.append(ExchangePart("subject", subject_mapping(capture, views)))
+        parts.append(ArrowPart("subject", subject_mapping(capture, views.to_pandas())))
     by_role = {p.role: p for p in parts}
     return _result(
         node,
-        _primary(views, "count"),
+        _primary(views.to_pandas(), "count", views.schema),
         tuple(by_role[part_role(p)] for p in node.signature.parts),
         binding,
     )
 
 
 def grid_mapping(capture: Capture) -> pa.Table:
-    original = load(capture.inputs[0])
+    original_table = load(capture.inputs[0])
+    original = original_table.to_pandas()
     grid = capture.signature.domain.time_grid
     assert grid is not None
     position = next(
         i for i, c in enumerate(capture.signature.domain.instance_key) if c.role == "anchor"
     )
     cells = {c.identity: (i, c) for i, c in enumerate(grid.cells)}
-    chosen = [cells[row[capture.keys[position]]] for row in original.to_pylist()]
-    mapping = {key: original[key] for key in capture.keys}
+    original_keys = _index(original, capture.keys)
+    chosen = []
+    for key in original_keys:
+        identity = key[position]
+        if not isinstance(identity, str):
+            raise invalid("captured time-grid anchor identity is not a string")
+        chosen.append(cells[identity])
+    mapping = {
+        key: pa.array(original[key], type=original_table.schema.field(key).type)
+        for key in capture.keys
+    }
     for name in ("start", "end", "original_start", "original_end"):
-        mapping["grid_cells__" + name] = pa.chunked_array(
-            [pa.array([getattr(cell, name) for _, cell in chosen], type=pa.timestamp("us", "UTC"))]
+        mapping["grid_cells__" + name] = pa.array(
+            [getattr(cell, name) for _, cell in chosen], type=pa.timestamp("us", "UTC")
         )
-    mapping["grid_cells__identity"] = pa.chunked_array(
-        [pa.array([cell.identity for _, cell in chosen], type=pa.string())]
+    mapping["grid_cells__identity"] = pa.array(
+        [cell.identity for _, cell in chosen], type=pa.string()
     )
-    mapping["grid_cells__ordinal"] = pa.chunked_array(
-        [pa.array([i for i, _ in chosen], type=pa.int64())]
-    )
-    mapping["grid_cells__partial"] = pa.chunked_array(
-        [pa.array([cell.partial for _, cell in chosen], type=pa.bool_())]
-    )
-    mapping["grid_cells__precision"] = pa.chunked_array(
-        [pa.array([grid.precision] * len(chosen), type=pa.string())]
-    )
-    coverage = load(capture.coverage)
+    mapping["grid_cells__ordinal"] = pa.array([i for i, _ in chosen], type=pa.int64())
+    mapping["grid_cells__partial"] = pa.array([cell.partial for _, cell in chosen], type=pa.bool_())
+    mapping["grid_cells__precision"] = pa.array([grid.precision] * len(chosen), type=pa.string())
+    coverage = load(capture.coverage).to_pandas()
     lookup = _index(coverage, capture.keys)
-    mapping["grid_cells__coverage"] = coverage["complete"].take(
-        pa.array([lookup[k] for k in _index(original, capture.keys)], type=pa.int64())
+    mapping["grid_cells__coverage"] = pa.array(
+        [coverage.iloc[lookup[key]]["complete"] for key in original_keys], type=pa.bool_()
     )
     return pa.table(mapping)
 
 
-def subject_mapping(capture: Capture, views: pa.Table) -> pa.Table:
+def subject_mapping(capture: Capture, views: pd.DataFrame) -> pa.Table:
     if capture.subject is None:
         raise invalid("run Subject declaration lacks captured actual Subject parts")
-    subject = load(capture.subject)
+    subject_table = load(capture.subject)
+    subject = subject_table.to_pandas()
     original = _index(subject, capture.keys)
-    source_keys = tuple(_index(load(capture.inputs[0]), capture.keys))
+    source_keys = tuple(_index(load(capture.inputs[0]).to_pandas(), capture.keys))
     if set(original) != set(source_keys):
         raise invalid("run Subject map differs from the original complete key domain")
     mapped = []
-    subject_names = [n for n in subject.column_names if n not in capture.keys]
-    subjects = subject.to_pylist()
-    for row in views.to_pylist():
+    subject_names = [n for n in subject.columns if n not in capture.keys]
+    subjects = subject.to_dict(orient="records")
+    for row in views.to_dict(orient="records"):
         images = [subjects[original[source_keys[i]]] for i in row["input_rows"]]
         image = {name: images[0][name] for name in subject_names}
         if any(any(item[n] != image[n] for n in subject_names) for item in images):
@@ -544,20 +603,21 @@ def subject_mapping(capture: Capture, views: pa.Table) -> pa.Table:
     return pa.Table.from_pylist(
         mapped,
         schema=pa.schema(
-            [("key_0", pa.string()), *(subject.schema.field(n) for n in subject_names)]
+            [("key_0", pa.string()), *(subject_table.schema.field(n) for n in subject_names)]
         ),
     )
 
 
 def _verify_intervals(
     capture: Capture,
-    views: pa.Table,
+    views: pd.DataFrame,
+    schema: pa.Schema,
     classes: tuple[Literal["true", "false", "unavailable"], ...],
     series: dict[tuple[object, ...], dict[str, int]],
     semantic_inputs: tuple[str, ...],
 ) -> None:
     """Verify frozen interval witnesses without constructing or segmenting runs."""
-    if views.schema != _VIEW_SCHEMA:
+    if schema != _VIEW_SCHEMA:
         raise invalid("run witness schema differs from the closed interval fields")
     grid = capture.signature.domain.time_grid
     assert grid is not None
@@ -569,7 +629,7 @@ def _verify_intervals(
     }
     covered: set[int] = set()
     previous: tuple[str, int] | None = None
-    for row in views.to_pylist():
+    for row in views.to_dict(orient="records"):
         indices = row["input_rows"]
         if (
             not indices
@@ -635,9 +695,7 @@ def _verify_intervals(
         raise invalid("run witnesses do not cover every original true cell exactly once")
 
 
-def validate(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> None:
+def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     capture, state = _decode(parts)
     from marivo.analysis.materialization.graph_findings import Policy, _policy
 
@@ -665,13 +723,14 @@ def validate(
     classes, reasons, series, semantic_inputs = _condition_scope(capture)
     if classes != state.classifications or reasons != state.reasons:
         raise invalid("run full classification scope differs")
-    views = load(state.views)
-    _verify_intervals(capture, views, classes, series, semantic_inputs)
+    views_table = load(state.views)
+    views = views_table.to_pandas()
+    _verify_intervals(capture, views, views_table.schema, classes, series, semantic_inputs)
     index = _index(views, ("key_0",))
-    selected = tuple(_index(primary, ("key_0",)))
+    selected = tuple(_index(primary.to_pandas(), ("key_0",)))
     if not set(selected) <= set(index):
         raise invalid("selected runs escape original full interval scope")
-    selected_views = views.take(pa.array([index[k] for k in selected], type=pa.int64()))
+    selected_views = views.iloc[[index[key] for key in selected]]
     by_role = {p.role: p for p in parts}
     if "grid_cells" not in by_role or not grid_mapping(capture).equals(by_role["grid_cells"].table):
         raise invalid("run original per-cell grid mapping differs from its frozen authority")
@@ -682,6 +741,7 @@ def validate(
     expected = _primary(
         selected_views,
         "count" if view.view == "result" else view.view,
+        views_table.schema,
     )
     if (
         contract.method.name

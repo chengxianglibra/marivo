@@ -22,6 +22,7 @@ from marivo._temporal import (
     certify_period_calendar_rows,
 )
 from marivo.cli import init_project
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.inspection import SourceInspection
 from marivo.refs import ref
 from tests.support.paths import PROJECT_ROOT
@@ -173,16 +174,14 @@ def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
 
 @pytest.fixture
 def query_spy(monkeypatch: pytest.MonkeyPatch) -> _QuerySpy:
-    from marivo.datasource import adapters
-
     spy = _QuerySpy()
-    original_native_cursor = adapters._native_cursor
+    original_execute = SourceSession.execute
 
-    def counted_native_cursor(backend: object, name: str, sql: str) -> object:
+    def counted_execute(owner: SourceSession, read: CompiledRead) -> object:
         spy.user_data_queries += 1
-        return original_native_cursor(backend, name, sql)
+        return original_execute(owner, read)
 
-    monkeypatch.setattr(adapters, "_native_cursor", counted_native_cursor)
+    monkeypatch.setattr(SourceSession, "execute", counted_execute)
     return spy
 
 

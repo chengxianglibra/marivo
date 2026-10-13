@@ -25,8 +25,8 @@ from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import PartsTransport
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
-    ExchangePart,
     PartContract,
     VerifiedFixedInput,
     from_arrow,
@@ -85,8 +85,8 @@ def selection_input(
     )
     saved_parts = (
         (
-            ExchangePart("subject", primary.select(("key_0", "key_1"))),
-            ExchangePart(
+            ArrowPart("subject", primary.select(("key_0", "key_1"))),
+            ArrowPart(
                 "original_state",
                 primary.select(("key_0", "key_1"))
                 .append_column("original_state__sum", primary["value"])
@@ -94,7 +94,7 @@ def selection_input(
                     "original_state__non_null_count", pa.array([1] * count, type=pa.int64())
                 ),
             ),
-            ExchangePart(
+            ArrowPart(
                 "coverage",
                 primary.select(("key_0", "key_1")).append_column(
                     "coverage__complete", pa.array([True] * count, type=pa.bool_())

@@ -37,33 +37,3 @@ def test_canonical_metadata_fallback_does_not_become_unknown(engine: str, logica
 )
 def test_fixed_char_metadata_keeps_physical_distinction(backend: str, physical: str) -> None:
     assert _canonical_catalog_type(physical, backend_type=backend) == physical
-
-
-def test_scalar_dataframe_converter_failure_is_structured() -> None:
-    import ibis
-
-    from marivo.datasource.engines.scalar_decode import checked_dataframe
-    from marivo.datasource.errors import DatasourcePreviewError
-
-    class Cursor:
-        def fetchall(self) -> list[tuple[int]]:
-            return [(1,)]
-
-    with pytest.raises(DatasourcePreviewError, match="non-dataframe"):
-        checked_dataframe(Cursor(), ibis.schema({"value": "int64"}), lambda frame, schema: None)
-
-
-@pytest.mark.parametrize("value", [1.5, 2**64, "invalid"])
-def test_integer_dataframe_conversion_failure_is_structured(value: object) -> None:
-    import ibis
-    from ibis.formats.pandas import PandasData
-
-    from marivo.datasource.engines.scalar_decode import checked_dataframe
-    from marivo.datasource.errors import DatasourcePreviewError
-
-    class Cursor:
-        def fetchall(self) -> list[tuple[object]]:
-            return [(value,)]
-
-    with pytest.raises(DatasourcePreviewError, match="incompatible integer storage"):
-        checked_dataframe(Cursor(), ibis.schema({"value": "int64"}), PandasData.convert_table)

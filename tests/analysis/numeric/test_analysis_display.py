@@ -352,7 +352,7 @@ def test_static_display_errors_are_zero_read(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("static display admission read business data")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     for bad in (True, False, 0, -1, 100001, 1.5, "1"):
         with pytest.raises(AnalysisError):
             ranking.limit(bad)
@@ -397,7 +397,7 @@ def test_cold_display_continuations_and_corruption(
     import pyarrow as pa
 
     from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
 
     case = analysis_dsl_case_factory("j4_ties")
     if parquet:
@@ -421,7 +421,7 @@ def test_cold_display_continuations_and_corruption(
             replace(descriptor.method_state, contract_version=2)
         for part in checked.parts:
             with pytest.raises(AnalysisError):
-                from_arrow(
+                from_pandas(
                     checked.primary,
                     checked.contract,
                     parts=tuple(p for p in checked.parts if p is not part),
@@ -430,18 +430,13 @@ def test_cold_display_continuations_and_corruption(
                 )
             if part.role not in ("ranks", "ranking_domain", "ordering", "column_bindings"):
                 continue
-            name = next(c for c in part.table.column_names if c not in checked.contract.key_fields)
-            dtype = part.table.schema.field(name).type
-            bad = part.table.set_column(
-                part.table.schema.get_field_index(name),
-                name,
-                pa.array(
-                    [99 if pa.types.is_integer(dtype) else "wrong-binding"] * part.table.num_rows,
-                    type=dtype,
-                ),
-            )
+            name = next(c for c in part.table.columns if c not in checked.contract.key_fields)
+            declared = next(p for p in checked.contract.parts if p.role == part.role)
+            dtype = declared.schema.field(name).type
+            bad = part.table.copy()
+            bad[name] = [99 if pa.types.is_integer(dtype) else "wrong-binding"] * len(part.table)
             with pytest.raises(AnalysisError):
-                from_arrow(
+                from_pandas(
                     checked.primary,
                     checked.contract,
                     parts=tuple(
@@ -690,7 +685,11 @@ def test_closed_display_exchange_preserves_four_cells() -> None:
     from marivo.analysis.core.rules import DisplayRank, DisplayTable
     from marivo.analysis.materialization.graph_dataset import _public_table
     from marivo.analysis.materialization.graph_display import fixed, project
-    from marivo.analysis.materialization.graph_exchange import ExchangeContract, from_arrow
+    from marivo.analysis.materialization.graph_exchange import (
+        ExchangeContract,
+        from_arrow,
+        to_arrow,
+    )
     from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
     from marivo.analysis.methods.semantics import MethodKey
     from marivo.analysis.refs import ArtifactRef
@@ -735,10 +734,9 @@ def test_closed_display_exchange_preserves_four_cells() -> None:
     ranks = project(ranking, "ranks")
     values = project(ranking, "values")
     assert _public_table(ranks)["member"].to_pylist() == [1, 2, 3, 4]
-    assert cell_column(ranks.primary, "cell_tag").to_pylist() == primary["cell_tag"].to_pylist()
-    assert (
-        cell_column(ranks.primary, "cell_reason").to_pylist() == primary["cell_reason"].to_pylist()
-    )
+    ranks_table = to_arrow(ranks.primary, ranks.contract.schema)
+    assert cell_column(ranks_table, "cell_tag").to_pylist() == primary["cell_tag"].to_pylist()
+    assert cell_column(ranks_table, "cell_reason").to_pylist() == primary["cell_reason"].to_pylist()
     inputs = tuple(
         FixedLeaf(
             ArtifactRef(ref=name),
@@ -761,7 +759,9 @@ def test_closed_display_exchange_preserves_four_cells() -> None:
     assert exported.column_0__value.isna().tolist() == [False, True, True, True]
     for i in range(2):
         assert (
-            cell_column(table.primary, f"column_{i}__cell_tag").to_pylist()
+            cell_column(
+                to_arrow(table.primary, table.contract.schema), f"column_{i}__cell_tag"
+            ).to_pylist()
             == primary["cell_tag"].to_pylist()
         )
 

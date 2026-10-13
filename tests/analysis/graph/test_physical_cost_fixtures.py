@@ -112,11 +112,7 @@ def test_distributed_cost_fixture_populates_every_root_once(
                 purpose="cost_fixture",
                 expected_schema=binding.relation.schema().to_pyarrow(),
             )
-            stream = case.session.batches(read, chunk_size=128)
-            try:
-                actual = [row for batch in stream for row in batch.to_pylist()]
-            finally:
-                stream.close()
+            actual = case.session.execute(read).to_dict(orient="records")
             assert len(actual) == expected
             if index != 1:
                 assert {row["id"] for row in actual} == {row["id"] for row in rows}

@@ -17,7 +17,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
@@ -190,7 +189,7 @@ def test_computed_boolean_dimension(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Fixed Boolean continuation read its source")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     restored = session.artifact(saved.state.artifact_ref)
     assert isinstance(restored, mv.MaterializedBooleanRelation)
     selected = restored.where(restored.value.eq(True)).execute()
@@ -435,7 +434,7 @@ def test_complete_subject_set_image_source_and_fixed(tmp_path: Path) -> None:
         source_factory=sources,
         source_schemas=(schema,),
     )
-    assert cell_rows(read_result(tmp_path, saved_image.descriptor).primary) == [
+    assert read_result(tmp_path, saved_image.descriptor).primary.to_dict(orient="records") == [
         {"key_0": 7, "key_1": "A"},
         {"key_0": 7, "key_1": "B"},
     ]
@@ -656,7 +655,7 @@ def test_composite_subject_predicates(members_session: Session) -> None:
 def test_cohort_matches_subject_parts_by_complete_key(members_session: Session) -> None:
     from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
     from marivo.analysis.compiler.graph_plan import LocalMethodStage
-    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+    from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
     from marivo.analysis.materialization.graph_local_execution import _cohort_stage
     from marivo.analysis.methods.builtin import implementations
     from marivo.analysis.methods.semantics import MethodKey
@@ -685,12 +684,12 @@ def test_cohort_matches_subject_parts_by_complete_key(members_session: Session) 
             else part
             for part in target.parts
         )
-        supplied = from_arrow(
+        supplied = from_pandas(
             primary, target.contract, parts=parts, method_state=target.method_state
         )
         result = _cohort_stage(method, supplied, (fixed_values._dataset.verified(),), "controlled")
-        assert cell_rows(result.primary) == [{"key_0": 1, "key_1": "B"}]
+        assert result.primary.to_dict(orient="records") == [{"key_0": 1, "key_1": "B"}]
         subject = next(part.table for part in result.parts if part.role == "subject")
-        assert subject.to_pylist() == [
+        assert subject.to_dict(orient="records") == [
             {"key_0": 1, "key_1": "B", "subject__key_0": 1, "subject__key_1": "B"}
         ]

@@ -84,7 +84,7 @@ def test_public_source_reexecution_and_fixed_hit(
         def forbidden(*args: object, **kwargs: object) -> NoReturn:
             pytest.fail("C15 fixed continuation opened a business source")
 
-        monkeypatch.setattr(SourceSession, "batches", forbidden)
+        monkeypatch.setattr(SourceSession, "execute", forbidden)
         restored = session.artifact(first.state.artifact_ref)
         assert isinstance(restored, mv.MaterializedNumericRelation)
         assert restored.to_pandas().equals(first.to_pandas())

@@ -157,9 +157,9 @@ def test_next_observation_rechecks_physical_numeric_type(
     buyer = ms.ref.relationship(f"{names.domain}.{names.buyer}")
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("observation admission must not read business batches")
+        raise AssertionError("observation admission must not execute a business read")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     members.observe(metric, via=buyer, by=(mv.member(),))
     runs_before = len(case.session.runs().items)
     with duckdb.connect(str(case.database_path)) as connection:

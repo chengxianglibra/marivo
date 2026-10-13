@@ -308,8 +308,7 @@ def test_members_schema_preflight_does_not_submit_business_rows(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction submitted business rows")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
-    monkeypatch.setattr(SourceSession, "stage_derived", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     current, _ = _observations(case)
     assert current.contract().phase == "logical"
     assert case.session.runs().items == ()

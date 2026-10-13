@@ -196,7 +196,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             assert top._dataset is not None
             exchange = top._dataset.verified()
             keys = exchange.contract.key_fields
-            rows = exchange.primary.to_pylist()
+            rows = exchange.primary.to_dict(orient="records")
             assert any(row[keys[1]] is None and row[keys[-1]] == 1 for row in rows)
             assert any(row[keys[1]] == "b" and row[keys[-1]] == 0 for row in rows)
             if phase == "fixed":

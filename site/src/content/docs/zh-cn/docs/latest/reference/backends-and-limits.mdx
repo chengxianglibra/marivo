@@ -66,19 +66,25 @@ result.show()
 
 | 输入 | 行为 |
 | --- | --- |
-| Live sources | 已治理 Ibis 在来源执行，或为已注册本地算法准备输入 |
-| Fixed Artifacts | 受控保留数据进入已注册本地 consumer |
+| Live sources | 已治理 Ibis 在来源执行并返回 pandas 数据，或为已注册本地算法准备 DataFrame |
+| Fixed Artifacts | 持久化 Result Parquet 读入 pandas 后交给已注册本地 consumer |
 | 混合 source 与 fixed | 在 Run 准入或任一业务输入读取前拒绝 |
 
-原生关系工作保留在 Ibis 中。Matching、replay 与统计可能为本地算法捕获完整输入。
-Batch transport 不承诺流式执行。失败不切换实现，也不通过其他 executor 重试。
-远程来源配置使用只读权限，仅使用后端支持的原生超时配置，不支持则跳过。执行图没有默认期限，
-资源清理和原子发布仍必须完成。
+准入的 Ibis 计划能够表达的关系工作留在数据源侧。Ibis 与 provider 负责把返回行转为
+pandas，默认转换可能有损，例如把非法日期转为空值。Marivo 不再对来源数据增加严格
+Arrow 往返审计。请求的行数/时间边界、完整键与 Cell 检查，以及既有 Result Parquet
+schema 检查继续生效。源读取和本地统计都是 eager；完整向量可能载入内存。失败不切换
+实现，也不通过其他 executor 重试。远程来源配置使用只读权限，仅使用后端支持的原生超时配置，
+不支持则跳过。执行图没有默认期限，资源清理和原子发布仍必须完成。
+
+准备分析会直接从声明路径读取本地 Parquet，不创建临时副本。Marivo 会在运行前后
+检查文件身份和内容，发现变化时使本次 Run 失败；查询执行期间这项检查不提供文件系统快照。
 
 ## 遵守数值与方法限制
 
-确切 Decimal scale、timestamp precision、Duration unit、原始组成状态、完整网格和
-各根路径都参与准入。Ibis 编译成功或 Readiness 通过不足以证明物理执行。
+Decimal scale、timestamp precision、Duration unit、原始组成状态、完整网格和
+各根路径仍是方法与保留状态契约。这些契约应用于 Ibis/provider 转换之后，不承诺来源到
+pandas 的无损往返。Ibis 编译成功或 Readiness 通过不足以证明物理执行。
 Quantile 精确性属于定义，不支持的精确聚合不回退到近似计算。
 统计方法不能继承普通 scalar Metric 的后端支持。
 

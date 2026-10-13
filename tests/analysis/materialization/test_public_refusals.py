@@ -50,7 +50,7 @@ def test_public_composition_refuses_before_source_or_run(
 
             return forbidden
 
-        for name in ("__enter__", "bind", "compile", "batches"):
+        for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, tripwire("source." + name))
         monkeypatch.setattr(graph_store, "admit", tripwire("graph_store.admit"))
         refusals: dict[
@@ -136,7 +136,7 @@ def test_public_required_part_missing_blocks_recovery_and_exact_hit(
             calls.append("source-or-admission")
             raise AssertionError("Missing required part admitted work")
 
-        for name in ("__enter__", "bind", "compile", "batches"):
+        for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
         monkeypatch.setattr(graph_store, "admit", forbidden)
         reports: dict[str, list[Json]] = {}
@@ -252,7 +252,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             calls.append("business-read-or-admission")
             raise AssertionError("Cross-datasource graph admitted work")
 
-        for name in ("compile", "batches"):
+        for name in ("compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
         monkeypatch.setattr(graph_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:

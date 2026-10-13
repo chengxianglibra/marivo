@@ -64,8 +64,6 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
 )
-from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.local import count
 from marivo.analysis.methods.physical import (
@@ -185,11 +183,7 @@ def _read(session, lowered, bindings, expression):
     handle = session.compile(
         qualified, expression, purpose="r34.test", expected_schema=expression.schema().to_pyarrow()
     )
-    batches = session.batches(handle, chunk_size=2)
-    try:
-        result = pa.Table.from_batches(list(batches), schema=handle.schema).to_pylist()
-    finally:
-        batches.close()
+    result = session.execute(handle).to_dict(orient="records")
     assert session.submissions[-1].sql == handle.sql
     return result
 
@@ -329,21 +323,15 @@ def test_source_spearman_exact_pair_state(
 
         with pytest.raises(MaterializationError, match="violating rows"):
             execute_source_graph(prepared, lowered, session)
-        assert len(
-            [item for item in session.submissions if item.purpose == "analysis.graph.stage"]
-        ) == (0 if route == "ibis" else 2)
-        assert not session._staged_relations
         return
     result = execute_source_graph(prepared, lowered, session)
     if expected is None:
-        assert result.primary.column("value").to_pylist() == [None]
+        assert result.primary["value"].tolist() == [None]
     else:
-        assert result.primary.column("value").to_pylist() == pytest.approx([expected])
-    assert result.primary.column("status").to_pylist() == [status]
+        assert result.primary["value"].tolist() == pytest.approx([expected])
+    assert result.primary["status"].tolist() == [status]
     assert result.parts[0].role == "pair_counts"
-    assert result.parts[0].table.column("pair_counts__complete_pair_count").to_pylist() == [
-        complete
-    ]
+    assert result.parts[0].table["pair_counts__complete_pair_count"].tolist() == [complete]
 
 
 @pytest.mark.parametrize("method,expected", [("count", 5), ("count_defined", 2)])
@@ -644,7 +632,7 @@ def test_lowering_never_opens_compiles_reads_or_allocates(source_case, monkeypat
     def forbidden(*args, **kwargs):
         raise AssertionError("pure lowering attempted execution")
 
-    for name in ("bind", "qualify", "compile", "batches"):
+    for name in ("bind", "qualify", "compile", "execute"):
         monkeypatch.setattr(SourceSession, name, forbidden)
     monkeypatch.setattr(ibis.duckdb, "connect", forbidden)
     graph = _plan(_count(_selection(leaf)))
@@ -1070,9 +1058,11 @@ def test_private_source_exchange_executes_lowered_count(source_case):
     admitted = _plan(_count(leaf))
     lowered = lower(admitted, bindings=(binding,))
     result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
-    assert cell_rows(result.primary) == [{"value": 5, "cell_tag": "defined", "cell_reason": None}]
+    assert result.primary.to_dict("records") == [
+        {"value": 5, "cell_tag": "defined", "cell_reason": None}
+    ]
     assert tuple(part.role for part in result.parts) == ("row_state",)
-    assert result.parts[0].table["row_state__count"].to_pylist() == [5]
+    assert result.parts[0].table["row_state__count"].tolist() == [5]
     assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
 
 
@@ -1094,7 +1084,6 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
         execute_source_graph(
             PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
         )
-    assert not source_case[0]._staged_relations
     declared = replace(
         binding,
         cell_reasons=(
@@ -1106,14 +1095,14 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     result = execute_source_graph(
         PreparedGraph(admitted), lower(admitted, bindings=(declared,)), source_case[0]
     )
-    assert cell_column(result.primary, "cell_tag").to_pylist() == [
+    assert result.primary["cell_tag"].tolist() == [
         "defined",
         "null",
         "undefined",
         "unknown",
         "defined",
     ]
-    assert result.primary["value"].to_pylist()[0] == 5
+    assert result.primary["value"].tolist()[0] == 5
 
 
 @pytest.mark.parametrize("form", ["table", "parquet"])
@@ -1147,15 +1136,15 @@ def test_registered_row_arithmetic_uses_one_semantic_policy(
         admitted = _plan(node)
         lowered = lower(admitted, bindings=(binding,))
         result = execute_source_graph(PreparedGraph(admitted), lowered, source)
-        assert result.primary["value"].to_pylist() == [expected]
-        assert cell_column(result.primary, "cell_tag").to_pylist() == ["defined"]
+        assert result.primary["value"].tolist() == [expected]
+        assert result.primary["cell_tag"].tolist() == ["defined"]
         assert len(result.completed_checks) == 1
         assert result.completed_checks[0].requirement.obligation.check_id == (
             "source.finite_numeric@v1"
         )
-        assert result.parts[0].table["row_state__sum"].to_pylist() == [23]
+        assert result.parts[0].table["row_state__sum"].tolist() == [23]
         if method == "mean":
-            assert result.parts[0].table["row_state__count"].to_pylist() == [5]
+            assert result.parts[0].table["row_state__count"].tolist() == [5]
 
 
 def test_strict_row_method_rejects_non_defined_input_before_result(source_case):
@@ -1176,48 +1165,6 @@ def test_strict_row_method_rejects_non_defined_input_before_result(source_case):
     with pytest.raises(MaterializationError, match="violating rows"):
         execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
     assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
-    assert source_case[0]._staged_relations == {}
-
-
-@pytest.mark.parametrize("failure", [ValueError, KeyboardInterrupt])
-def test_source_iteration_failure_closes_terminal_stream_without_temporary_stages(
-    source_case, monkeypatch: pytest.MonkeyPatch, failure
-):
-    from marivo.analysis.materialization.graph_execution import PreparedGraph
-    from marivo.analysis.materialization.graph_source_execution import execute_source_graph
-
-    leaf = _leaf(source_case[1])
-    admitted = _plan(_count(leaf))
-    lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
-    session = source_case[0]
-    original = session.batches
-    stage_reads = 0
-    closed = []
-
-    class FailedStream:
-        def __init__(self, schema: pa.Schema) -> None:
-            self.schema = schema
-
-        def __iter__(self):
-            raise failure("selected stream stopped")
-            yield
-
-        def close(self):
-            closed.append(True)
-
-    def failing_batches(read, *, chunk_size):
-        nonlocal stage_reads
-        if read.purpose == "analysis.graph.stage":
-            stage_reads += 1
-            return FailedStream(read.schema)
-        return original(read, chunk_size=chunk_size)
-
-    monkeypatch.setattr(session, "batches", failing_batches)
-    with pytest.raises(failure, match="selected stream stopped"):
-        execute_source_graph(PreparedGraph(admitted), lowered, session)
-    assert stage_reads == 1
-    assert closed == [True]
-    assert not session._staged_relations
 
 
 def test_false_source_identity_declaration_is_not_reaudited(source_case):
@@ -1233,8 +1180,7 @@ def test_false_source_identity_declaration_is_not_reaudited(source_case):
     lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
     # This declaration is intentionally false. Analysis does not audit it.
     result = execute_source_graph(PreparedGraph(admitted), lowered, session)
-    assert result.primary["value"].to_pylist() == [5]
-    assert not session._staged_relations
+    assert result.primary["value"].tolist() == [5]
 
 
 def test_decimal_count_admits_but_unqualified_time_rejects_before_business_read():
@@ -1251,7 +1197,7 @@ def test_decimal_count_admits_but_unqualified_time_rejects_before_business_read(
 
 
 @pytest.mark.parametrize("source_case", ["table", "parquet"], indirect=True)
-def test_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_read(source_case):
+def test_shared_source_relation_keeps_logical_sharing_with_one_source_read(source_case):
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 
@@ -1278,13 +1224,12 @@ def test_explicit_shared_source_stage_keeps_logical_sharing_with_one_terminal_re
         == 1
     )
     result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
-    assert result.primary.num_rows == 5
+    assert len(result.primary) == 5
     assert result.contract.key_fields == ("key_0", "key_1")
-    assert result.primary.schema.field("key_1").type == pa.int64()
-    assert {(row["key_0"], row["key_1"]) for row in cell_rows(result.primary)} == {
+    assert result.contract.schema.field("key_1").type == pa.int64()
+    assert {(row["key_0"], row["key_1"]) for row in result.primary.to_dict("records")} == {
         (row["tenant"], row["id"]) for row in _rows().to_pylist()
     }
-    assert source_case[0]._staged_relations == {}
     terminal = [
         submission
         for submission in source_case[0].submissions

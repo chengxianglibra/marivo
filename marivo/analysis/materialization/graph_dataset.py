@@ -45,7 +45,7 @@ from marivo.analysis.errors import AnalysisRepair
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.graph_exchange import ExchangeResult
+from marivo.analysis.materialization.graph_exchange import ExchangeResult, to_arrow
 from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode, invalid
 from marivo.analysis.materialization.graph_snapshot import GraphDocument, MethodRecord, Record
 from marivo.analysis.materialization.graph_storage import read_result
@@ -81,7 +81,12 @@ _IDS = d._StableIdRegistry(
 
 
 def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.Table:
-    table = logical_table(result.primary)
+    primary = to_arrow(result.primary, result.contract.schema)
+    part_tables = {
+        part.role: to_arrow(part.table, declared.schema)
+        for part, declared in zip(result.parts, result.contract.parts, strict=True)
+    }
+    table = logical_table(primary)
     signature = result.contract.signature
     terminal = any(isinstance(p, DisplayPart) and p.role == "columns" for p in signature.parts)
     if terminal:
@@ -120,13 +125,13 @@ def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.
         and quantity.method_version == "association.spearman@v1"
     ):
         names[names.index("value")] = "coefficient"
-        counts = next((part.table for part in result.parts if part.role == "pair_counts"), None)
+        counts = part_tables.get("pair_counts")
         if counts is not None:
             for name in counts.column_names:
                 if name not in result.contract.key_fields:
                     table = table.append_column(name, counts[name])
                     names.append(name.removeprefix("pair_counts__"))
-    ordering = next((p.table for p in result.parts if p.role == "ordering"), None)
+    ordering = part_tables.get("ordering")
     if ordering is not None:
         keys = result.contract.key_fields
         positions = {
@@ -140,7 +145,7 @@ def _public_table(result: ExchangeResult, *, include_cells: bool = False) -> pa.
     return (
         table.sort_by(
             [
-                (names[result.primary.column_names.index(key)], "ascending")
+                (names[primary.column_names.index(key)], "ascending")
                 for key in result.contract.key_fields
             ]
         )
@@ -704,7 +709,7 @@ class GraphDataset:
             original = next(p.table for p in checked.parts if p.role == "correspondence")
             mapping = {
                 tuple(row[k] for k in checked.contract.key_fields): row
-                for row in original.to_pylist()
+                for row in original.to_dict(orient="records")
             }
             public_keys = tuple(columns[: len(checked.contract.key_fields)])
             order = [
@@ -815,12 +820,8 @@ class GraphDataset:
                 isinstance(params, PartsTransport) and params.display_view is not None
             ):
                 rank_table = next(p.table for p in checked.parts if p.role == "ranks")
-                for batch in rank_table.to_batches(max_chunksize=128):
-                    rank_rows: list[dict[str, object]] = batch.to_pylist()
-                    for row in rank_rows:
-                        ranks[tuple(row[k] for k in checked.contract.key_fields)] = row[
-                            "ranks__value"
-                        ]
+                for row in rank_table.to_dict(orient="records"):
+                    ranks[tuple(row[k] for k in checked.contract.key_fields)] = row["ranks__value"]
                 columns.append("rank")
                 labels["rank"] = "rank"
 

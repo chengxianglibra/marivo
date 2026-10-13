@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from fractions import Fraction
 from typing import Literal
 
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.core.graph import Edge, MethodNode, Node, method_node
@@ -30,16 +32,19 @@ from marivo.analysis.core.rules import (
     PartsTransport,
 )
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.materialization.cell_arrow import logical_schema
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
+    ArrowPart,
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
     PartContract,
-    from_arrow,
+    from_pandas,
     numeric_primary,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import digest
 from marivo.analysis.materialization.graph_reference import part_keys as retained_part_keys
@@ -293,8 +298,11 @@ def retain_endpoint_states(
     parts: tuple[ExchangePart, ...],
     values: tuple[ExchangeResult, ...],
     original_keys: tuple[dict[tuple[object, ...], tuple[object, ...]], ...],
-) -> tuple[ExchangePart, ...]:
-    output = []
+    *,
+    part_schemas: Mapping[str, pa.Schema],
+) -> tuple[tuple[ExchangePart, ...], dict[str, pa.Schema]]:
+    output: list[ExchangePart] = []
+    output_schemas = dict(part_schemas)
     for p in parts:
         declaration = next(
             s
@@ -306,16 +314,18 @@ def retain_endpoint_states(
             continue
         source = values[0 if declaration.side == "current" else 1]
         keys = source.contract.key_fields
-        table = p.table
+        source_schemas = {item.role: item.schema for item in source.contract.parts}
+        source_tables = _exchange_tables(source.parts, source_schemas)
+        source_state_schema = source_schemas["original_state"]
+        table = to_arrow(p.table, part_schemas[p.role])
         originals = {
-            tuple(r[k] for k in keys): r
-            for r in next(p.table for p in source.parts if p.role == "original_state").to_pylist()
+            tuple(r[k] for k in keys): r for r in source_tables["original_state"].to_pylist()
         }
         coordinate = declaration.coordinate_state
         full = (
             coordinate_entries(
                 source.contract.signature,
-                {item.role: item.table for item in source.parts},
+                source_tables,
                 "allocation_state"
                 if coordinate and coordinate.attribution_only
                 else "coordinate_state",
@@ -323,16 +333,14 @@ def retain_endpoint_states(
             if coordinate
             else None
         )
-        coverage = {
-            tuple(r[k] for k in keys): r
-            for r in next(p.table for p in source.parts if p.role == "coverage").to_pylist()
-        }
-        identities = [tuple(r[k] for k in keys) for r in table.to_pylist()]
+        coverage = {tuple(r[k] for k in keys): r for r in source_tables["coverage"].to_pylist()}
+        original_part_rows = table.to_pylist()
+        identities = [tuple(r[k] for k in keys) for r in original_part_rows]
         identities = [
             original_keys[0 if declaration.side == "current" else 1].get(k, k) for k in identities
         ]
+        updated_schema = table.schema
         for c in declaration.original_state.components:
-            original = next(p.table for p in source.parts if p.role == "original_state")
             table = table.append_column(
                 p.role + "__state__" + c,
                 pa.array(
@@ -340,8 +348,14 @@ def retain_endpoint_states(
                         originals[k]["original_state__" + c] if k in originals else None
                         for k in identities
                     ],
-                    type=original.schema.field("original_state__" + c).type,
+                    type=source_state_schema.field("original_state__" + c).type,
                 ),
+            )
+            updated_schema = updated_schema.append(
+                pa.field(
+                    p.role + "__state__" + c,
+                    source_state_schema.field("original_state__" + c).type,
+                )
             )
         child: ExchangePart | None = None
         if full is not None:
@@ -350,9 +364,12 @@ def retain_endpoint_states(
                 p.role + "__contribution_present",
                 pa.array([identity in present for identity in identities], type=pa.bool_()),
             )
+            updated_schema = updated_schema.append(
+                pa.field(p.role + "__contribution_present", pa.bool_())
+            )
             mapping = {
                 identity: tuple(row[k] for k in keys)
-                for identity, row in zip(identities, p.table.to_pylist(), strict=True)
+                for identity, row in zip(identities, original_part_rows, strict=True)
             }
             selected = [
                 dict(row, **dict(zip(keys, mapping[tuple(row[k] for k in keys)], strict=True)))
@@ -368,10 +385,9 @@ def retain_endpoint_states(
                     for field in full.schema
                 ),
             )
-            child = ExchangePart(
-                p.role + "_coordinates",
-                retain_coordinates(signature, p.role + "_coordinates", remapped, table),
-            )
+            child_table = retain_coordinates(signature, p.role + "_coordinates", remapped, table)
+            child = ExchangePart(p.role + "_coordinates", child_table.to_pandas())
+            output_schemas[child.role] = child_table.schema
         table = table.append_column(
             p.role + "__complete",
             pa.array(
@@ -379,10 +395,12 @@ def retain_endpoint_states(
                 type=pa.bool_(),
             ),
         )
-        output.append(ExchangePart(p.role, table))
+        updated_schema = updated_schema.append(pa.field(p.role + "__complete", pa.bool_()))
+        output.append(ExchangePart(p.role, table.to_pandas()))
+        output_schemas[p.role] = updated_schema
         if child is not None:
             output.append(child)
-    return tuple(output)
+    return tuple(output), output_schemas
 
 
 def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: bool = True) -> None:
@@ -418,7 +436,7 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
 
 
 def validate_endpoints(
-    signature: Signature, parts: tuple[ExchangePart, ...], keys: tuple[str, ...]
+    signature: Signature, parts: tuple[ArrowPart, ...], keys: tuple[str, ...]
 ) -> None:
     for declaration in signature.parts:
         if isinstance(declaration, EndpointPart):
@@ -430,23 +448,40 @@ def validate_endpoints(
 
 
 def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) -> ExchangeResult:
-    parts = []
+    parts: list[ExchangePart] = []
+    schemas: dict[str, pa.Schema] = {}
     for p in node.signature.parts:
         assert isinstance(p, AttributionPart)
         if p.role in ("current_endpoint", "baseline_endpoint"):
             parts.append(next(x for x in inputs[1].parts if x.role == p.role))
+            schemas[p.role] = next(x.schema for x in inputs[1].contract.parts if x.role == p.role)
             if p.endpoint is not None and p.endpoint.coordinate_state is not None:
-                parts.append(next(x for x in inputs[1].parts if x.role == p.role + "_coordinates"))
+                role = p.role + "_coordinates"
+                parts.append(next(x for x in inputs[1].parts if x.role == role))
+                schemas[role] = next(x.schema for x in inputs[1].contract.parts if x.role == role)
         elif p.role == "basis":
+            source_schema = inputs[0].contract.schema
             table = cell_project(
-                numeric_primary(inputs[0].primary), (*inputs[0].contract.key_fields, "value")
+                numeric_primary(to_arrow(inputs[0].primary, source_schema)),
+                (*inputs[0].contract.key_fields, "value"),
             )
-            parts.append(
-                ExchangePart(
-                    "basis", cell_rename(table, [*inputs[0].contract.key_fields, "basis__value"])
-                )
-            )
-    return result(node.signature, node.value_type, tuple(parts), binding, node.method)
+            basis = cell_rename(table, [*inputs[0].contract.key_fields, "basis__value"])
+            parts.append(ExchangePart("basis", basis.to_pandas()))
+            schemas["basis"] = basis.schema
+    return result(
+        node.signature,
+        node.value_type,
+        tuple(parts),
+        binding,
+        node.method,
+        schemas=schemas,
+    )
+
+
+def _exchange_tables(
+    parts: tuple[ExchangePart, ...], schemas: Mapping[str, pa.Schema]
+) -> dict[str, pa.Table]:
+    return {part.role: to_arrow(part.table, schemas[part.role]) for part in parts}
 
 
 def result(
@@ -456,7 +491,7 @@ def result(
     binding: str,
     method_key: MethodKey | None = None,
     *,
-    verify: bool = True,
+    schemas: Mapping[str, pa.Schema],
 ) -> ExchangeResult:
     from marivo.analysis.methods.semantics import MethodKey
 
@@ -465,14 +500,15 @@ def result(
     }
     basis_decl = declarations["basis"]
     mix = basis_decl.method == "component_mix"
-    by_role = {p.role: p.table for p in retained}
+    arrow_by_role = _exchange_tables(retained, schemas)
     scope_keys = part_keys(basis_decl)
     output_keys = part_keys(declarations["allocation"])
     sides = []
     for role in ("current_endpoint", "baseline_endpoint"):
         endpoint = declarations[role].endpoint
         assert endpoint is not None
-        validate_endpoint(endpoint, by_role[role])
+        endpoint_table = arrow_by_role[role]
+        validate_endpoint(endpoint, endpoint_table)
         sides.append(
             {
                 tuple(r[k] for k in scope_keys): r
@@ -480,16 +516,16 @@ def result(
                     cell_rename(
                         numeric_primary(
                             cell_rename(
-                                by_role[role],
+                                endpoint_table,
                                 [
                                     "value" if c == role + "__value" else c
-                                    for c in by_role[role].column_names
+                                    for c in endpoint_table.column_names
                                 ],
                             )
                         ),
                         [
                             role + "__value" if c == "value" else c
-                            for c in by_role[role].column_names
+                            for c in endpoint_table.column_names
                         ],
                     )
                 )
@@ -498,8 +534,11 @@ def result(
     basis_rows = cell_rows(
         numeric_primary(
             cell_rename(
-                by_role["basis"],
-                ["value" if c == "basis__value" else c for c in by_role["basis"].column_names],
+                arrow_by_role["basis"],
+                [
+                    "value" if c == "basis__value" else c
+                    for c in arrow_by_role["basis"].column_names
+                ],
             )
         )
     )
@@ -508,7 +547,9 @@ def result(
     coordinate_rows: dict[str, dict[tuple[object, ...], list[dict[str, object]]]] = {}
     for role in ("current_endpoint", "baseline_endpoint"):
         coordinate_index: dict[tuple[object, ...], list[dict[str, object]]] = {}
-        for entry in coordinate_entries(signature, by_role, role + "_coordinates").to_pylist():
+        for entry in coordinate_entries(
+            signature, arrow_by_role, role + "_coordinates"
+        ).to_pylist():
             coordinate_index.setdefault(tuple(entry[k] for k in scope_keys), []).append(entry)
         coordinate_rows[role] = coordinate_index
     output_rows: list[dict[str, object]] = []
@@ -532,10 +573,12 @@ def result(
             prefix = role + "__"
             if data[prefix + "cell_tag"] != "defined":
                 raise invalid("both overall original endpoints must be Defined")
-            state = {c: data[prefix + "state__" + c] for c in endpoint.original_state.components}
-            n, w = components(state, endpoint.original_state.method_version)
+            endpoint_state = {
+                c: data[prefix + "state__" + c] for c in endpoint.original_state.components
+            }
+            n, w = components(endpoint_state, endpoint.original_state.method_version)
             denominator_errors.append(
-                component_errors(state, endpoint.original_state.method_version)[1]
+                component_errors(endpoint_state, endpoint.original_state.method_version)[1]
                 if physical == ScalarType("float64")
                 else 0.0
             )
@@ -654,7 +697,7 @@ def result(
                     "reconciliation__complete": True,
                 }
             )
-    scope_schema = [by_role["basis"].schema.field(k) for k in scope_keys]
+    scope_schema = [schemas["basis"].field(k) for k in scope_keys]
     key_schema = pa.schema(
         [
             *scope_schema,
@@ -664,54 +707,57 @@ def result(
         ]
     )
     dtype = arrow_scalar_type(physical)
-    primary = pa.Table.from_pylist(
-        output_rows,
-        schema=pa.schema(
-            [
-                *key_schema,
-                pa.field("value", dtype),
-                pa.field("cell_tag", pa.string()),
-                pa.field("cell_reason", pa.string()),
-            ]
-        ),
+    primary_schema = pa.schema(
+        [
+            *key_schema,
+            pa.field("value", dtype),
+            pa.field("cell_tag", pa.string()),
+            pa.field("cell_reason", pa.string()),
+        ]
     )
-    allocation = pa.Table.from_pylist(
-        allocation_rows,
-        schema=pa.schema(
-            [
-                *key_schema,
-                *(
-                    pa.field("allocation__" + c, dtype)
-                    for c in ("contribution", "current", "baseline")
-                ),
-                *(
-                    pa.field("allocation__" + c + "_error_bound", pa.float64())
-                    for c in ("contribution", "current", "baseline")
-                ),
-            ]
-        ),
+    allocation_schema = pa.schema(
+        [
+            *key_schema,
+            *(pa.field("allocation__" + c, dtype) for c in ("contribution", "current", "baseline")),
+            *(
+                pa.field("allocation__" + c + "_error_bound", pa.float64())
+                for c in ("contribution", "current", "baseline")
+            ),
+        ]
     )
-    reconciliation = pa.Table.from_pylist(
-        reconciliation_rows,
-        schema=pa.schema(
-            [
-                *key_schema,
-                pa.field("reconciliation__target", dtype),
-                pa.field("reconciliation__total", dtype),
-                pa.field("reconciliation__complete", pa.bool_()),
-            ]
-        ),
+    reconciliation_schema = pa.schema(
+        [
+            *key_schema,
+            pa.field("reconciliation__target", dtype),
+            pa.field("reconciliation__total", dtype),
+            pa.field("reconciliation__complete", pa.bool_()),
+        ]
     )
-    selected = cell_project(primary, output_keys).append_column(
-        "selection_scope__selected", pa.array([True] * len(primary), type=pa.bool_())
+    selection_schema = pa.schema([*key_schema, pa.field("selection_scope__selected", pa.bool_())])
+    primary_frame = pd.DataFrame(output_rows, columns=primary_schema.names)
+    allocation_frame = pd.DataFrame(allocation_rows, columns=allocation_schema.names)
+    reconciliation_frame = pd.DataFrame(reconciliation_rows, columns=reconciliation_schema.names)
+    selection_frame = pd.DataFrame(
+        [
+            {**{key: row[key] for key in output_keys}, "selection_scope__selected": True}
+            for row in output_rows
+        ],
+        columns=selection_schema.names,
     )
     parts = (
         *retained,
-        ExchangePart("allocation", allocation),
-        ExchangePart("reconciliation", reconciliation),
-        ExchangePart("selection_scope", selected),
+        ExchangePart("allocation", allocation_frame),
+        ExchangePart("reconciliation", reconciliation_frame),
+        ExchangePart("selection_scope", selection_frame),
     )
-    state = cell_project(primary, output_keys).append_column("status", primary["cell_tag"])
+    state_schema = pa.schema([*key_schema, pa.field("status", pa.string())])
+    state_frame = pd.DataFrame(
+        [
+            {**{key: row[key] for key in output_keys}, "status": row["cell_tag"]}
+            for row in output_rows
+        ],
+        columns=state_schema.names,
+    )
     key = method_key or MethodKey(
         "attribution.component_mix" if mix else "attribution.additive_difference"
     )
@@ -719,23 +765,32 @@ def result(
         signature,
         key,
         binding,
-        primary.schema,
+        primary_schema,
         output_keys,
         tuple(
-            PartContract(p.role, p.table.schema, retained_part_keys(signature, p.role))
+            PartContract(
+                p.role,
+                schemas[p.role]
+                if p.role in schemas
+                else {
+                    "allocation": allocation_schema,
+                    "reconciliation": reconciliation_schema,
+                    "selection_scope": selection_schema,
+                }[p.role],
+                retained_part_keys(signature, p.role),
+            )
             for p in parts
         ),
         (),
         "attribution_component_mix" if mix else "attribution_additive",
-        state.schema,
+        state_schema,
     )
-    # Producer arithmetic owns reconciliation; transport checks the physical result.
-    return from_arrow(primary, contract, parts=parts, method_state=state, validate=False)
+    return from_pandas(
+        primary_frame, contract, parts=parts, method_state=state_frame, validate=False
+    )
 
 
-def validate(
-    contract: ExchangeContract, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> None:
+def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     declarations: dict[str, AttributionPart] = {
         p.role: p for p in contract.signature.parts if isinstance(p, AttributionPart)
     }
@@ -763,26 +818,30 @@ def validate(
         endpoint = declarations[role].endpoint
         assert endpoint is not None
         validate_endpoint(endpoint, by_role[role])
+    retained_roles = (*ROLES[:3], "current_endpoint_coordinates", "baseline_endpoint_coordinates")
+    retained = tuple(
+        ExchangePart(part.role, part.table.to_pandas())
+        for part in parts
+        if part.role in retained_roles
+    )
+    schemas = {part.role: part.schema for part in contract.parts if part.role in retained_roles}
     # Reproduce complete allocation using the arithmetic owner, without entering exchange validation recursively.
     full = result(
         replace(contract.signature, parts=tuple(declarations.values())),
         physical_type(primary.schema.field("value").type),
-        tuple(
-            p
-            for p in parts
-            if p.role
-            in (*ROLES[:3], "current_endpoint_coordinates", "baseline_endpoint_coordinates")
-        ),
+        retained,
         contract.input_binding,
-        verify=False,
+        schemas=schemas,
     )
     for role in ("allocation", "reconciliation"):
         wanted = next(p.table for p in full.parts if p.role == role)
+        wanted_schema = next(p.schema for p in full.contract.parts if p.role == role)
+        wanted_table = to_arrow(wanted, wanted_schema)
         keys = part_keys(declarations[role])
         actual_rows = {tuple(r[k] for k in keys): r for r in cell_rows(by_role[role])}
-        wanted_rows = {tuple(r[k] for k in keys): r for r in cell_rows(wanted)}
+        wanted_rows = {tuple(r[k] for k in keys): r for r in cell_rows(wanted_table)}
         if actual_rows != wanted_rows or not by_role[role].schema.equals(
-            wanted.schema, check_metadata=False
+            wanted_table.schema, check_metadata=False
         ):
             raise invalid("retained allocation or reconciliation differs from original basis")
     keys = contract.key_fields
@@ -845,45 +904,38 @@ def physical_type(dtype: pa.DataType) -> ValueType:
     return ScalarType("float64" if pa.types.is_floating(dtype) else "int64")
 
 
-def pack(result: ExchangeResult, schema: pa.Schema) -> pa.Table:
-    """Pack a calculated exchange into its Ibis-issued staging schema."""
+def pack(result: ExchangeResult, schema: pa.Schema) -> pd.DataFrame:
+    """Pack a calculated exchange into its Ibis-issued staging columns."""
     declarations: dict[str, AttributionPart] = {
         p.role: p for p in result.contract.signature.parts if isinstance(p, AttributionPart)
     }
     keyed = {
         p.role: {
-            tuple(r[k] for k in part_keys(declarations[p.role])): r for r in p.table.to_pylist()
+            tuple(r[k] for k in part_keys(declarations[p.role])): r
+            for r in p.table.to_dict("records")
         }
         for p in result.parts
         if p.role in declarations
     }
     rows = []
-    for primary in result.primary.to_pylist():
+    for primary in result.primary.to_dict("records"):
         row = dict(primary)
         for role, declaration in declarations.items():
             identity = tuple(primary[k] for k in part_keys(declaration))
-            row.update(
-                {
-                    k: v
-                    for k, v in keyed[role][identity].items()
-                    if k not in result.contract.key_fields
-                }
-            )
+            matched = keyed[role].get(identity)
+            if matched is None:
+                raise invalid("attribution part lacks a complete output key")
+            row.update({k: v for k, v in matched.items() if k not in result.contract.key_fields})
         rows.append(row)
-    arrays = []
-    for field in schema:
-        actual = pa.array(
-            [r[field.name] for r in rows],
-            type=result.primary.schema.field(field.name).type
-            if field.name in result.primary.schema.names
-            else next(
-                p.table.schema.field(field.name).type
-                for p in result.parts
-                if field.name in p.table.column_names
-            ),
+    available = set(result.primary.columns).union(
+        *(set(part.table.columns) for part in result.parts)
+    )
+    missing = set(schema.names) - available
+    if missing:
+        raise invalid(
+            f"attribution output schema requests absent fields: {tuple(sorted(missing))!r}"
         )
-        arrays.append(actual.cast(field.type, safe=True))
-    return pa.Table.from_arrays(arrays, schema=schema)
+    return pd.DataFrame(rows, columns=schema.names)
 
 
 def view(relation: Relation, name: Literal["contribution", "current", "baseline"]) -> Relation:
@@ -922,51 +974,49 @@ def project(
     ).output
     keys = source.contract.key_fields
     values = {
-        tuple(r[k] for k in keys): r["allocation__" + name]
-        for r in next(p.table for p in source.parts if p.role == "allocation").to_pylist()
+        tuple(row[k] for k in keys): row["allocation__" + name]
+        for row in next(p.table for p in source.parts if p.role == "allocation").to_dict("records")
     }
-    primary = source.primary.set_column(
-        source.primary.schema.get_field_index("value"),
-        "value",
-        pa.array(
-            [values[tuple(r[k] for k in keys)] for r in source.primary.to_pylist()],
-            type=source.primary.schema.field("value").type,
-        ),
+    rows = cell_rows(to_arrow(source.primary, source.contract.schema))
+    for row in rows:
+        row["value"] = values[tuple(row[key] for key in keys)]
+    primary = pd.DataFrame(rows, columns=logical_schema(source.contract.schema).names)
+    contract = replace(
+        source.contract,
+        signature=signature,
+        method=MethodKey("parts_transport"),
+        state_kind="none",
+        state_schema=None,
+        pending_checks=(),
+        _frozen=None,
     )
-    return from_arrow(
-        primary,
-        replace(
-            source.contract,
-            signature=signature,
-            method=MethodKey("parts_transport"),
-            state_kind="none",
-            state_schema=None,
-            pending_checks=(),
-            _frozen=None,
-        ),
-        parts=source.parts,
-        validate=False,
-    )
+    return from_pandas(primary, contract, parts=source.parts, validate=False)
 
 
 def retain_partition(
-    node: MethodNode, source: ExchangeResult, primary: pa.Table, parts: tuple[ExchangePart, ...]
-) -> tuple[ExchangePart, ...]:
+    node: MethodNode,
+    source: ExchangeResult,
+    primary: pd.DataFrame,
+    parts: tuple[ExchangePart, ...],
+    *,
+    primary_schema: pa.Schema,
+    part_schemas: Mapping[str, pa.Schema],
+) -> tuple[tuple[ExchangePart, ...], dict[str, pa.Schema]]:
     """Retain flat sufficient partitions without restoring removed axes."""
     from marivo.analysis.core.model import part_role
     from marivo.analysis.methods.numeric_state import merge_components
 
     coordinate = next((p for p in node.signature.parts if isinstance(p, CoordinateStatePart)), None)
     if coordinate is None:
-        return parts
+        return parts, dict(part_schemas)
     params = node.parameters
     assert isinstance(params, OriginalReduce)
     original = next(
         p for p in source.contract.signature.parts if isinstance(p, CoordinateStatePart)
     )
-    state = coordinate_entries(
-        source.contract.signature, {p.role: p.table for p in source.parts}, part_role(original)
-    )
+    source_schemas = {part.role: part.schema for part in source.contract.parts}
+    source_tables = _exchange_tables(source.parts, source_schemas)
+    state = coordinate_entries(source.contract.signature, source_tables, part_role(original))
     source_keys = source.contract.signature.domain.instance_key
     if params.time_mapping:
         grid = params.output_domain.time_grid
@@ -994,22 +1044,28 @@ def retain_partition(
         )
         axis = tuple(row[c] for c in original.columns)
         grouped.setdefault((*target, *axis), []).append(row)
-    schema = next(p.table.schema for p in source.parts if p.role == "original_state")
+    schema = source_schemas["original_state"]
     rows = []
     for identity, values in grouped.items():
         totals = merge_components(values, schema, original.components)
         rows.append({**dict(zip((*keys, *original.columns), identity, strict=True)), **totals})
     full_schema = pa.schema(
         [
-            *(primary.schema.field(k) for k in keys),
+            *(primary_schema.field(k) for k in keys),
             *(state.schema.field(c) for c in (*original.columns, *original.components)),
         ]
     )
     full = pa.Table.from_pylist(rows, schema=full_schema)
+    retained = retain_coordinates(
+        node.signature,
+        part_role(coordinate),
+        full,
+        to_arrow(primary, primary_schema),
+    )
+    retained_part = ExchangePart(part_role(coordinate), retained.to_pandas())
+    updated_schemas = dict(part_schemas)
+    updated_schemas[retained_part.role] = retained.schema
     return (
-        *parts,
-        ExchangePart(
-            part_role(coordinate),
-            retain_coordinates(node.signature, part_role(coordinate), full, primary),
-        ),
+        (*parts, retained_part),
+        updated_schemas,
     )

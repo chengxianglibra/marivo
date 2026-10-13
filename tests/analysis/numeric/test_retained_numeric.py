@@ -30,7 +30,7 @@ from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.materialization.runs_execution import _decode as decode_runs
 from marivo.analysis.materialization.statistical_execution import decode_forecast, decode_pairs
 from marivo.analysis.methods.physical import FixedShape, Qualified
-from marivo.datasource.adapters import CompiledRead, SourceBatchStream, SourceSession
+from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.statistics.deviation_oracle import expected as deviation_oracle
@@ -40,8 +40,6 @@ from tests.support.json import key_json
 Carrier = int | float | Decimal
 Profile = Literal["int64-near-extremes", "finite-float64", "decimal-exact"]
 Method = Literal["pearson", "spearman", "kendall", "zscore", "mad"]
-_CROSS_BATCH_CHUNK_SIZE = 2
-_CROSS_BATCH_ROW_COUNT = _CROSS_BATCH_CHUNK_SIZE + 1
 
 
 @pytest.fixture
@@ -63,7 +61,6 @@ class RetainedPair:
     history: mv.MaterializedNumericRelation
     history_b: mv.MaterializedNumericRelation
     entity_history: mv.MaterializedNumericRelation
-    source_batches: tuple[tuple[int, ...], ...]
 
 
 def originals(
@@ -82,7 +79,7 @@ def keyed_originals(
     assert relation._dataset is not None
     captured = relation._dataset.verified()
     keys = captured.contract.key_fields
-    rows = captured.primary.to_pylist()
+    rows = captured.primary.to_dict(orient="records")
     values = {tuple(row[key] for key in keys): number(row["value"]) for row in rows}
     assert len(values) == len(rows)
     return values
@@ -166,13 +163,7 @@ def retained_pair(
     dst = scenario in {"future-grid-interval", "full-grid-dst-adjacency-duration"}
     zone = "America/New_York" if dst else "UTC"
     start = datetime(2026, 10, 28) if dst else datetime(2026, 8, 1)
-    days = (
-        _CROSS_BATCH_ROW_COUNT
-        if scenario == "cross-batch-run"
-        else 6
-        if scenario == "full-grid-dst-adjacency-duration"
-        else 4
-    )
+    days = 6 if scenario == "full-grid-dst-adjacency-duration" else 4
     instants = [
         (start + timedelta(days=i))
         .replace(tzinfo=ZoneInfo(zone))
@@ -221,28 +212,7 @@ def retained_pair(
             if profile == "finite-float64"
             else Decimal
         )
-        batches: list[list[int]] = []
-        iterate = SourceBatchStream._iterate
-
-        def observed(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-            sizes: list[int] = []
-            batches.append(sizes)
-            for batch in iterate(stream):
-                sizes.append(batch.num_rows)
-                yield batch
-
-        source_batches = SourceSession.batches
-
-        def small_batches(
-            source: SourceSession, read: CompiledRead, *, chunk_size: int
-        ) -> SourceBatchStream:
-            return source_batches(source, read, chunk_size=_CROSS_BATCH_CHUNK_SIZE)
-
-        with monkeypatch.context() as producer:
-            if scenario == "cross-batch-run":
-                producer.setattr(SourceSession, "batches", small_batches)
-                producer.setattr(SourceBatchStream, "_iterate", observed)
-            fixed_history = history.group_by(grid).rollup().execute()
+        fixed_history = history.group_by(grid).rollup().execute()
         assert isinstance(fixed_history, mv.MaterializedGroupedNumericRelation)
         fixed_history_b = (
             members.observe(
@@ -270,7 +240,6 @@ def retained_pair(
             fixed_history,
             fixed_history_b,
             entity_history,
-            tuple(tuple(sizes) for sizes in batches),
         )
 
 
@@ -629,9 +598,7 @@ def _assert_public_retained_identity_case(
             )
 
 
-@pytest.mark.parametrize(
-    "scenario", ["full-grid-dst-adjacency-duration", "cross-batch-run", "unavailable-breaks"]
-)
+@pytest.mark.parametrize("scenario", ["full-grid-dst-adjacency-duration", "unavailable-breaks"])
 def test_public_retained_runs_algorithm(
     scenario: str,
     retained_pair: RetainedPair,
@@ -658,13 +625,7 @@ def test_public_retained_runs_algorithm(
         )
         lookup = {value: i for i, value in enumerate(values[anchor].to_pylist())}
         ordered = [lookup[cell.identity] for cell in grid.cells]
-        expected_count = (
-            _CROSS_BATCH_ROW_COUNT
-            if scenario == "cross-batch-run"
-            else 6
-            if scenario == "full-grid-dst-adjacency-duration"
-            else 4
-        )
+        expected_count = 6 if scenario == "full-grid-dst-adjacency-duration" else 4
         assert values.num_rows == expected_count
         expected_classes = (
             tuple("unavailable" if i == ordered[1] else "true" for i in range(4))
@@ -707,10 +668,6 @@ def test_public_retained_runs_algorithm(
             ]
             assert views["left_kind"].to_pylist() == ["scope_boundary", "unavailable"]
             assert views["right_kind"].to_pylist() == ["unavailable", "scope_boundary"]
-        if scenario == "cross-batch-run":
-            assert any(
-                sizes == (_CROSS_BATCH_CHUNK_SIZE, 1) for sizes in retained_pair.source_batches
-            )
         selected = result.where(result.count.value.gte(1)).execute()
         assert selected._dataset is not None
         assert decode_runs(selected._dataset.verified().parts) == (captured, state)
@@ -740,7 +697,6 @@ def test_public_retained_runs_algorithm(
                             "duration_seconds": [
                                 value.total_seconds() for value in expected_durations
                             ],
-                            "producer_batches": retained_pair.source_batches,
                             "signature": repr(captured.signature),
                         },
                         "physical_key": key_json(physical.key),
@@ -1215,8 +1171,8 @@ def test_public_retained_numeric_risk(
         else pa.decimal128(38, 6)
     )
     assert a._dataset is not None and b._dataset is not None
-    assert a._dataset.verified().primary.schema.field("value").type == physical_type
-    assert b._dataset.verified().primary.schema.field("value").type == physical_type
+    assert a._dataset.verified().contract.schema.field("value").type == physical_type
+    assert b._dataset.verified().contract.schema.field("value").type == physical_type
     with monkeypatch.context() as offline:
         offline.setattr(SourceSession, "__enter__", forbidden)
         offline.setattr(SemanticProject, "load", forbidden)

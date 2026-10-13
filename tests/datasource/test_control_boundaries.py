@@ -7,13 +7,13 @@ from pathlib import Path
 from time import monotonic
 
 import ibis
+import ibis.expr.types as ir
 import pytest
 from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import adapters
-from marivo.datasource.adapters import _Cursor
 from marivo.datasource.backends import build_backend
 from marivo.datasource.engines import duckdb as duckdb_engine
 from marivo.datasource.errors import DatasourceRawSqlError
@@ -37,13 +37,20 @@ def test_governed_probe_submits_exact_ibis_compilation(
 ) -> None:
     backend = duckdb_engine.connect("local", {"path": ":memory:"})
     submitted: list[str] = []
-    original = adapters._native_cursor
+    original = type(backend).execute
 
-    def capture(backend_arg: BaseBackend, backend_name: str, sql: str) -> _Cursor:
-        submitted.append(sql)
-        return original(backend_arg, backend_name, sql)
+    def capture(
+        backend_arg: BaseBackend,
+        expression: ir.Expr,
+        *,
+        params: object = None,
+        limit: int | str | None = None,
+        **kwargs: object,
+    ) -> object:
+        submitted.append(backend_arg.compile(expression, params=params, limit=limit))
+        return original(backend_arg, expression, params=params, limit=limit, **kwargs)
 
-    monkeypatch.setattr(adapters, "_native_cursor", capture)
+    monkeypatch.setattr(type(backend), "execute", capture)
     try:
         duckdb_engine.PROFILE.probe(backend)
         expected = backend.compile(ibis.literal(1).name("probe").as_table(), limit=None)

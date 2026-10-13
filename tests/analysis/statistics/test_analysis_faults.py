@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
-import pyarrow.compute as pc
 import pytest
 
 import marivo.analysis as mv
@@ -19,8 +18,11 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import runs_execution
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.deviation_execution import load, save
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-from marivo.datasource.adapters import SourceBatchStream
+from marivo.analysis.materialization.graph_exchange import (
+    ExchangePart,
+    from_pandas,
+    to_arrow,
+)
 from tests.analysis.statistics.journeys import (
     check,
     graphs,
@@ -54,15 +56,15 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
     saved = snapshot(result)
     scenarios: list[Json] = []
 
-    def reject(primary: pa.Table, parts: tuple[ExchangePart, ...]) -> None:
+    def reject(primary: pd.DataFrame, parts: tuple[ExchangePart, ...]) -> None:
         with pytest.raises(AnalysisError):
-            from_arrow(primary, retained.contract, parts=parts, method_state=retained.method_state)
+            from_pandas(primary, retained.contract, parts=parts, method_state=retained.method_state)
 
     # Required-part removal and corruption are covered for every result family
     # by test_every_receipt_part_read_recovery_and_hit.
     # The Finding policy carries its own closed version and ordered input binding.
     policy = next(p for p in retained.parts if p.role == "finding_policy")
-    payload = json.loads(policy.table["finding_policy__retained"][0].as_py())
+    payload = json.loads(policy.table["finding_policy__retained"].iloc[0])
     for scenario, field, value in (
         ("version", "version", "v999"),
         ("finding_cap", "emitted", 1001),
@@ -71,37 +73,36 @@ def test_source_parts_versions_keys_scope_and_finding_authority(
         altered = {**payload, field: value}
         damaged = ExchangePart(
             "finding_policy",
-            pa.table({"finding_policy__retained": [json.dumps(altered, separators=(",", ":"))]}),
+            pd.DataFrame(
+                {"finding_policy__retained": [json.dumps(altered, separators=(",", ":"))]}
+            ),
         )
         reject(
             retained.primary, tuple(damaged if p.role == policy.role else p for p in retained.parts)
         )
         scenarios.append(scenario)
-    key = retained.primary.column_names[0]
-    original_keys = retained.primary[key].to_pylist()
+    key = retained.primary.columns[0]
+    original_keys = retained.primary[key].tolist()
     assert original_keys
     wrong_keys = original_keys.copy()
     wrong_keys[0] = "foreign-output-coordinate" if isinstance(wrong_keys[0], str) else 999999
-    reject(
-        retained.primary.set_column(
-            0, key, pa.array(wrong_keys, type=retained.primary.schema.field(key).type)
-        ),
-        retained.parts,
-    )
+    damaged_primary = retained.primary.copy()
+    damaged_primary[key] = wrong_keys
+    reject(damaged_primary, retained.parts)
     scenarios.append("key")
     captured = next(
         p
         for p in retained.parts
         if p.role in ("fit_inputs", "condition_cells", "pair_inputs", "training_inputs")
     )
-    captured_payload = json.loads(captured.table[0][0].as_py())
+    captured_payload = json.loads(captured.table.iloc[0, 0])
     if "signature" in captured_payload:
         captured_payload["signature"]["domain"]["binding"]["scope_id"] = "foreign-scope"
     else:
         captured_payload["declaration"]["input_domain"]["binding"]["scope_id"] = "foreign-scope"
     damaged = ExchangePart(
         captured.role,
-        pa.table(
+        pd.DataFrame(
             {captured.role + "__retained": [json.dumps(captured_payload, separators=(",", ":"))]}
         ),
     )
@@ -197,7 +198,7 @@ def test_run_recovery_rejects_frozen_damage_and_owned_field_changes(
         parts = tuple(
             ExchangePart(
                 p.role,
-                pa.table(
+                pd.DataFrame(
                     {"run_cells__retained": [runs_execution.RUNS.dump_json(damaged).decode()]}
                 ),
             )
@@ -205,14 +206,14 @@ def test_run_recovery_rejects_frozen_damage_and_owned_field_changes(
             else p
             for p in retained.parts
         )
-        from_arrow(
+        from_pandas(
             retained.primary,
             retained.contract,
             parts=retained.parts,
             method_state=retained.method_state,
         )
         with pytest.raises(AnalysisError):
-            from_arrow(
+            from_pandas(
                 retained.primary, retained.contract, parts=parts, method_state=retained.method_state
             )
 
@@ -234,33 +235,38 @@ def test_run_recovery_rejects_frozen_damage_and_owned_field_changes(
         for view in (result, result.count, result.start, result.end, result.duration):
             assert view._dataset is not None
             retained = view._dataset.verified()
-            assert retained.primary.column_names == ["key_0", "value"]
-            assert retained.primary.num_rows == expected_rows
-            logical = logical_table(retained.primary)
-            for primary in (retained.primary, logical):
-                contract = replace(retained.contract, schema=primary.schema)
-                checked = from_arrow(
-                    primary, contract, parts=retained.parts, method_state=retained.method_state
+            assert list(retained.primary.columns) == ["key_0", "value"]
+            assert len(retained.primary) == expected_rows
+            logical = logical_table(to_arrow(retained.primary, retained.contract.schema))
+            checked = from_pandas(
+                retained.primary,
+                retained.contract,
+                parts=retained.parts,
+                method_state=retained.method_state,
+            )
+            assert logical_table(to_arrow(checked.primary, retained.contract.schema)).equals(
+                logical
+            )
+            if not expected_rows:
+                continue
+            value_type = retained.contract.schema.field("value").type
+            damaged = retained.primary.copy()
+            if pa.types.is_integer(value_type):
+                damaged["value"] = damaged["value"] + 1
+            else:
+                from datetime import timedelta
+
+                damaged["value"] = damaged["value"] + timedelta(microseconds=1)
+            with pytest.raises(
+                AnalysisError,
+                match="run owned field differs from original retained intervals",
+            ):
+                from_pandas(
+                    damaged,
+                    retained.contract,
+                    parts=retained.parts,
+                    method_state=retained.method_state,
                 )
-                assert logical_table(checked.primary).equals(logical)
-                if not expected_rows:
-                    continue
-                value_field = primary.schema.field("value")
-                increment = pa.scalar(
-                    1, pa.int64() if pa.types.is_integer(value_field.type) else pa.duration("us")
-                )
-                damaged = primary.set_column(
-                    primary.schema.get_field_index("value"),
-                    value_field,
-                    pc.add(primary["value"], increment),
-                )
-                with pytest.raises(
-                    AnalysisError,
-                    match="run owned field differs from original retained intervals",
-                ):
-                    from_arrow(
-                        damaged, contract, parts=retained.parts, method_state=retained.method_state
-                    )
 
 
 def test_every_receipt_part_read_recovery_and_hit(
@@ -291,14 +297,14 @@ def test_every_receipt_part_read_recovery_and_hit(
         for parts in (
             tuple(p for p in retained.parts if p.role != part.role),
             tuple(
-                ExchangePart(p.role, pa.table({p.role + "__retained": ["{}"]}))
+                ExchangePart(p.role, pd.DataFrame({p.role + "__retained": ["{}"]}))
                 if p.role == part.role
                 else p
                 for p in retained.parts
             ),
         ):
             try:
-                from_arrow(
+                from_pandas(
                     retained.primary,
                     retained.contract,
                     parts=parts,
@@ -372,11 +378,12 @@ def test_resources_atomic_publication_and_native_failure(
         try:
             with monkeypatch.context() as scoped:
                 if fault == "bad_batch":
+                    from marivo.datasource.adapters import CompiledRead, SourceSession
 
-                    def bad_batch(stream: SourceBatchStream) -> Iterator[pa.RecordBatch]:
-                        yield pa.record_batch({"unexpected": [1]})
+                    def bad_result(_source: SourceSession, _read: CompiledRead) -> pd.DataFrame:
+                        return pd.DataFrame({"unexpected": [1]})
 
-                    scoped.setattr(SourceBatchStream, "_iterate", bad_batch)
+                    scoped.setattr(SourceSession, "execute", bad_result)
                 if succeeded:
                     result = logical.execute()
                     check(result, "deviation.zscore@v1")

@@ -5,14 +5,13 @@ import sys
 from decimal import Decimal
 from typing import Literal
 
-import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import TableFitsPart
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
-from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
+from marivo.analysis.materialization.graph_exchange import ExchangePart, from_pandas
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from tests.analysis.statistics.deviation_display_worker import run as run_display
 from tests.analysis.statistics.deviation_oracle import expected
@@ -90,25 +89,24 @@ def test_mixed_table_preserves_each_current_value_and_original_fit(
     assert tuple(c.index for c in declaration.columns) == (
         (0, 1) if mode in ("ranks", "other_fit") else (score_index,)
     )
-    from_arrow(
+    from_pandas(
         checked.primary, checked.contract, parts=checked.parts, method_state=checked.method_state
     )
     name = f"column_{score_index}__value"
-    bad = pa.array([1.0] * checked.primary.num_rows, type=pa.float64())
-    primary = checked.primary.set_column(checked.primary.schema.get_field_index(name), name, bad)
+    bad = [1.0] * len(checked.primary)
+    primary = checked.primary.copy()
+    primary[name] = bad
     parts = tuple(
         ExchangePart(
             p.role,
-            p.table.set_column(
-                p.table.schema.get_field_index("columns__" + name), "columns__" + name, bad
-            ),
+            p.table.assign(**{"columns__" + name: bad}),
         )
         if p.role == "columns"
         else p
         for p in checked.parts
     )
     with pytest.raises(StatisticalRelationError) as failure:
-        from_arrow(primary, checked.contract, parts=parts, method_state=checked.method_state)
+        from_pandas(primary, checked.contract, parts=parts, method_state=checked.method_state)
     assert failure.value.code == "r8.retained_part"
 
 
