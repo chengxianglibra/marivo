@@ -36,6 +36,7 @@ from marivo.analysis.materialization.cell_arrow import (
     logical_schema,
     pack,
     required,
+    schema_binding,
     storage_schema,
 )
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
@@ -70,6 +71,8 @@ def to_arrow(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
             f"pandas columns {tuple(frame.columns)!r} differ from frozen schema {tuple(schema.names)!r}"
         )
     try:
+        if len(frame) == 0:
+            return pa.Table.from_batches((), schema=schema)
         table = pa.Table.from_pandas(frame, schema=schema, preserve_index=False, safe=False)
         return table.replace_schema_metadata(schema.metadata)
     except (pa.ArrowException, TypeError, ValueError) as error:
@@ -349,10 +352,13 @@ def _compact_result(
     )
     return ExchangeResult(
         contract,
-        primary.to_pandas(),
-        tuple(ExchangePart(part.role, part.table.to_pandas()) for part in parts),
+        primary.to_pandas(types_mapper=pd.ArrowDtype),
+        tuple(
+            ExchangePart(part.role, part.table.to_pandas(types_mapper=pd.ArrowDtype))
+            for part in parts
+        ),
         completed_checks,
-        None if method_state is None else method_state.to_pandas(),
+        None if method_state is None else method_state.to_pandas(types_mapper=pd.ArrowDtype),
     )
 
 
@@ -556,26 +562,28 @@ def _validate_exchange(
             )
         ):
             raise _invalid("retained fold kind differs from the declared original quantity")
+    pandas_primary = primary.to_pandas()
+    pandas_parts = tuple(ExchangePart(part.role, part.table.to_pandas()) for part in parts)
     if any(part.role in ("pair_inputs", "training_inputs") for part in parts):
         from marivo.analysis.materialization.statistical_execution import (
             validate as validate_statistics,
         )
 
-        validate_statistics(contract, primary, parts)
+        validate_statistics(contract, pandas_primary, pandas_parts)
     if any(part.role == "condition_cells" for part in parts):
-        from marivo.analysis.materialization.runs_execution import validate
+        from marivo.analysis.materialization.runs_execution import validate as validate_runs
 
-        validate(contract, primary, parts)
+        validate_runs(contract, pandas_primary, pandas_parts)
     if any(part.role == "fit_inputs" for part in parts):
         from marivo.analysis.materialization.deviation_execution import (
             validate as validate_deviation,
         )
 
-        validate_deviation(contract, primary, parts)
+        validate_deviation(contract, pandas_primary, pandas_parts)
     if any(part.role == "table_fits" for part in parts):
         from marivo.analysis.materialization.deviation_execution import validate_table_fits
 
-        validate_table_fits(contract, primary, parts)
+        validate_table_fits(contract, pandas_primary, pandas_parts)
     if contract.state_kind == "none":
         from marivo.analysis.materialization.business_coverage import partial_primary
 
@@ -802,10 +810,20 @@ def _verify_difference_parts(
     contract: ExchangeContract, parts: tuple[ArrowPart, ...], primary: pa.Table
 ) -> None:
     keys = contract.key_fields
-    primary_type = numeric_primary(primary).schema.field("value").type
+    primary_type = primary.schema.field("value").type
     quantity = contract.signature.quantity
     assert quantity is not None
     division = quantity.method_version != "cell.difference@v1"
+    endpoint_types = tuple(
+        part.table.schema.field(f"{part.role}__value").type
+        for part in parts
+        if part.role in ("current_endpoint", "baseline_endpoint")
+    )
+    if (
+        any(pa.types.is_duration(dtype) for dtype in endpoint_types)
+        and len(set(endpoint_types)) != 1
+    ):
+        raise _invalid("Difference endpoint Duration units differ")
     for part in parts:
         if part.role not in ("current_endpoint", "baseline_endpoint"):
             continue
@@ -823,6 +841,7 @@ def _verify_difference_parts(
                     pa.types.is_integer(endpoint_type)
                     or pa.types.is_floating(endpoint_type)
                     or pa.types.is_decimal(endpoint_type)
+                    or pa.types.is_duration(endpoint_type)
                 )
             )
             or endpoint_type == primary_type
@@ -836,9 +855,19 @@ def _verify_difference_parts(
             for name in ("cell_tag", "cell_reason")
         ):
             raise _invalid("Difference endpoint types differ from the numeric contract")
+
+    def endpoint_rows(part: ArrowPart) -> list[dict[str, object]]:
+        name = f"{part.role}__value"
+        table = part.table
+        if pa.types.is_duration(table.schema.field(name).type):
+            table = table.set_column(
+                table.schema.get_field_index(name), name, table[name].cast(pa.int64())
+            )
+        return cell_rows(table)
+
     endpoints = {
         part.role: {
-            tuple(row[name] for name in contract.key_fields): row for row in cell_rows(part.table)
+            tuple(row[name] for name in contract.key_fields): row for row in endpoint_rows(part)
         }
         for part in parts
         if part.role in ("current_endpoint", "baseline_endpoint")
@@ -1122,6 +1151,34 @@ def _validate_arrow_tag_cells(
             raise _invalid("invalid non-Defined Cell")
 
 
+def _compact_pandas(
+    frame: pd.DataFrame,
+    schema: pa.Schema,
+    reasons: tuple[tuple[str, tuple[str, ...]], ...],
+    column_reasons: tuple[tuple[tuple[str, tuple[str, ...]], ...], ...] = (),
+) -> tuple[pd.DataFrame, pa.Schema]:
+    declared = binding(schema)
+    schema = schema_binding(schema, declared.cells, declared.logical_columns)
+    if declared.cells and tuple(frame.columns) == tuple(schema.names):
+        return frame, schema
+    if declared.cells and tuple(frame.columns) != declared.logical_columns:
+        raise _invalid("pandas columns differ from the frozen Cell schema")
+    schema = compact_schema(schema, reasons, column_reasons)
+    if binding(schema).cells:
+        _validate_pandas_tag_cells(frame, reasons)
+        table = from_rows(
+            (
+                {str(key): None if pd.isna(value) else value for key, value in row.items()}
+                for row in frame.to_dict("records")
+            ),
+            schema,
+        )
+        return table.to_pandas(types_mapper=pd.ArrowDtype), schema
+    if tuple(frame.columns) != tuple(schema.names):
+        raise _invalid("pandas columns differ from the selected physical schema")
+    return frame, schema
+
+
 def from_pandas(
     frame: pd.DataFrame,
     contract: ExchangeContract,
@@ -1133,27 +1190,21 @@ def from_pandas(
 ) -> ExchangeResult:
     """Validate and retain an owned local method as pandas frames."""
     try:
-        if binding(contract.schema).cells and tuple(frame.columns) == tuple(contract.schema.names):
-            output = frame
-            schema = contract.schema
-        else:
-            schema = compact_schema(contract.schema, contract.cell_reasons, contract.column_reasons)
-            cell_binding = binding(schema)
-            if cell_binding.cells:
-                _validate_pandas_tag_cells(frame, contract.cell_reasons)
-                table = from_rows(
-                    (
-                        {str(key): None if pd.isna(value) else value for key, value in row.items()}
-                        for row in frame.to_dict("records")
-                    ),
-                    schema,
-                )
-                output = table.to_pandas()
-            else:
-                if tuple(frame.columns) != tuple(schema.names):
-                    raise _invalid("pandas columns differ from the selected physical schema")
-                output = frame
-            contract = replace(contract, schema=schema)
+        output, schema = _compact_pandas(
+            frame, contract.schema, contract.cell_reasons, contract.column_reasons
+        )
+        if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
+            raise _invalid("missing, reordered or extra method state part")
+        packed_parts: list[ExchangePart] = []
+        part_contracts: list[PartContract] = []
+        for declared, part in zip(contract.parts, parts, strict=True):
+            packed, part_schema = _compact_pandas(
+                part.table, declared.schema, _pandas_part_reasons(contract, declared.role)
+            )
+            packed_parts.append(ExchangePart(part.role, packed))
+            part_contracts.append(replace(declared, schema=part_schema))
+        parts = tuple(packed_parts)
+        contract = replace(contract, schema=schema, parts=tuple(part_contracts))
     except (pa.ArrowException, ValueError, TypeError) as error:
         raise _invalid(f"pandas Cell codec failed: {type(error).__name__}") from error
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
@@ -1180,7 +1231,18 @@ def from_pandas(
     if method_state is not None and contract.state_schema is not None:
         _validate_pandas_finite(method_state, contract.state_schema)
     if validate:
-        _validate_pandas_exchange(output, contract, parts, method_state)
+        return _validate_exchange(
+            to_arrow(output, contract.schema),
+            contract,
+            parts=tuple(
+                ArrowPart(part.role, to_arrow(part.table, declared.schema))
+                for part, declared in zip(parts, contract.parts, strict=True)
+            ),
+            completed_checks=completed_checks,
+            method_state=None
+            if method_state is None
+            else to_arrow(method_state, contract.state_schema or pa.schema([])),
+        )
     return ExchangeResult(contract, output, parts, completed_checks, method_state)
 
 
@@ -1201,7 +1263,11 @@ def _pandas_part_reasons(
 
 def _pandas_records(frame: pd.DataFrame, schema: pa.Schema) -> list[dict[str, object]]:
     records = [
-        {name: value for name, value in record.items() if isinstance(name, str)}
+        {
+            name: None if pd.isna(value) else value
+            for name, value in record.items()
+            if isinstance(name, str)
+        }
         for record in frame.to_dict("records")
     ]
     for cell in binding(schema).cells:
@@ -1255,161 +1321,6 @@ def _validate_pandas_finite(frame: pd.DataFrame, schema: pa.Schema) -> None:
         for value in frame[field.name].dropna().tolist():
             if not isinstance(value, int | float) or not math.isfinite(value):
                 raise _invalid(f"non-finite numeric output in {field.name}")
-
-
-def _pandas_key_index(
-    frame: pd.DataFrame,
-    fields: tuple[str, ...],
-    nullable: frozenset[str] = frozenset(),
-) -> set[tuple[object, ...]]:
-    missing_fields = tuple(name for name in fields if name not in frame.columns)
-    if missing_fields:
-        raise _invalid(f"missing complete key fields {missing_fields!r}")
-    result: set[tuple[object, ...]] = set()
-    columns = tuple(frame[name].tolist() for name in fields)
-    keys = zip(*columns, strict=True) if fields else (() for _ in range(len(frame)))
-    for key in keys:
-        if (
-            any(
-                bool(pd.isna(value)) and name not in nullable
-                for name, value in zip(fields, key, strict=True)
-            )
-            or key in result
-        ):
-            raise _invalid("null or duplicate complete key")
-        result.add(key)
-    return result
-
-
-def _validate_pandas_exchange(
-    primary: pd.DataFrame,
-    contract: ExchangeContract,
-    parts: tuple[ExchangePart, ...],
-    method_state: pd.DataFrame | None,
-) -> None:
-    nullable = frozenset(
-        f"key_{index}"
-        for index, coordinate in enumerate(contract.signature.domain.instance_key)
-        if coordinate.field.startswith("attribution:axis:")
-    )
-    if not contract.key_fields and len(primary) not in (
-        (0, 1) if contract.allow_empty_singleton else (1,)
-    ):
-        raise _invalid("singleton result has an invalid row count")
-    primary_keys = _pandas_key_index(primary, contract.key_fields, nullable)
-    subset_roles = {"cohort_decision", "ranking_domain", "partitions", "ordering"}
-    closed_roles = {
-        "condition_cells",
-        "run_cells",
-        "pair_inputs",
-        "association_state",
-        "training_inputs",
-        "forecast_state",
-        "future_cells",
-        "fit_inputs",
-        "fit_state",
-        "table_fits",
-        "finding_policy",
-    }
-    for declared, part in zip(contract.parts, parts, strict=True):
-        if declared.role in closed_roles:
-            if (
-                declared.key_fields
-                or len(part.table) != 1
-                or declared.schema.names != [declared.role + "__retained"]
-                or declared.schema.field(0).type != pa.string()
-            ):
-                raise _invalid("closed retained state must be one exact string payload")
-            continue
-        part_keys = _pandas_key_index(part.table, declared.key_fields, nullable)
-        if (
-            declared.key_fields == contract.key_fields
-            and declared.role not in subset_roles
-            and part_keys != primary_keys
-        ):
-            raise _invalid(f"{declared.role} complete keys differ")
-        for name in declared.key_fields:
-            if declared.schema.field(name).type != contract.schema.field(name).type:
-                raise _invalid(f"{declared.role} key types differ")
-    if method_state is None:
-        return
-    if _pandas_key_index(method_state, contract.key_fields, nullable) != primary_keys:
-        raise _invalid("method state keys differ from the primary exchange")
-    primary_rows = _pandas_records(primary, contract.schema)
-    state_rows = _pandas_records(method_state, contract.state_schema or pa.schema([]))
-    states = {tuple(row[name] for name in contract.key_fields): row for row in state_rows}
-    if contract.state_kind in (
-        "difference",
-        "relative_change",
-        "relation_ratio",
-        "share",
-        "penetration",
-        "standardized",
-        "ranking",
-        "attribution_additive",
-        "attribution_component_mix",
-    ):
-        for row in primary_rows:
-            state = states[tuple(row[name] for name in contract.key_fields)]
-            if state.get("status") != row.get("cell_tag"):
-                raise _invalid("method state status differs from its primary Cell")
-    elif contract.state_kind == "table":
-        if any(state.get("status") != "accepted" for state in states.values()):
-            raise _invalid("display method status differs")
-    elif contract.state_kind == "cohort" and any(
-        state.get("status") != "accepted" for state in states.values()
-    ):
-        raise _invalid("cohort state contains an unaccepted target")
-    if contract.state_kind == "spearman" and any(part.role == "pair_inputs" for part in parts):
-        for row in primary_rows:
-            state = states[tuple(row[name] for name in contract.key_fields)]
-            status = state.get("status")
-            if (
-                row.get("status") != status
-                or (status == "valid") != (row.get("cell_tag") == "defined")
-                or (status != "valid" and row.get("cell_reason") != status)
-            ):
-                raise _invalid("Spearman state and primary Cell disagree")
-    if contract.state_kind in (
-        "original_min",
-        "original_max",
-        "original_mean",
-        "original_fold",
-        "original_sum",
-        "original_sum_zero",
-        "original_count",
-        "original_ratio",
-        "original_weighted_mean",
-        "original_linear",
-        "row_min",
-        "row_max",
-        "row_mean",
-        "row_sum",
-        "row_count",
-        "row_count_defined",
-    ):
-        role = "original_state" if contract.state_kind.startswith("original_") else "row_state"
-        state_part = next((part for part in parts if part.role == role), None)
-        if state_part is None:
-            raise _invalid("missing required numerical state part")
-        part_schema = next(part.schema for part in contract.parts if part.role == role)
-        keyed_state = {
-            tuple(row[name] for name in contract.key_fields): row
-            for row in _pandas_records(state_part.table, part_schema)
-        }
-        original = next(
-            (item for item in contract.signature.parts if isinstance(item, OriginalStatePart)),
-            None,
-        )
-        for row in primary_rows:
-            key = tuple(row[name] for name in contract.key_fields)
-            if not state_matches(
-                contract.state_kind,
-                row,
-                keyed_state[key],
-                empty_rules=original.empty_rules if original is not None else (),
-            ):
-                raise _invalid("method part and primary numerical state disagree")
 
 
 def _validate_pandas_cells(frame: pd.DataFrame, schema: pa.Schema) -> None:
@@ -1550,7 +1461,7 @@ def from_receipts(selected: FixedInput, contract: ExchangeContract) -> ExchangeR
                     for column, field in zip(selected.row.schema.columns, actual, strict=True)
                 ):
                     raise _invalid("fixed primary nullability differs from its row contract")
-            frame = pd.read_parquet(path)
+            frame = pd.read_parquet(path, dtype_backend="pyarrow")
             if (
                 tuple(frame.columns) != tuple(actual.names)
                 or len(frame) != receipt.realized_row_count

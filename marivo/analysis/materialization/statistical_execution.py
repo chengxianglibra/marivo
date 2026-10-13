@@ -1269,9 +1269,18 @@ def _verify_ranks(original: tuple[Fraction, ...], retained: tuple[RationalFact, 
         start = end
 
 
-def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
+def validate(
+    contract: ExchangeContract, primary: pd.DataFrame, parts: tuple[ExchangePart, ...]
+) -> None:
     """Reject malformed retained facts through the shared integrity error owner."""
     try:
-        _validate(contract, primary, parts)
+        _validate(
+            contract,
+            to_arrow(primary, contract.schema),
+            tuple(
+                ArrowPart(part.role, to_arrow(part.table, declared.schema))
+                for part, declared in zip(parts, contract.parts, strict=True)
+            ),
+        )
     except (ValueError, TypeError, ArithmeticError, StopIteration, IndexError, KeyError) as error:
         raise invalid("invalid frozen statistical equation or view") from error

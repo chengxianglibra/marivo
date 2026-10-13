@@ -311,7 +311,7 @@ def ranked(
     return output
 
 
-def finish(node: MethodNode, table: pd.DataFrame) -> pd.DataFrame:
+def finish(node: MethodNode, table: pd.DataFrame, schema: pa.Schema) -> pd.DataFrame:
     """Finish only controlled display preparation; no source or Catalog access."""
     params = node.parameters
     if not isinstance(params, DisplayRank):
@@ -320,10 +320,7 @@ def finish(node: MethodNode, table: pd.DataFrame) -> pd.DataFrame:
     partitions = tuple(
         f"partitions__partition_{i}" for i in range(len(params.partition_types))
     ) or ("partitions__partition",)
-    rows: list[dict[str, object]] = [
-        {name: value for name, value in row.items() if isinstance(name, str)}
-        for row in table.to_dict("records")
-    ]
+    rows = _pandas_records(table, schema)
     order = ranked(
         rows, keys, params.order, params.ties, partitions, node.signature.domain.instance_key
     )
@@ -338,7 +335,7 @@ def finish(node: MethodNode, table: pd.DataFrame) -> pd.DataFrame:
 
 def _logical_rows(frame: pd.DataFrame, schema: pa.Schema) -> list[dict[str, object]]:
     if cell_table_binding(schema).cells:
-        return cell_rows(to_arrow(frame, schema))
+        return cell_rows(numeric_primary(to_arrow(frame, schema)))
     return _pandas_records(frame, schema)
 
 
@@ -367,7 +364,7 @@ def flatten(result: ExchangeResult) -> pd.DataFrame:
                 if identity not in indexed:
                     raise invalid("retained display input is missing a complete receiver key")
                 row[name] = indexed[identity][name]
-    return pd.DataFrame(table_rows, columns=columns)
+    return pd.DataFrame(table_rows, columns=columns, dtype="object")
 
 
 def _fixed_rows(result: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
@@ -395,6 +392,7 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
                 for row in _logical_rows(first.primary, first.contract.schema)
             ],
             columns=keys,
+            index=range(len(first.primary)),
         )
     )
     if isinstance(params, DisplayRank):
@@ -407,9 +405,10 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         table = table.loc[
             :, [name for name in table.columns if name not in previous_display]
         ].copy()
-    receiver = {
+    ordered_keys = tuple(
         tuple(row[k] for k in keys) for row in _logical_rows(first.primary, first.contract.schema)
-    }
+    )
+    receiver = set(ordered_keys)
     for i, source in enumerate(inputs):
         rows = _fixed_rows(source)
         if source.contract.key_fields != keys or (
@@ -421,8 +420,9 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
         if isinstance(params, DisplayTable):
             for field in ("value", "cell_tag", "cell_reason"):
                 table[f"column_{i}__{field}"] = pd.Series(
-                    [rows[tuple(row[k] for k in keys)][field] for row in table.to_dict("records")],
+                    [rows[key][field] for key in ordered_keys],
                     index=table.index,
+                    dtype="object",
                 )
         elif i:
             if any(row["cell_tag"] not in ("defined", "null") for row in rows.values()):
@@ -462,8 +462,8 @@ def fixed(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) ->
                 if signature_part.role == "column_bindings" and isinstance(params, DisplayTable)
                 else [0] * len(table)
             )
-            table[name] = values
-    table = finish(node, table)
+            table[name] = pd.Series(values, index=table.index, dtype="object")
+    table = finish(node, table, pa.Schema.from_pandas(table, preserve_index=False))
     primary_columns = (
         (*keys, "value", "cell_tag", "cell_reason")
         if isinstance(params, DisplayRank)
@@ -623,7 +623,7 @@ def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPa
         original = {tuple(row[k] for k in keys): row for row in rows}
         for role in ("partitions", "ordering"):
             role_rows = cell_rows(by_role[role])
-            _validate_rows(role_rows, keys, nullable_keys, contract.cell_reasons)
+            _validate_keys(role_rows, keys, nullable_keys)
             if {tuple(row[k] for k in keys) for row in role_rows} != set(original):
                 raise invalid(
                     "independent partition or ordering keys differ from the full ranking domain"
@@ -782,6 +782,7 @@ def project(source: ExchangeResult, name: Literal["values", "ranks"]) -> Exchang
             for row in _logical_rows(selected.table, selected_contract.schema)
         ],
         columns=(*source.contract.key_fields, "value", "cell_tag", "cell_reason"),
+        dtype="object",
     )
     primary_schema = pa.schema(
         [

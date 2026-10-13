@@ -24,6 +24,7 @@ from marivo.analysis.materialization import deviation_execution as execution
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
+    ExchangePart,
     ExchangeResult,
     from_arrow,
     from_pandas,
@@ -35,6 +36,11 @@ from marivo.analysis.refs import ArtifactRef
 from tests.support.json import arr as array_json
 from tests.support.json import checked
 from tests.support.json import obj as object_json
+
+
+def _part(role: str, payload: str) -> ExchangePart:
+    part = execution._part(role, payload)
+    return ExchangePart(part.role, part.table.to_pandas())
 
 
 def _input(
@@ -190,9 +196,9 @@ def test_self_consistent_digests_do_not_repair_damaged_authority(damage: str) ->
             ),
         )
     parts = tuple(
-        execution._part("fit_state", execution.STATE.dump_json(state).decode())
+        _part("fit_state", execution.STATE.dump_json(state).decode())
         if p.role == "fit_state"
-        else execution._part("finding_policy", "{}")
+        else _part("finding_policy", "{}")
         if damage == "policy" and p.role == "finding_policy"
         else p
         for p in result.parts
@@ -289,8 +295,7 @@ def test_mixed_table_capture_preserves_independent_fit_authority(damage: str) ->
             capture = replace(capture, columns=(column,))
         payload = execution.TABLE_FITS.dump_json(capture).decode()
     parts = tuple(
-        execution._part("table_fits", payload) if p.role == "table_fits" else p
-        for p in result.parts
+        _part("table_fits", payload) if p.role == "table_fits" else p for p in result.parts
     )
     with pytest.raises(StatisticalRelationError) as raised:
         from_pandas(result.primary, result.contract, parts=parts, method_state=result.method_state)
@@ -339,9 +344,9 @@ def test_self_consistent_ipc_digests_cannot_change_typed_carriers(damage: str) -
             state, input_digest=hashlib.sha256(execution.INPUTS.dump_json(inputs)).hexdigest()
         )
     parts = tuple(
-        execution._part(p.role, execution.INPUTS.dump_json(inputs).decode())
+        _part(p.role, execution.INPUTS.dump_json(inputs).decode())
         if p.role == "fit_inputs"
-        else execution._part(p.role, execution.STATE.dump_json(state).decode())
+        else _part(p.role, execution.STATE.dump_json(state).decode())
         if p.role == "fit_state"
         else p
         for p in result.parts
@@ -386,9 +391,9 @@ def test_representative_closed_recovery_facts_reject_after_clean_authority(
     state_payload["input_digest"] = hashlib.sha256(input_json.encode()).hexdigest()
     state_json = json.dumps(state_payload, separators=(",", ":"))
     parts = tuple(
-        execution._part(p.role, input_json)
+        _part(p.role, input_json)
         if p.role == "fit_inputs"
-        else execution._part(p.role, state_json)
+        else _part(p.role, state_json)
         if p.role == "fit_state"
         else p
         for p in result.parts
@@ -425,17 +430,21 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
     inputs, state = execution._decode(result.parts)
     saved_state = next(p for p in inputs.parts if p.role == "fit_state")
     table = execution.load(saved_state.table)
-    payload = object_json(checked(json.loads(table["fit_state__retained"].iloc[0])))
+    payload = object_json(checked(json.loads(table["fit_state__retained"][0].as_py())))
     if damage == "version":
         payload["version"] = "r8.fit_state/v2"
     else:
         fit = object_json(object_json(array_json(payload["partitions"])[0])["fit"])
         fit["center"] = {"numerator": "0", "denominator": "1"}
-    damaged = execution._part("fit_state", json.dumps(payload, separators=(",", ":")))
+    damaged = _part("fit_state", json.dumps(payload, separators=(",", ":")))
     inputs = replace(
         inputs,
         parts=tuple(
-            replace(p, table=execution.save(damaged.table)) if p.role == "fit_state" else p
+            replace(
+                p, table=execution.save(pa.Table.from_pandas(damaged.table, preserve_index=False))
+            )
+            if p.role == "fit_state"
+            else p
             for p in inputs.parts
         ),
     )
@@ -446,11 +455,11 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
     policy = POLICY.validate_json(policy_part.table["finding_policy__retained"].iloc[0])
     policy = replace(policy, ordered_input_bindings=("capture:" + digest,))
     parts = tuple(
-        execution._part(p.role, encoded.decode())
+        _part(p.role, encoded.decode())
         if p.role == "fit_inputs"
-        else execution._part(p.role, execution.STATE.dump_json(state).decode())
+        else _part(p.role, execution.STATE.dump_json(state).decode())
         if p.role == "fit_state"
-        else execution._part(p.role, POLICY.dump_json(policy).decode())
+        else _part(p.role, POLICY.dump_json(policy).decode())
         if p.role == "finding_policy"
         else p
         for p in result.parts

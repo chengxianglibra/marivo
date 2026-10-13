@@ -253,7 +253,10 @@ def _exchange_signature() -> Signature:
     )
 
 
-def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> None:
+@pytest.mark.parametrize("arrow_dtypes", (False, True))
+def test_source_parquet_and_pandas_share_checked_exchange(
+    tmp_path: Path, arrow_dtypes: bool
+) -> None:
     binding = _binding()
     signature = _exchange_signature()
     part_contract = PartContract("sum", binding.parts[0].schema, ("id",))
@@ -291,8 +294,11 @@ def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> Non
         contract,
         parts=(ArrowPart("sum", shuffled),),
     )
+    pandas_input = pa.Table.from_batches((primary_batch,)).to_pandas(
+        types_mapper=pd.ArrowDtype if arrow_dtypes else None
+    )
     pandas = from_pandas(
-        pa.Table.from_batches((primary_batch,)).to_pandas(types_mapper=pd.ArrowDtype),
+        pandas_input,
         contract,
         parts=(ExchangePart("sum", shuffled.to_pandas(types_mapper=pd.ArrowDtype)),),
     )
@@ -307,12 +313,34 @@ def test_source_parquet_and_pandas_share_checked_exchange(tmp_path: Path) -> Non
         ),
         contract,
     )
-    assert source.primary.equals(pandas.primary)
     assert source.primary.equals(fixed.primary)
     assert len(source.parts[0].table) == len(fixed.parts[0].table) == 4
     source_rows = _pandas_records(source.primary, source.contract.schema)
-    assert source_rows[0]["value"] == float(2**53 + 7)
+    assert source_rows[0]["value"] == 2**53 + 7
+    pandas_rows = _pandas_records(pandas.primary, pandas.contract.schema)
+    expected_rows = [dict(row) for row in source_rows]
+    expected_rows[0]["value"] = int(pandas_input["value"].iloc[0])
+    assert pandas_rows == expected_rows
+    if arrow_dtypes:
+        assert source.primary.equals(pandas.primary)
     assert [row["cell_tag"] for row in source_rows] == ["defined", "null", "undefined", "unknown"]
+    assert [row["value"] for row in _pandas_records(pandas.primary, pandas.contract.schema)][
+        1:
+    ] == [
+        None,
+        None,
+        None,
+    ]
+    projected_schema = part_contract.schema.with_metadata(source.contract.schema.metadata)
+    projected = from_pandas(
+        source.primary,
+        replace(source.contract, parts=(replace(part_contract, schema=projected_schema),)),
+        parts=source.parts,
+    )
+    assert projected.parts[0].table.equals(source.parts[0].table)
+    assert projected.contract.parts[0].schema.equals(
+        source.contract.parts[0].schema, check_metadata=True
+    )
     with pytest.raises(MaterializationError, match="missing, reordered or extra"):
         from_arrow(pa.Table.from_batches((primary_batch,)), contract)
     with pytest.raises(MaterializationError, match="complete keys differ"):

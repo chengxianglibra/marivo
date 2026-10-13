@@ -4,6 +4,7 @@ import json
 import textwrap
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from marivo.doctor import (
@@ -1168,20 +1169,12 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
         def rollback(self) -> None:
             return None
 
-        def cursor(self) -> object:
-            owner = self
-
-            class ProbeCursor:
-                def execute(self, sql: str) -> None:
-                    owner.queries.append(sql)
-
-                def fetchmany(self, _size: int) -> list[tuple[int]]:
-                    return [(1,)]
-
-                def close(self) -> None:
-                    return None
-
-            return ProbeCursor()
+        def execute(
+            self, _expression: object, *, params: dict[str, object], limit: None
+        ) -> pd.DataFrame:
+            assert params == {} and limit is None
+            self.queries.append("SELECT 1")
+            return pd.DataFrame({"probe": [1]})
 
         def disconnect(self) -> None:
             self.disconnect_calls += 1

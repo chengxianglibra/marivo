@@ -17,9 +17,14 @@ from marivo.analysis.core.model import available_facts
 from marivo.analysis.core.rules import derive
 from marivo.analysis.materialization import graph_source_execution as native
 from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import workload
 from tests.shared_fixtures import DslCaseFactory
+
+
+def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
+    return _pandas_records(result.primary, result.contract.schema)
 
 
 def _reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
@@ -86,18 +91,17 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     purposes = _reads(monkeypatch)
     result = values.execute()
     assert result._dataset is not None
-    records = result._dataset.verified().primary.to_dict("records")
+    records = _exchange_rows(result._dataset.verified())
     assert any(row["value"] is not None and row["cell_tag"] == "defined" for row in records)
     nulls = [row for row in records if pd.isna(row["value"])]
     assert nulls and all(
         row["cell_tag"] == "null" and row["cell_reason"] == "source_null" for row in nulls
     )
     assert result._dataset.verified().completed_checks == ()
-    assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
+    assert purposes == ["analysis.graph.stage"]
     purposes.clear()
     assert values.aggregate(mv.count()).execute().to_pandas().value.tolist() == [len(records)]
     assert purposes == [
-        "analysis.graph.check",
         "analysis.graph.stage",
         "analysis.graph.stage",
     ]
@@ -106,10 +110,10 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
     checks: list[str] = []
     original = native._check
 
-    def check(source, lowered, requirement, replacements):
+    def check(source, lowered, requirement):
         if isinstance(requirement, SemanticCheck):
             checks.append(requirement.requirement.obligation.fact.kind)
-        return original(source, lowered, requirement, replacements)
+        return original(source, lowered, requirement)
 
     monkeypatch.setattr(native, "_check", check)
     purposes.clear()
@@ -117,7 +121,7 @@ def test_related_field_null_is_counted_and_missing_owner_is_rejected(
         values.where(values.value.eq("east")).execute()
     assert "mapping_total" not in checks
     # The owner lookup rejects before a value predicate can hide the missing row.
-    assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
+    assert purposes == ["analysis.graph.stage"]
 
 
 def test_declared_native_inputs_need_only_one_terminal_read(
@@ -136,13 +140,13 @@ def test_declared_native_inputs_need_only_one_terminal_read(
         def forbidden_audit(*args: object, **kwargs: object) -> None:
             pytest.fail("an owned producer result was subjected to a repeated business audit")
 
-        monkeypatch.setattr(graph_exchange, "collect", forbidden_audit)
+        monkeypatch.setattr(graph_exchange, "_validate_exchange", forbidden_audit)
         result = logical.execute()
-        # Physical non-null identity admission is separate from semantic premises.
-        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
+        # Entity identity and native numeric declarations remain producer-owned premises.
+        assert purposes == ["analysis.graph.stage"]
         assert result._dataset is not None
         exchange = result._dataset.verified()
-        rows = exchange.primary.to_dict("records")
+        rows = _exchange_rows(exchange)
         assert rows == [
             {
                 "value": sum(row["amount"] for row in work.rows if isinstance(row["amount"], int)),
@@ -177,7 +181,7 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
             item.basis == "assumption" and item.fact.kind == "key_set_equal"
             for item in checked._node.root.signature.evidence
         )
-        with pytest.raises(MaterializationError, match="key_set_equal"):
+        with pytest.raises(MaterializationError, match="endpoint key sets differ"):
             left.ratio(unequal).execute()
         result = checked.execute()
         assert result._dataset is not None
@@ -185,15 +189,11 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
             item.fact.kind == "key_set_equal"
             for item in result._dataset.artifact.descriptor.completed_checks
         )
-        assert all(
-            row["value"] == 1.0 for row in result._dataset.verified().primary.to_dict("records")
-        )
+        assert all(row["value"] == 1.0 for row in _exchange_rows(result._dataset.verified()))
         first, second, wrong = left.execute(), matching.execute(), unequal.execute()
         fixed = first.ratio(second, align=mv.exact()).execute()
         assert fixed._dataset is not None
-        assert all(
-            row["value"] == 1.0 for row in fixed._dataset.verified().primary.to_dict("records")
-        )
+        assert all(row["value"] == 1.0 for row in _exchange_rows(fixed._dataset.verified()))
         with pytest.raises(MaterializationError, match="key sets differ"):
             first.ratio(wrong).execute()
 
@@ -210,7 +210,7 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         trusted = values.execute()
         assert trusted._dataset is not None
         assert trusted._dataset.artifact.descriptor.completed_checks == ()
-        assert purposes == ["analysis.graph.check", "analysis.graph.stage"]
+        assert purposes == ["analysis.graph.stage"]
         assert any(
             item.basis == "assumption" and item.fact.kind == "mapping_total"
             for item in values._node.root.signature.evidence
@@ -218,7 +218,7 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         purposes.clear()
         result = values.where(values.value.eq(1)).execute()
         assert result._dataset is not None
-        assert purposes.count("analysis.graph.check") == 2
+        assert purposes.count("analysis.graph.check") == 1
         descriptor = result._dataset.artifact.descriptor
         assert not any(item.fact.kind == "mapping_total" for item in descriptor.completed_checks)
         for relation in (values, work.session.artifact(result.state.artifact_ref)):

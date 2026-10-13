@@ -117,15 +117,23 @@ def test_source_failure_retries_have_exact_readable_runs_and_retained_history(
     assert case.session.get_run(original.run_ref).lifecycle == "failed"
 
 
-def test_real_identity_check_failure_is_bound_to_its_failed_run(
+def test_real_pairing_check_failure_is_bound_to_its_failed_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    case = analysis_dsl_case_factory("missing_key")
+    case = analysis_dsl_case_factory("j2")
+    members = _members(case)
+    region = members.read(ms.ref.dimension("sales.customer.region"))
+    selected = region.where(region.value.eq("east")).members()
+    scope = mv.time_scope(start="2026-08-01", end="2026-09-01")
+    metric = ms.ref.metric("sales.revenue")
+    via = ms.ref.relationship("sales.order_buyer")
+    current = selected.observe(metric, during=scope, via=via, by=(mv.member(),))
+    baseline = members.observe(metric, during=scope, via=via, by=(mv.member(),))
     with pytest.raises(MaterializationError) as caught:
-        _members(case).execute()
+        current.group_by(region).rollup().compare(baseline.group_by(region).rollup()).execute()
     error = caught.value
-    assert error.stage == "graph_check"
-    assert error.expected == "complete non-null Entity identity"
+    assert error.stage == "graph_local"
+    assert error.expected and error.received
     assert error.run_ref is not None
     assert case.session.get_run(error.run_ref).lifecycle == "failed"
     assert case.session.graph().artifacts == ()

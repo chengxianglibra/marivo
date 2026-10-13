@@ -169,7 +169,12 @@ def test_independent_equal_nodes_execute_distinct_source_stages(
             owners = source_trace.owners[before_owners:]
             assert owners and all(owner._closed for owner in owners)
             submissions = [item for owner in owners for item in owner.submissions]
-            stage_counts.append(sum(item.purpose == "analysis.graph.stage" for item in submissions))
+            stage_counts.append(
+                sum(
+                    item.purpose in ("analysis.graph.stage", "analysis.domain.prepare")
+                    for item in submissions
+                )
+            )
             native_counts.append(len(source_trace.native_sql) - before_native)
             assert all(item.state == "succeeded" for item in submissions)
             assert result._dataset is not None

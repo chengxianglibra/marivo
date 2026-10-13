@@ -1,26 +1,6 @@
 """Typed native-driver hooks shared by cancellation and deadline tests."""
 
-from typing import Protocol, runtime_checkable
-
-from marivo.datasource.adapters import _ClickHouseNativeStream
-
-
-class _NativeClickHouseRead(Protocol):
-    def __call__(
-        self, query: str, *, settings: dict[str, str | float | int] | None = None
-    ) -> _ClickHouseNativeStream: ...
-
-
-@runtime_checkable
-class _ClickHouseReadClient(Protocol):
-    def query_rows_stream(
-        self, query: str, *, settings: dict[str, str | float | int] | None = None
-    ) -> _ClickHouseNativeStream: ...
-
-
-@runtime_checkable
-class _ClickHouseServerError(Protocol):
-    code: int | None
+from typing import Protocol
 
 
 class _MysqlConnection(Protocol):

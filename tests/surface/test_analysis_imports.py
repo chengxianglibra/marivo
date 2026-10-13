@@ -150,7 +150,7 @@ def test_private_workers_defer_public_analysis_initialization() -> None:
     script = """
 import sys
 import marivo.analysis as mv
-from marivo.analysis.materialization import storage, reads
+from marivo.analysis.materialization import storage
 assert 'marivo.analysis._public' not in sys.modules
 assert 'marivo.analysis.session' not in sys.modules
 from marivo.analysis.materialization import graph_storage

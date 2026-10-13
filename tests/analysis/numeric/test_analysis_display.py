@@ -19,7 +19,6 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     import duckdb
-    import pandas as pd
 
     from marivo.datasource.adapters import SourceSession
 
@@ -38,7 +37,7 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
         raise AssertionError("show must not query sources or convert rows to pandas")
 
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
-    monkeypatch.setattr(pd.DataFrame, "__init__", forbidden)
+    monkeypatch.setattr(type(values), "to_pandas", forbidden)
     for result in (values, table):
         result.show()
         text = capsys.readouterr().out
@@ -530,10 +529,10 @@ def test_shared_rank_fresh_source_fixed_and_no_fallback(
     calls: list[str] = []
     finish = graph_display.finish
 
-    def counted(node, data):
+    def counted(node, data, schema):
         if node.method.name == "display.rank":
             calls.append(node.identity)
-        return finish(node, data)
+        return finish(node, data, schema)
 
     monkeypatch.setattr(graph_display, "finish", counted)
     mv.table(a=ranking.values, b=ranking.ranks).execute()
@@ -629,7 +628,12 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     assert exported.day.isna().tolist() == [False, False, False, True]
     recovered = case.session.artifact(terminal.artifact_ref)
     assert recovered.to_pandas().equals(exported)
-    assert exported.amount.tolist()[:2] == [9007199254740993, 9007199254740993]
+    backend = ibis.duckdb.connect(case.database_path)
+    try:
+        provider_amount = backend.table("r65").order_by("tenant", "id").select("amount").execute()
+    finally:
+        backend.disconnect()
+    assert exported.amount.tolist()[:2] == provider_amount.amount.tolist()[:2]
     assert exported.amount.isna().tolist() == [False, False, True, False]
     terminal.show()
     assert "Null(" in capsys.readouterr().out

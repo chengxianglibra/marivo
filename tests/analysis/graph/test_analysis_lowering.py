@@ -64,6 +64,8 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     RowState,
 )
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.local import count
 from marivo.analysis.methods.physical import (
@@ -86,6 +88,10 @@ from marivo.datasource.ir import (
 )
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract
+
+
+def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
+    return _pandas_records(result.primary, result.contract.schema)
 
 
 def _leaf(form="table", *, quantity=True):
@@ -326,9 +332,9 @@ def test_source_spearman_exact_pair_state(
         return
     result = execute_source_graph(prepared, lowered, session)
     if expected is None:
-        assert result.primary["value"].tolist() == [None]
+        assert [row["value"] for row in _exchange_rows(result)] == [None]
     else:
-        assert result.primary["value"].tolist() == pytest.approx([expected])
+        assert [row["value"] for row in _exchange_rows(result)] == pytest.approx([expected])
     assert result.primary["status"].tolist() == [status]
     assert result.parts[0].role == "pair_counts"
     assert result.parts[0].table["pair_counts__complete_pair_count"].tolist() == [complete]
@@ -1058,9 +1064,7 @@ def test_private_source_exchange_executes_lowered_count(source_case):
     admitted = _plan(_count(leaf))
     lowered = lower(admitted, bindings=(binding,))
     result = execute_source_graph(PreparedGraph(admitted), lowered, source_case[0])
-    assert result.primary.to_dict("records") == [
-        {"value": 5, "cell_tag": "defined", "cell_reason": None}
-    ]
+    assert _exchange_rows(result) == [{"value": 5, "cell_tag": "defined", "cell_reason": None}]
     assert tuple(part.role for part in result.parts) == ("row_state",)
     assert result.parts[0].table["row_state__count"].tolist() == [5]
     assert all(submission.state == "succeeded" for submission in source_case[0].submissions)
@@ -1078,9 +1082,8 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     )
     admitted = _plan(view)
     binding = replace(_bind(source_case, leaf), cell_reasons=())
-    from marivo.analysis.core.model import CoreRuleError
 
-    with pytest.raises(CoreRuleError, match="undeclared physical Cell code"):
+    with pytest.raises(MaterializationError, match="undeclared physical Cell code"):
         execute_source_graph(
             PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
         )
@@ -1095,14 +1098,14 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     result = execute_source_graph(
         PreparedGraph(admitted), lower(admitted, bindings=(declared,)), source_case[0]
     )
-    assert result.primary["cell_tag"].tolist() == [
+    assert [row["cell_tag"] for row in _exchange_rows(result)] == [
         "defined",
         "null",
         "undefined",
         "unknown",
         "defined",
     ]
-    assert result.primary["value"].tolist()[0] == 5
+    assert _exchange_rows(result)[0]["value"] == 5
 
 
 @pytest.mark.parametrize("form", ["table", "parquet"])
@@ -1136,8 +1139,8 @@ def test_registered_row_arithmetic_uses_one_semantic_policy(
         admitted = _plan(node)
         lowered = lower(admitted, bindings=(binding,))
         result = execute_source_graph(PreparedGraph(admitted), lowered, source)
-        assert result.primary["value"].tolist() == [expected]
-        assert result.primary["cell_tag"].tolist() == ["defined"]
+        assert [row["value"] for row in _exchange_rows(result)] == [expected]
+        assert [row["cell_tag"] for row in _exchange_rows(result)] == ["defined"]
         assert len(result.completed_checks) == 1
         assert result.completed_checks[0].requirement.obligation.check_id == (
             "source.finite_numeric@v1"
@@ -1180,7 +1183,7 @@ def test_false_source_identity_declaration_is_not_reaudited(source_case):
     lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
     # This declaration is intentionally false. Analysis does not audit it.
     result = execute_source_graph(PreparedGraph(admitted), lowered, session)
-    assert result.primary["value"].tolist() == [5]
+    assert [row["value"] for row in _exchange_rows(result)] == [5]
 
 
 def test_decimal_count_admits_but_unqualified_time_rejects_before_business_read():
@@ -1227,7 +1230,7 @@ def test_shared_source_relation_keeps_logical_sharing_with_one_source_read(sourc
     assert len(result.primary) == 5
     assert result.contract.key_fields == ("key_0", "key_1")
     assert result.contract.schema.field("key_1").type == pa.int64()
-    assert {(row["key_0"], row["key_1"]) for row in result.primary.to_dict("records")} == {
+    assert {(row["key_0"], row["key_1"]) for row in _exchange_rows(result)} == {
         (row["tenant"], row["id"]) for row in _rows().to_pylist()
     }
     terminal = [

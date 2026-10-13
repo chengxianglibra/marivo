@@ -445,7 +445,7 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
             if any(set(i) != set(keys) for i in lookup):
                 raise invalid("runs endpoint coverage has different complete keys")
             if any(
-                side + "_endpoint__complete" not in table.column_names
+                side + "_endpoint__complete" not in table.columns
                 for side, table in zip(("current", "baseline"), endpoints, strict=True)
                 if table is not None
             ):
@@ -594,7 +594,7 @@ def subject_mapping(capture: Capture, views: pd.DataFrame) -> pa.Table:
     mapped = []
     subject_names = [n for n in subject.columns if n not in capture.keys]
     subjects = subject.to_dict(orient="records")
-    for row in views.to_dict(orient="records"):
+    for row in to_arrow(views, _VIEW_SCHEMA).to_pylist():
         images = [subjects[original[source_keys[i]]] for i in row["input_rows"]]
         image = {name: images[0][name] for name in subject_names}
         if any(any(item[n] != image[n] for n in subject_names) for item in images):
@@ -629,7 +629,7 @@ def _verify_intervals(
     }
     covered: set[int] = set()
     previous: tuple[str, int] | None = None
-    for row in views.to_dict(orient="records"):
+    for row in to_arrow(views, schema).to_pylist():
         indices = row["input_rows"]
         if (
             not indices
@@ -695,7 +695,20 @@ def _verify_intervals(
         raise invalid("run witnesses do not cover every original true cell exactly once")
 
 
-def validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
+def validate(
+    contract: ExchangeContract, primary: pd.DataFrame, parts: tuple[ExchangePart, ...]
+) -> None:
+    _validate(
+        contract,
+        to_arrow(primary, contract.schema),
+        tuple(
+            ArrowPart(part.role, to_arrow(part.table, declared.schema))
+            for part, declared in zip(parts, contract.parts, strict=True)
+        ),
+    )
+
+
+def _validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
     capture, state = _decode(parts)
     from marivo.analysis.materialization.graph_findings import Policy, _policy
 

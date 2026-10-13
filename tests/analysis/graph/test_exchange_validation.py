@@ -136,7 +136,7 @@ def test_pandas_exchange_preserves_large_complete_keys_and_empty_frames() -> Non
 def test_pandas_exchange_rejects_duplicate_or_illegal_null_keys(corruption: str) -> None:
     keys: list[tuple[str | None, int, int]] = [("a", 2**53 + index, 1) for index in range(4)]
     keys[-1] = keys[0] if corruption == "duplicate" else (None, 2**53 + 3, 1)
-    with pytest.raises(MaterializationError, match="null or duplicate complete key"):
+    with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
         from_pandas(_primary(keys), _contract())
     if corruption == "null":
         assert len(from_pandas(_primary(keys), _contract(nullable=True)).primary) == 4

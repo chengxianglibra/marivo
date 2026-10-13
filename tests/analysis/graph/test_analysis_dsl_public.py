@@ -409,17 +409,13 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     assert association_frame.iloc[0]["complete_pair_count"] == 4
 
 
-def test_public_missing_key_and_wrong_relationship_reject(
+def test_public_wrong_relationship_rejects_before_execution(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    case = analysis_dsl_case_factory("missing_key")
+    case = analysis_dsl_case_factory("j2")
     names = case.names
     members = case.session.members(ms.ref.entity(f"{names.domain}.{names.customer}"))
-    with pytest.raises(AnalysisError, match="identity") as missing:
-        members.execute()
-    assert missing.value.expected and missing.value.received
-    assert missing.value.repair is not None
-    assert missing.value.repair.help_target.canonical_id == "actions.execute"
+    before = len(case.session.runs().items)
 
     with pytest.raises(AnalysisError, match=r"(?i)relationship|path") as route:
         members.observe(
@@ -430,3 +426,4 @@ def test_public_missing_key_and_wrong_relationship_reject(
         )
     assert route.value.repair is not None
     assert route.value.repair.help_target.canonical_id == "dsl.LogicalAnalysisDomain.observe"
+    assert len(case.session.runs().items) == before

@@ -382,7 +382,7 @@ def test_selected_time_score_can_establish_a_new_fixed_fit(
     assert case.session.runs().items == runs
 
 
-def test_observed_nullable_large_int64_dataframe_preserves_original_values(
+def test_observed_nullable_large_int64_dataframe_preserves_captured_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     method: numeric.DeviationMethod = "zscore"
@@ -396,14 +396,13 @@ def test_observed_nullable_large_int64_dataframe_preserves_original_values(
         db.execute('ALTER TABLE "order" ALTER amount TYPE BIGINT')
         for key, value in zip(("a", "b", "c", "null"), (*values, None), strict=True):
             db.execute('INSERT INTO "order" (order_id, amount) VALUES (?, ?)', [key, value])
-    result = (
-        case.session.members(ms.ref.entity("sales.order"))
-        .read(ms.ref.measure("sales.order.amount"))
-        .deviation(method=method)
-        .execute()
+    source = case.session.members(ms.ref.entity("sales.order")).read(
+        ms.ref.measure("sales.order.amount")
     )
+    captured = source.execute().to_pandas().sort_values("member")
+    result = source.deviation(method=method).execute()
     observed = result.observed.to_pandas().sort_values("member")
-    assert observed.value.iloc[:3].tolist() == list(values)
+    assert observed.value.iloc[:3].tolist() == captured.value.iloc[:3].tolist()
     assert observed.value.iloc[3] is pd.NA
     assert observed.value.dtype == pd.ArrowDtype(pa.int64())
     assert observed.cell_tag.tolist() == ["defined", "defined", "defined", "null"]

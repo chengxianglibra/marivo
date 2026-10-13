@@ -408,17 +408,18 @@ def validate_endpoint(declaration: EndpointPart, table: pa.Table, *, complete: b
     if state is None:
         return
     prefix = declaration.side + "_endpoint__"
+    table = numeric_primary(
+        cell_rename(table, ["value" if n == prefix + "value" else n for n in table.column_names])
+    )
     table = cell_rename(
-        numeric_primary(
-            cell_rename(
-                table, ["value" if n == prefix + "value" else n for n in table.column_names]
-            )
-        ),
+        table,
         [prefix + "value" if n == "value" else n for n in table.column_names],
     )
     for row in cell_rows(table):
         original = {"original_state__" + c: row[prefix + "state__" + c] for c in state.components}
         cell = {c: row[prefix + c] for c in ("value", "cell_tag", "cell_reason")}
+        if "__duration_unit" in row:
+            cell["__duration_unit"] = row["__duration_unit"]
         if (
             not complete
             and row[prefix + "complete"] is False

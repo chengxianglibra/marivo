@@ -140,7 +140,7 @@ def _read_pandas_payload(
             or path.stat().st_size != receipt.file_manifest[0].size_bytes
         ):
             raise invalid("committed Parquet payload differs from its receipt")
-        frame = pd.read_parquet(path)
+        frame = pd.read_parquet(path, dtype_backend="pyarrow")
         if tuple(frame.columns) != tuple(schema.names) or len(frame) != receipt.realized_row_count:
             raise invalid("committed pandas result differs from its frozen Parquet payload")
         return frame, schema

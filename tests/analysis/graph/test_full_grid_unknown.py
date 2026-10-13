@@ -301,8 +301,8 @@ def test_business_coverage_source_selection_keeps_original_support(
     assert fixed.to_pandas().cell_tag.tolist() == ["defined"] * 6
     assert fixed._dataset is not None
     support = next(p.table for p in fixed._dataset.verified().parts if p.role == "coverage")
-    assert support.num_rows == 6
-    assert "coverage__partial_value" in support.column_names
+    assert len(support) == 6
+    assert "coverage__partial_value" in support.columns
     for receiver in (selected, fixed):
         with pytest.raises(AnalysisError):
             receiver.runs(where=receiver.value.gt(-1))

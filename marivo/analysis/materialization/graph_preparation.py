@@ -50,6 +50,7 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
+    ReferenceDerive,
     RowState,
     TimeProduct,
     TimeRunRead,
@@ -323,6 +324,12 @@ def _execute(
                 (
                     CellCompare,
                     ComparisonRead,
+                    PartsTransport,
+                    RowState,
+                    DisplayRank,
+                    DisplayTable,
+                    CellDerive,
+                    ReferenceDerive,
                     AttributionDerive,
                     AssociationFit,
                     AssociationRead,
@@ -459,7 +466,9 @@ def _execute(
         if stage.transport is not None:
             from marivo.analysis.materialization.graph_source_execution import _split_transport
 
-            table, retained_parts, retained_schemas = _split_transport(stage, table, stage_schema)
+            table, retained_parts, retained_schemas = _split_transport(
+                stage, table, stage_schema, source_schema
+            )
         _consume_field(stage, table, stage_schema)
         if isinstance(params, PreparedObservation):
             stage_schema = stage_schema.with_metadata(
@@ -514,6 +523,15 @@ def _execute(
                     stage="consume",
                 )
             completed.append(CompletedCheck(requirement, prior.result_digest))
+        if isinstance(params, ReferenceDerive):
+            from marivo.analysis.materialization.graph_reference import fixed_parts
+            from marivo.analysis.materialization.graph_reference import result as reference_result
+
+            values = tuple(results[key] for key in item.stage.inputs)
+            results[item.stage.output] = reference_result(
+                item.stage.node, fixed_parts(item.stage.node, values), item.stage.node.identity
+            )
+            continue
         if isinstance(params, (DisplayRank, DisplayTable)):
             from marivo.analysis.materialization.graph_display import fixed
 

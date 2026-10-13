@@ -10,6 +10,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
+from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.analysis.methods import builtin
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
@@ -25,6 +26,10 @@ from marivo.analysis.methods.physical import (
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.analysis.graph.physical_workloads import _rows, workload
+
+
+def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
+    return _pandas_records(result.primary, result.contract.schema)
 
 
 def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -> None:
@@ -132,7 +137,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         checked = result._dataset.verified()
         assert checked.primary is not None
         assert checked.contract.schema.field("value").type == pa.int64()
-        assert checked.primary.to_dict("records") == [
+        assert _exchange_rows(checked) == [
             {"value": total, "cell_tag": "defined", "cell_reason": None}
         ]
         parts = {part.role: part.table for part in checked.parts}

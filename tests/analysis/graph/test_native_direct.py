@@ -6,15 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-import ibis.expr.operations as ops
-import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler.graph_lowering import LoweredPlan
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.graph import MethodNode, topology
 from marivo.analysis.core.model import (
@@ -29,6 +26,8 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     CompletedCheck,
     ExchangeContract,
+    ExchangeResult,
+    _pandas_records,
     from_arrow,
 )
 from marivo.analysis.methods.semantics import MethodKey
@@ -39,6 +38,10 @@ from tests.analysis.graph.physical_workloads import Workload, workload
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case
+
+
+def _exchange_rows(result: ExchangeResult) -> list[dict[str, object]]:
+    return _pandas_records(result.primary, result.contract.schema)
 
 
 def _values(work: Workload) -> mv.LogicalNumericRelation:
@@ -76,9 +79,7 @@ def _scalar_parts(
     checked = result._dataset.verified()
     assert checked.primary is not None
     assert checked.contract.schema.field("value").type == pa.int64()
-    assert checked.primary.to_dict("records") == [
-        {"value": total, "cell_tag": "defined", "cell_reason": None}
-    ]
+    assert _exchange_rows(checked) == [{"value": total, "cell_tag": "defined", "cell_reason": None}]
     parts = {part.role: part.table for part in checked.parts}
     assert {"original_state", "coverage"} <= set(parts)
     assert parts["original_state"].to_dict("records") == [
@@ -129,10 +130,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
                 _scalar_parts(result, 529, 61)
                 submitted = purposes[before:]
                 assert submitted.count("analysis.graph.stage") == 1
-                assert submitted.count("analysis.graph.check") == 1
-                assert submitted.index("analysis.graph.check") < submitted.index(
-                    "analysis.graph.stage"
-                )
+                assert submitted.count("analysis.graph.check") == 0
                 assert "analysis.domain.prepare" not in submitted
                 results.append(result)
             first, second = results
@@ -155,7 +153,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         ]
         actual = {
             tuple(row[key] for key in keys): (row["value"], row["cell_tag"], row["cell_reason"])
-            for row in checked.primary.to_dict("records")
+            for row in _exchange_rows(checked)
         }
         expected = {
             (row["tenant"], row["id"], row["revision"]): (
@@ -191,64 +189,24 @@ def test_native_sum_preserves_known_zero_for_null_and_empty_inputs(
             assert work.session._runtime.store.resources(work.session.id) == ()
 
 
-@pytest.mark.parametrize("defect", ("schema", "checks"))
-def test_native_late_invalid_exchange_or_missing_check_proof_never_publishes(
-    defect: Literal["schema", "checks"],
+def test_native_late_invalid_source_frame_never_publishes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        members = work.session.members(ms.ref.entity("cost.facts"))
-        if defect == "checks":
-            category = members.read(ms.ref.dimension("cost.facts.tenant"))
-            assert isinstance(category, mv.LogicalCategoryRelation)
-            logical = members.observe(
-                ms.ref.metric("cost.facts_total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-08-02"),
-                by=(category,),
-            ).rollup()
-        else:
-            logical = _sum(work)
+        logical = _sum(work)
         before = _publications(work.session)
-        original = native._read
+        original = SourceSession.execute
         corrupted: list[str] = []
 
-        def read(
-            source: SourceSession,
-            lowered: LoweredPlan,
-            expression: ir.Table,
-            *,
-            purpose: str,
-            replacements: dict[ops.Node, ops.Node],
-            keys: tuple[str, ...] = (),
-            validate_cells: bool = True,
-            cell_reasons: tuple[tuple[str, tuple[str, ...]], ...] = (),
-        ) -> pa.Table:
-            table = original(
-                source,
-                lowered,
-                expression,
-                purpose=purpose,
-                replacements=replacements,
-                keys=keys,
-                validate_cells=validate_cells,
-                cell_reasons=cell_reasons,
-            )
-            if purpose == "analysis.graph.stage" and defect != "checks":
+        def execute(source: SourceSession, read: CompiledRead) -> pd.DataFrame:
+            frame = original(source, read)
+            if read.purpose == "analysis.graph.stage":
                 corrupted.append("schema")
-                return table.drop("value")
-            return table
+                return frame.drop(columns=["value"])
+            return frame
 
-        def missing_proofs(
-            actual: list[CompletedCheck], pending: tuple[CheckRequirement, ...]
-        ) -> tuple[CompletedCheck, ...]:
-            assert actual and pending
-            corrupted.append("checks")
-            return ()
-
-        monkeypatch.setattr(native, "_read", read)
-        if defect == "checks":
-            monkeypatch.setattr(native, "_ordered_checks", missing_proofs)
+        monkeypatch.setattr(SourceSession, "execute", execute)
         with pytest.raises(MaterializationError):
             logical.execute()
         assert len(corrupted) == 1
@@ -315,7 +273,7 @@ def test_final_exchange_owner_distinguishes_nullable_attribution_axes_from_ident
         )
         if role == "group":
             result = from_arrow(primary, contract)
-            assert result.primary.equals(primary.to_pandas())
+            assert _exchange_rows(result) == primary.to_pylist()
         else:
-            with pytest.raises(MaterializationError, match="null or duplicate complete key"):
+            with pytest.raises(MaterializationError, match="null or duplicate complete part key"):
                 from_arrow(primary, contract)

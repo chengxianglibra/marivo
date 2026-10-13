@@ -120,12 +120,20 @@ def _manifest() -> Manifest:
 
     governed = Owner(
         "ibis_governed_read_check_probe",
-        "Selected SourceSession or its native probe submits exact Ibis compilation at the driver boundary.",
+        "Selected SourceSession or its connectivity probe executes the unchanged Ibis expression through the backend.",
     )
     add(
         "datasource/adapters",
-        ("_native_cursor",),
-        ("cursor.execute", "connection.execute", "connection.query_rows_stream"),
+        ("_probe_backend",),
+        ("backend.execute",),
+        governed,
+    )
+    add("datasource/adapters", ("SourceSession.execute",), ("self._backend.execute",), governed)
+    add("datasource/adapters", ("SourceSession.collect_bounded",), ("self.execute",), governed)
+    add(
+        "analysis/materialization/graph_source_execution",
+        ("_read", "execute_source_graph"),
+        ("source.execute",),
         governed,
     )
     compile_owner = Owner(
@@ -135,7 +143,7 @@ def _manifest() -> Manifest:
     add("datasource/adapters", ("_probe_backend",), ("backend.compile",), compile_owner)
     add(
         "datasource/adapters",
-        ("SourceSession._compile_read",),
+        ("SourceSession._compile_read", "SourceSession.execute"),
         ("self._backend.compile",),
         compile_owner,
     )

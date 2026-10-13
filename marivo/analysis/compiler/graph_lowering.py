@@ -4210,11 +4210,6 @@ def lower(
                     ),
                 )
                 and any(
-                    isinstance(ancestor, MethodNode)
-                    and isinstance(ancestor.parameters, ComparisonRead)
-                    for ancestor in topology(owner)
-                )
-                and any(
                     isinstance(stage, LocalMethodStage) and stage.node is owner
                     for stage in admitted.stages
                 )

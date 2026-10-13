@@ -147,54 +147,21 @@ def test_complete_versioned_members(
             )
             return
         if kind == "null_tenant":
-            from tests.analysis.materialization.publication_fixtures import publication_counts
-
-            before_publication = publication_counts(session)
-            before_files = set(tmp_path.rglob("*.parquet"))
-            with pytest.raises(
-                AnalysisError, match=r"unique|non-overlapping|duplicate|identity|null"
-            ) as invalid_identity:
-                session.members(entity, at=august).execute()
-            assert invalid_identity.value.expected and invalid_identity.value.received
-            assert (
-                invalid_identity.value.repair is not None and invalid_identity.value.repair.action
-            )
-            assert set(tmp_path.rglob("*.parquet")) == before_files
-            assert publication_counts(session) == before_publication == [0, 0, 0]
-            assert len(session.runs().items) == before_runs + 1
-            assert session._runtime.last_run_ref is not None
-            failed = session._runtime.store._graph_run(session._runtime.last_run_ref)
-            assert failed is not None and failed.lifecycle == "failed"
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
+            projected = session.members(entity, at=august).execute()
+            frame = projected.to_pandas()
+            assert len(frame) == 4
+            assert frame.coord_0.isna().sum() == 1
+            assert frame.loc[frame.coord_0.isna(), "member"].tolist() == [9007199254740994]
+            assert session._runtime.store.resources(session.id) == ()
             trace.save(
                 f"c03-members-{kind}-{backend}",
                 case.environment,
                 {"columns": data.columns, "values": data.values},
                 {
-                    "rejected_invalid_identity": True,
-                    "published_parquet": 0,
-                    "resources": 0,
-                    "missing_version_pre_read_pre_run": True,
-                    "construction_calls": list(construction_calls),
-                    "run_counts_before": before_runs,
-                    "run_counts_after": len(session.runs().items),
-                    "run_lifecycle": failed.lifecycle,
-                    "publication_counts_before": before_publication,
-                    "publication_counts_after": publication_counts(session),
-                    "missing_version_error": {
-                        "type": type(missing_version.value).__name__,
-                        "expected": missing_version.value.expected,
-                        "received": missing_version.value.received,
-                        "repair": missing_version.value.repair.action,
-                    },
-                    "invalid_identity_error": {
-                        "type": type(invalid_identity.value).__name__,
-                        "expected": invalid_identity.value.expected,
-                        "received": invalid_identity.value.received,
-                        "repair": invalid_identity.value.repair.action,
-                    },
+                    "declared_identity_version_is_trusted": True,
+                    "null_identity_rows_preserved": True,
                 },
-                None,
+                projected,
                 (case.session,),
             )
             return

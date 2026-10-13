@@ -112,7 +112,7 @@ def test_projection_reads_each_receipt_once_per_call(
     reads: list[Descriptor] = []
     tables: list[str] = []
     read_result = graph_storage.read_result
-    read_table = graph_storage.read_table
+    read_table = graph_storage._read_pandas_payload
 
     def counted_result(
         root: Path, descriptor: Descriptor, *, _validated: ValidatedDescriptor | None = None
@@ -120,12 +120,14 @@ def test_projection_reads_each_receipt_once_per_call(
         reads.append(descriptor)
         return read_result(root, descriptor, _validated=_validated)
 
-    def counted_table(root: Path, receipt: LocalReceipt) -> pa.Table:
+    def counted_table(
+        root: Path, receipt: LocalReceipt, *, expected_schema: pa.Schema | None = None
+    ) -> tuple[pd.DataFrame, pa.Schema]:
         tables.append(receipt.project_relative_path)
-        return read_table(root, receipt)
+        return read_table(root, receipt, expected_schema=expected_schema)
 
     monkeypatch.setattr(graph_dataset, "read_result", counted_result)
-    monkeypatch.setattr(graph_storage, "read_table", counted_table)
+    monkeypatch.setattr(graph_storage, "_read_pandas_payload", counted_table)
     before = case.session.runs().items
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     for projected, frame in zip(projections, expected, strict=True):

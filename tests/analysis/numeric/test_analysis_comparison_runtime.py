@@ -126,6 +126,20 @@ def test_public_numeric_difference_source_and_fixed(
             frame["value"] = (
                 pa.array(frame["value"]).cast(pa.duration(unit)).cast(pa.int64()).to_pylist()
             )
+        current_values = first.to_pandas().set_index("member")["value"]
+        baseline_values = second.to_pandas().set_index("member")["value"]
+        for left, right in ((current, baseline), (first, second)):
+            relative = left.compare(right).relative.execute().to_pandas().set_index("member")
+            for member in relative.index:
+                numerator = current_values[member].value
+                denominator = baseline_values[member].value
+                if denominator == 0:
+                    assert relative.loc[member, "cell_tag"] == "undefined"
+                    assert relative.loc[member, "cell_reason"] == "zero_baseline"
+                else:
+                    assert relative.loc[member, "value"] == (numerator - denominator) / abs(
+                        denominator
+                    )
     assert source["value"].to_dict() == expected
     assert fixed["value"].to_dict() == expected
     assert source["cell_tag"].eq("defined").all()
@@ -751,7 +765,7 @@ def test_float_sum_envelope_and_native_mean_cell_boundary(
                     for part in result._dataset.verified().parts
                     if part.role == "correspondence"
                 )
-                assert mapping["correspondence__baseline_error_bound"][0].as_py() == 0.0
+                assert mapping["correspondence__baseline_error_bound"][0] == 0.0
                 relative = result.relative.to_pandas()
                 mean = (1.0 + (-1.0 + 1e-13)) / 2
                 assert relative.value.tolist() == pytest.approx([(2.0 - mean) / abs(mean)])
@@ -803,12 +817,12 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     assert not captured
     first = ratio.execute()
     assert len(captured) == 1
-    assert captured[0][0] == "analysis.graph.stage"
+    assert captured[0][0] == "analysis.domain.prepare"
     assert captured[0][1] and captured[0][2]
     assert captured[0][3] == captured[0][4]
     second = ratio.execute()
     assert len(captured) == 2
-    assert captured[1][0] == "analysis.graph.stage"
+    assert captured[1][0] == "analysis.domain.prepare"
     assert captured[1][1] and captured[1][2]
     assert captured[1][3] == captured[1][4]
     assert first.state.artifact_ref != second.state.artifact_ref
@@ -860,9 +874,9 @@ def test_comparison_of_float_original_expression_operands(
         mapping = next(
             part.table for part in result._dataset.verified().parts if part.role == "correspondence"
         )
-        assert mapping["correspondence__current_error_bound"][0].as_py() == 0.0
-        assert mapping["correspondence__baseline_error_bound"][0].as_py() == 0.0
-        assert mapping["correspondence__result_error_bound"][0].as_py() > 0
+        assert mapping["correspondence__current_error_bound"][0] == 0.0
+        assert mapping["correspondence__baseline_error_bound"][0] == 0.0
+        assert mapping["correspondence__result_error_bound"][0] > 0
 
 
 def test_union_keeps_present_nondefined_cell_separate_from_absence(
@@ -896,7 +910,7 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
         left, right = (current.execute(), baseline.execute()) if fixed else (current, baseline)
         saved = left.compare(right, align=mv.outer(missing="keep")).absolute.execute()
         frame = saved.to_pandas()
-        assert frame["cell_reason"].tolist().count("missing_side") == 2
+        assert frame["cell_reason"].eq("missing_side").sum() == 2
         assert saved._dataset is not None
         checked = saved._dataset.verified()
         endpoint_part = next(part for part in checked.parts if part.role == "baseline_endpoint")
@@ -1052,7 +1066,7 @@ def test_float_row_statistic_comparison_retains_error_state(
             state = next(
                 part.table for part in fixed._dataset.verified().parts if part.role == "row_state"
             )
-            assert state["row_state__error_bound"][0].as_py() >= 20000.0
+            assert state["row_state__error_bound"][0] >= 20000.0
             for operand in (statistic, fixed):
                 with pytest.raises(AnalysisError, match="denominator interval"):
                     operand.ratio(operand).execute()
@@ -1082,7 +1096,7 @@ def test_stable_float_row_statistic_comparison_propagates_bounds(
         correspondence = next(
             part.table for part in result._dataset.verified().parts if part.role == "correspondence"
         )
-        assert correspondence["correspondence__baseline_error_bound"][0].as_py() > 0
+        assert correspondence["correspondence__baseline_error_bound"][0] > 0
 
 
 @pytest.mark.parametrize("parquet", [True])

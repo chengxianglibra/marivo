@@ -290,7 +290,7 @@ def _row_result(
                 continue
             operands: list[int | float | Decimal] = []
             for raw in retained[field].tolist():
-                if raw is None and field in ("row_state__min", "row_state__max"):
+                if pd.isna(raw) and field in ("row_state__min", "row_state__max"):
                     continue
                 if (
                     type(raw) not in (int, float, Decimal)
@@ -655,7 +655,7 @@ def _transport_stage(
         return _cohort_stage(method, source, predicate_sources, input_binding)
     keys = source.contract.key_fields
     input_rows = [
-        _index_rows(item.primary, keys, item.contract.schema)
+        _index_rows(numeric_primary(to_arrow(item.primary, item.contract.schema)), keys)
         for item in (source, *predicate_sources)
     ]
     receiver_keys = set(input_rows[0])
@@ -1781,7 +1781,12 @@ def _difference_stage(
                 schema=pa.schema(
                     (
                         *key_schema,
-                        *(subject_tables[0].schema.field(name) for name in subject_fields),
+                        *(
+                            next(
+                                p.schema for p in current.contract.parts if p.role == "subject"
+                            ).field(name)
+                            for name in subject_fields
+                        ),
                     )
                 ),
             )
@@ -2185,7 +2190,7 @@ def _original_input(
         raise _invalid("original rollup lacks required component or coverage columns")
     keyed = _index_rows(state, keys)
     covered = _index_rows(coverage, keys)
-    primary = _index_rows(source.primary, keys, source.contract.schema)
+    primary = _index_rows(numeric_primary(to_arrow(source.primary, source.contract.schema)), keys)
     if keyed.keys() != primary.keys() or covered.keys() != primary.keys():
         raise _invalid("original rollup components and coverage differ from complete input keys")
     state_kind = REGISTRY.lookup(method.stage.node.method).semantics.persistent_state_kind
@@ -3001,7 +3006,12 @@ def _grouped_row_result(
     )
 
     def combine(frames: list[pd.DataFrame], empty: pd.DataFrame) -> pd.DataFrame:
-        return pd.concat(frames, ignore_index=True) if frames else empty.iloc[0:0].copy()
+        if frames:
+            return pd.concat(frames, ignore_index=True)
+        result = empty.iloc[0:0].copy()
+        for index, key in enumerate(keys):
+            result.insert(index, key, pd.Series([], dtype="object"))
+        return result
 
     primary = combine([o.primary for o in outputs], template.primary)
     template_part_schemas = {part.role: part.schema for part in template.contract.parts}

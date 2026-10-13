@@ -66,6 +66,7 @@ from marivo.analysis.materialization.graph_exchange import (
     from_pandas,
     numeric_primary,
     reference_parameters,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import digest
 from marivo.analysis.methods.physical import (
@@ -334,11 +335,15 @@ def _rows(
     part: ExchangePart,
     schemas: Mapping[str, pa.Schema] | None,
 ) -> list[dict[str, object]]:
-    return _pandas_records(part.table, _schema_for(part.table, schemas, part.role))
+    schema = _schema_for(part.table, schemas, part.role)
+    return cell_rows(numeric_primary(to_arrow(part.table, schema)))
 
 
 def _frame_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
-    return [{str(name): value for name, value in row.items()} for row in frame.to_dict("records")]
+    return [
+        {str(name): None if pd.isna(value) else value for name, value in row.items()}
+        for row in frame.to_dict("records")
+    ]
 
 
 def _missing(value: object) -> bool:

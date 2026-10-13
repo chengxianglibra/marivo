@@ -157,11 +157,6 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
             row["coverage__partial_" + field] = keyed[
                 tuple(row[k] for k in source.contract.key_fields)
             ][0][field]
-    support_table = from_rows(support_rows, previous_contract.schema)
-    support = support_table.to_pandas()
-    parts = tuple(
-        ExchangePart("coverage", support) if p.role == "coverage" else p for p in source.parts
-    )
     support_schema = previous_contract.schema
     support_schema = support_schema.append(pa.field("coverage__business_complete", pa.bool_()))
     support_schema = support_schema.append(
@@ -171,6 +166,10 @@ def produce(method: LoweredLocal, source: ExchangeResult, input_binding: str) ->
     )
     support_schema = support_schema.append(pa.field("coverage__partial_cell_tag", pa.string()))
     support_schema = support_schema.append(pa.field("coverage__partial_cell_reason", pa.string()))
+    support = from_rows(support_rows, support_schema).to_pandas()
+    parts = tuple(
+        ExchangePart("coverage", support) if p.role == "coverage" else p for p in source.parts
+    )
     contract = replace(
         source.contract,
         signature=method.stage.node.signature,

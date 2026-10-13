@@ -1212,13 +1212,13 @@ def test_shared_fixed_spearman_preserves_ordered_slots_and_reads_once(case, monk
     record = _capture(case)
     root = _fixed_pair(record, record)
     reads = []
-    original = storage.read_table
+    original = storage._read_pandas_payload
 
-    def counted(project, receipt):
+    def counted(project, receipt, **kwargs):
         reads.append(receipt.project_relative_path)
-        return original(project, receipt)
+        return original(project, receipt, **kwargs)
 
-    monkeypatch.setattr(storage, "read_table", counted)
+    monkeypatch.setattr(storage, "_read_pandas_payload", counted)
     result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
     assert reads.count(record.descriptor.primary_receipt.local.project_relative_path) == 1
     assert read_result(case[0].store.project_root, result.descriptor).primary[
@@ -1240,6 +1240,7 @@ def test_retained_reader_failure_is_structured_and_closes(case, monkeypatch, fai
         def __init__(self, inner):
             self.inner = inner
             self.schema_arrow = inner.schema_arrow
+            self.metadata = inner.metadata
 
         def iter_batches(self, **kwargs):
             if failure == "iteration":
@@ -1256,6 +1257,12 @@ def test_retained_reader_failure_is_structured_and_closes(case, monkeypatch, fai
         reader, path = original(root, receipt)
         return Reader(reader), path
 
+    if failure == "iteration":
+
+        def corrupt_read(*args, **kwargs):
+            raise pa.ArrowInvalid("corrupt pandas read")
+
+        monkeypatch.setattr(storage.pd, "read_parquet", corrupt_read)
     monkeypatch.setattr(storage, "_open_payload", open_payload)
     with pytest.raises(IntegrityError, match="committed Parquet"):
         read_result(case[0].store.project_root, saved.descriptor)

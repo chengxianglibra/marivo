@@ -541,114 +541,124 @@ class MemberGraph:
             )
             for schema, leaf in ordered
         )
-        return self.runtime._execute_graph(
-            self.root,
-            tuple(
-                RouteChoice(
-                    node.identity,
-                    "ibis_python"
-                    if (
-                        isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
-                        and any(
-                            isinstance(ancestor, MethodNode)
-                            and isinstance(ancestor.parameters, ComparisonRead)
-                            for ancestor in topology(node)
+        routes = tuple(
+            RouteChoice(
+                node.identity,
+                "ibis_python"
+                if (
+                    isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
+                    and any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, ComparisonRead)
+                        for ancestor in topology(node)
+                    )
+                )
+                or (
+                    isinstance(node.parameters, PartsTransport)
+                    and (
+                        node.parameters.mode == "business_coverage"
+                        or any(
+                            isinstance(p, CoveragePart) and p.business_windows is not None
+                            for p in node.inputs[0].node.signature.parts
                         )
                     )
-                    or (
-                        isinstance(node.parameters, PartsTransport)
+                )
+                or (
+                    isinstance(node.parameters, RowState)
+                    and isinstance(node.inputs[0].node, MethodNode)
+                    and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                )
+                or (
+                    isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
+                    and any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, PreparedObservation)
                         and (
-                            node.parameters.mode == "business_coverage"
+                            ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
                             or any(
-                                isinstance(p, CoveragePart) and p.business_windows is not None
-                                for p in node.inputs[0].node.signature.parts
+                                isinstance(prior, MethodNode)
+                                and isinstance(prior.parameters, ComparisonRead)
+                                for prior in topology(ancestor)
                             )
                         )
+                        for ancestor in topology(node)
                     )
-                    or (
-                        isinstance(node.parameters, RowState)
-                        and isinstance(node.inputs[0].node, MethodNode)
-                        and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                )
+                or (
+                    isinstance(node.parameters, TimeProduct)
+                    and any(
+                        isinstance(ancestor, MethodNode)
+                        and isinstance(ancestor.parameters, (DeviationFit, TimeRuns))
+                        for ancestor in topology(node.inputs[0].node)
                     )
-                    or (
-                        isinstance(node.parameters, (OriginalReduce, CellDerive, AttributionDerive))
-                        and any(
-                            isinstance(ancestor, MethodNode)
-                            and isinstance(ancestor.parameters, PreparedObservation)
-                            and (
-                                ancestor.inputs[0].node.identity == ancestor.inputs[1].node.identity
-                                or any(
-                                    isinstance(prior, MethodNode)
-                                    and isinstance(prior.parameters, ComparisonRead)
-                                    for prior in topology(ancestor)
-                                )
-                            )
-                            for ancestor in topology(node)
-                        )
-                    )
-                    or (
-                        isinstance(node.parameters, TimeProduct)
-                        and any(
-                            isinstance(ancestor, MethodNode)
-                            and isinstance(ancestor.parameters, (DeviationFit, TimeRuns))
-                            for ancestor in topology(node.inputs[0].node)
-                        )
-                    )
-                    or any(
-                        isinstance(
-                            p,
-                            (
-                                ConditionCellsPart,
-                                RunCellsPart,
-                                PairInputsPart,
-                                TrainingInputsPart,
-                                FitInputsPart,
-                            ),
-                        )
-                        for e in node.inputs
-                        for p in e.node.signature.parts
-                    )
-                    or isinstance(
-                        node.parameters,
+                )
+                or any(
+                    isinstance(
+                        p,
                         (
-                            AssociationFit,
-                            CellCompare,
-                            ComparisonRead,
-                            AssociationRead,
-                            ForecastFit,
-                            ForecastRead,
-                            PreparedObservation,
+                            ConditionCellsPart,
+                            RunCellsPart,
+                            PairInputsPart,
+                            TrainingInputsPart,
+                            FitInputsPart,
                         ),
                     )
-                    or node.method.name
-                    in (
-                        "association.pearson",
-                        "association.kendall",
-                        "association.read",
-                        "forecast.naive",
-                        "forecast.drift",
-                        "forecast.seasonal_naive",
-                        "forecast.read",
-                        "time.runs",
-                        "time.runs_read",
-                        "deviation.zscore",
-                        "deviation.mad",
-                        "deviation.read",
-                        "cell.relative_change",
-                        "cell.ratio",
-                        "reference.share",
-                        "reference.penetration",
-                        "reference.standardize",
-                        "attribution.additive_difference",
-                        "attribution.component_mix",
-                        "display.rank",
-                        "display.table",
-                    )
-                    else "ibis",
+                    for e in node.inputs
+                    for p in e.node.signature.parts
                 )
-                for node in topology(self.root)
-                if isinstance(node, MethodNode)
-            ),
+                or isinstance(
+                    node.parameters,
+                    (
+                        AssociationFit,
+                        CellCompare,
+                        ComparisonRead,
+                        AssociationRead,
+                        ForecastFit,
+                        ForecastRead,
+                        PreparedObservation,
+                    ),
+                )
+                or node.method.name
+                in (
+                    "association.pearson",
+                    "association.kendall",
+                    "association.read",
+                    "forecast.naive",
+                    "forecast.drift",
+                    "forecast.seasonal_naive",
+                    "forecast.read",
+                    "time.runs",
+                    "time.runs_read",
+                    "deviation.zscore",
+                    "deviation.mad",
+                    "deviation.read",
+                    "cell.relative_change",
+                    "cell.ratio",
+                    "reference.share",
+                    "reference.penetration",
+                    "reference.standardize",
+                    "attribution.additive_difference",
+                    "attribution.component_mix",
+                    "display.rank",
+                    "display.table",
+                )
+                else "ibis",
+            )
+            for node in topology(self.root)
+            if isinstance(node, MethodNode)
+        )
+        choices = {choice.node_id: choice.route for choice in routes}
+        for node in topology(self.root):
+            if not isinstance(node, MethodNode) or not isinstance(
+                node.parameters, (PartsTransport, RowState, MapCorrespond)
+            ):
+                continue
+            if any(choices.get(edge.node.identity) == "ibis_python" for edge in node.inputs):
+                choices[node.identity] = "ibis_python"
+        routes = tuple(RouteChoice(choice.node_id, choices[choice.node_id]) for choice in routes)
+        return self.runtime._execute_graph(
+            self.root,
+            routes,
             source_bindings=selected,
             source_factory=source_factory,
             source_schemas=tuple(

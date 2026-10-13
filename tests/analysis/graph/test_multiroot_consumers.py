@@ -588,7 +588,7 @@ def test_independent_roots_and_temporal_fold(
                     for part in result._dataset.verified().parts
                     if part.role == "original_state"
                 )
-                .to_pandas()
+                .copy()
                 .set_index("key_0")
             )
             numerator: object = original.loc["a", "original_state__numerator_sum"]

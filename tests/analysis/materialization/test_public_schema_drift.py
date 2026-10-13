@@ -13,7 +13,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.session._lazy_read_model import FailedRun
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory
@@ -94,12 +93,12 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         assert asdict(previous.contract()) == contract
         assert previous.to_pandas().equals(frame)
         current = previous._dataset.verified()
-        assert logical_table(current.primary).equals(logical_table(retained.primary))
+        assert current.primary.equals(retained.primary)
         assert tuple(part.role for part in current.parts) == tuple(
             part.role for part in retained.parts
         )
         assert all(
-            current_part.table.equals(old_part.table, check_metadata=True)
+            current_part.table.equals(old_part.table)
             for current_part, old_part in zip(current.parts, retained.parts, strict=True)
         )
     finally:

@@ -673,8 +673,7 @@ class GraphDataset:
         elif any(
             isinstance(p, (DisplayPart, AttributionPart)) for p in checked.contract.signature.parts
         ) or (
-            any(isinstance(p, FitInputsPart) for p in checked.contract.signature.parts)
-            and "value" in table.column_names
+            "value" in table.column_names
             and table.schema.field("value").type == pa.int64()
             and table["value"].null_count > 0
         ):
@@ -707,6 +706,9 @@ class GraphDataset:
             index = correspondence.time_index
             labels[columns[index]] = "aligned"
             original = next(p.table for p in checked.parts if p.role == "correspondence")
+            original_schema = next(
+                p.schema for p in checked.contract.parts if p.role == "correspondence"
+            )
             mapping = {
                 tuple(row[k] for k in checked.contract.key_fields): row
                 for row in original.to_dict(orient="records")
@@ -722,7 +724,7 @@ class GraphDataset:
                     name,
                     pa.array(
                         [mapping[key][field] for key in order],
-                        type=original.schema.field(field).type,
+                        type=original_schema.field(field).type,
                     ),
                 )
                 columns.append(name)
@@ -813,7 +815,7 @@ class GraphDataset:
             boundaries += (
                 (
                     "ranking",
-                    f"{ranking.order}, ties={ranking.ties}; original_rows={original.num_rows}, selected_rows={public.num_rows}",
+                    f"{ranking.order}, ties={ranking.ties}; original_rows={len(original)}, selected_rows={public.num_rows}",
                 ),
             )
             if self.projection is None and not (

@@ -20,6 +20,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     ExchangeResult,
+    _pandas_records,
 )
 from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 from marivo.analysis.methods.predicates import evaluate_leaf
@@ -83,8 +84,12 @@ def test_selection_chain_matches_independent_domain_cells_parts_and_work(
     assert result.primary["value"].tolist() == expected
     assert result.primary["key_0"].tolist() == [i % 3 for i in expected]
     assert result.primary["key_1"].tolist() == list(map(str, expected))
-    assert result.primary["cell_tag"].tolist() == ["defined"] * len(expected)
-    assert result.primary["cell_reason"].tolist() == [None] * len(expected)
+    assert [row["cell_tag"] for row in _pandas_records(result.primary, result.contract.schema)] == [
+        "defined"
+    ] * len(expected)
+    assert [
+        row["cell_reason"] for row in _pandas_records(result.primary, result.contract.schema)
+    ] == [None] * len(expected)
     assert result.contract.signature == root.signature
     assert result.completed_checks == ()
     for part in result.parts:
@@ -227,7 +232,7 @@ def test_fused_selection_reports_actual_conflicts_and_original_predicate_stage(
         )
     from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows
 
-    values = verified.result.primary.to_dict("records")
+    values = _pandas_records(verified.result.primary, verified.result.contract.schema)
     values[0].update(value=None, cell_tag="null", cell_reason="source_null")
     schema = compact_schema(verified.result.contract.schema, (("null", ("source_null",)),))
     bad = from_rows(values, schema)

@@ -285,7 +285,7 @@ def test_incompatible_inputs_reject_before_business_or_artifact_reads(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("rejected composition read an input")
 
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     monkeypatch.setattr(graph_dataset, "read_result", forbidden)
     for action in (
         lambda: first.compare(second).absolute,

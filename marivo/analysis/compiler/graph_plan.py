@@ -42,6 +42,7 @@ from marivo.analysis.core.rules import (
     OriginalReduce,
     PartsTransport,
     PreparedObservation,
+    ReferenceDerive,
     RowState,
     TimeProduct,
     TimeRunRead,
@@ -354,11 +355,7 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                             DisplayTable,
                         ),
                     )
-                    and any(
-                        isinstance(ancestor, MethodNode)
-                        and isinstance(ancestor.parameters, ComparisonRead)
-                        for ancestor in topology(node)
-                    )
+                    and any(edge.node.identity in local for edge in node.inputs)
                 )
                 and any(edge.node.identity in local for edge in node.inputs)
                 and route != "artifact_python"
@@ -456,21 +453,20 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             local_consumer = (
                 prepared_consumer
                 or (
+                    isinstance(
+                        node.parameters, (CellDerive, ReferenceDerive, DisplayRank, DisplayTable)
+                    )
+                    and route != "ibis"
+                )
+                or (
                     isinstance(node.parameters, (PartsTransport, RowState, MapCorrespond))
                     and route != "ibis"
                     and any(edge.node.identity in local for edge in node.inputs)
                 )
                 or (
-                    isinstance(
-                        node.parameters, (CellDerive, AttributionDerive, DisplayRank, DisplayTable)
-                    )
+                    isinstance(node.parameters, AttributionDerive)
                     and route != "ibis"
                     and any(edge.node.identity in local for edge in node.inputs)
-                    and any(
-                        isinstance(ancestor, MethodNode)
-                        and isinstance(ancestor.parameters, ComparisonRead)
-                        for ancestor in topology(node)
-                    )
                 )
                 or (
                     isinstance(node.parameters, PartsTransport)

@@ -534,7 +534,8 @@ def _assert_public_retained_identity_case(
                 part.table for part in result._dataset.verified().parts if part.role == "subject"
             )
             assert {
-                tuple(row[f"subject__key_{i}"] for i in range(3)) for row in subject.to_pylist()
+                tuple(row[f"subject__key_{i}"] for i in range(3))
+                for row in subject.to_dict("records")
             } == expected
             family = "time"
         else:

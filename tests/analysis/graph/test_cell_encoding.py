@@ -256,12 +256,11 @@ def test_outer_join_known_null_and_validity_distinguish_absent_endpoints() -> No
         backend.disconnect()
 
 
-def test_compact_pandas_producer_still_rejects_lossy_numeric_casts() -> None:
+def test_compact_pandas_codec_uses_converted_values_without_roundtrip_audit() -> None:
     from dataclasses import replace
 
     import pandas as pd
 
-    from marivo.analysis.materialization.errors import MaterializationError
     from marivo.analysis.materialization.graph_exchange import from_pandas
     from tests.analysis.graph.selection_fixtures import selection_input
 
@@ -271,13 +270,13 @@ def test_compact_pandas_producer_still_rejects_lossy_numeric_casts() -> None:
         {
             "key_0": [0],
             "key_1": ["0"],
-            "value": [1.5],
+            "value": [float(2**53 + 1)],
             "cell_tag": ["defined"],
             "cell_reason": [None],
         }
     )
-    with pytest.raises(MaterializationError, match="lossy pandas-to-Arrow"):
-        from_pandas(frame, contract, validate=False)
+    result = from_pandas(frame, contract, validate=False)
+    assert result.primary["value"].tolist() == [2**53]
 
 
 def test_prepare_policy_cannot_hide_an_invalid_source_code() -> None:

@@ -21,7 +21,10 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     ExchangeResult,
-    from_arrow,
+    _pandas_records,
+    from_pandas,
+    numeric_primary,
+    to_arrow,
 )
 from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
 from marivo.analysis.methods import numeric_state
@@ -56,7 +59,7 @@ def test_direct_reduction_cells_components_identity_and_work(
     assert [len(g) for g in local._reduction_groups(lowered).values()] == [2]
     visits: list[int] = []
     merge = numeric_state.merge_components
-    boundary = from_arrow
+    boundary = from_pandas
 
     def merged(
         rows: Sequence[Mapping[str, object]],
@@ -69,13 +72,13 @@ def test_direct_reduction_cells_components_identity_and_work(
     from unittest.mock import patch
 
     monkeypatch.setattr(numeric_state, "merge_components", merged)
-    with patch.object(local, "from_arrow", wraps=boundary) as exchanges:
+    with patch.object(local, "from_pandas", wraps=boundary) as exchanges:
         result = local.execute_verified_fixed(prepared, lowered, (verified,))
         grouped_boundaries = exchanges.call_count
     assert visits == [12]
     with (
         patch.object(local, "_reduction_groups", return_value={}),
-        patch.object(local, "from_arrow", wraps=boundary) as exchanges,
+        patch.object(local, "from_pandas", wraps=boundary) as exchanges,
     ):
         ordinary = local.execute_verified_fixed(prepared, lowered, (verified,))
         ordinary_boundaries = exchanges.call_count
@@ -105,8 +108,12 @@ def test_direct_reduction_cells_components_identity_and_work(
         expected = Decimal(str(expected)).quantize(Decimal("0.01"))
     if carrier == "duration":
         expected = round(Fraction(78, 24)) if method == "mean" else int(expected)
-    assert result.primary["value"].tolist() == [expected]
-    assert result.primary["cell_tag"].tolist() == ["defined"]
+    assert numeric_primary(to_arrow(result.primary, result.contract.schema))[
+        "value"
+    ].to_pylist() == [expected]
+    assert [row["cell_tag"] for row in _pandas_records(result.primary, result.contract.schema)] == [
+        "defined"
+    ]
     state = next(p.table for p in result.parts if p.role == "original_state")
     for name in state.columns:
         source = next(p.table for p in verified.result.parts if p.role == "original_state")
@@ -128,7 +135,7 @@ def test_empty_state_is_complete_and_keeps_owning_finish(method: OriginalMethod)
         if method in ("sum_zero", "count")
         else {"value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     )
-    row = result.primary.to_dict("records")[0]
+    row = _pandas_records(result.primary, result.contract.schema)[0]
     if pd.isna(row["value"]):
         row["value"] = None
     assert [row] == [expected]
@@ -186,7 +193,7 @@ def test_consumed_damage_fails_without_retry(
         if violation == "duplicate":
             state = pd.concat((state, state.iloc[:1]), ignore_index=True)
         elif violation == "column":
-            state = state.drop(["original_state__sum"])
+            state = state.drop(columns=["original_state__sum"])
         elif violation == "coverage":
             table = parts[2].table.copy()
             table["coverage__complete"] = [False, True]
@@ -304,7 +311,7 @@ def test_zero_denominator_preserves_distinct_cell_policies(method: OriginalMetho
     )
     prepared, lowered = reduction_plan(reduction_chain(leaf))
     result = local.execute_verified_fixed(prepared, lowered, (verified,))
-    row = result.primary.to_dict("records")[0]
+    row = _pandas_records(result.primary, result.contract.schema)[0]
     assert pd.isna(row["value"])
     row["value"] = None
     assert row == {"value": None, "cell_tag": tag, "cell_reason": reason}
@@ -338,7 +345,9 @@ def test_float_regrouping_retains_magnitudes_and_native_rounding_contract() -> N
     assert ordinary.primary["value"].tolist() == [1.0]
     assert grouped.contract == ordinary.contract
     for result in (grouped, ordinary):
-        assert result.primary["cell_tag"].tolist() == ["defined"]
+        assert [
+            row["cell_tag"] for row in _pandas_records(result.primary, result.contract.schema)
+        ] == ["defined"]
         retained = next(p.table for p in result.parts if p.role == "original_state")
         magnitude = retained["original_state__absolute_sum"].iloc[0]
         assert magnitude == float(sum(Fraction(abs(v)) for v in values))

@@ -38,6 +38,7 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.execution_key import SourceKeyBinding
+from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.analysis.materialization.graph_execution import prepare_graph
 from marivo.analysis.materialization.graph_members import construct_members
 from marivo.analysis.materialization.graph_preflight import preflight_entities
@@ -61,11 +62,8 @@ from marivo.semantic.validator import normalize_target_dimension
 from tests.shared_fixtures import DslCaseFactory, export_dsl_parquet_models
 
 
-def _records(frame: pd.DataFrame) -> list[dict[str, object]]:
-    return [
-        {str(name): None if pd.isna(value) else value for name, value in row.items()}
-        for row in frame.to_dict("records")
-    ]
+def _records(exchange: ExchangeResult) -> list[dict[str, object]]:
+    return _pandas_records(exchange.primary, exchange.contract.schema)
 
 
 def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
@@ -79,7 +77,7 @@ def test_preflight_reads_only_source_schema_and_preserves_exact_key_type(
         raise AssertionError("schema admission must not issue a business read")
 
     monkeypatch.setattr(SourceSession, "compile", forbidden)
-    monkeypatch.setattr(SourceSession, "batches", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
     runs_before = len(case.session.runs().items)
     selected = preflight_entities(registry, case.root, (entity,))
 
@@ -149,7 +147,7 @@ def test_coordinate_rollup_has_one_singleton_target(
                 root, (RouteChoice(root.identity, "artifact_python"),)
             )
         )
-        rows = _records(read_result(case.root, result.descriptor).primary)
+        rows = _records(read_result(case.root, result.descriptor))
         assert len(rows) == 1
         assert rows[0]["value"] == (None if empty else 1100)
         assert rows[0]["cell_tag"] == ("null" if empty else "defined")
@@ -239,7 +237,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
     )
     saved_observation = observed.execute()
     observation = read_result(fresh, saved_observation.descriptor)
-    rows = {row["key_0"]: row for row in _records(observation.primary)}
+    rows = {row["key_0"]: row for row in _records(observation)}
     assert sum(row["value"] or 0 for row in rows.values()) == 1000
     assert rows["D"]["cell_tag"] == "null"
     assert rows["D"]["cell_reason"] == "empty_contribution"
@@ -301,7 +299,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         (Edge("quantity", observed.root),), group_params, value_type=ScalarType(numeric_type)
     )
     grouped_saved = replace(observed, root=group_root).execute()
-    grouped_rows = _records(read_result(fresh, grouped_saved.descriptor).primary)
+    grouped_rows = _records(read_result(fresh, grouped_saved.descriptor))
     expected_channels: dict[str, int | float] = {}
     for _, _, label, _, instant, amount in analysis_dsl_rows("j1").orders:
         if "2026-08-01" <= instant < "2026-09-01":
@@ -317,8 +315,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         fixed_group, (RouteChoice(fixed_group.identity, "artifact_python"),)
     )
     assert {
-        row["key_0"]: row["value"]
-        for row in _records(read_result(fresh, grouped_saved.descriptor).primary)
+        row["key_0"]: row["value"] for row in _records(read_result(fresh, grouped_saved.descriptor))
     } == expected_channels
     fixed_total = method_node(
         (Edge("quantity", fixed),), OriginalReduce(singleton), value_type=ScalarType(numeric_type)
@@ -353,7 +350,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         sidecar=catalog._state.sidecar,
         report_timezone="UTC",
     )
-    filtered_rows = _records(read_result(fresh, filtered_observation.execute().descriptor).primary)
+    filtered_rows = _records(read_result(fresh, filtered_observation.execute().descriptor))
     assert filtered_rows == [
         {"key_0": "D", "value": None, "cell_tag": "null", "cell_reason": "empty_contribution"}
     ]
@@ -371,7 +368,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         target_keys=(classification.classification_coordinate(),),
     )
     group_result = read_result(fresh, grouped_observation.execute().descriptor)
-    assert {row["key_0"]: row["value"] for row in _records(group_result.primary)} == {
+    assert {row["key_0"]: row["value"] for row in _records(group_result)} == {
         "east": 600,
         "south": 400,
         "west": None,
@@ -390,7 +387,7 @@ def test_exact_member_builder_publishes_v7_from_authored_project(
         report_timezone="UTC",
     )
     counted_artifact = counted.execute()
-    counted_rows = _records(read_result(fresh, counted_artifact.descriptor).primary)
+    counted_rows = _records(read_result(fresh, counted_artifact.descriptor))
     assert {row["key_0"]: row["value"] for row in counted_rows} == {"A": 1, "B": 1, "C": 1, "D": 0}
     assert all(row["cell_tag"] == "defined" for row in counted_rows)
     count_root = method_node(
@@ -981,7 +978,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
     if scenario == "j2":
         current, baseline = totals(8), totals(7)
         expected = {key: current[key] - baseline[key] for key in keys}
-        assert {row["key_0"]: row["value"] for row in _records(result.primary)} == expected
+        assert {row["key_0"]: row["value"] for row in _records(result)} == expected
         assert tuple(part.role for part in result.parts) == (
             "subject",
             "current_endpoint",
@@ -1014,7 +1011,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
             report_timezone="UTC",
         )
         next_result = read_result(fresh, september.execute().descriptor)
-        assert {row["key_0"]: row["value"] for row in _records(next_result.primary)} == {
+        assert {row["key_0"]: row["value"] for row in _records(next_result)} == {
             key: value for key, value in totals(9).items() if expected[key] < 0
         }
         return
@@ -1079,7 +1076,7 @@ def test_window_composition_matches_independent_oracle_with_one_terminal_read(
                 ),
             )
             assert output.producing_run_ref != before
-            row = _records(read_result(fresh, output.descriptor).primary)[0]
+            row = _records(read_result(fresh, output.descriptor))[0]
             if method == "count":
                 assert row["value"] == int(accepted)
             elif accepted:
@@ -1138,8 +1135,8 @@ def test_two_hop_original_sum_zero_preserves_component_state(
         key: sum(amount for _, order, amount in facts.lines if order_owner[order] == key)
         for key, _ in facts.customers
     }
-    assert {row["key_0"]: row["value"] for row in _records(result.primary)} == expected
-    assert all(row["cell_tag"] == "defined" for row in _records(result.primary))
+    assert {row["key_0"]: row["value"] for row in _records(result)} == expected
+    assert all(row["cell_tag"] == "defined" for row in _records(result))
     singleton = DomainSignature(
         observed.root.signature.domain.binding, "singleton", (), (), "component-total"
     )
@@ -1258,9 +1255,7 @@ def _assert_original_ratio_preserves_independent_root_components(
             1 for _, customer, group, *_ in facts.orders if customer == owner and group == channel
         )
         expected_rows[(owner, channel)] = numerator / denominator if denominator else None
-    assert {
-        (row["key_0"], row["key_1"]): row["value"] for row in _records(result.primary)
-    } == expected_rows
+    assert {(row["key_0"], row["key_1"]): row["value"] for row in _records(result)} == expected_rows
     singleton = DomainSignature(ratio.root.signature.domain.binding, "singleton", (), (), "total")
     root = method_node(
         (Edge("quantity", ratio.root),),
@@ -1322,8 +1317,7 @@ def _assert_original_ratio_preserves_independent_root_components(
         for label in labels
     }
     assert {
-        row["key_0"]: row["value"]
-        for row in _records(read_result(fresh, group_saved.descriptor).primary)
+        row["key_0"]: row["value"] for row in _records(read_result(fresh, group_saved.descriptor))
     } == expected_groups
     fixed_group = method_node(
         (Edge("quantity", leaf),),
@@ -1334,8 +1328,7 @@ def _assert_original_ratio_preserves_independent_root_components(
         fixed_group, (RouteChoice(fixed_group.identity, "artifact_python"),)
     )
     assert {
-        row["key_0"]: row["value"]
-        for row in _records(read_result(fresh, group_saved.descriptor).primary)
+        row["key_0"]: row["value"] for row in _records(read_result(fresh, group_saved.descriptor))
     } == expected_groups
     from marivo.analysis.materialization.graph_dataset import GraphDataset
     from marivo.analysis.materialization.graph_relation import Relation

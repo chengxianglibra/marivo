@@ -48,6 +48,7 @@ from marivo.analysis.core.rules import (
     PartsTransport,
     PreparedObservation,
     ReferenceDerive,
+    RowState,
     TimeRunRead,
     TimeRuns,
 )
@@ -128,7 +129,7 @@ def _project_schema(schema: pa.Schema, columns: tuple[str, ...]) -> pa.Schema:
 
 
 def _split_transport(
-    stage: LoweredRelation, table: pd.DataFrame, schema: pa.Schema
+    stage: LoweredRelation, table: pd.DataFrame, schema: pa.Schema, transport_schema: pa.Schema
 ) -> tuple[pd.DataFrame, tuple[ExchangePart, ...], dict[str, pa.Schema]]:
     from marivo.analysis.compiler.coordinate_state import physical
 
@@ -144,20 +145,14 @@ def _split_transport(
             else (() for _ in range(len(table)))
         ):
             positions.setdefault(tuple(key), index)
-        primary = table.iloc[list(positions.values())].loc[:, stage.layout.columns].copy()
+        primary = table.iloc[list(positions.values())].loc[:, schema.names].copy()
         part = next(p for p in stage.node.signature.parts if isinstance(p, CoordinateStatePart))
         actual = table.loc[table["__marivo_coordinate_row"].fillna(False)]
-        full = pa.Table.from_pandas(
-            actual.loc[
-                :,
-                [*keys, *("__coordinate__" + name for name in (*part.columns, *part.components))],
-            ].rename(
-                columns={
-                    "__coordinate__" + name: name for name in (*part.columns, *part.components)
-                }
-            ),
-            preserve_index=False,
-        )
+        columns = [*keys, *("__coordinate__" + name for name in (*part.columns, *part.components))]
+        full = _as_arrow(
+            actual.loc[:, columns],
+            pa.schema([transport_schema.field(name) for name in columns]),
+        ).rename_columns([*keys, *part.columns, *part.components])
         retained = retain(
             stage.node.signature,
             part_role(part),
@@ -498,6 +493,33 @@ def _result(
         raise _invalid("root must be a registered method node")
     if schema is None:
         raise _invalid("pandas source result lacks its issued Arrow schema")
+    from marivo.analysis.core.model import AttributionPart, DisplayPart
+    from marivo.analysis.methods.physical import DurationType
+
+    def restore_duration(name: str, dtype: pa.DataType) -> None:
+        nonlocal schema
+        assert schema is not None
+        table[name] = (
+            pa.array(table[name], type=pa.int64(), from_pandas=True)
+            .cast(dtype)
+            .to_pandas(types_mapper=pd.ArrowDtype)
+        )
+        field = schema.field(name)
+        schema = schema.set(schema.get_field_index(name), field.with_type(dtype))
+
+    if isinstance(stage.node.value_type, DurationType) and "value" in table.columns:
+        restore_duration("value", pa.duration(stage.node.value_type.unit))
+    for declaration in stage.node.signature.parts:
+        if isinstance(declaration, DisplayPart):
+            import ibis.expr.datatypes as dt
+
+            for component, dtype in zip(declaration.components, declaration.types, strict=True):
+                if dtype.startswith("interval("):
+                    name = declaration.role + "__" + component
+                    if name in table.columns:
+                        restore_duration(name, dt.dtype(dtype).to_pyarrow())
+                        if declaration.role == "columns":
+                            restore_duration(component, dt.dtype(dtype).to_pyarrow())
     if "original_state__samples" in table.columns:
         from marivo.analysis.methods.temporal_fold import decode_samples, encode_samples
 
@@ -535,6 +557,27 @@ def _result(
             if retained is not None
             else table.loc[:, list(selected_schema.names)].copy()
         )
+        if isinstance(stage.node.value_type, DurationType) and isinstance(
+            part.part, AttributionPart
+        ):
+            for name in (
+                ("contribution", "current", "baseline")
+                if role == "allocation"
+                else ("target", "total")
+                if role == "reconciliation"
+                else ()
+            ):
+                column = role + "__" + name
+                dtype = pa.duration(stage.node.value_type.unit)
+                selected[column] = (
+                    pa.array(selected[column], type=pa.int64(), from_pandas=True)
+                    .cast(dtype)
+                    .to_pandas(types_mapper=pd.ArrowDtype)
+                )
+                selected_schema = selected_schema.set(
+                    selected_schema.get_field_index(column),
+                    selected_schema.field(column).with_type(dtype),
+                )
         from marivo.analysis.materialization.graph_reference import part_keys
         from marivo.analysis.methods.coordinate_state import (
             PartitionCoordinateLayout,
@@ -707,6 +750,12 @@ def execute_source_graph(
                 (
                     CellCompare,
                     ComparisonRead,
+                    PartsTransport,
+                    RowState,
+                    DisplayRank,
+                    DisplayTable,
+                    CellDerive,
+                    ReferenceDerive,
                     AssociationFit,
                     AssociationRead,
                     ForecastFit,
@@ -839,6 +888,7 @@ def execute_source_graph(
                     table = finish(
                         stage.stage.node,
                         tables[predecessor.output],
+                        read_schemas[predecessor.output],
                     )
                     final_local = replace(predecessor, output=stage.stage.output)
                     coordinate_parts[stage.stage.output] = coordinate_parts.get(
@@ -959,9 +1009,9 @@ def execute_source_graph(
                         )
                         row["reference_proof__retained"] = bounds[key]
                         reference_rows.append(row)
-                    table = pd.DataFrame(
-                        reference_rows, columns=issued_reads[predecessor.output].schema.names
-                    )
+                    table = from_rows(
+                        reference_rows, issued_reads[predecessor.output].schema
+                    ).to_pandas()
                     tables[stage.stage.output] = table
                     read_schemas[stage.stage.output] = issued_reads[predecessor.output].schema
                     final_local = replace(predecessor, output=stage.stage.output)
@@ -1107,21 +1157,29 @@ def execute_source_graph(
                 ):
                     raise _invalid("missing exact paired source preparation")
                 paired = tables[predecessor.output]
+                from marivo.analysis.materialization.cell_arrow import logical_schema
+                from marivo.analysis.materialization.graph_exchange import _pandas_records
+
+                paired_schema = logical_schema(read_schemas[predecessor.output])
+                paired = pd.DataFrame.from_records(
+                    _pandas_records(paired, read_schemas[predecessor.output]),
+                    columns=paired_schema.names,
+                )
                 keys = tuple(item.column for item in predecessor.layout.keys)
                 left_schema = pa.schema(
                     [
-                        *(read_schemas[predecessor.output].field(key) for key in keys),
-                        read_schemas[predecessor.output].field("va").with_name("value"),
-                        read_schemas[predecessor.output].field("taga").with_name("cell_tag"),
-                        read_schemas[predecessor.output].field("reasona").with_name("cell_reason"),
+                        *(paired_schema.field(key) for key in keys),
+                        paired_schema.field("va").with_name("value"),
+                        paired_schema.field("taga").with_name("cell_tag"),
+                        paired_schema.field("reasona").with_name("cell_reason"),
                     ]
                 )
                 right_schema = pa.schema(
                     [
-                        *(read_schemas[predecessor.output].field(key) for key in keys),
-                        read_schemas[predecessor.output].field("vb").with_name("value"),
-                        read_schemas[predecessor.output].field("tagb").with_name("cell_tag"),
-                        read_schemas[predecessor.output].field("reasonb").with_name("cell_reason"),
+                        *(paired_schema.field(key) for key in keys),
+                        paired_schema.field("vb").with_name("value"),
+                        paired_schema.field("tagb").with_name("cell_tag"),
+                        paired_schema.field("reasonb").with_name("cell_reason"),
                     ]
                 )
                 left = paired.loc[:, [*keys, "va", "taga", "reasona"]].rename(
@@ -1169,14 +1227,16 @@ def execute_source_graph(
             if stage.transport is None:
                 table = source.execute(issued)
             else:
-                received, _transport_schema = _read(
+                received, transport_schema = _read(
                     source,
                     lowered,
                     expression,
                     purpose="analysis.graph.stage",
                     cell_reasons=stage.cell_reasons,
                 )
-                table, retained, retained_schemas = _split_transport(stage, received, issued.schema)
+                table, retained, retained_schemas = _split_transport(
+                    stage, received, issued.schema, transport_schema
+                )
                 coordinate_parts[stage.output] = retained
                 coordinate_schemas[stage.output] = retained_schemas
                 if tuple(table.columns) != tuple(issued.schema.names):
