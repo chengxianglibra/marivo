@@ -2,587 +2,734 @@
 
 Date: 2026-10-14
 
-Status: proposed v0.25；与 [Lazy Analysis DSL 提案](../analysis/lazy-analysis-dsl-redesign.md)
+Status: proposed v0.35；与 [Lazy Analysis DSL 提案](../analysis/lazy-analysis-dsl-redesign.md)
 共同构成目标设计，尚未实施。当前契约仍由
 [Semantic Object Model](semantic-object-model.md)、
 [Loading, Validation and Introspection](loading-validation-introspection.md) 和
 [Python Analysis Design](../analysis/python-analysis-design.md) 拥有。
 本文只更新设计，不修改当前实现、Help、技能或已发布示例。
+v0.35 补齐声明改写、validator 分层、单位拒绝与精确分位数合同；不新增期末规约或资源预算。
+v0.34 将时间样本规约与有序 fold 分名，并同步比较/份额、窗口、来源类型准入和执行披露的跨层边界。
+v0.33 统一所有阶段的零分母政策：默认 null，显式 error；参数只控制当前算子。
+拟替代的已提交合同、旧模型声明的拒绝边界和实施前置授权见附录 A。
+v0.32 明确：execute 返回终端 Artifact；所有 DSL 组合在 Query 上完成，Artifact 不携带语义对象/图或内部组件。
+模型加载合同独立；分析产物可保存实际 Finding/Evidence 输出，但不承载计算依赖。
+执行分工继续为 Ibis 源端计算、pandas 统一本地执行、PyArrow 存储/读取。
+v0.30 采用 nullable value；普通缺失统一为 NA，非法计算和实际覆盖检查失败按错误处理。
+sum 忽略 NA，空输入与全 NA 都为 0；移除 empty 选项和逐格四态/原因传播。
 
-## 1. 定义、观察与答案各有一个 owner
+## 1. 从两种使用场景确定最小模型
 
-Metric 是完整的业务计算定义；Query 将定义绑定为本次问题；Result 固定实际答案。
-命名模型与临时计算使用同一种 Metric、同一套定义校验和 lowering。
-统一的是业务计算合同，不要求所有表达式都是原生 Ibis Column。
+语义建模者需要保存一份有业务身份、可独立加载的定义；分析者需要在本次问题中组合一个临时量。
+两者都在定义“如何计算”，差别在声明和收录，不应使用不同的计算语言。
+Measure 是带业务声明的数值行表达式，不是行表达式之外的第二套计算对象；
+NumericRowExpr 只描述类型约束。MetricSamples 也只是 per 与规约之间的参数绑定，不拥有身份、执行或保存生命周期。
+Measure 与 Metric 也共享表达式原则，但它们的样本单位不同：
+Measure 描述每条贡献记录上的业务量，Metric 描述在观察上下文中如何规约、组合这些量。
 
-| 层或对象 | 拥有的事实 |
+| 层或对象 | 唯一责任 |
 | --- | --- |
-| Entity / Relationship / Field | 来源、身份、版本、读取路径、字段意义、单位和数值权限 |
-| Metric | 来源规约、固有过滤、时间角色、空间/时间次序、数值政策和完整依赖 |
-| 运行时 Domain | 类型化坐标及读取依赖；单 Entity 身份域是其特例，不进入纯语义 Metric 定义 |
-| Session.observe / Query | 本次期间或窗口、分组、共同条件、明确主体及歧义路由 |
-| Result | 已提交的键、值、Cell、证据与实际保留信息 |
-| compare | 两个端点、显式对应、presence 和变化公式 |
-| Ibis | 已绑定来源关系上的计算表达式、类型与合格后端 lowering |
+| Entity / Relationship / Field | 贡献根、身份、字段种类、版本和合法读取路径 |
+| 行表达式 / Measure | 同一贡献记录上的计算；Measure 声明单位和业务可加范围 |
+| Metric | 来源规约、指标算术、内部样本规约及各算子的政策 |
+| @ms.measure / @ms.metric | 声明业务意义或稳定名称；将受限表达式体捕获为不可变定义 |
+| Population | 分析总体的字面量或来源/Query 程序，承载类型化业务对象或分析单元键 |
+| 模型 loader / Catalog | 命名声明收录、依赖解析、可独立持久加载资格和发现 |
+| Session.observe / Query | 本次期间、分组、共同条件、明确主体及实际执行绑定 |
+| Artifact | 不可变分析输出及实际 Finding/Evidence；展示、阅读和 to_pandas，不是表达式输入 |
+| Ibis | 已绑定来源关系上的物理计算与合格后端 lowering |
 
-`time` 是观察使用的业务时间角色，不是日期范围。`fold` 是采样状态的时间规约，
-不是观察窗口。Metric 不捕获 Session、Result、动态名单或运行时 Domain。
-明确主体计数可以作为要求 members 的上下文程序；它不捕获某个具体身份域。
+Population 是分析总体，与语义声明所属的业务 Domain 分开；业务命名空间仍使用 domain= 与 ms.ref.domain(...)。
+v0.29 只同步此命名及 population()/in_population(...)，不改变依赖、绑定或求值语义。
 
-Dimension、TimeDimension、Measure 保留精确声明种类和 Ref kind。数值编码 Dimension
-不因物理 dtype 为整数就获得金额求和许可。成员身份、贡献出现和结果坐标仍分别拥有权威。
+普通分析只需 `表达式 → observe → execute`。声明后的对象仍能使用相同算子；
+不需要 RuntimeMetric、临时注册、as_metric 或第二套表达式工厂。
+计算表达式不可变，构造、声明、show/contract 都不读取业务来源。
+装饰器体可在受限构造阶段展开为表达式图；这不是查询执行，不保存 Python callable。
 
-## 2. 按独立计算含义保留精确构造器
+不可变域可以成为 Metric 的显式依赖，包括明确字面量名单和 Query 的坐标程序。
+必须捕获完整定义与键、版本、来源读取和已有 Session 归属；不捕获 Artifact 或活动 Session 对象。
+活动连接、可变外部容器、任意 Python 回调不属于合法依赖。
+“在 runtime 创建”不构成禁止理由；可持久化检查在模型收录边界进行。
 
-不把构造器数量作为优化目标。来源聚合、完整行计数、比率和配对规约有不同输入意义，
-分别使用 `ms.aggregate`、`ms.count`、`ms.ratio`、`ms.weighted_mean`。
-受限来源函数体仍使用 `@ms.metric`。这些入口返回完整 Metric，共用定义、校验和加载；
-不保留 runtime 副本、define_metric/register_metric 或转发别名。
+## 2. 同一构造、装饰与命名方式
 
-| 入口 | 输入意义 |
+### 2.1 用接收者明确输入阶段
+
+| 表达式 | 样本单位与结果 |
 | --- | --- |
-| ms.aggregate | 已声明 Field 上的精确来源规约 |
-| ms.count | Entity 的完整贡献行计数 |
-| ms.ratio | 数值 Metric 的明确 numerator/denominator 与零分母政策 |
-| ms.weighted_mean | 同贡献域 value/weight 的共同配对规约 |
-| @ms.metric | 已声明来源作用域内的受限 Ibis 计算体 |
-| Metric 算术 | 已定义指标的逐坐标组合，直接得到完整临时 Metric |
-| Metric.over | 在明确的语义内部样本轴上先求子指标、再规约 |
+| Amount - Cost | 同一贡献根上的行表达式 |
+| Amount.sum(time=PaidAt) | 每条贡献记录上的金额 → Metric |
+| Orders.count(time=PaidAt) | 完整贡献行 → Metric |
+| CustomerId.count_distinct(time=PaidAt) | 非 NA 客户字段值去重 → Metric |
+| revenue / order_count | 两个完成的 Metric → Metric |
+| revenue.per(CustomerId).mean() | 每个实际出现客户的收入 → Metric |
+| revenue.per(cohort).mean() | 指定完整名单中每个样本的收入 → Metric |
+| query["revenue"].mean() | 当前 Query 格子 → 结果规约请求，由 Query.reduce 消费 |
 
-这些是目标形状，不是当前构造器的返回类型声明。模型加载负责收录命名定义；
-临时构造不创建 Session、不执行、不写模型、不改变 Catalog。
-来源构造器的 name 可省略；模型归属和名称由明确声明及 loader 决定，
-不从 Ibis 列名、结果别名或临时 Python 地址猜测身份。Metric 算术的结果无需再次定义。
-模型中的派生指标用显式命名元数据声明收录，不另设登记流程。
-
-### 2.1 来源规约的目标签名
-
-以下精确别名仅服务签名，不扩展顶层 Help：
-AggregateMethod 是 sum/count/count_distinct/min/max/mean/median
-与 `("percentile", q)` 的封闭联合；q 为有限 float 且 0 < q < 1。
-TimeFold 是 mean/min/max/first/last 与 `("percentile", q)` 的封闭联合。
-不自动选择近似算法。FieldRef、EntityRef、MetricRef 仍是精确持久引用。
+Field 保留精确种类；数值编码 Dimension 只能比较、分组或计数，不能因 dtype 是整数就求金额之和。
+Measure 及数值行表达式提供受限算术和以下来源规约。下面是签名说明，支持类型不扩展顶层 Help；
+NumericRowExpr 包含 Measure，NumericLiteral 是有限 int/float/Decimal，排除 bool、NaN 和无穷。
+TimeField 是已解析的时间字段；对象依赖捕获精确版本，不按同名物理列猜测。
+TimeField.via(path) 保持 TimeField kind，并捕获从贡献根到时间字段 Entity 的非空、有序、
+按声明方向连续且单值的关系路径；将该对象传入 time= 保留跨 Entity 时间绑定能力，不另设 time_via。
+原生时间字段直接传入 time=，不写空路径。绑定检查贡献根、完整键、角色、版本和路径端点，
+不选择最短路径，也不把字段读取路径当作观察主体的归属路径。
 
 ```python
-def aggregate(
-    *,
-    measure: Field,
-    agg: AggregateMethod,
-    name: str | None = None,
-    time: TimeField | None = None,
-    fold: TimeFold | None = None,
-    nulls: Literal["ignore", "error"] = "ignore",
-    empty: Literal["null", "zero"] = "null",
-    unit: str | None = None,
-    domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
-) -> Metric: ...
+class NumericRowExpr:
+    def sum(self, *, time: TimeField | None = None,
+            nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def mean(self, *, time: TimeField | None = None,
+             nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def min(self, *, time: TimeField | None = None,
+            nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def max(self, *, time: TimeField | None = None,
+            nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def median(self, *, time: TimeField | None = None,
+               nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def quantile(self, q: float, *, time: TimeField | None = None,
+                 nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def weighted_mean(self, *, weight: NumericRowExpr,
+                      time: TimeField | None = None,
+                      nulls: Literal["ignore", "error"] = "ignore",
+                      zero_denominator: Literal["null", "error"] = "null") -> Metric: ...
+    def divide(self, other: NumericRowExpr | NumericLiteral, *,
+               zero_denominator: Literal["null", "error"] = "null") -> NumericRowExpr: ...
 
 
-def count(
-    *,
-    entity: Entity,
-    name: str | None = None,
-    time: TimeField | None = None,
-    domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
-) -> Metric: ...
+class Field:
+    def count(self, *, time: TimeField | None = None) -> Metric: ...
+    def count_distinct(self, *, time: TimeField | None = None) -> Metric: ...
+
+
+class Entity:
+    def count(self, *, time: TimeField | None = None) -> Metric: ...
 ```
 
-measure 参数沿用既有聚合词汇；具体方法仍校验字段 kind 和权限。
-count/count_distinct 可以消费合法 Field；数值规约不能用编码 Dimension 绕过 Measure 授权。
-来源 Field count 是非 Null 值数，count_distinct 是不同非 Null 值数；
-ms.count 是贡献行数，三者不能互换。两个计数方法固定空输入为零，
-不接受改变其政策的 empty/nulls 覆盖；其它方法的 zero 只在有明确单位与数学意义时准入。
-sum 默认空/全 Null 为 Null，需要空收入为零时显式 empty="zero"；不把 Unknown 补零。
-严谨建模可以选择 nulls="error"，命名与临时定义遵守相同失败条件。
+数值行表达式也可 count/count_distinct，规则与 Field 相同。Entity.count 数完整贡献行；
+Field.count 数非 NA 值；count_distinct 数不同非 NA 值，空输入均为 0、单位为 1，
+不接受 nulls/unit 覆盖。quantile 的 q 必须有限且 0 <= q <= 1；采用精确样本的线性插值规则，
+端点分别等于同一有效样本的 min/max，不必为端点改换调用形状；不隐式降为近似算法。
+对排序后的有效样本 x[0]…x[n−1]，令 h=(n−1)q、i=floor(h)、j=min(i+1,n−1)，
+结果为 x[i]+(h−i)(x[j]−x[i])；n=1 返回唯一值，median 使用相同规则的 q=0.5。
+这是来源和内部样本 quantile 的共同统计定义；物理累加、插值精度和最终舍入按已准入方法合同，
+不以整数输入强制将插值结果取整，也不新增 interpolation 参数。
+min/max/mean/median/quantile 的空或全 NA 输入固定为 NA，不提供补零参数。
+sum 的可加许可由 §2.5 约束；空输入与全 NA 统一为 0，规则见 §3.4。
+构造可保留尚未绑定的固定轴要求，例如状态金额必须固定时间轴；observe 按完整表达式检查
+这些要求是否已由内部样本或合法输出绑定满足，不能在来源 sum 构造时提前丢弃或忽略它们。
 
 ```python
-Revenue = ms.aggregate(
-    name="revenue",
-    measure=Amount,
-    agg="sum",
-    time=PaidAt,
-    empty="zero",
-).where(Status == "paid")
-OrderCount = ms.count(
-    name="order_count",
-    entity=Orders,
-    time=PaidAt,
-).where(Status == "paid")
-AverageOrderValue = ms.ratio(
-    name="average_order_value",
-    numerator=Revenue,
-    denominator=OrderCount,
-    zero_denominator="null",
-)
+revenue = Amount.sum(time=PaidAt).where(Status == "paid")
+order_count = Orders.count(time=PaidAt).where(Status == "paid")
+aov = revenue / order_count
 ```
 
-where 构造带新增固有过滤的新定义，保存原定义的来源说明并形成新的指纹。
-修改已加载指标时，新临时定义的 ref 为空，原声明引用只作为来源元数据；
-不能将改变后的定义冒充已加载声明版本。模型中上述最终命名定义由 loader 收录为完整声明。
-仅单一来源规约或同一完整配对作用域可调用 Metric.where；复合公式必须修改明确子指标再组合。
-禁止 on 参数和通用表达式位置路径。
+来源条件用规约后的 Metric.where 绑定明确的贡献作用域，不新增一套行表筛选 DSL。
+数值行表达式的类型化比较产生 FieldPredicate，例如 margin > 0，沿同一贡献根在规约前求值；
+谓词不改变被筛选业务量的单位或可加权限。
+where 创建新定义，仅用于单一来源规约或同一共同配对作用域；对复合指标应先改具体子指标再组合。
+不能把复合式的 where 猜成“过滤所有叶子”，也不提供 on 或表达式树位置参数。
 
-### 2.2 显式比率与配对规约
+表达式使用已构造对象或从 Catalog 解析的对象；裸 Ref 是加载/查找输入，不支持运算符或方法转发。
+模型模块直接组合已声明对象，先声明被依赖对象；本版不增加隐式前向解析环境。
+导入顺序不能替代循环检查；loader 冻结完整依赖版本，缺失或错误 kind 必须给出具体位置。
+
+### 2.2 一种除法与明确配对
 
 ```python
-def ratio(
-    *,
-    numerator: Metric,
-    denominator: Metric,
-    name: str | None = None,
-    zero_denominator: Literal["undefined", "null", "error"] = "undefined",
-    unit: str | None = None,
-    domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
-) -> Metric: ...
-
-
-def weighted_mean(
-    *,
-    value: NumericField,
-    weight: NumericField,
-    zero_denominator: Literal["undefined", "null", "error"] = "undefined",
-    name: str | None = None,
-    time: TimeField | None = None,
-    fold: TimeFold | None = None,
-    unit: str | None = None,
-    domain: DomainRef | None = None,
-    ai_context: AiContext | None = None,
-) -> Metric: ...
+class Metric:
+    def divide(self, other: Metric | NumericLiteral, *,
+               zero_denominator: Literal["null", "error"] = "null") -> Metric: ...
+    def where(self, predicate: FieldPredicate | PopulationPredicate) -> Metric: ...
+    def per(self, samples: Field | tuple[Field, ...] | Population) -> MetricSamples: ...
 ```
 
-ratio 的两项须为数值 Metric；完成各组件后采用 §3.4 的明确分母政策。
-普通 Metric `/` 共享数值默认但不获得专用角色，保留通用依赖和充分状态上的原式重算。
-上节命名 AOV 显式选择 Null，以保持该业务定义的空日口径。
-
-来源 weighted_mean 只接受同贡献域的两个数值 Measure。value 可以不可加，
-weight 必须在所求域合法可加；不能混用来源字段与 Metric 格子。
-Metric 内部域上的 value/weight 配对使用 §3.5 的显式内部域规约，
-固定结果的普通配对统计经to_pandas交给pandas。来源与内部域两种定义不以 optional by 参数混在同一签名中。
-
-### 2.3 保留有输入作用域的 Ibis authoring
-
-删除 v0.18 新增的零参数 `@ms.metric` 与直接 `ms.metric(expression=...)` 双入口。
-保留具有明确来源参数的受限 Ibis authoring；函数体仍只返回 Ibis 表达式。
-其 Entity 参数、依赖捕获、语法限制和物理类型解析沿用既有 authoring owner。
-不为这次收敛重写现有完整声明签名；具体声明能力按当前 owner 逐项核对后实施。
-
-Ibis 只在来源 schema 和合法关系绑定后构造实际表达式。装饰时捕获受限计算定义，
-不为模拟未知类型而访问来源；加载保持 source-I/O free。
-字段读取使用当前明确的 `ms.bind(field_ref, rows)`，不是同名物理列替代。
-
-```python
-OrdersRef = ms.ref.entity("commerce.orders")
-AmountRef = ms.ref.measure("commerce.orders.order_amount")
-CostRef = ms.ref.measure("commerce.orders.order_cost")
-
-
-@ms.measure(entity=OrdersRef, additivity=ms.additive_all(), unit="CNY")
-def order_margin(rows):
-    return ms.bind(AmountRef, rows) - ms.bind(CostRef, rows)
-```
-
-函数体保持可选首段 docstring、全新顺序局部绑定与唯一最终 return；
-不开放导入、控制流、状态写入、查询执行或任意回调。装饰器是有作用域的 authoring，
-不是对临时 Metric 再包一层的替代写法。函数体本身不能以声明 additivity
-替代实际状态捕获或授予固定续算能力。
-
-## 3. 来源计算与指标组合保持两个明确阶段
-
-### 3.1 Ibis 的边界
-
-Field/Entity/Metric 不承诺脱离来源绑定的原生 `.expr`。
-Field 公共谓词只包括类型化比较、状态测试、集合测试及布尔组合；
-复杂逐行计算进入受限 Ibis authoring，不向消费者复制完整 Ibis 方法集。
-Entity 通过精确语义构造器计行，不伪造无 schema 的 Ibis Table。
-
-Metric 组合图是小型、版本化、依赖中立的语义图，首期节点与资格边界见 §6.1。
-它保存运算阶段、依赖出现和政策，
-不是 Ibis AST 的复制品，不需要合成 Metric Column、虚拟 relation 或 monkey-patch。
-Field 谓词与结果 Column 使用各自类型边界，不能混入错误阶段。
-阶段误用的具体修复由 [执行与披露 §2](../analysis/lazy-analysis-dsl-execution.md#2-agent-读取与错误契约) 拥有；错误说明当前输入和合法接收者，
-不提供 Field/Metric/Column/Ibis 之间绕过身份或状态校验的转换。
+Metric 支持有限数值常量、正负号和 +、-、*、/；每次组合直接返回 Metric。
+`a / b`、`a.divide(b)` 与 `a.divide(b, zero_denominator="null")` 规范化为相同 Divide 节点、
+相同 numerator/denominator 依赖和政策。显式 zero_denominator="error" 只改变该次除法。
+没有单独的 ratio 工厂或更高等级的比率类型。行表达式、Metric 和结果 Column 的写法及默认一致，
+但保留各自阶段，不能隐式混算；唯一政策表见 §3.4。
 
 ```python
 net_revenue = revenue - refunds - fees
-adjusted_revenue = net_revenue * 0.9 - fixed_cost
-error_rate_percent = error_rate * 100
-ordinary_ratio = revenue / orders
+adjusted_revenue = net_revenue * 0.9
+strict_aov = revenue.divide(order_count, zero_denominator="error")
+weighted_price = UnitPrice.weighted_mean(weight=Quantity, time=PaidAt)
 ```
 
-全部返回完整 Metric，不需要 as_metric、登记或再次 ms.metric 包装。
-普通除法不提升成显式 ratio；乘积和不从公式模式提升成 weighted_mean。
-来源根分别求值后按完整目标键组合，禁止把原始事实 join 成宽表再聚合。
-尚无合格 graph/lowering 的运算明确拒绝；不因 Ibis 可以表达就获得资格。
+weighted_mean 是必要的独立算子：它定义共同有效配对，不等价于两个独立规约相除。
+value 与 weight 必须是同一贡献根上单值、数值的行表达式；两者都不要求其完成值具有业务可加性。
+weight= 明确选择归一化权重，权重和是算子内部的数学组件，不自动成为可加业务量或份额支持证明。
+不能把两个来源的逐行值自动 join 成共同样本。Metric 内部样本上的配对见 §3.5，结果配对统计交 pandas。
 
-### 3.2 时间角色和时间 fold
-
-来源 Metric 的 time 明确消费哪一个业务时间角色；省略时只继承唯一已有声明。
-没有声明则无时间角色，多个角色要求选择；不扫描日期列或按名称猜测。
-派生 Metric 各依赖保留自己的时间角色，不能以一个参数覆盖全部依赖。
-
-状态指标先在每个精确采样时点按目标空间规约，再在观察范围中 fold。
-采样轴、间隔与状态约束来自语义声明；缺测不自动补零。
-fold 使用精确 TimeFold 值，不使用未绑定 Ibis Deferred。
+### 2.3 装饰器只负责声明
 
 ```python
-bandwidth_p95 = ms.aggregate(
-    name="blink_device_p95_bandwidth",
-    measure=bandwidth,
-    agg="sum",
-    fold=("percentile", 0.95),
-    unit="bit/s",
-)
+def metric(*, domain: Ref[DomainKind] | None = None,
+           ai_context: AiContextValue | None = None
+           ) -> Callable[[Callable[[], Metric]], Metric]: ...
+
+
+@ms.metric(ai_context=ms.ai_context(business_definition="Paid order revenue"))
+def revenue():
+    return Amount.sum(time=PaidAt).where(Status == "paid")
+
+
+@ms.metric()
+def order_count():
+    return Orders.count(time=PaidAt).where(Status == "paid")
+
+
+@ms.metric()
+def average_order_value():
+    return revenue / order_count
 ```
 
-两个设备分别为 [10,0]、[0,10] 时，各设备 P95 为 9.5；
-同时点空间求和后 [10,10] 的 P95 为 10，不是 19。
-固定空间上卷需要可按时点对齐的折叠前输入；只有完成 P95 或失去时点的分布不够。
+与 §2.1 的临时定义比较，函数体就是同一个计算表达式。装饰后的名字绑定 Metric 对象，
+后续直接写 revenue / order_count，不调用 revenue()。类不是必要的业务容器，不增加类装饰器变体。
+Metric 装饰器从函数名声明局部名称，可指定 domain 和 ai_context；不接收 name、entities、time、fold、additivity、unit、
+nulls 或 zero_denominator；来源/单位/时间从表达式依赖取得，数值政策在发生运算处声明。
+它也不按最终 float dtype 或公式形状推断新的可加权限。
 
-观察期间/window 只由 observe 拥有。Metric 没有 during/route，
-没有根默认、分支默认或最近绑定优先。固有固定范围与观察冲突时拒绝，
-不偷偷覆盖或取交集；原定义仍可在合法上下文直接观察。
-不同期间的分支分别 observe，再显式 align/select/compare。
-observe 省略期间的准入由 [DSL §4.1](../analysis/lazy-analysis-dsl-redesign.md#41-session字段时间与路径) 拥有：
-普通来源规约可省略 during，表示不追加时间过滤；已有业务时间角色及固有日期条件保持，不因有时间角色就要求期间。
-只有按观察期间采样、时间 fold 或日历输出等真正依赖期间的情形才必须显式传 during；固有日期过滤不能替代这些绑定。
-没有时间角色的定义不因此获得隐式时间角色，省略期间也不证明来源包含完整历史。
+声明体为零参数，可含首段 docstring、无重绑定的局部表达式和唯一最终 return。
+只接受本提案的闭合表达式、已声明依赖及不可变字面量/域；不接受导入、循环、分支语句、
+执行查询、状态修改、任意函数调用或活动外部对象。限制在静态验证和受控图构造中执行，
+不先运行任意 Python 再验证返回类型。跨模块辅助声明使用已经构造的对象。
+返回 Ibis scalar、结果 Column、Query 或 Python scalar 都是阶段错误。
+普通 Python 可以在声明体外组合参数和表达式，再让声明体返回该不可变表达式；
+收录仍检查同一依赖闭包，不保存辅助函数，也不因经辅助函数构造就扩大权限。
+人类说明复用现有 ms.ai_context，不新增 description 或从函数 docstring 推导另一份业务说明。
+
+同一装饰器可在模型模块或分析脚本中使用；不要求 loader、不登记、不读取来源。
+无须稳定业务名的临时 Metric 直接使用表达式，observe 字典键已经能命名输出列。
+声明不会保证依赖能被模型收录，也不保证后端或本次计划中的合并路线已经获准。
+
+validator 复用现有 AST 与表达式绑定机制，按已解析符号和接收者阶段准入；
+NumericRowExpr.sum、Metric.where/per 等不能仅因方法名在名单中就对任意对象放行。
+decorator 参数中的 ms.ref.domain(...) 不属于声明函数体；声明体消费已构造依赖，不开放任意工厂或函数调用。
+Entity/Source、Dimension/TimeDimension 保留原 owner 的受限 Ibis 作者能力；
+ms.bind 仅在原合同允许的 Ibis 字段声明体内保留，继续验证字段与 Entity alias 的归属。
+新 Measure/Metric 体不接受 Ibis Table 参数、Ibis 返回值或 ms.bind；不为统一这两层而复制完整 Ibis 行语言。
+
+### 2.4 命名与模型收录是不同边界
+
+| 名称 | 作用 |
+| --- | --- |
+| 声明函数名，如 gross_margin | 装饰时捕获局部声明名；Measure/Metric 采用同一规则 |
+| 模型业务身份，如 sales.gross_margin | 收录时用 Metric 的 domain 与局部声明名限定；Measure 用所属 Entity 与局部声明名限定 |
+| 后续 Python 变量/导出别名 | 只引用对象；赋值或导入别名不重命名声明 |
+| observe 的键，如 trial_margin | 此次结果列名；不注册或重命名指标 |
+
+```python
+@ms.metric()
+def gross_margin():
+    return (Amount - Cost).sum(time=PaidAt)
+
+
+margin_alias = gross_margin
+trial = (Amount - Cost).sum(time=PaidAt)
+```
+
+在 sales 为唯一默认 domain 的模型中收录 gross_margin，得到 sales.gross_margin；
+margin_alias 不产生第二个名称。runtime 中同一声明也能直接 observe，不需要先设置 domain 或加载模型。
+trial 是匿名表达式；为它选 observe 输出标签仍足够。改声明函数名会改变声明局部身份，
+但不会改变同一表达式的计算指纹；改后续别名不会改变两者。
+
+函数名直接采用 __name__，不从 __qualname__、Python 模块路径、文件夹或依赖根推导。
+局部名复用现有语义路径段规则 `[a-z][a-z0-9_]*`，如 gross_margin；不做自动小写、snake_case 转换、
+字符替换或截断。GrossMargin、_gross_margin、含非 ASCII 字符的函数名在装饰阶段给结构化错误，
+列明实际名称、约束、声明位置及改名修复；禁止使用 name 字符串覆盖或静默产生另一个身份。
+只校验名称与表达式，不因函数声明处于分析脚本而要求模型命名空间。
+
+Metric 的 domain= 复用现有 Ref[DomainKind]，例如 domain=ms.ref.domain("sales")；
+它只声明所属命名空间，不绑定 Session 或执行环境。收录时优先使用显式 domain，
+否则使用模型唯一已声明默认 domain；缺失/歧义或显式域不存在则拒绝收录，列出真实可选域。
+不从多来源依赖中挑选一个 domain，也不从文件所在目录猜域。装饰器不依赖活动 loader，
+未收录声明仅披露局部名及可选 domain，不冒充已发布的 Catalog ref。
+该限定过程生成收录版本，不能回写或改名原表达式；模型内一个完整名称只能对应一个声明。
+
+不保留 Metric.named。声明身份、声明元数据版本、计算内容指纹分别记录；
+Metric 声明只附加元数据，不改变计算指纹、政策、依赖和已有 Session 归属。
+算术、where、per 规约产生匿名新表达式；旧声明及版本仅作为依赖来源，不能冒充原声明。
+若要发布为另一个业务指标，显式写新声明；原对象保持不变。
+Measure 仅命名时也不改变计算指纹；显式新增或改变的单位/可加合同进入语义指纹，
+可推导且相同的重复断言规范化后不产生第二计算定义。稳定名称/ai_context 仍属独立元数据，
+声明断言与推导事实的来源可以独立披露，不把说明文字当作计算权限。
+
+模型 loader 只收录导出的 Measure/Metric 声明，先限定声明名称，再解析并检查完整依赖闭包，
+成功后在 Catalog 发布带精确 Ref 的版本；原构造值不被改写。
+匿名中间式可以是依赖，不自动成为公共模型对象。多个 Python 别名指向同一声明只收录一次；
+不同声明争用同一完整名称必须失败，不能按导入顺序覆盖。
+
+| 显式依赖 | 构造/合法观察 | 模型收录 |
+| --- | --- | --- |
+| 已声明 Field/Entity/Measure/Metric | 捕获精确种类、角色和定义版本 | 完整声明闭包可解析；不保存活动 Catalog |
+| 不可变字面量域 | 保存类型化轴和完整键，包括合法空域 | 键可编码、轴可独立解析即可 |
+| 来源域程序 | 保存 lazy 程序、选择期间/属性时点和已有归属 | 闭包可独立解析且无执行 Session 绑定；收录不能执行或解除归属 |
+| 以 Artifact / Artifact ID 充当计算依赖 | 构造即拒绝；普通字面量字符串不解析为产物引用 | 不提供模型提升或反向恢复入口 |
+| 活动 Session/连接、可变容器或任意回调 | 不是合法表达式依赖 | 不能 pickle 绕过依赖检查 |
+
+模型加载保持 source-I/O free；可以检查声明及本地引用元数据，不能执行域来证明完整性。
+本版没有模型 Artifact 提升/复制入口；失败应列出依赖路径、已有归属和缺失的持久解析条件，
+保留临时表达式与用户数据，不自动复制名单、重选动态域或写回模型。
+模型可加载与 Artifact 可保存/读取是两个独立合同。
+
+### 2.5 Measure 采用同样的表达式与声明分离
+
+Measure 的新设计也需要统一，但不能把“逐行算得出”误认为“业务允许求和”。
+已有 measure_column 是物理叶子的来源、单位和权限声明；保留该职责与状态时间角色/采样间隔。
+status_time_fold 不再属于叶子默认，改由 §3.2 的显式 per 规约表达；旧参数按附录 A.1 拒绝。
+派生 Measure 改用同一套类型化行表达式，装饰器声明新业务量及其授权，不再接收 Ibis Table 参数。
+
+```python
+def measure(*, unit: str | None = None,
+            additivity: AdditivityPolicy | None = None, ai_context: AiContextValue | None = None
+            ) -> Callable[[Callable[[], NumericRowExpr]], Measure]: ...
+
+
+@ms.measure(additivity=ms.additive_all())
+def order_amount():
+    return Quantity * UnitPrice
+
+
+@ms.measure(additivity=ms.additive_all())
+def order_cost():
+    return Quantity * UnitCost
+
+
+margin = order_amount - order_cost
+margin_total = margin.sum(time=PaidAt)
+
+
+@ms.measure()
+def order_margin():
+    return order_amount - order_cost
+```
+
+Measure 声明体与 Metric 声明体遵守同一纯表达式限制，返回阶段分别是行表达式与 Metric。
+省略 unit/additivity（或 None）表示继承表达式已有事实，不表示清空单位或授予 additive_all。
+已知单位自动按封闭代数推导，已有许可按行表达式规则继承；无许可的乘积在仅命名后仍无求和许可。
+因此 order_margin 只加稳定名称，无须重复 CNY 和可加声明。order_amount 的新可加授权仍须显式给出。
+未知单位保持未知；只有显式 unit 才承担新业务断言，不把 None 当作无量纲或一个清除旧合同的入口。
+Quantity、UnitPrice、UnitCost 必须有同一个明确贡献根；单值路径、单位关系和行粒度可验证。
+来源根从表达式唯一确定，不重复接收 entity 参数，也不选择多根中的第一项。
+多值路径、跨事实行算术和 Metric 混入行表达式必须拒绝；跨事实先各自规约，再组合 Metric。
+
+| 行计算 | 求和许可 |
+| --- | --- |
+| 已声明 Measure | 使用该定义的业务可加范围 |
+| 同单位加减、无量纲常数缩放 | 继承输入许可交集；不能扩大到新的轴或时间 |
+| 两个行量相乘或相除 | 可以形成数值表达式，但不自动取得可加许可 |
+| 数值编码 Dimension、改标签、过滤、相消、乘零 | 不获得新数值/可加权限 |
+| 显式新 Measure 声明 | 为新业务量声明可加合同，并验证来源、行粒度、单位和时间约束 |
+
+声明新的 order_amount 是业务授权，并非系统证明“所有乘积都可加”；原 UnitPrice 仍不可加。
+新声明的授权来源、表达式依赖和既有事实都要披露。不能修改原 Measure 的权限，也不能用命名
+伪造旧声明版本。权限政策只引用存在的语义轴；未知轴、与已知单位不相容或改变物理时间角色均拒绝。
+新权限不能抹去状态采样轴或必要时间绑定；同根、单位相容只证明表达式可绑定，不证明新增业务授权正确。
+若表达式单位可推导，unit 必须相容；未知单位可由声明承担明确业务断言并保留来源，不能冒称已验证推导。
+unit 标签不换算金额、汇率或比例。
+
+Measure 从函数名捕获局部声明名，规则与 Metric 相同；所属 Entity 从行表达式唯一取得。
+完整字段路径为 Entity 路径加局部声明名，例如 `sales.orders.order_amount`；不接收 name/domain/entity
+重复指定或更换所属关系。Metric 的命名空间限定由 §2.4 拥有。物理叶子构造器继续在所属 Entity 下解析字段名。
+runtime 首次引入同样的新业务量也使用同样的继承与显式授权规则：
+
+```python
+@ms.measure(additivity=ms.additive_all())
+def trial_order_amount():
+    return quantity * unit_price
+
+
+trial_revenue = trial_order_amount.sum(time=paid_at)
+```
+
+trial_order_amount 也是一个局部命名声明；在分析脚本中使用它不登记，也不自动发布到模型。
+私有声明可以作为命名指标的可持久依赖，只有模型导出的声明才作为公共对象收录。
+无需新授权或业务声明的 order_amount - order_cost 直接规约即可；匿名 Metric 也直接使用表达式。
+不增加 measure(expression=...) 工厂或另一套匿名声明模式。
+两种装饰器均不接受聚合/除法政策；例如行级 divide 的政策归该行运算，sum 的政策归 sum。
+
+## 3. 保留阶段，统一计算规则
+
+### 3.1 行、指标和结果的边界
+
+统一表达式不等于把所有东西变成原生 Ibis Column。行表达式、Metric 和 Query Column
+各自携带样本单位、身份、数值许可和阶段，不能隐式转换或混算。
+Field 谓词仍是有限的比较、状态/集合测试及布尔组合；本版数值行表达式仅覆盖 §2 的算术和规约，
+不复制完整 Ibis API，也不增加任意 UDF、条件/窗口逃生入口。
+现有受限 Ibis authoring 是当前实现合同，不能继续作为目标 Metric 的第二计算语言；
+目标不支持的复杂行计算应先成为来源声明中的合法字段，不能塞入装饰器绕过图验证。
+
+Metric 多来源根分别规约后按完整目标键组合；不能将原始事实 join 成宽表再聚合。
+同一依赖出现两次仍保留两次逻辑使用，不按 Python 对象去重运算语义。
+定义相同不保证多次来源读取相同；读取保证由执行文档拥有。
+多个 datasource 属于目标范围，实际执行仍按后端、类型和交接路线准入；语义可绑定不等于已有物理资格。
+来源类型保真及存储/导出的责任边界由
+[执行 §1.5.1](../analysis/lazy-analysis-dsl-execution.md#151-来源类型准入与无损交接)拥有，不从 Ibis 可编译推导精度保证。
+
+### 3.2 时间角色和时间样本规约
+
+time 在来源规约上选择业务时间角色；省略时只继承唯一已有声明，没有声明不产生时间角色，
+多个候选必须显式选择。派生 Metric 保留每个子指标的时间角色，不提供全局覆盖参数。
+采样状态的时间轴、间隔和时间可加限制来自语义声明，不由普通 timestamp 或 per 自动推断。
+
+时间样本规约使用与其它内部样本相同的 per + reducer 计算语言：
+
+```python
+@ms.metric(domain=ms.ref.domain("network"))
+def bandwidth_p95():
+    return Bandwidth.sum(time=SampleAt).per(SampleAt).quantile(0.95)
+```
+
+SampleAt 是已声明的五分钟状态采样轴。per 将此轴绑定为内部键，使 sum 在每个时点先按空间求和；
+quantile 再消费观察期间内的总量样本。时间轴的权限在内部键处固定，
+外层 quantile 不授予跨时点求和权限。没有 per 消费状态轴的中间 sum，不能直接完成一个跨多个时点的观察。
+这项计算统一称为“时间样本规约”；不再提供隐藏在 aggregate 或装饰器上的 fold 参数。
+fold 仅用于[序列代数的有序状态折叠](../analysis/algebra-sequences.md#41-有序折叠)，
+不能把 per/reducer 解释成依赖前序状态的转移或序列回放。
+
+设备 A=[10,0]、B=[0,10]：各设备 P95 为 9.5，总体同时点 [10,10] 的 P95 为 10，不是 19。
+Query 的空间上卷需要按采样时点对齐的时间规约前信息，只有完成 P95 或失去时点的分布不够。
+采样轴按声明和本次期间确定应有样本，明确缺测按覆盖检查拒绝执行，不改成“只对出现时点取 P95”或补零。
+只提供真实观测点、没有采样覆盖声明的事件时间，可以定义事件键上的统计，但不能冒充完整状态采样规约。
+
+期间和窗口由 observe 拥有；Metric 没有 during/route 默认。
+普通来源规约可以省略 during，表示不追加时间过滤，保留业务时间角色和固有条件；
+时间样本规约或日历输出等真正依赖期间的情形必须显式传入。日期谓词不能替代该绑定。
+域自己的选择期间、属性时点不被外层 during/where 重写；冲突应失败，不暗取交集或最近覆盖。
 
 ### 3.3 指标依赖与比率
 
 ```python
-error_rate = ms.ratio(
-    name="vod_playurl_error_rate",
-    numerator=vod_playurl_error_count,
-    denominator=vod_playurl_log_count,
-)
+error_rate = error_count / log_count
 ```
 
-Metric 引用捕获完整定义、版本、固有过滤、单位、时间/fold 与依赖。
-同一指标出现两次仍是两次逻辑使用；内部出现身份用于追踪，不成为公开 left/right 配置路径。
-显式比率可发现 numerator/denominator 的定义角色；它们不授权独立改变原式权限。
-复杂组合的分支条件在完整子指标上明确形成，再重组；不通过通用树位置修改模型。
+两项完成后再执行统一 Divide；依赖保留定义版本、固有过滤、单位、时间和域依赖。
+分子分母角色可供解释和合法重算，不能自动成为观察路由或通用树手术入口。
+不同条件应显式形成子指标；不同观察窗口应分别 observe，再比较或对齐。
 
 #### 3.3.1 显式角色与通用依赖图
 
-通用算术从每个依赖的合法充分状态恢复目标值，再按原式组合。
-缺状态时不能因最终值相等、单位相容或 additive 标签获得重算能力。
-普通除法可以在依赖充分时重算，仍没有专用 ratio 角色。
-相容加减及无量纲常数缩放只继承各依赖合法可加范围的交集；
-条件、变量乘除、相消或乘零不自动扩大权限。
+通用算术从各依赖的合法充分状态恢复目标值，再按原式组合。
+两个 Metric 的相容加减仅在共同合法贡献分区上继承许可交集；无量纲常数缩放保留原许可。
+Metric 与非零常数相加/相减则不继承可加性：每个输出格子加一次常数不同于每条贡献加一次常数。
+例如地区收入为 100/300，metric = revenue + 10 的地区完成值为 110/310，和为 420，
+而总体原式是 400+10=410。组件充分时 rollup 可重算 410；不能直接对完成值求和或据此 share。
+行级 (Amount + 10).sum() 则在每条记录加 10，可以按其合法行贡献合并；两种阶段不可互换。
+加减字面量 0 保留原许可和必要检查；0-m 等价于取负，不扩大许可。
+变量乘除、相消或乘零也不能扩大许可或消除必要错误。
+Divide 完成值通常不可加，但组件充分时可以重算总体比率；缺状态时不能靠最终值相等放行。
 
-单位由字段与明确代数规则推导：相同且已知的单位才能约去为 1；
-未知单位不是无量纲。来源/Metric 构造器的 unit 参数校验相容性，不执行换单位或新增授权。
-比率和加权均值的完成值不可加，组件是否合法合并另行判断。
-裸数值常量在与 Metric 加减时采用该量已有单位，在乘除时作为无量纲系数，绑定只发生在该使用位置；
-不因此扩大可加范围或更改已有定义。语义图仍不接收运行时 Column 或 values 参照。
-结果常量、比较阈值及独立参照列的规则由 [DSL §4.1.2](../analysis/lazy-analysis-dsl-redesign.md#412-常量与独立参照列的单位) 拥有：
-结果常量直接使用 LiteralValue，不带 unit；独立参照量在 Session.values 的 columns 列名到单位映射中声明单位，
-已保存量不得按裸常量重新赋单位。
+相同且已知的单位可约去为 1，未知单位不是无量纲。加减的裸数值常量在该使用位置采用已有量单位，
+乘除的裸常量为无量纲系数，不修改常量或原定义。Metric 不接收结果 Column/values 参照。
+独立参照列由 [DSL §4.1.2](../analysis/lazy-analysis-dsl-redesign.md#412-常量与独立参照列的单位) 拥有。
 
 #### 3.3.2 weighted mean 的配对与状态
 
-value/weight 从显式输入确定，不从乘法次序、列名或数值猜测。
-节点形成共同非 Null 配对条件，连同业务过滤同时作用于乘积和、权重和及支持计数。
-空/全 Null 配对与有效配对的 Defined 零权重和分别按 §3.4 处理；
-Unknown/Undefined 不当成可忽略 Null。
-保留乘积和、权重和、共同样本及必要支持事实，不能只保存完成均值。
-
-value=[10,Null]、weight=[1,9] 得 10；单独用全部权重作分母得到 1，是另一计算。
-分组值 10/30、权重 1/9，合并配对状态得 28，不是组均值平均的 20。
-非负或正总权重前提由需要它们的消费者检查；单位消去不证明这些前提。
-带状态 fold 时保留先空间配对再时间 fold 的次序和折叠前信息。
+共同非 NA 配对条件同时用于乘积和、权重和及支持计数；nulls="error" 必须在删行前检查所选配对。
+value=[10,NA]、weight=[1,9] 得 10；分母独立使用全部权重会得 1，是另一计算。
+分组均值 10/30、权重 1/9，合并配对状态得 28，不是等权均值 20。
+无有效配对在两种政策下均返回 NA；有有效配对但权重和为零时，按 §3.4 默认返回 NA，显式 error 才报错。
+weight 只需是该样本上的合法数值，不要求它已获业务 sum 授权。例如不可加的评分 0.2/0.8
+可以明确用作值 10/30 的权重，结果为 26；这不授权发布“评分总额”。本算子允许有符号权重，
+因此不承诺结果位于值域内；若消费者要求非负或正总权重，仍需检查。非有限值按数值合同拒绝。
+本次计划中的配对合并需要乘积和、权重和、支持及必要状态，不能只保存完成均值；
+内部样本配对还须满足 §3.5 的子指标重算条件，不能仅套用来源配对摘要。
 
 #### 3.3.3 drill、贡献和归因的边界
 
-观察下钻按细坐标分别完成组件。两组 ERROR/总日志为 1/1、9/99，总体率为 0.1。
-子率 1、1/11 不可直接相加；在完整不交分区和非零分母前提下，
-N_i/总D 为 0.01、0.09，才解释总体率构成。
-share 要求可加贡献及共同实际输入依据，不对比率完成值自动做份额。
-变化归因需要消费者选择分解方法与验证前提，仍不纳入本轮交付。
+ERROR/总日志两组为 1/1、9/99，总体率为 0.1；子率不能相加。
+完整不交分区及非零总体分母成立时，N_i/总 D 为 0.01、0.09，才可解释总体率构成。
+share 仍要求可加贡献和共同实际输入，不把 Divide 角色当成支持证明。
+变化归因的分解方法不纳入本轮目标；Artifact 不拥有任何 DSL 能力。
 
 ### 3.4 样本政策的归属
 
-这一节拥有新 Metric 构造与普通算术的数值政策；结果统计的完整默认表由
-[DSL §4.4](../analysis/lazy-analysis-dsl-redesign.md#44-最小规约与有效样本) 拥有。
-实际 Cell 传播、结果谓词与 typed error 由
-[DSL §5.4](../analysis/lazy-analysis-dsl-redesign.md#54-cell部分运算与谓词) 拥有。
-采用的是明确 Marivo 合同，Ibis lowering 必须保持它，不由后端默认反向决定。
+数值只有类型化值与 NA；NA 是逻辑缺失，来源 SQL 用 NULL、本地 pandas 用相应 dtype 的缺失表示，Arrow validity 只属于存储/读取布局。
+不保存或传播逐格 Defined/Null/Undefined/Unknown 与 reason；需要影响计算的事实归算子政策或必要检查。
+政策只归实际算子，不归声明、名字或模型/临时代码位置；构造时解析默认并与规则版本一起保留在定义节点中。
+本节是零分母政策的唯一规范性定义：所有支持该选择的算子使用
+zero_denominator: Literal["null", "error"] = "null"，没有其它策略或阶段特例。
 
-**新定义的 Defined 零分母默认统一为 Undefined。**
-普通 Metric `/`、结果 Column `/`/divide、显式 ratio、有效配对上的 weighted_mean、
-share 和 compare.relative 使用这一规则。ratio/weighted_mean 的
-zero_denominator="null" 与 Column.divide(zero="null") 是显式的另一种口径；
-构造器的 error 选项为结构化失败。专用角色不决定默认分母政策。
-受限来源体中的受支持除法也保存运算政策；新定义中未保护的Defined零除由Cell边界给出Undefined，
-显式nullif(0)则先生成Null分母，沿Null传播。lowering按语义处理，不能依赖后端inf/NaN或隐式SQL NULL猜测状态。
-已加载来源体仍使用保存的政策/规则版本。
+| 算子 | NA 输入 | 无有效值 | 零分母 |
+| --- | --- | --- | --- |
+| 来源 / 内部样本 sum | 默认 ignore，可 error | 空输入与全 NA 都为 0；没有 empty 参数 | 不适用 |
+| mean/min/max/median/quantile | 默认 ignore，可 error | NA | 不适用 |
+| Entity count | 计完整贡献行，不依赖量值 | 空输入为 0 | 不适用 |
+| Field / 数值样本 count、count_distinct | 不计 NA | 0 | 不适用 |
+| 来源 / 内部样本 weighted_mean | 默认共同非 NA 配对，可 error | 两种零分母政策下均为 NA | 有有效配对但权重和为零：默认 null，显式 error 报错 |
+| 行、Metric、Column 的 /、divide | 任一输入 NA 则结果 NA | 无独立空集政策 | 共同非 NA 输入中分母为零：默认 null，显式 error 报错 |
+| Query.share | 份额的任一输入 NA 则结果 NA | 参照按原量规则完成 | 参数只控制新生成的份额；默认 null，显式 error 报错 |
+| Query.compare 的 relative | 任一端点 NA 则结果 NA | 缺侧由独立 presence 表示 | 参数只控制新生成的相对变化；默认 null，显式 error 报错 |
 
-| 输入 | 结果意义 |
-| --- | --- |
-| Defined 分母为零，包括 0/0 | 新构造默认 Undefined(zero_denominator) |
-| 明确选择 zero_denominator="null" 或 divide(zero="null") | Null，保存这项政策与原因 |
-| 分母已是 Null、Undefined 或 Unknown | 沿原输入/Cell 合同，不将其当作 Defined 零 |
-| 来源 weighted_mean 没有有效配对或全部配对为源 Null | 原空样本合同的 Null；尚无 Defined 权重和 |
-| 来源/纯语义内部 weighted_mean 有有效配对，但权重和为 Defined 零 | 默认 Undefined；Null 必须显式选择 |
+sum 不提供区分“没有记录”和“记录值全缺失”的结果或续算能力，不为该目的保存原样本数、
+NA 数或原因；按原公式上卷只需合格的和。mean 仍需有效值数，Entity count 是独立请求的量。
+nulls="error" 是对所选输入的显式检查，在忽略 NA 之前完成；不是新的 Cell 状态。
+默认采用可用值统计，不自动解释为完整 Population 的总体估计；固定名单人数与有效值数分别由各自算子决定。
 
-结果 reduce 仅保留 DSL §4.4 的 sum/mean/row_count，不能由来源 empty 默认覆盖。
-普通结果配对统计经 DSL §4.6.1 交 pandas，调用方明确共同有效样本及零权重和政策；不保留结果 record 家族。
-share 与 compare 的固定公式沿统一规则，不新增零分母覆盖参数。
-需要另一业务口径时显式构造并命名普通派生量，不把改过的公式冒充原份额或原 relative。
+共同非 NA 输入中的 0/0 和非零数/0 默认均产生普通 NA；不产生 0、无穷或特殊缺失状态。
+显式 zero_denominator="error" 才使本次 execute 以结构化计算错误失败。任一输入已为 NA 时，
+包括 NA/0，两种政策都传播 NA；缺值不被重新解释为除零错误。
+生成的普通 NA 可被后续 mean/sum 等按各自规则忽略，不保留零分母原因。
+业务要求每个比率都可定义时，应在对应算子明确选择 error，不能事后从 NA 推回原因。
 
-**已有指标政策保持原样。** Catalog 交付已解析、版本化的完整定义，
-新默认只参与新定义构造，不作用于已有定义、其组合引用或固定 Result 的恢复。
-新定义指纹保存已解析政策与运算规则版本；恢复使用保存事实，
-不能因默认改变、Catalog 更新或名称相同重新填政策。
-旧记录没有必要政策事实时按信息/格式不足拒绝，不用新默认猜测，不增加迁移/双读。
-若要改变已加载指标的政策，显式构造新定义并给出新的身份/指纹，不就地覆盖原指标。
+`/` 等价于省略参数的 divide；普通 mean 的空样本语义不增加 zero_denominator 参数。
+share、compare 或 weighted_mean 的参数不覆盖输入 Metric 内部的政策；compare 的参数只作用于
+relative，不改变 absolute 的公式。输入子式的 error 失败仍使整个 execute 失败，不发布半份比较结果。
+Session、observe、execute 与装饰器均不接受零分母全局覆盖；声明/模型收录保留节点政策，
+不同政策属于不同计算定义。源端与本地执行保持同一算子政策和失败边界；数值精度遵守
+[已准入方法合同](../analysis/lazy-analysis-dsl-execution.md#14-数学定律的实现边界)，不承诺跨后端逐位相同。
 
-来源聚合沿显式 nulls/empty 定义，通常忽略源 Null、空有效输入为 Null，
-来源计数固定空输入为零；原 Ibis authoring 的失败条件也保持。
-结果格子统计有不同样本单位与默认拒绝合同，完整规则见上述 DSL owner。
-同问题换写法时须核对输入单位及政策，不宣称所有同名统计天然等价。
-
-```python
-default_aov = ms.ratio(numerator=revenue, denominator=orders)
-empty_as_null_aov = ms.ratio(
-    numerator=revenue,
-    denominator=orders,
-    zero_denominator="null",
-)
-```
-
-这两项均是完整新 Metric，区别明确进入定义；后一项不会改写前一项或 Catalog 的旧指标。
-命名/临时的同定义、同输入仍有相同值、Cell 和失败条件。
-内部格子的 Unknown/Undefined 不能 lower 成 SQL NULL 再忽略。
-
-### 3.5 内部域规约与已固定域统计
-
-Metric.over 构造纯语义内部域节点；by 必填，只接受可独立加载的语义样本轴，
-不接受 Query、Result、外部分类或运行时 Domain，包括其中的单 Entity 身份域。
-这些轴定义内部样本单位；不是外部输出分组，也不捕获本次人群/期间。
-内外域须有合法明确映射；同名轴、不完整分类或内部轴重复外部绑定时拒绝。
+显式 error 的检查不能被乘零、后置筛选或丢列消去。读取失败、溢出、非法值和实际日历/映射/请求域覆盖检查失败均报错，
+不转成 NA；普通观察按实际读取的数据求值，首版不提供外部业务缺口声明、消费或完整性审计。
+输入缺失表示按已绑定 dtype 规范化；数值计算不借 inf 或运算产生的 NaN 表示成功。
 
 ```python
-mean_customer_revenue = revenue.over(by=(customer,), agg="mean")
-mean_customer_aov = aov.over(by=(customer,), agg="mean")
+revenue = Amount.sum(time=PaidAt)
+strict_cost = Cost.sum(time=PaidAt, nulls="error")
+margin_rate = (revenue - strict_cost) / revenue
+strict_margin_rate = (revenue - strict_cost).divide(revenue, zero_denominator="error")
 ```
 
-这里 customer 是明确语义字段；贡献推导域不包含从未出现的类别。
-若要包括无贡献客户，需要在观察中明确完整身份输出或完整业务域；
-仅传 members 约束贡献不补齐普通字段分组，不能将上述式子解释为客户全集平均。
-需要对固定 A/B 名单统计时，先 observe(by=fixed_ids)，再 reduce，
-域大小用 s.query(fixed_ids).reduce({"ids": mv.row_count()})。
-不再使用 ms.metric(expression=_.count(), by=runtime_domain)。
+来源 SQL sum 必须显式完成空/全 NULL 为 0，与 pandas 的 skipna 求和一致；
+共同配对、有限性和除零检查仍由 Marivo 的算子合同统一，不照搬各引擎不同的异常行为。
+结果 reduce 的 sum/mean/row_count 采用 [DSL §4.4](../analysis/lazy-analysis-dsl-redesign.md#44-最小规约与有效样本)；
+Column.divide、Query.share 和 Query.compare 暴露本节同名参数；结果层无需把公式搬回 Metric 才能选择政策。
+默认 compare 可以同时输出有效 absolute 与 NA relative；只需差额仍可使用 align/select。
+Query 组合沿用已解析政策；Artifact 只保存输出，不保存或恢复旧政策/定义。
+旧四态/图快照格式在一次切换时拒绝，不迁移或按新默认猜测旧定义。
 
-内部域配对使用 Metric.over 的 weighted_mean 闭合变体：接收者为 value，
-weight 必须为 Metric，by 为纯语义样本轴；两子指标先按完整内部键求值再共同配对。
-该变体与单量规约使用精确重载，不接受来源 NumericField 或运行时域混入。
-共同掩码与实际充分状态按 §3.3.2，空配对/Defined零权重政策按 §3.4；
-固定名单的普通配对统计按 [DSL 交接合同](../analysis/lazy-analysis-dsl-redesign.md#461-to_pandas-的固定交接合同) 导出后处理；
-来源配对与内部域配对仍保留共同样本、单位及可恢复充分信息，不把运行时名单捕获成模型。
+### 3.5 内部域规约与 Query 格子统计
 
-## 4. 声明与发现直接交付可用对象
-
-Field、Entity、Metric 声明及 Catalog 类型化集合返回对应不可变对象。
-精确 Ref 用于定位声明、跨文件前向引用和持久引用；不允许 Ref 算术。
-已构造定义捕获依赖版本，Catalog 更新不改变旧 Metric 或固定 Result。
+per 明确“先为谁计算一遍”，随后 reducer 明确“怎样汇总这些样本”。
+MetricSamples 只是尚未完成的表达式，不能直接 observe、execute、注册为 Metric 或返回给 @metric。
+它复用来源数值规约的名称及 nulls/zero_denominator 值域，但不接受 time 参数：
+子指标已经拥有时间角色。sum 仍检查样本轴上的合法可加性；mean/quantile/weighted_mean 等不以此授予业务求和权限。
 
 ```python
-class Field:
-    ref: FieldRef
-
-    def via(self, path: tuple[RelationshipRef, ...]) -> Self: ...
-    def at(self, anchor: TimeAnchor) -> Self: ...
-    def is_null(self) -> FieldPredicate: ...
-    def show(self) -> None: ...
-
-
-class TimeField(Field):
-    def within(self, scope: TimeScope) -> FieldPredicate: ...
-
-
-class Entity:
-    ref: EntityRef
-
-    def show(self) -> None: ...
-
-
-class Metric:
-    ref: MetricRef | None
-    contributions: Mapping[str, ContributionRole]
-
-    def where(self, predicate: FieldPredicate | DomainPredicate) -> Metric: ...
-    @overload
-    def over(self, *, by: tuple[Field, ...], agg: AggregateMethod) -> Metric: ...
-    @overload
-    def over(
-        self,
-        *,
-        by: tuple[Field, ...],
-        agg: Literal["weighted_mean"],
-        weight: Metric,
-        zero_denominator: Literal["undefined", "null", "error"] = "undefined",
-    ) -> Metric: ...
-    def show(self) -> None: ...
-    def contract(self) -> MetricContract: ...
+class MetricSamples:
+    def sum(self, *, nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def mean(self, *, nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def quantile(self, q: float, *,
+                 nulls: Literal["ignore", "error"] = "ignore") -> Metric: ...
+    def count(self) -> Metric: ...
+    def count_distinct(self) -> Metric: ...
+    def weighted_mean(self, *, weight: Metric,
+                      nulls: Literal["ignore", "error"] = "ignore",
+                      zero_denominator: Literal["null", "error"] = "null") -> Metric: ...
 ```
 
-contributions 是只读具名语义贡献角色映射：基础规约唯一 contribution，
-专用构造器或模型只暴露明确声明且能定位具体根的业务角色。
-复合公式没有唯一或具名角色时不生成 left/right 槽位；应分别观察或在语义模型明确角色。
-句柄捕获当前定义归属/版本，不能借同根或同名跨指标绑定。
+同组 min/max/median 与 mean 同签名；不加 first/last 或任意回调变体。
+本版不提供从任意观察期间自动选择期末状态的 closing 规约，也不按主体取最后非空值或 forward fill。
+显式时点的已有快照读取仍遵守其声明合同；它不授权从期间末端猜快照、补缺测或用 end 减 tick。
+per(Field) 是 per((Field,)) 的单轴形态；字段元组须非空。
+关键是先确定一个外部输出格子 k，再确定该格子内的样本 J_k；不是先构造一份全局客户值再分配给地区。
+Field 样本从 k 内各相关贡献根的完整键像并集推导，不填未出现类别；
+空值规约不删除这些键。各组件在每个内部键按自身规约规则完成，再执行原式。
 
-MetricContract 是定义/所需绑定/充分信息要求的只读合同，不依赖 Session/Runtime。
-它不复制 AnalysisContract 的当前 Result 生命周期。
-Field 支持有限的类型化比较和布尔组合；上述签名不列重复运算符。
-复杂逐行表达式由受限 Ibis authoring 拥有，Field 不扩成完整数值运算语言。
+per(Population) **显式选择全部内部样本**：在每个 k 内，对域的每个相容键 j 绑定子指标。
+域外贡献不属于请求；不要求域覆盖全局来源，也不要求重复 where(P)。
+域自己的键选择程序/期间保持不变，外部上下文仅限制在这些键上计算哪些贡献。
+这项语义取代 v0.26 over 的全局覆盖要求。
 
-Field.via/at 定位字段读取角色和属性时点，与 observe 的主体归属路由不同。
-Field.via 的 path 与 routes 各 value、其它 via 输入共用
-[非空关系元组合同](../analysis/lazy-analysis-dsl-redesign.md#41-session字段时间与路径)；
-单跳写 field.via((relationship,))，多跳按声明顺序排列，标量字段读取仍要求合法单值路径。
-TimeAnchor 的闭合定义及构造由 [DSL §4.1.1](../analysis/lazy-analysis-dsl-redesign.md#411-精确时刻与版本选择锚点) 拥有：
-Session.instant 或 scope.start/end 提供精确时刻，scope.before_end 提供左极限；Field.at 接受两者。
-Session.time_scope/instant 默认使用报告时区，显式时区只覆盖本次构造；解析结果固定，不成为语义模型的运行时默认。
-运行时锚点只进入本次绑定；不能把依赖 Session 的 Field 变体收录成可独立加载模型。
-Field/Entity/Metric 都有 bounded repr/show，公共叶子随 owner Help 渐进发现，
-不把内部图类型或字段绑定表加入顶层 exports。
+```python
+cohort_mean = revenue.per(cohort).mean()
+observed_mean = revenue.per(CustomerId).mean()
+cohort_ratio = revenue.where(mv.in_population(cohort)) / revenue
+```
+
+cohort={A,B}，全来源 A=100、C=300，收入 sum 空/全 NA 为零：cohort_mean=(100+0)/2=50，
+observed_mean=(100+300)/2=200；只在 cohort 中出现的客户均值为 100。cohort_ratio 为 1/4。
+per 在每个样本完成整个子式，不会把其中分母意外留在全局 400；人群/全体比率应使用上面的分支公式。
+
+**内部展开键是 (k,j)，其到外域的映射是 (k,j)→k；不要求裸 j→k。**
+所以同一客户跨地区、同一采样时点跨设备都合法。对 East/West 的完整 cohort 各求一次客户值；
+若只要各地区实际客户，使用 per(CustomerId)。对每台设备也分别形成时点样本，P95 无需时点唯一归属设备。
+共享的同一轴绑定必须取相等键；不能制造同一客户轴同时为 A 和 B 的矛盾坐标。
+per 不额外创建外部格子，K 仍按 observe 规则从相关贡献或显式输出域确定；内部零活动样本只在已有 k 内保留。
+
+Population 的准入按轴能否完整绑定判断，不因是多字段、身份×字段或多身份元组而一律拒绝。
+每个 Field/Member 轴须有明确角色、版本和对各相关贡献根的合法单值绑定；不能隐式 fanout、
+按同名猜关系、从一个样本权重重复一条贡献，或把域键存在当作来源覆盖证明。
+零轴非空域 {()} 表示每个 k 内一次子求值，零键域表示没有内部样本；二者不混同子指标本身的空贡献。
+首期不增加 CalendarAxis/CorrespondenceAxis 的内部窗口/端点绑定；这属于能力范围，
+不是不可变 Population 的一般类型禁令。此类统计先显式 observe/compare，再在 Query 上 reduce；执行后交 pandas，
+不能拿日期/端点标签冒充 Field。状态 TimeField 的采样合同仍由 §3.2 拥有。
+不能直接传 Query/Artifact/Column；Query 坐标先取合法 Population，保留来源与已有归属。
+Artifact 没有 population；外部键由脚本以显式字面量和当前绑定构造新定义。
+
+每个完整域样本先按子指标政策完成，再按外层规约政策处理；NA 不因样本键存在而补零，原输入的必要检查仍须完成。
+Population 只给样本身份，不证明来源存在或完整。来源域保留原选择程序/时刻，字面量域保留明确完整键和归属。
+配对变体先在同一内部样本域完成 value 与 weight，再用共同有效掩码；weight 必须是 Metric，
+不能混入来源 Field。字段推导样本时，键域包含 value 和 weight 两者相关贡献键的并集；
+显式 Population 则按该域逐键完成两者，不先删去某一侧无值的键再假称完整。
+Query 格子统计用 reduce；Artifact 后处理用 pandas。前者随本次图求值，后者只消费导出数据。
+Query 外部粗化时须先在共同内部键 j 上合法合并/恢复子指标，再完成外层规约。
+不能对 PerMean 无条件套用 SourceMean 的 sum/count 摘要：East=A100、West=A300 与
+East=A100、West=B300 有相同地区摘要 (100,1)/(300,1)，总体客户均额却为 400/200。
+没有内部身份/子状态时无法区分；本次计划必须提供对该表达式充分的输入/中间信息，不能用完成值代替。
+纯键数使用 s.query(population).reduce({"ids": mv.row_count()})，不把 per(...).count 当作名单基数。
+
+外部 observe(by=Population) 仍是完整输出覆盖合同，缺少被消费贡献的输出键必须失败；
+它不等于 per(Population) 的内部样本选择。数学区分见
+[核心分析代数](../analysis/algebra-theory.md)。
+
+## 4. 发现、类型与错误
+
+Field/Entity/Measure/Metric 都有 bounded repr/show；定义 contract 披露阶段、贡献根/角色、
+单位与授权来源、时间、节点政策、域依赖/归属、所需绑定和模型收录阻碍，不执行或枚举域。
+NumericRowExpr、MetricSamples、图节点和类型别名留在所属能力下，不扩张顶层导航。
+Metric.contributions 只披露能定位具体根的语义角色；Divide 的 N/D 是计算依赖，不自动构成主体路由。
+
+Field.via/at 的路径与精确时刻继续由
+[DSL §4.1](../analysis/lazy-analysis-dsl-redesign.md#41-session字段时间与路径) 和
+[§4.1.1](../analysis/lazy-analysis-dsl-redesign.md#411-精确时刻与版本选择) 拥有。
+单值路径不凭同名字段建立；时间默认在构造时冻结，不捕获活动 Session。
+
+错误说明预期阶段、收到的定义与具体位置，并从真实状态给出修复：
+行乘积缺求和权限应明确声明新 Measure；@metric 返回行值应显式规约；
+@measure 返回 Metric 不得自动下沉；per 缺贡献到 (外部格子, 内部样本) 的绑定应补合法轴；模型依赖不可持久解析
+应保留临时使用或重写依赖。不给自动转换、隐藏 join、任意回调或回源补状态的修复。
+已知不相容单位的行/Metric 运算（如 CNY + USD）在构造时以 SemanticError 的具体子类拒绝，
+列出双方单位和表达式位置，要求显式完成合法换算后重新组合；不隐式换汇或修改单位标签。
+Query Column 的同类失败由 AnalysisError 拥有。未知单位保持未知，不假定无量纲；
+确需后续绑定的信息按[检查时机](../analysis/lazy-analysis-dsl-execution.md#24-检查时机与能力披露)处理。
+完整披露由 [执行与披露 §2](../analysis/lazy-analysis-dsl-execution.md#2-agent-读取与错误契约) 拥有。
 
 ## 5. 观察上下文是普通分析的唯一绑定入口
 
 ```python
 daily = s.observe(
-    {"revenue": revenue},
+    {"revenue": revenue, "trial_aov": null_on_zero_aov},
     where=region == "APAC",
     during=week.by(mv.grain("day")),
 ).execute()
 ```
 
-普通调用无需 Entity、身份域或额外注册。共同条件对全部来源组件完整绑定；
-有一项不能唯一解释条件就拒绝，不部分过滤。
-每个组件的业务时间角色不变；本次期间/窗口只在该观察中绑定一次。
-需要不同条件/窗口的分支分别 observe，再组合 Query。
-固定 Result 上的 Column 不能放进 Metric 或通过某属性回到来源阶段。
-
-歧义主体路由在 observe 的高级 routes 参数中绑定，key 是语义贡献角色的类型化句柄，
-value 是非空有序关系元组；不是 left/right 字符串路径。唯一声明路径可机械解析，不按最短或最低成本选择。
-普通观察默认信任声明的数据源，只有明确缺口影响所需贡献时才传播 Unknown。
-完整性未检查不等于已知不完整；完整调用、缺口处理及保存合同由
-[DSL §4.9.3](../analysis/lazy-analysis-dsl-redesign.md#493-覆盖缺桶与-cell) 拥有。
+普通调用无需 Entity、身份域或注册。共同条件必须对全部相关来源组件完整绑定，
+一项不能唯一解释就拒绝，不能只过滤部分组件。内部域自身的选择程序不被改写。
+主体归属使用唯一声明路径，observe 不接 routes 补全、不选最短或最低成本路径。
+普通观察默认信任来源，成功执行不证明业务数据完整；首版不声明或消费外部业务缺口，边界归 [DSL §4.9.3](../analysis/lazy-analysis-dsl-redesign.md#493-覆盖缺桶与执行检查)。
+Query Column 不能进入 Metric；Artifact 不提供 Column，也不能通过 .expr 或其它导入入口回到 DSL。
 
 ## 6. 内部实现与一次切换
 
 | owner | 负责 |
 | --- | --- |
-| semantic authoring / loader / Catalog | 声明、名称/归属、依赖校验与可发现定义 |
-| 共同私有定义图 | 小型 Metric 组合、定义引用、角色、单位/许可、时间/fold |
-| Ibis 来源 lowering | 合法关系/schema 上的受限来源计算与后端操作 |
-| analysis | 单次观察绑定、Query/Result、Cell、坐标与实际信息上的续算 |
-| compare | 端点对应和变化计算；不细化来源 |
-| Help / contract / errors | 静态导航 / 当前定义或信息 / 具体修复 |
+| semantic 表达式与声明 | 行/指标阶段、业务权限、稳定身份与闭合图构造 |
+| loader / Catalog | 独立持久解析、依赖与名称检查、精确版本和发现 |
+| 共同私有定义图 | 行计算、规约、Metric 组合、内部样本及规范化域依赖 |
+| Ibis 来源 lowering | 合法 schema/关系上的计算、政策保持和实际后端资格；来源执行交付 pandas |
+| analysis | 观察绑定、Query 组合、统一 pandas 本地执行与中间信息、终端 Artifact 产出 |
+| Help / contract / errors | 静态导航 / 当前定义或状态 / 具体修复 |
 
-复用当前 metric_graph、表达式 sidecar、compiler 和发布/恢复链；
-不建第二 Runtime，不要求原生 Metric Column、虚拟共同关系、Ibis monkey-patch 或全 API 编码。
-保存规范化定义、受限 authoring 计算描述、依赖版本、操作规则和必要状态，
-不保存 Python callable、活动 Ibis/Catalog 或连接。共同图不导入 Session/Runtime。
-来源函数体只有最终值时不自动拥有可合并状态；实际捕获仍是独立实现资格。
+复用现有图、compiler、发布和恢复链，不建第二 Runtime、虚拟共同关系或完整 Ibis AST 镜像。
+共同定义图仅在进程中保留规范化计算、声明授权、依赖版本、节点政策与规则版本；不做分析结果图编码，
+不 pickle callable/Ibis/Catalog。Population 采用依赖中立的字面量/来源或 Query 程序描述，
+semantic 不导入 analysis 执行器，实际归属、读取边界和循环检查沿依赖保留。
+来源无法下推的计算只在具有合格 pandas 内核时进入本地阶段；语义政策不因执行位置改变。
+PyArrow 只负责终端产物存储/读取，DuckDB 只作为来源后端，不增加另一套表达式语言或本地选路。
+完整执行合同见[执行 §1.5](../analysis/lazy-analysis-dsl-execution.md#15-单一执行路线与终端读写)。
 
-### 6.1 首期节点集合、保存成本与资格边界
+### 6.1 首期节点集合与执行内信息需求
 
-下表是闭合的逻辑目标集合，不是已通过的后端矩阵。节点类型与字段保存在私有版本化图，
-不逐个导出公共类。Metric 级通用条件节点不在首期集合；
-来源条件继续由受限 authoring 拥有；一般结果条件/分类交 pandas，不新增 Column 条件节点。
-新增节点须同时补类型/单位/权限、数值政策、依赖出现、编码、恢复和实际路线。
+| 私有节点族 | 直接求值 | 本次计划内合并所需信息 |
+| --- | --- | --- |
+| Field/定义引用、有限数值常量 | 保留根、路径、单位和版本；常量不制造来源 | 保存精确绑定和规则 |
+| Row Negate/Add/Subtract/Multiply/Divide | 同一贡献根上的逐行计算、局部除法政策 | 保存行定义不等于保存原行；需要实际输入或规约充分状态 |
+| MeasureDeclaration | 名称/ai_context 与语义事实分开；可推导事实继承，只记录新增单位/权限断言 | 记录授权来源和版本，不修改依赖原合同 |
+| SourceAggregate / EntityCount | 合法贡献单位上的精确规约 | sum/count/min/max/mean 等合格状态；distinct/quantile 另需精确信息 |
+| PopulationDependency / ContributionFilter | 显式域绑定一个完整贡献作用域 | 类型、字面量/程序、匹配和必要贡献状态 |
+| Metric Negate/Add/Subtract/Multiply/Divide | 完成各指标后逐坐标组合；统一 Divide 角色 | 各依赖在目标坐标的合法充分状态 |
+| SourceWeightedMean | 同贡献域共同有效配对 | 配对乘积和、权重和、支持/覆盖；不能用独立权重和 |
+| PerReduce / PerWeightedMean | 各外部 k 内先按 J_k 完成子指标，再规约/配对 | 按需计算展开键 (k,j) 及必要子状态，或已证明等价的充分信息；不能套用来源 mean 的摘要 |
 
-| 私有节点族 | 目标直接求值 | 原指标 rollup | 固定续算所需信息 |
-| --- | --- | --- | --- |
-| 定义引用、有限数值常量 | 引用完整定义，常量不制造来源 | 继承被引用定义的条件；常量不提供贡献证明 | 冻结定义/类型/单位与操作政策 |
-| 来源 Aggregate / Entity Count | 合法贡献域上的精确方法 | sum/count/min/max/mean 等按方法状态合并；distinct/quantile 另需精确信息 | 输入或相应充分组件、支持/覆盖及坐标映射 |
-| 有作用域的 SourceBody | 在已绑定 schema/关系上执行受限 Ibis 定义 | body 可直接求值不授予上卷；只接受已明确捕获的合格状态 | 冻结 body 描述供解释；实际续算还需已捕获输入/状态 |
-| Negate / Add / Subtract | 各 Metric 完成后逐坐标计算 | 合法恢复各依赖到目标坐标后按原式计算 | 每项依赖的状态与完整键对应 |
-| Multiply / Divide | 合法数值及单位，明确零分母政策 | 从依赖状态重算，不推导任意变量乘除的可加性 | 依赖状态、阶段、政策和原检查 |
-| Ratio | 显式 N/D 角色，完成组件后组合 | 独立合法恢复 N/D，再按保存政策完成 | 两组件状态、定义/角色和对应 |
-| SourceWeightedMean | 同一贡献域的共同配对 | 合法不交分区的配对充分状态合并；fold 次序另检查 | 共同样本、乘积和/权重和、支持和必要折叠前信息 |
-| OverAggregate / OverWeightedMean | 纯语义内域先子指标再规约/共同配对 | 内外映射、完整样本及相关状态均保持才准入 | 内部完整坐标、子定义/值或充分状态、映射及政策 |
+声明名称是独立元数据，不再引入 SourceBody、Ratio 或旧 Over 与新节点并行的计算入口。
+时间样本规约是 PerReduce 的受约束用法；无任意序列节点。
+直接可求值与可按摘要合并是不同资格，不因同名 sum/mean 就默认支持。
+表中的定义属于 Query，组件只服务本次计划，最后一次消费后释放；Artifact 不持有它们。
+只有实际消费者需要且路线获准时才计算细网格/精确分布，不为未来未知续算默认保留；输出边界由
+[执行 §1.2](../analysis/lazy-analysis-dsl-execution.md#12-默认保存信息) 拥有。
 
-内部域不是“任意重复列”；坐标或样本不完整时不能仅因节点种类匹配而放行。
-来源 state fold 是 Aggregate/配对定义的精确时间子合同，沿 §3.2；
-它不新增未绑定 Ibis Deferred 或任意序列节点。
-记录中的元数据都能保存，不代表该节点的固定执行器或 retained capture 已获资格；
-Help/contract 分别披露可构造、待实际求值、可保留与可固定续算。
-
-这份私有图仍有明确成本：规范化和类型/单位检查、规则版本、codec 与 schema 校验、
-依赖发生位置、lowering/check 调度、充分信息捕获、冷恢复，以及合格物理组合。
-来源 sidecar 只维护已获准的有作用域计算描述，不镜像整个 Ibis 操作集。
-运算参数/默认政策先规范化后编码；图、body、方法和状态版本分别验证。
-新增操作或不兼容编码先失败并披露实际位置，不能绕过白名单、降级算法或改用当前默认。
-计划 R1 建立引用/常量与最小 Aggregate，R3 扩展上述闭合组合；
-R6/R7 逐项验证 retained capture 和固定执行，避免先声称统一支持。
+规范化、类型/单位/权限检查、lowering、必要检查、进程内组件与输出数据往返均需独立验证；不新增结果图 codec。
+未知节点/规则版本必须定位失败，不降级为任意 Python、后端默认或旧 DSL 别名。
 
 ## 7. 实施与可核验条件
 
-本地 R1–R8 计划与 DSL 提案同步为 v0.23；全部阶段仍未实施。
-优先验证纯 Metric → observe → execute → Result → 断源恢复，
-再验证端点比较、选择与独立细化，不把旧 Ibis 桥接或自动比较下钻作为后置承诺。
+本地 R1–R8 计划与 DSL 提案同步为 v0.35；全部阶段仍未实施。
+[示例 §6–7](../analysis/lazy-analysis-dsl-examples.md#6-预定义与-runtime-共用表达式与声明)
+对照预定义/runtime，覆盖收入、AOV、固定人群均额、先空间后时间 P95、共同有效配对五个核心场景。
+[场景验证 §9](../analysis/lazy-analysis-dsl-scenario-validation.md#9-后续实现的最小验收集)
+拥有未来验收；文档与独立数值见证不是 Runtime 证据。
 
-必须验证：
+必须分别验证：同式同阶段的计算/政策等价、构造无业务 I/O、声明和收录分离、纯表达式体限制、
+行权限不会由 dtype/乘法/命名自动扩大、跨根行算术拒绝、/ 与 divide 同节点、共同配对、
+per(P) 的样本选择与 observe(by=P) 的输出覆盖不同、采样次序与覆盖、仅会话域收录拒绝、
+本次计划的充分组件及无图 Artifact 读取；新产物与重开产物都拒绝 DSL 输入。
+既有 Query 节点政策不得被新默认覆盖，Artifact 的 Finding/Evidence 不恢复节点或赋予计算权限。
+实施时一次同步公开类型、Help、错误和中英文 API 示例；技能变更仍须另获明确授权。
+本轮不把提案签名写入当前实现或发布文档。
 
-1. 同定义命名/临时 Metric 同输入同值、Cell、失败和依赖，构造无登记或取数副作用。
-2. 模型加载 source-I/O free；物理 schema 到来源绑定才解析，不合成未知类型 Metric Column。
-3. 多来源组件独立求值、完整键组合，重复依赖不去重、分支过滤不污染其他定义。
-4. observe 上下文只绑定一次；Metric 不能设置期间/路由默认；冲突精确拒绝。
-5. 来源规约、语义内部样本、最小结果规约和 pandas 统计不同；运行时固定域不能混入模型定义。
-6. 五分钟采样先空间后时间 P95 为 10；完成设备 P95 的 19 不代替它。
-7. ratio/weighted_mean 保留角色、政策、共同样本、单位/许可和充分状态。
-8. 通用算术在实际依赖充分时原式重算，缺信息拒绝；没有专用角色不阻断合法一般重算。
-9. 冷恢复不重载 Catalog/来源，恢复实际能力；只有 authoring 最终值不伪造状态。
-10. 来源或固定端点先 drill 再 compare；比较直接 drill/retain_detail 均拒绝。
-11. 普通观察无需完整性声明即可求值；明确缺口只影响实际相关贡献，默认信任不生成已检查证据。
-12. 新 Defined 零分母默认 Undefined；显式 Null 与已加载/已保存旧政策独立验证，归属见 §3.4。
-13. §6.1 节点逐项验证直接求值/合并/固定资格和未知编码拒绝，不以小型图为由省略成本。
-14. 静态 Help、exports、错误、实例合同及未来中英文示例一次同步；技能仅在另获授权后更新。
-15. 常量局部单位绑定不修改原定义，不将未知单位当作无量纲；独立参照列与来源单位各归其 owner。
-16. 属性版本的精确时刻/左极限与 Session 时间构造默认一致，不能用 end 减 tick 或重新解析主机时区替代。
+## 附录 A：被本版替代的设计
 
-这些是未来实现验收条件；文档和独立数值见证不构成桥接、执行或恢复证明。
+上文是 v0.35 的目标合同，不提供兼容 API；在真实实施切换前，已提交的 current 文档和 live Help 仍约束现行实现。
 
-## 附录 A：设计变更记录
+### A.1 拟替代的已提交合同
 
-| 早期目标 | 当前收敛 |
+下表明确能力是否保留、由谁拥有以及旧声明如何处理；不能把未列出旧参数解释成静默忽略。
+
+| 已提交合同与 owner | 目标合同与能力处置 | 旧声明的处置 |
+| --- | --- | --- |
+| [Overview 的 Ibis 唯一作者语言](overview.md#design-goals)、[受限 Ibis 表达式体](semantic-object-model.md#common-contracts) | Measure/Metric 作者语言改为本文的受限行/指标表达式；Ibis 负责来源 lowering。Entity/Source、Dimension/TimeDimension 的合法来源构造与 Ibis 字段能力仍由原 owner 管理，不借此开放任意 Metric Ibis 桥接 | 新 Measure/Metric 声明拒绝表参数、Ibis scalar 及已退役工厂；未受本次替代影响的来源声明继续遵守原合同 |
+| [fanout_policy 与 aggregate_then_join](semantic-object-model.md#grain-root-entity-and-fan-out) | 退役该参数及隐式多值分组路线。存在匹配筛选使用显式 Population.preimage，再将所选身份作为贡献约束；每个来源身份保留一次。重叠标签分组不等价于半连接，本版不提供旧的自动 fanout 分桶 | 参数拒绝，不能降为 block 或忽略；结构化修复区分存在匹配筛选与本版不支持的重叠分组，不自动改贡献根或分配方式 |
+| [empty 声明政策](semantic-object-model.md#fixed-null-and-empty-contracts) | sum 空输入与全 NA 均为 0；其余算子按 §3.4。移除 empty 参数和 ms.empty 构造器 | 即使旧值为 zero 也拒绝旧语法；旧 empty=null 不能被默认为 0，须由作者明确重写定义 |
+| [status_time_fold 与 aggregate fold](semantic-object-model.md#sampled-semi-additive-metrics) | 退役 Measure/Metric（包括 measure_column）上的默认 fold；统一为 per(状态 TimeField).reducer。状态时间角色、采样间隔、可加限制仍归来源声明，先空间后时间及覆盖要求按 §3.2 保留 | status_time_fold/fold 参数拒绝；修复指向显式内部样本表达式，不丢弃旧折叠次序 |
+| [跨 Entity 的 time_via](semantic-object-model.md#metric) | 保留明确的跨 Entity 时间读取能力，统一为 time=TimeField.via(path)，按 §2.1 捕获单值路径；不增加观察时路由覆盖 | time_via 参数拒绝；错误给出原时间字段和有序关系路径的改写位置，不猜路径或改为根 Entity 的其它时间 |
+| [approx_* 与定义拥有精确性](semantic-object-model.md#definition-owned-aggregate-exactness) | 本版仅纳入 §2.1 的非近似规约；近似聚合明确不在目标范围。保留定义拥有精确性、禁止后端静默替换的边界 | 旧 approx_count_distinct/approx_median/approx_percentile 声明拒绝；不自动改成精确算子，也不把不支持的精确请求降为近似 |
+
+声明校验/模型加载必须在业务来源读取前拒绝已移除的参数、工厂和表达式体。
+错误列出声明位置、收到的旧语法、期望的目标形状及真实可用修复；不双读、不迁移、不静默忽略或重解释。
+这项规则适用于 Python 模型声明，独立于旧四态 Artifact/图快照格式的拒绝；正常新声明仍按 §2.4 检查依赖闭包。
+
+用户模型采用人工改写对照与逐声明 typed repair，不提供 codemod、兼容加载或自动写回：
+
+| 旧写法 | 目标改写与边界 |
 | --- | --- |
-| 全对象原生 expr 与通用 Ibis 图编码 | 来源绑定后使用 Ibis；Metric 使用小型语义组合图 |
-| ms.metric 五种 expression 变体 | 精确来源构造器、Metric 算术、纯语义 over 和结果 reduce |
-| 零参数装饰器等价入口 | 保留有来源作用域的受限 authoring，不新增零参副本 |
-| Metric 期间/路由默认 | observe 一次绑定上下文；来源完整性遵守 DSL 的默认信任规则 |
-| components 中的通用 left/right 路径 | 内部出现追踪；公开只发现明确语义贡献角色 |
-| runtime 域直接进入 Metric | 固定域 observe/query 后以结果统计完成 |
-| ms.linear 与 runtime 副本 | 小型 Metric 算术；模型/临时使用同一入口 |
+| ms.aggregate / ms.count | 从已解析 Measure/Entity 选择原计算对应的接收者规约，如 Amount.sum(time=PaidAt) / Orders.count(time=PaidAt)；原过滤和时间路径分别保留，不统一替换为 sum |
+| ms.ratio | 组合已构造 Metric，使用 numerator / denominator 或显式 divide(..., zero_denominator="error")；作者按 §3.4 明确新政策，不能猜测旧缺失状态的等价写法 |
+| @ms.metric(entities=...) 与 Ibis 表参数体 | 改为零参数体，返回由已声明字段/Metric 构成的表达式；来源根从依赖取得，多根独立规约，不能将旧表 join 机械搬入新体 |
+| fanout_policy | 存在匹配筛选显式使用 Population.preimage；重叠标签分桶本版无等价替代，错误明确说明，不能自动改为半连接 |
+| empty / ms.empty | 移除旧语法前确认目标空值合同；旧 empty=null 的 sum 不能通过删除参数冒称等价，作者须接受新定义或重写业务问题 |
+| ms.bind | 从新 Measure/Metric 体移除并直接使用已构造字段；保留的 Ibis 字段声明体仍按 §2.3 的受限合同使用 |
 
+错误至少定位当前被拒声明及对应旧语法；不为一次收集全部模块错误执行无效模型，
+也不承诺自动生成业务等价的新定义。旧语法即使参数值恰好等于新默认也不接受。
 
-v0.20增量：新Defined零分母统一Undefined，Null显式选择且已有政策冻结；
-小型图闭合集合和维护成本由§6.1拥有。观察依赖、谓词绑定、compare命名和阶段修复由[执行与披露 §2](../analysis/lazy-analysis-dsl-execution.md#2-agent-读取与错误契约)及对应算子拥有。
+切换实施时须同步上述 current owner、Help、示例、错误和英中发布文档。
+[AGENTS.md](../../../AGENTS.md) 的 Ibis 表达式规则及两个 packaged skills 的编辑需要显式用户授权，
+本次提案修订不修改这些受保护文件；CLAUDE.md 是 AGENTS.md 的符号链接，不形成第二份规则。
 
+### A.2 提案演进
 
-v0.21 增量：按 [场景验证 §8.6](../analysis/lazy-analysis-dsl-scenario-validation.md#86-逐算子的价值准入) 逐算子判断增量价值。
-来源 AggregateMethod、TimeFold、ms.weighted_mean 与 Metric.over 保持原意义；
-结果 min/max/count_defined/count_distinct/quantile、record/weighted_mean/correlation、
-case/minimum/maximum/with_axes、命名派生轴定位和 window_reduce 移出首版。
-结果只保留必要的 sum/mean/row_count 和小型同域组合；普通后处理由 pandas 拥有。
-导出按 DSL §4.6.1 明确状态、坐标、精度与信息边界，不把缺少内部信息算成 pandas 的计算缺陷。
-本轮只修订目标文档，没有修改语义实现或当前公开 API。
+| 早期方案 | 当前目标 |
+| --- | --- |
+| 分析 Domain、domain()、in_domain(...) | Population、population()、in_population(...)；语义业务 Domain 保留 |
+| ms.aggregate/count + Ibis Metric 装饰器两条语言 | 来源接收者规约、Metric 组合；零参数声明体返回同一表达式 |
+| ms.ratio 与普通 / 分开 | / 和 divide 是同一节点、角色与默认政策 |
+| named 或装饰器显式完整名称 | 装饰器捕获函数局部名；模型收录限定命名空间，输出标签归 observe |
+| 装饰器全局 nulls/zero_denominator | 政策归每个实际算子，声明不覆盖 |
+| fold 参数隐含第二规约阶段 | per(采样轴).quantile 等显式表达次序 |
+| over(Domain) 要求先 where 再覆盖全部贡献 | per(Population) 直接选择内部样本；外部输出覆盖合同不变 |
+| 行表达式只能写 Ibis 函数体 | 有类型/权限的有限行表达式；Measure 声明新业务量 |
+| 禁止所有 runtime 域或构造时检查模型持久化 | 显式不可变依赖合法；独立持久解析在模型收录检查 |
 
-v0.22 增量：运行时统一使用 Domain；Session.members 只保留为来源身份选择入口。
-observe 的 members 只约束贡献，by=Domain 明确完整输出，两者互不隐含。
-结果复用身份依赖已保存身份轴的投影，不引入 Members 类型、结果成员转换或隐藏名单运输。
-Entity/Relationship 仍拥有身份类型和显式读取路径；固定域不冻结新属性读取，也不证明来源覆盖。
-语义命名空间的 DomainRef 仍是模型组织引用，与此运行时 Domain 无关。
+窗口、身份、默认来源信任和 pandas 交接继续由 DSL 及执行文档拥有；
+早期 Result 续算、固定 Artifact 键域与 origin/fixed/cold 已由终端 Artifact 边界替代。
+能力保留、退役与旧声明拒绝以 A.1 和正文为准；参数减少不作为计算等价证明。
 
-v0.23 增量：常量不重复声明业务单位，独立参照量的单位归 Session.values 列定义；
-时间构造归 Session，TimeAnchor 闭合区分精确时刻与左极限。Domain 的关系像输出目标身份，
-逆像只筛选接收者有限身份域；字段分类像不升级为目标 Entity 身份，规则由 DSL §4.2.1 拥有，示例见 [关系像与有界逆像](../analysis/lazy-analysis-dsl-examples.md#4-关系像与有界逆像)。
-
-v0.25 增量：观察默认信任声明的数据源，移除逐次完整性声明及其运输规则；
-明确缺口的作用域和状态传播由 DSL §4.9.3 拥有，默认信任不构成已检查证据。
+v0.28 复审修正：两种装饰器从函数名推导局部声明名，模型收录限定完整身份；Measure 继承可推导事实、说明复用 ai_context；per 的样本在每个外部格子内建立，
+按绑定能力校验域形状；权重归一化不要求业务可加性；Metric 常数平移不继承完成值可加性。
+示例与验收同步，模型/runtime 的 AOV 政策及字段路径使用同一合同。全部仍为文档提案。

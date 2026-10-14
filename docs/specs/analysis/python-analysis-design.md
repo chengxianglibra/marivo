@@ -419,7 +419,11 @@ Cells, retained parts, source provenance and pending checks remain unchanged.
 Observation windows and Metric slice predicates restrict contributions only;
 these rewrites do not restrict the member domain or guarantee one source scan.
 
-Local laws L1/L7/L8/L9 state conditional equivalences. Registration does not
+The implementation-local identifiers L1/L7/L8/L9 in
+[`core/local_laws.py`](../../../marivo/analysis/core/local_laws.py) state
+conditional equivalences. These identifiers are independent of the proposed
+theory's numbering; its [mapping table](algebra-theory.md#实现编号与理论定律的对应)
+is a cross-reference, not authority to expand current execution. Registration does not
 grant arbitrary semantic rewrites, source pushdown or additional public K.
 The explicit fixed sum StateEquation helpers keep their own narrow premises.
 
@@ -427,7 +431,7 @@ The executor applies two invocation-local schedule optimizations:
 
 - A2 groups adjacent qualified fixed int64 ordinary selections using L1's
   existing contract, reusing primary/part key indexes and survivor positions.
-- A3 groups adjacent qualified fixed original reductions using L8 contracts,
+- A3 groups adjacent qualified fixed original reductions using implementation-local L8 contracts,
   merging original components directly under terminal keys before one finish.
 
 Both preserve the logical DAG, definition identity, selected implementations,

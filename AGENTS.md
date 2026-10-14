@@ -10,6 +10,7 @@ every coding task. Do not modify this file without explicit user approval.
   ambiguity would make the change risky.
 - Prefer the minimum code that solves the requested problem; do not add
   speculative flexibility, future placeholders, or unrelated abstractions.
+- Do not over-engineer defensive design, implementation, or acceptance validation.
 - Make surgical changes: touch only the files required, match existing style,
   and never clean up unrelated local changes.
 - Do not add Chinese text to source code, code comments, tests, fixtures,

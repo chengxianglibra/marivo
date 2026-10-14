@@ -434,7 +434,9 @@ After `validate_fixed_schedule`, the executor may group adjacent fixed
 `artifact_python` OriginalReduce stages for sum, sum_zero, count, mean, ratio,
 weighted mean and linear. The original logical DAG, node identities and selected
 implementations remain intact. Qualification is invocation-local and inspects the
-existing L8 contracts without constructing or saving a replacement graph.
+the implementation-local L8 contracts in
+[`core/local_laws.py`](../../../marivo/analysis/core/local_laws.py) without
+constructing or saving a replacement graph.
 
 Each mapping must project the complete input key, and successive projections
 may only remove coordinates. Each stage retains the same complete original-state
@@ -450,7 +452,7 @@ directly under terminal keys, then finishes and constructs the terminal result.
 It preserves the terminal Signature, complete parts, method state, empty policy
 and the original per-node proof chain. Exact carriers keep their captured range
 checks; floating merges keep the existing numeric contract and retained absolute
-magnitudes. L8 does not grant a new source route or numerical implementation.
+magnitudes. This implementation-local L8 does not grant a new source route or numerical implementation.
 The earlier explicit sum-only StateEquation helper retains its independent
 qualification; invocation grouping does not invoke or broaden that helper.
 Grouping does not scan sources to prove every hypothetical intermediate range.

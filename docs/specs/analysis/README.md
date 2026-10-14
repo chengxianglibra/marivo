@@ -28,9 +28,10 @@ Each document states its own revision.
 
 | Document | Owns |
 | --- | --- |
+| [Analysis Implementation Architecture](analysis-implementation-architecture.md) | Target layers, typed full-tuple predicate handoff, backend admission, pandas local stages and terminal storage/reads |
 | [Lazy Analysis DSL Definition](lazy-analysis-dsl-redesign.md) | Target objects, signatures, binding rules and evaluation semantics |
-| [Semantic Expression Proposal](../semantic/expression-model-redesign.md) | Reusable source definitions, Metric constructors and restricted authoring |
-| [Lazy DSL Execution and Result Handoff](lazy-analysis-dsl-execution.md) | Proposed execution, retention, recovery, agent disclosure and pandas layout |
+| [Semantic Expression Proposal](../semantic/expression-model-redesign.md) | Reusable source definitions, Metric constructors, shared numerical policies, restricted authoring and explicit supersession of current contracts |
+| [Lazy DSL Execution and Result Handoff](lazy-analysis-dsl-execution.md) | Proposed check timing, numerical optimization boundaries, terminal Artifact persistence, same-generation recovery, disclosure and pandas layout |
 | [Lazy DSL Examples](lazy-analysis-dsl-examples.md) | Complete multi-round analysis and focused examples |
 | [Lazy DSL Scenario Validation](lazy-analysis-dsl-scenario-validation.md) | Operator rationale, business scenarios, numerical witnesses and future acceptance criteria |
 
