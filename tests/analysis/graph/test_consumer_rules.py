@@ -33,6 +33,7 @@ from marivo.analysis.methods.consumer_rules import (
     prepared_numeric,
     subject_image,
 )
+from marivo.analysis.methods.descriptor import MethodName
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     DecimalType,
@@ -47,7 +48,7 @@ from marivo.analysis.methods.physical import (
     ValueType,
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistration
-from marivo.analysis.methods.semantics import MethodKey, MethodName
+from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import RefPayloadV1, ref
 from marivo.semantic.ir import (

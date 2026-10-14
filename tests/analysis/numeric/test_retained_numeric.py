@@ -24,10 +24,10 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.cell_arrow import number
-from marivo.analysis.materialization.deviation_execution import _decode as decode_fit
-from marivo.analysis.materialization.deviation_execution import load
+from marivo.analysis.materialization.deviation_execution import decode as decode_fit
+from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
-from marivo.analysis.materialization.runs_execution import _decode as decode_runs
+from marivo.analysis.materialization.runs_execution import decode as decode_runs
 from marivo.analysis.materialization.statistical_execution import decode_forecast, decode_pairs
 from marivo.analysis.methods.physical import FixedShape, Qualified
 from marivo.datasource.adapters import SourceSession

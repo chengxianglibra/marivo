@@ -20,9 +20,9 @@ from marivo._temporal import TimeScope
 from marivo.analysis.core.business_coverage import complete, normalize
 from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.errors import AnalysisError, StatisticalRelationError
-from marivo.analysis.materialization.deviation_execution import load
+from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_exchange import ExchangePart, from_arrow
-from marivo.analysis.materialization.runs_execution import _decode
+from marivo.analysis.materialization.runs_execution import decode as _decode
 from marivo.analysis.public_dsl import LogicalNumericRelation
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.statistics.deviation_fixture import prepare_profiles

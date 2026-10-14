@@ -2483,6 +2483,51 @@ def _fold_rollup_stage(
     )
 
 
+def run_kernel(
+    stage: LoweredLocal, values: tuple[ExchangeResult, ...], binding: str
+) -> ExchangeResult | None:
+    """Run a local kernel whose call is identical for fixed and prepared inputs.
+
+    Returns ``None`` for methods whose inputs, proofs or checks are path-owned.
+    """
+    node = stage.stage.node
+    params = node.parameters
+    if isinstance(params, (AssociationFit, AssociationRead, ForecastFit, ForecastRead)):
+        from marivo.analysis.materialization.statistical_execution import execute as statistics
+
+        return statistics(node, values, binding)
+    if isinstance(params, (TimeRuns, TimeRunRead)):
+        from marivo.analysis.materialization.runs_execution import execute as runs
+
+        return runs(node, values, binding)
+    if isinstance(params, (DeviationFit, DeviationRead)):
+        from marivo.analysis.materialization.deviation_execution import execute as deviation
+
+        return deviation(node, values, binding)
+    if isinstance(params, AttributionDerive):
+        from marivo.analysis.materialization.graph_attribution import fixed as attribution
+
+        return attribution(node, values, binding)
+    if isinstance(params, (DisplayRank, DisplayTable)):
+        from marivo.analysis.materialization.graph_display import fixed as display
+
+        return display(node, values, binding)
+    if isinstance(params, ReferenceDerive):
+        from marivo.analysis.materialization.graph_reference import fixed_parts
+        from marivo.analysis.materialization.graph_reference import result as reference_result
+
+        return reference_result(node, fixed_parts(node, values), binding)
+    if isinstance(params, PartsTransport):
+        return _transport_stage(stage, values[0], binding, tuple(values[1:]))
+    if isinstance(params, OriginalReduce):
+        if params.method == "fold":
+            return _fold_rollup_stage(stage, values[0], binding)
+        if params.coordinates:
+            return _coordinate_rollup_stage(stage, values[0], binding)
+        return _original_rollup_stage(stage, values[0], binding)
+    return None
+
+
 def validate_fixed_schedule(lowered: LoweredPlan) -> None:
     """Check fixed consumption constraints once before Artifact reads or Run allocation."""
     if lowered.admitted.classification.kind != "artifact":
@@ -2611,36 +2656,9 @@ def execute_verified_fixed(
             check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
         )
         name = stage.stage.node.method.name
-        if isinstance(
-            stage.stage.node.parameters,
-            (AssociationFit, AssociationRead, ForecastFit, ForecastRead),
-        ):
-            from marivo.analysis.materialization.statistical_execution import execute as statistics
-
-            result = statistics(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, (TimeRuns, TimeRunRead)):
-            from marivo.analysis.materialization.runs_execution import execute as runs
-
-            result = runs(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, (DeviationFit, DeviationRead)):
-            from marivo.analysis.materialization.deviation_execution import execute as deviation
-
-            result = deviation(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, AttributionDerive):
-            from marivo.analysis.materialization.graph_attribution import fixed
-
-            result = fixed(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, (DisplayRank, DisplayTable)):
-            from marivo.analysis.materialization.graph_display import fixed
-
-            result = fixed(stage.stage.node, values, binding)
-        elif isinstance(stage.stage.node.parameters, ReferenceDerive):
-            from marivo.analysis.materialization.graph_reference import fixed_parts
-            from marivo.analysis.materialization.graph_reference import result as reference_result
-
-            result = reference_result(
-                stage.stage.node, fixed_parts(stage.stage.node, values), binding
-            )
+        kernel = run_kernel(stage, values, binding)
+        if kernel is not None:
+            result = kernel
         elif name == "group.attach":
             result = _attach_category_stage(stage, values[0], values[1], binding)
         elif name == "map_correspond":
@@ -2656,16 +2674,6 @@ def execute_verified_fixed(
                 if params.mode == "group_keys"
                 else _subject_image(stage, values[0], binding)
             )
-        elif name in ("parts_transport", "domain.cohort"):
-            result = _transport_stage(stage, values[0], binding, tuple(values[1:]))
-        elif name == "state_rollup.fold":
-            result = _fold_rollup_stage(stage, values[0], binding)
-        elif isinstance(stage.stage.node.parameters, OriginalReduce) and bool(
-            stage.stage.node.parameters.coordinates
-        ):
-            result = _coordinate_rollup_stage(stage, values[0], binding)
-        elif isinstance(stage.stage.node.parameters, OriginalReduce):
-            result = _original_rollup_stage(stage, values[0], binding)
         elif name == "comparison.read":
             result = comparison_project(stage.stage.node, values[0], binding)
         elif name in ("cell.difference", "cell.relative_change", "cell.ratio", "cell.compare"):

@@ -11,6 +11,7 @@ from marivo.analysis.methods.builtin import (
     implementations,
     specialize_numeric,
 )
+from marivo.analysis.methods.descriptor import MethodName
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -18,7 +19,7 @@ from marivo.analysis.methods.physical import (
     ValueType,
     arrow_scalar_type,
 )
-from marivo.analysis.methods.semantics import MethodKey, MethodName
+from marivo.analysis.methods.semantics import MethodKey
 
 
 @pytest.mark.parametrize(

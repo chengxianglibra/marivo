@@ -12,7 +12,7 @@ import pytest
 
 from marivo.analysis.core.model import DerivedQuantity, PairInputsPart, Quantity
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.deviation_execution import SavedPart, load, save
+from marivo.analysis.materialization.fit_state import SavedPart, load, save
 from marivo.analysis.materialization.statistical_execution import (
     Input,
     PairCapture,

@@ -11,7 +11,7 @@ from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
@@ -33,7 +33,17 @@ from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.cell_arrow import compact_schema, from_rows, logical_schema
 from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
-from marivo.analysis.materialization.deviation_execution import SavedPart, SavedTable, load, save
+from marivo.analysis.materialization.fit_state import (
+    SavedPart,
+    SavedTable,
+    decode_part,
+    index,
+    load,
+    payload,
+    retained_text,
+    save,
+    validate_with,
+)
 from marivo.analysis.materialization.graph_exchange import (
     ArrowPart,
     ExchangeContract,
@@ -207,15 +217,8 @@ def capture(result: ExchangeResult, typ: str) -> Input:
     )
 
 
-def index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
-    result: dict[tuple[object, ...], int] = {}
-    frame = table.to_pandas() if isinstance(table, pa.Table) else table
-    for i, row in enumerate(frame.to_dict(orient="records")):
-        key = tuple(row[k] for k in keys)
-        if key in result or any(value is None or pd.isna(value) for value in key):
-            raise invalid("statistical input has null or duplicate composite keys")
-        result[key] = i
-    return result
+def _index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
+    return index(table, keys, "statistical")
 
 
 def _input(
@@ -263,7 +266,7 @@ def _input(
                 method=method,
             )
     frame = table.to_pandas()
-    index(frame, value.keys)
+    _index(frame, value.keys)
     return frame, tuple(numbers)
 
 
@@ -287,7 +290,7 @@ def _series(
     coverage_saved = next((p.table for p in value.parts if p.role == "coverage"), None)
     if coverage_saved is not None:
         coverage = load(coverage_saved).to_pandas()
-        coverage_keys = index(coverage, value.keys)
+        coverage_keys = _index(coverage, value.keys)
         coverage_values = coverage["coverage__complete"].tolist()
         completeness = {key: coverage_values[position] for key, position in coverage_keys.items()}
     else:
@@ -303,10 +306,10 @@ def _series(
             if original_training.future != owned_future:
                 raise invalid("numeric forecast view differs from its captured future authority")
             completeness = dict.fromkeys(
-                index(load(original_forecast.views).to_pandas(), value.keys), True
+                _index(load(original_forecast.views).to_pandas(), value.keys), True
             )
         elif mapping is not None:
-            mapping_keys = index(mapping, value.keys)
+            mapping_keys = _index(mapping, value.keys)
             coverage_values = mapping["grid_cells__coverage"].tolist()
             completeness = {
                 key: coverage_values[position] for key, position in mapping_keys.items()
@@ -335,10 +338,10 @@ def _series(
             ):
                 assert t is not None
                 complete_values = t[role + "__complete"].tolist()
-                for k, i in index(t, value.keys).items():
+                for k, i in _index(t, value.keys).items():
                     completeness[k] = completeness.get(k, True) and complete_values[i] is True
     groups: dict[tuple[object, ...], dict[str, int]] = {}
-    actual = index(table, value.keys)
+    actual = _index(table, value.keys)
     if set(completeness) != set(actual) or any(v is not True for v in completeness.values()):
         raise invalid("statistical coverage differs from original full domain")
     for key, i in actual.items():
@@ -364,7 +367,7 @@ def _pair_indices(
         _input(v, method="association." + saved.declaration.method + "@v1") for v in saved.inputs
     )
     tables, numbers = tuple(v[0] for v in decoded), tuple(v[1] for v in decoded)
-    common = index(tables[0], saved.inputs[0].keys)
+    common = _index(tables[0], saved.inputs[0].keys)
     if any(
         v.signature.domain != domain or v.value_type != typ or v.keys != saved.inputs[0].keys
         for v, typ, domain in zip(
@@ -375,13 +378,15 @@ def _pair_indices(
         )
     ):
         raise invalid("ordered input binding/type/domain differs from pair declaration")
-    if any(set(index(t, v.keys)) != set(common) for t, v in zip(tables, saved.inputs, strict=True)):
+    if any(
+        set(_index(t, v.keys)) != set(common) for t, v in zip(tables, saved.inputs, strict=True)
+    ):
         raise invalid("correlation inputs have different complete composite key sets")
     sequences = _series(saved.inputs[0], tables[0])
     # All input vectors are reordered by exact keys, never by row positions alone.
     reordered = []
     for table, v, values in zip(tables, saved.inputs, numbers, strict=True):
-        mapping = index(table, v.keys)
+        mapping = _index(table, v.keys)
         reordered.append(tuple(values[mapping[k]] for k in common))
         _series(v, table)
     return tables, tuple(reordered), sequences
@@ -635,76 +640,22 @@ def forecast_state(saved: TrainingCapture) -> ForecastState:
     )
 
 
-def _payload(role: str, value: str) -> ArrowPart:
-    return ArrowPart(role, pa.table({role + "__retained": [value]}))
-
-
-def _decode_pairs(
-    parts: tuple[ExchangePart | ArrowPart, ...],
-) -> tuple[PairCapture, AssociationState]:
-    a = next(_retained_text(p, "pair_inputs__retained") for p in parts if p.role == "pair_inputs")
-    b = next(
-        _retained_text(p, "association_state__retained")
-        for p in parts
-        if p.role == "association_state"
-    )
-    captured, state = PAIRS.validate_json(a, strict=True), ASSOCIATION.validate_json(b, strict=True)
-    if PAIRS.dump_json(captured).decode() != a or ASSOCIATION.dump_json(state).decode() != b:
-        raise invalid("association canonical encoding or capture binding differs")
-    return captured, state
-
-
-def _decode_forecast(
-    parts: tuple[ExchangePart | ArrowPart, ...],
-) -> tuple[TrainingCapture, ForecastState]:
-    a = next(
-        _retained_text(p, "training_inputs__retained") for p in parts if p.role == "training_inputs"
-    )
-    b = next(
-        _retained_text(p, "forecast_state__retained") for p in parts if p.role == "forecast_state"
-    )
-    captured, state = TRAINING.validate_json(a, strict=True), FORECAST.validate_json(b, strict=True)
-    future = next(
-        _retained_text(p, "future_cells__retained") for p in parts if p.role == "future_cells"
-    )
-    if (
-        TRAINING.dump_json(captured).decode() != a
-        or FORECAST.dump_json(state).decode() != b
-        or FUTURE.dump_json(captured.future).decode() != future
-    ):
-        raise invalid("forecast canonical encoding, future or capture binding differs")
-    return captured, state
-
-
-def _retained_text(part: ExchangePart | ArrowPart, column: str) -> str:
-    table = part.table
-    if isinstance(table, pd.DataFrame):
-        value = table[column].iloc[0]
-    elif isinstance(table, pa.Table):
-        value = table[column][0].as_py()
-    else:
-        raise invalid("retained statistical payload is not a table")
-    if not isinstance(value, str):
-        raise invalid("retained statistical payload is not a JSON string")
-    return value
-
-
 def decode_pairs(
     parts: tuple[ExchangePart | ArrowPart, ...],
 ) -> tuple[PairCapture, AssociationState]:
-    try:
-        return _decode_pairs(parts)
-    except (ValueError, ValidationError, StopIteration, KeyError, IndexError) as error:
-        raise invalid("invalid retained association capture/state") from error
+    return decode_part(parts, "pair_inputs", PAIRS), decode_part(
+        parts, "association_state", ASSOCIATION
+    )
 
 
 def decode_forecast(
     parts: tuple[ExchangePart | ArrowPart, ...],
 ) -> tuple[TrainingCapture, ForecastState]:
-    try:
-        return _decode_forecast(parts)
-    except (ValueError, ValidationError, StopIteration, KeyError, IndexError) as error:
-        raise invalid("invalid retained forecast capture/state/future") from error
+    captured = decode_part(parts, "training_inputs", TRAINING)
+    state = decode_part(parts, "forecast_state", FORECAST)
+    if FUTURE.dump_json(captured.future).decode() != retained_text(parts, "future_cells"):
+        raise invalid("forecast future cells differ from the training capture")
+    return captured, state
 
 
 def views(parts: tuple[ExchangePart | ArrowPart, ...]) -> pa.Table:
@@ -803,8 +754,8 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         all_views_table = views(source.parts)
         all_views = all_views_table.to_pandas()
         keys = source.contract.key_fields
-        mapping = index(all_views, keys)
-        selected = all_views.iloc[[mapping[key] for key in index(source.primary, keys)]]
+        mapping = _index(all_views, keys)
+        selected = all_views.iloc[[mapping[key] for key in _index(source.primary, keys)]]
         read_parts = tuple(
             ArrowPart(
                 part.role,
@@ -836,8 +787,8 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
         state_a = association_state(saved_pairs)
         primary = _primary(load(state_a.views), "coefficient")
         parts = (
-            _payload("pair_inputs", PAIRS.dump_json(saved_pairs).decode()),
-            _payload("association_state", ASSOCIATION.dump_json(state_a).decode()),
+            payload("pair_inputs", PAIRS.dump_json(saved_pairs).decode()),
+            payload("association_state", ASSOCIATION.dump_json(state_a).decode()),
         )
         original_digest = state_a.input_digest
         eligible = sum(c.score.status == "valid" for c in state_a.candidates)
@@ -862,9 +813,9 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
             ) from error
         primary = _primary(load(state_f.views), "prediction")
         parts = (
-            _payload("training_inputs", TRAINING.dump_json(saved_training).decode()),
-            _payload("forecast_state", FORECAST.dump_json(state_f).decode()),
-            _payload("future_cells", FUTURE.dump_json(future).decode()),
+            payload("training_inputs", TRAINING.dump_json(saved_training).decode()),
+            payload("forecast_state", FORECAST.dump_json(state_f).decode()),
+            payload("future_cells", FUTURE.dump_json(future).decode()),
         )
         original_digest = state_f.input_digest
         eligible = primary.num_rows
@@ -873,7 +824,7 @@ def execute(node: MethodNode, inputs: tuple[ExchangeResult, ...], binding: str) 
 
     policy = next(p for p in node.signature.parts if isinstance(p, FindingPolicyPart))
     parts += (
-        _payload(
+        payload(
             "finding_policy",
             POLICY.dump_json(
                 Policy(
@@ -1216,8 +1167,8 @@ def _validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowP
     # Display and row reducers retain scope only when their own typed part owners do so.
     all_views_table = all_views
     all_views = all_views_table.to_pandas()
-    mapping = index(all_views, contract.key_fields)
-    current_keys = index(primary.to_pandas(), contract.key_fields)
+    mapping = _index(all_views, contract.key_fields)
+    current_keys = _index(primary.to_pandas(), contract.key_fields)
     if not set(current_keys) <= set(mapping):
         raise invalid("statistical current keys escape original output domain")
     selected = to_arrow(
@@ -1274,13 +1225,6 @@ def validate(
 ) -> None:
     """Reject malformed retained facts through the shared integrity error owner."""
     try:
-        _validate(
-            contract,
-            to_arrow(primary, contract.schema),
-            tuple(
-                ArrowPart(part.role, to_arrow(part.table, declared.schema))
-                for part, declared in zip(parts, contract.parts, strict=True)
-            ),
-        )
+        validate_with(_validate, contract, primary, parts)
     except (ValueError, TypeError, ArithmeticError, StopIteration, IndexError, KeyError) as error:
         raise invalid("invalid frozen statistical equation or view") from error

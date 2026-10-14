@@ -21,6 +21,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import DeviationFit, DeviationRead, DisplayTable
 from marivo.analysis.errors import StatisticalRelationError
 from marivo.analysis.materialization import deviation_execution as execution
+from marivo.analysis.materialization import fit_state
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
@@ -39,7 +40,7 @@ from tests.support.json import obj as object_json
 
 
 def _part(role: str, payload: str) -> ExchangePart:
-    part = execution._part(role, payload)
+    part = fit_state.payload(role, payload)
     return ExchangePart(part.role, part.table.to_pandas())
 
 
@@ -101,8 +102,8 @@ def test_four_cell_policies_and_exact_scope(
     )
     node, source = _input(cells, method)
     result = execution.execute(node, (source,), "result")
-    inputs, state = execution._decode(result.parts)
-    rows = cell_rows(execution.load(state.views))
+    inputs, state = execution.decode(result.parts)
+    rows = cell_rows(fit_state.load(state.views))
     partition = state.partitions[0]
     assert (partition.defined, partition.null, partition.undefined, partition.unknown) == (
         len(values),
@@ -133,14 +134,14 @@ def test_four_cell_policies_and_exact_scope(
     if method == "mad" and values == (1.0, 1.0, 4.0):
         assert partition.fit.branch == "mean_absolute_deviation"
         assert [row["score__value"] for row in rows[:3]] == [0.0, 0.0, 3.0]
-    assert execution.load(inputs.primary).num_rows == len(cells)
+    assert fit_state.load(inputs.primary).num_rows == len(cells)
 
 
 @pytest.mark.parametrize("method", ("zscore", "mad"))
 def test_empty_receiver_has_no_synthetic_row(method: DeviationMethod) -> None:
     node, source = _input((), method)
     result = execution.execute(node, (source,), "result")
-    _, state = execution._decode(result.parts)
+    _, state = execution.decode(result.parts)
     assert len(result.primary) == 0
     assert state.partitions[0].fit.n == 0
 
@@ -164,7 +165,7 @@ def test_self_consistent_digests_do_not_repair_damaged_authority(damage: str) ->
     )
     result = execution.execute(node, (source,), "result")
     execution.validate(result.contract, result.primary, result.parts)
-    _, state = execution._decode(result.parts)
+    _, state = execution.decode(result.parts)
     part = state.partitions[0]
     if damage == "zero_center_denominator":
         state = replace(
@@ -173,13 +174,13 @@ def test_self_consistent_digests_do_not_repair_damaged_authority(damage: str) ->
     elif damage == "order":
         state = replace(state, partitions=(replace(part, order=tuple(reversed(part.order))),))
     elif damage == "view":
-        table = execution.load(state.views)
+        table = fit_state.load(state.views)
         table = table.set_column(
             table.schema.get_field_index("reference__value"),
             "reference__value",
             pa.array([0.0, 0.0, 0.0]),
         )
-        state = replace(state, views=execution.save(table))
+        state = replace(state, views=fit_state.save(table))
     elif damage.startswith("certificate"):
         witness = state.scores[0]
         assert witness.root is not None
@@ -262,14 +263,14 @@ def test_mixed_table_capture_preserves_independent_fit_authority(damage: str) ->
         elif damage == "input_binding":
             column = replace(column, input_binding="")
         elif damage == "primary":
-            primary = execution.load(column.primary).set_column(
+            primary = fit_state.load(column.primary).set_column(
                 1, "value", pa.array([0.0, 0.0, 0.0])
             )
-            column = replace(column, primary=execution.save(primary))
+            column = replace(column, primary=fit_state.save(primary))
         elif damage == "missing_fit":
             column = replace(column, parts=tuple(p for p in column.parts if p.role != "fit_state"))
         else:
-            state = execution._decode(scored.parts)[1]
+            state = execution.decode(scored.parts)[1]
             part = state.partitions[0]
             state = replace(
                 state,
@@ -280,8 +281,8 @@ def test_mixed_table_capture_preserves_independent_fit_authority(damage: str) ->
                 parts=tuple(
                     replace(
                         p,
-                        table=execution.save(
-                            execution._part(
+                        table=fit_state.save(
+                            fit_state.payload(
                                 "fit_state", execution.STATE.dump_json(state).decode()
                             ).table
                         ),
@@ -319,16 +320,16 @@ def test_self_consistent_ipc_digests_cannot_change_typed_carriers(damage: str) -
     )
     result = execution.execute(node, (source,), "fixture")
     execution.validate(result.contract, result.primary, result.parts)
-    inputs, state = execution._decode(result.parts)
+    inputs, state = execution.decode(result.parts)
     if damage == "view_carrier":
-        table = execution.load(state.views)
+        table = fit_state.load(state.views)
         field = "observed__value"
         table = table.set_column(
             table.schema.get_field_index(field), field, table[field].cast(pa.float32())
         )
-        state = replace(state, views=execution.save(table))
+        state = replace(state, views=fit_state.save(table))
     else:
-        table = execution.load(inputs.primary)
+        table = fit_state.load(inputs.primary)
         field = "value" if damage == "input_carrier" else inputs.keys[0]
         table = table.set_column(
             table.schema.get_field_index(field),
@@ -339,7 +340,7 @@ def test_self_consistent_ipc_digests_cannot_change_typed_carriers(damage: str) -
                 pa.float32() if damage == "input_carrier" else pa.large_string()
             ),
         )
-        inputs = replace(inputs, primary=execution.save(table))
+        inputs = replace(inputs, primary=fit_state.save(table))
         state = replace(
             state, input_digest=hashlib.sha256(execution.INPUTS.dump_json(inputs)).hexdigest()
         )
@@ -372,7 +373,7 @@ def test_representative_closed_recovery_facts_reject_after_clean_authority(
     )
     result = execution.execute(node, (source,), "original")
     execution.validate(result.contract, result.primary, result.parts)
-    inputs, state = execution._decode(result.parts)
+    inputs, state = execution.decode(result.parts)
     input_payload = object_json(checked(json.loads(execution.INPUTS.dump_json(inputs))))
     state_payload = object_json(checked(json.loads(execution.STATE.dump_json(state))))
     partition_payload = object_json(array_json(state_payload["partitions"])[0])
@@ -427,9 +428,9 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
     )
     result = execution.execute(next_fit, (field,), "second")
     execution.validate(result.contract, result.primary, result.parts)
-    inputs, state = execution._decode(result.parts)
+    inputs, state = execution.decode(result.parts)
     saved_state = next(p for p in inputs.parts if p.role == "fit_state")
-    table = execution.load(saved_state.table)
+    table = fit_state.load(saved_state.table)
     payload = object_json(checked(json.loads(table["fit_state__retained"][0].as_py())))
     if damage == "version":
         payload["version"] = "r8.fit_state/v2"
@@ -441,7 +442,7 @@ def test_nested_fit_recovery_checks_prior_authority_without_refitting(
         inputs,
         parts=tuple(
             replace(
-                p, table=execution.save(pa.Table.from_pandas(damaged.table, preserve_index=False))
+                p, table=fit_state.save(pa.Table.from_pandas(damaged.table, preserve_index=False))
             )
             if p.role == "fit_state"
             else p

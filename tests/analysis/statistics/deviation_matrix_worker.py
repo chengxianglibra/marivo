@@ -17,7 +17,8 @@ import pyarrow as pa
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.cell_arrow import column as cell_column
-from marivo.analysis.materialization.deviation_execution import _decode, load
+from marivo.analysis.materialization.deviation_execution import decode as _decode
+from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import DecimalType, NoTime, ScalarType

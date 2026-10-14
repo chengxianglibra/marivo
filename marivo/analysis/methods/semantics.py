@@ -7,113 +7,25 @@ obligations. Physical declarations never replace or amend those derivations.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
+from typing import TYPE_CHECKING, get_args
 
 from marivo.analysis.core import rules
 from marivo.analysis.core.model import CheckId, PartRole, Quantity, Signature, StatisticalWeightPart
+from marivo.analysis.methods.descriptor import (
+    BY_NAME,
+    DESCRIPTORS,
+    CellPolicy,
+    EmptyCellReasons,
+    MethodDescriptor,
+    MethodName,
+    PersistentStateKind,
+    UnitPolicy,
+    method_name_for,
+)
 from marivo.analysis.methods.errors import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.methods.physical import ValueType
-
-
-MethodName: TypeAlias = Literal[
-    "association.pearson",
-    "association.kendall",
-    "association.read",
-    "forecast.naive",
-    "forecast.drift",
-    "forecast.seasonal_naive",
-    "forecast.read",
-    "time.runs",
-    "time.runs_read",
-    "deviation.zscore",
-    "deviation.mad",
-    "deviation.read",
-    "attribution.additive_difference",
-    "attribution.component_mix",
-    "time.product",
-    "group.attach",
-    "bind_project",
-    "metric.distinct",
-    "metric.approx_distinct",
-    "metric.quantile",
-    "metric.approx_quantile",
-    "metric.min",
-    "metric.max",
-    "metric.observe",
-    "metric.mean",
-    "metric.fold",
-    "metric.sum_zero",
-    "metric.count",
-    "metric.weighted_mean",
-    "metric.ratio",
-    "metric.linear",
-    "map_correspond",
-    "cell.compare",
-    "comparison.read",
-    "cell.difference",
-    "cell.relative_change",
-    "cell.ratio",
-    "row.sum",
-    "row.mean",
-    "row.min",
-    "row.max",
-    "row.count",
-    "row.count_defined",
-    "row.weighted_mean",
-    "state_rollup.min",
-    "state_rollup.max",
-    "state_rollup",
-    "state_rollup.mean",
-    "state_rollup.fold",
-    "state_rollup.sum_zero",
-    "state_rollup.count",
-    "state_rollup.ratio",
-    "state_rollup.weighted_mean",
-    "state_rollup.linear",
-    "parts_transport",
-    "domain.cohort",
-    "display.rank",
-    "display.table",
-    "reference.share",
-    "reference.penetration",
-    "reference.standardize",
-    "association.spearman",
-]
-
-
-PersistentStateKind: TypeAlias = Literal[
-    "attribution_additive",
-    "attribution_component_mix",
-    "ranking",
-    "table",
-    "none",
-    "cohort",
-    "share",
-    "penetration",
-    "standardized",
-    "original_min",
-    "original_max",
-    "original_sum",
-    "original_mean",
-    "original_fold",
-    "original_sum_zero",
-    "original_count",
-    "original_ratio",
-    "original_weighted_mean",
-    "original_linear",
-    "difference",
-    "relative_change",
-    "relation_ratio",
-    "row_sum",
-    "row_count",
-    "row_count_defined",
-    "row_mean",
-    "row_min",
-    "row_max",
-    "spearman",
-]
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,138 +51,12 @@ class MethodKey:
 
 def key_for_parameters(params: rules.RuleParameters) -> MethodKey:
     """Map closed parameter variants to exactly one concrete method identity."""
-    if isinstance(params, rules.AssociationFit):
-        return MethodKey(
-            "association.pearson"
-            if params.method == "pearson"
-            else "association.spearman"
-            if params.method == "spearman"
-            else "association.kendall"
+    name = method_name_for(params)
+    if name is None:
+        reject(
+            "closed method parameters", repr(params), "Use an exact registered parameter variant."
         )
-    if isinstance(params, rules.AssociationRead):
-        return MethodKey("association.read")
-    if isinstance(params, rules.ForecastFit):
-        return MethodKey(
-            "forecast.naive"
-            if params.model == "naive"
-            else "forecast.drift"
-            if params.model == "drift"
-            else "forecast.seasonal_naive"
-        )
-    if isinstance(params, rules.ForecastRead):
-        return MethodKey("forecast.read")
-    if isinstance(params, rules.TimeRuns):
-        return MethodKey("time.runs")
-    if isinstance(params, rules.TimeRunRead):
-        return MethodKey("time.runs_read")
-    if isinstance(params, rules.DeviationFit):
-        return MethodKey("deviation.zscore" if params.method == "zscore" else "deviation.mad")
-    if isinstance(params, rules.DeviationRead):
-        return MethodKey("deviation.read")
-    if type(params) is rules.PreparedObservation:
-        return key_for_parameters(params.observation)
-    if type(params) is rules.AttributionDerive:
-        return MethodKey(
-            "attribution.additive_difference"
-            if params.method == "additive_difference"
-            else "attribution.component_mix"
-        )
-    if type(params) is rules.DisplayRank:
-        return MethodKey("display.rank")
-    if type(params) is rules.DisplayTable:
-        return MethodKey("display.table")
-    if type(params) is rules.ReferenceDerive:
-        if params.kind == "share":
-            return MethodKey("reference.share")
-        if params.kind == "penetration":
-            return MethodKey("reference.penetration")
-        return MethodKey("reference.standardize")
-    if type(params) is rules.TimeProduct:
-        return MethodKey("time.product")
-    if type(params) is rules.AttachCategory:
-        return MethodKey("group.attach")
-    if type(params) is rules.OriginalRatio:
-        return MethodKey("metric.ratio")
-    if type(params) is rules.OccurrenceCombine:
-        return MethodKey("metric.linear")
-    if type(params) is rules.ObserveWeightedMean:
-        return MethodKey("metric.weighted_mean")
-    if type(params) is rules.ObserveCount:
-        return MethodKey("metric.count")
-    if type(params) is rules.ObserveMetric:
-        if params.method == "min":
-            return MethodKey("metric.min")
-        if params.method == "max":
-            return MethodKey("metric.max")
-        if params.method == "count_distinct":
-            return MethodKey("metric.distinct")
-        if params.method == "approx_count_distinct":
-            return MethodKey("metric.approx_distinct")
-        if params.method in ("median", "percentile"):
-            return MethodKey("metric.quantile")
-        if params.method in ("approx_median", "approx_percentile"):
-            return MethodKey("metric.approx_quantile")
-        if params.fold is not None:
-            return MethodKey("metric.fold")
-        if params.method == "mean":
-            return MethodKey("metric.mean")
-        return MethodKey(
-            "metric.sum_zero" if params.metric.empty_rule == "zero" else "metric.observe"
-        )
-    if type(params) is rules.BindProject:
-        return MethodKey("bind_project")
-    if type(params) is rules.MapCorrespond:
-        return MethodKey("map_correspond")
-    if type(params) is rules.CellCompare:
-        return MethodKey("cell.compare")
-    if type(params) is rules.ComparisonRead:
-        return MethodKey("comparison.read")
-    if type(params) is rules.CellDerive:
-        if params.method == "relative_change":
-            return MethodKey("cell.relative_change")
-        if params.method == "difference":
-            return MethodKey("cell.difference")
-        if params.method == "ratio":
-            return MethodKey("cell.ratio")
-    if type(params) is rules.RowState:
-        for name in (
-            "row.sum",
-            "row.min",
-            "row.max",
-            "row.mean",
-            "row.count",
-            "row.count_defined",
-            "row.weighted_mean",
-        ):
-            if name == f"row.{params.method}":
-                return MethodKey(name)
-    if type(params) is rules.OriginalReduce:
-        if params.method == "min":
-            return MethodKey("state_rollup.min")
-        if params.method == "max":
-            return MethodKey("state_rollup.max")
-        if params.method == "fold":
-            return MethodKey("state_rollup.fold")
-        if params.method == "mean":
-            return MethodKey("state_rollup.mean")
-        return MethodKey(
-            "state_rollup.linear"
-            if params.method == "linear"
-            else "state_rollup.weighted_mean"
-            if params.method == "weighted_mean"
-            else "state_rollup.ratio"
-            if params.method == "ratio"
-            else "state_rollup.count"
-            if params.method == "count"
-            else "state_rollup.sum_zero"
-            if params.method == "sum_zero"
-            else "state_rollup"
-        )
-    if type(params) is rules.PartsTransport:
-        return MethodKey("domain.cohort" if params.mode == "cohort" else "parts_transport")
-    if type(params) is rules.AssociationScore:
-        return MethodKey("association.spearman")
-    reject("closed method parameters", repr(params), "Use an exact registered parameter variant.")
+    return MethodKey(name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,72 +82,13 @@ class MethodSemantics:
             reject("a complete connected semantic owner", repr(self), "Use analysis.core.rules.")
 
     @property
+    def descriptor(self) -> MethodDescriptor:
+        return BY_NAME[self.key.name]
+
+    @property
     def persistent_state_kind(self) -> PersistentStateKind | None:
         """Return the connected durable state kind; absence grants no publication."""
-        kinds: dict[MethodName, PersistentStateKind] = {
-            "cell.compare": "none",
-            "comparison.read": "none",
-            "association.pearson": "none",
-            "association.kendall": "none",
-            "association.read": "none",
-            "forecast.naive": "none",
-            "forecast.drift": "none",
-            "forecast.seasonal_naive": "none",
-            "forecast.read": "none",
-            "time.runs": "none",
-            "time.runs_read": "none",
-            "deviation.zscore": "none",
-            "deviation.mad": "none",
-            "deviation.read": "none",
-            "attribution.additive_difference": "attribution_additive",
-            "attribution.component_mix": "attribution_component_mix",
-            "display.rank": "ranking",
-            "display.table": "table",
-            "time.product": "none",
-            "group.attach": "none",
-            "bind_project": "none",
-            "metric.distinct": "none",
-            "metric.approx_distinct": "none",
-            "metric.quantile": "none",
-            "metric.approx_quantile": "none",
-            "metric.min": "original_min",
-            "metric.max": "original_max",
-            "state_rollup.min": "original_min",
-            "state_rollup.max": "original_max",
-            "metric.observe": "original_sum",
-            "metric.mean": "original_mean",
-            "metric.fold": "original_fold",
-            "state_rollup.fold": "original_fold",
-            "state_rollup.mean": "original_mean",
-            "metric.sum_zero": "original_sum_zero",
-            "state_rollup.sum_zero": "original_sum_zero",
-            "metric.ratio": "original_ratio",
-            "metric.linear": "original_linear",
-            "state_rollup.linear": "original_linear",
-            "state_rollup.ratio": "original_ratio",
-            "metric.count": "original_count",
-            "metric.weighted_mean": "original_weighted_mean",
-            "state_rollup.weighted_mean": "original_weighted_mean",
-            "state_rollup.count": "original_count",
-            "state_rollup": "original_sum",
-            "parts_transport": "none",
-            "domain.cohort": "cohort",
-            "reference.share": "share",
-            "reference.penetration": "penetration",
-            "reference.standardize": "standardized",
-            "map_correspond": "none",
-            "cell.difference": "difference",
-            "cell.relative_change": "relative_change",
-            "cell.ratio": "relation_ratio",
-            "row.sum": "row_sum",
-            "row.count": "row_count",
-            "row.count_defined": "row_count_defined",
-            "row.mean": "row_mean",
-            "row.min": "row_min",
-            "row.max": "row_max",
-            "association.spearman": "spearman",
-        }
-        return kinds.get(self.key.name)
+        return self.descriptor.state_kind
 
     def validate_output_type(
         self, inputs: tuple[ValueType, ...], output: ValueType, params: rules.RuleParameters
@@ -727,406 +454,50 @@ class MethodSemantics:
     @property
     def local_laws(self) -> tuple[str, ...]:
         """Registered comparison levels; state laws do not authorize graph rewrites."""
-        if self.key.name == "parts_transport":
-            return ("L1",)
-        if self.key.name == "map_correspond":
-            return ("L7",)
-        if self.key.name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
-            return ("L8", "L9")
-        return ()
+        return self.descriptor.local_laws
 
     @property
     def rule(self) -> rules.RuleId:
-        name = self.key.name
-        if name == "cell.compare":
-            return "cell_compare@v1"
-        if name == "comparison.read":
-            return "comparison_read@v1"
-        if name.startswith("attribution."):
-            return "attribution@v1"
-        if name.startswith("display."):
-            return "display@v1"
-        if name.startswith("reference."):
-            return "reference@v1"
-        if name in ("cell.difference", "cell.relative_change", "cell.ratio"):
-            return "cell_derive@v1"
-        if name in (
-            "row.sum",
-            "row.min",
-            "row.max",
-            "row.mean",
-            "row.count",
-            "row.count_defined",
-            "row.weighted_mean",
-        ):
-            return "row_state@v1"
-        if name == "metric.ratio":
-            return "original_reduce@v1"
-        if name == "metric.linear":
-            return "occurrence_combine@v1"
-        if name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
-            return "original_reduce@v1"
-        if name in ("time.runs", "time.runs_read"):
-            return "time_runs@v1"
-        if name.startswith("deviation."):
-            return "deviation@v1"
-        if name.startswith("association."):
-            return "association_score@v1"
-        if name.startswith("forecast."):
-            return "forecast@v1"
-        if name in (
-            "bind_project",
-            "metric.distinct",
-            "metric.approx_distinct",
-            "metric.quantile",
-            "metric.approx_quantile",
-            "metric.min",
-            "metric.max",
-            "metric.observe",
-            "metric.count",
-            "metric.sum_zero",
-            "metric.weighted_mean",
-            "metric.mean",
-            "metric.fold",
-        ):
-            return "bind_project@v1"
-        if name == "map_correspond":
-            return "map_correspond@v1"
-        if name == "domain.cohort":
-            return "domain.cohort@v1"
-        return "parts_transport@v1"
+        return self.descriptor.rule
 
     @property
-    def cell_policy(
-        self,
-    ) -> Literal["strict", "propagate", "count_all", "defined_only", "input_owned", "pair_null"]:
-        if self.key.name.startswith("association."):
-            return "pair_null"
-        if self.key.name == "row.count":
-            return "count_all"
-        if self.key.name == "row.count_defined":
-            return "defined_only"
-        if self.rule in ("cell_derive@v1", "cell_compare@v1"):
-            return "propagate"
-        if self.rule == "row_state@v1":
-            return "strict"
-        return "input_owned"
+    def cell_policy(self) -> CellPolicy:
+        return self.descriptor.cell_policy
 
     @property
-    def unit_policy(
-        self,
-    ) -> Literal["preserve", "count", "mean", "difference", "ratio", "coefficient"]:
-        if self.key.name in ("row.count", "row.count_defined"):
-            return "count"
-        if self.key.name in ("row.mean", "row.weighted_mean"):
-            return "mean"
-        if self.key.name == "cell.difference":
-            return "difference"
-        if self.key.name in ("cell.ratio", "cell.relative_change"):
-            return "ratio"
-        if self.key.name.startswith("association."):
-            return "coefficient"
-        return "preserve"
+    def unit_policy(self) -> UnitPolicy:
+        return self.descriptor.unit_policy
 
     @property
-    def empty_cell_reasons(
-        self,
-    ) -> tuple[tuple[Literal["null", "undefined", "unknown"], tuple[str, ...]], ...]:
-        if self.key.name.startswith("reference."):
-            return (("undefined", ("zero_denominator", "empty_reference")),)
-        if self.key.name in ("cell.relative_change", "cell.compare", "comparison.read"):
-            return (
-                ("undefined", ("missing_side", "zero_baseline", "zero_denominator")),
-                ("null", ("empty_contribution",)),
-            )
-        if self.key.name == "cell.ratio":
-            return (
-                ("undefined", ("zero_denominator",)),
-                (
-                    "unknown",
-                    ("insufficient_business_coverage",),
-                ),
-            )
-        if self.key.name == "cell.difference":
-            return (
-                ("undefined", ("missing_side", "zero_denominator")),
-                ("null", ("empty_contribution",)),
-            )
-        if self.key.name == "row.mean":
-            return (("undefined", ("empty_mean",)),)
-        if self.key.name in ("row.min", "row.max"):
-            return (("undefined", ("empty_" + self.key.name.removeprefix("row."),)),)
-        if self.key.name == "bind_project":
-            return (("null", ("source_null",)),)
-        if self.key.name.startswith("association."):
-            return (
-                ("undefined", ("insufficient_pairs", "constant_a", "constant_b", "constant_both")),
-            )
-        if self.key.name in ("metric.ratio", "state_rollup.ratio"):
-            # Each component retains its own empty rule. Null operands propagate;
-            # defined operands with a zero denominator produce Undefined.
-            return (
-                ("null", ("empty_contribution",)),
-                ("undefined", ("zero_denominator",)),
-            )
-        if self.key.name in ("metric.weighted_mean", "state_rollup.weighted_mean"):
-            return (("null", ("empty_contribution", "zero_weight_sum")),)
-        if self.key.name in ("metric.linear", "state_rollup.linear"):
-            return (("null", ("empty_contribution",)),)
-        if self.key.name in (
-            "metric.quantile",
-            "metric.approx_quantile",
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "metric.min",
-            "metric.max",
-            "metric.observe",
-            "metric.mean",
-            "state_rollup.mean",
-            "metric.fold",
-            "state_rollup.fold",
-        ):
-            return (("null", ("empty_contribution",)),)
-        return ()
+    def empty_cell_reasons(self) -> EmptyCellReasons:
+        return self.descriptor.empty_cell_reasons
 
     @property
     def required_parts(self) -> tuple[PartRole, ...]:
-        if self.key.name in (
-            "metric.distinct",
-            "metric.approx_distinct",
-            "metric.quantile",
-            "metric.approx_quantile",
-        ):
-            return ("subject",)
-        if self.key.name in (
-            "metric.min",
-            "metric.max",
-            "metric.observe",
-            "metric.count",
-            "metric.sum_zero",
-            "metric.weighted_mean",
-            "metric.mean",
-            "metric.fold",
-        ):
-            return ("subject",)
-        if self.key.name in (
-            "metric.ratio",
-            "metric.linear",
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
-            return ("original_state", "coverage")
-        if self.key.name == "comparison.read":
-            return ("comparison",)
-        if self.key.name == "row.weighted_mean":
-            return ("statistical_weight",)
-        return ()
+        return self.descriptor.required_parts
 
     @property
     def required_checks(self) -> tuple[CheckId, ...]:
         """Minimum checker coverage; invocation-specific checks remain in Pre."""
-        if self.key.name in (
-            "metric.distinct",
-            "metric.approx_distinct",
-            "metric.quantile",
-            "metric.approx_quantile",
-        ):
-            return ("source.contribution_partition@v1", "source.complete_coverage@v1")
-        if self.rule in ("cell_derive@v1", "cell_compare@v1"):
-            return ("source.exact_pairing@v1", "source.finite_numeric@v1")
-        if self.key.name == "row.count_defined":
-            return ("source.cell_policy@v1",)
-        if self.rule == "row_state@v1" and self.key.name != "row.count":
-            return ("source.finite_numeric@v1",)
-        if self.key.name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-            "metric.ratio",
-            "metric.linear",
-            "metric.sum_zero",
-            "metric.min",
-            "metric.max",
-            "metric.observe",
-            "metric.count",
-            "metric.weighted_mean",
-            "metric.mean",
-            "metric.fold",
-        ):
-            return ("source.contribution_partition@v1", "source.complete_coverage@v1")
-        if self.key.name == "association.spearman":
-            return ("source.exact_pairing@v1", "source.finite_numeric@v1")
-        return ()
+        return self.descriptor.required_checks
 
     @property
     def output_parts(self) -> tuple[PartRole, ...]:
-        if self.key.name in (
-            "metric.distinct",
-            "metric.approx_distinct",
-            "metric.quantile",
-            "metric.approx_quantile",
-        ):
-            return ("coverage",)
-        if self.key.name == "cell.compare":
-            return ("current_endpoint", "baseline_endpoint", "correspondence", "comparison")
-        if self.rule == "cell_derive@v1":
-            return ("current_endpoint", "baseline_endpoint", "correspondence")
-        if self.rule == "row_state@v1":
-            return ("row_state",)
-        if self.key.name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-            "metric.ratio",
-            "metric.linear",
-            "metric.sum_zero",
-            "metric.min",
-            "metric.max",
-            "metric.observe",
-            "metric.count",
-            "metric.weighted_mean",
-            "metric.mean",
-            "metric.fold",
-        ):
-            return ("original_state", "coverage")
-        if self.key.name == "association.spearman":
-            return ("pair_counts",)
-        return ()
+        return self.descriptor.output_parts
 
     @property
     def original_state_method(self) -> str:
         """The only connected original-state contract, independent of row sum."""
-        if self.key.name not in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
+        method = self.descriptor.original_state_method
+        if method is None:
             reject(
                 "an original-state method", str(self.key), "Use state_rollup for original state."
             )
-        if self.key.name in ("state_rollup.min", "state_rollup.max"):
-            return self.key.name.removeprefix("state_rollup.") + "@v1"
-        return (
-            "fold@v1"
-            if self.key.name == "state_rollup.fold"
-            else "mean@v1"
-            if self.key.name == "state_rollup.mean"
-            else "linear@v1"
-            if self.key.name == "state_rollup.linear"
-            else "weighted_mean@v1"
-            if self.key.name == "state_rollup.weighted_mean"
-            else "ratio@v1"
-            if self.key.name == "state_rollup.ratio"
-            else "count@v1"
-            if self.key.name == "state_rollup.count"
-            else "sum_zero@v1"
-            if self.key.name == "state_rollup.sum_zero"
-            else "sum@v1"
-        )
+        return method
 
     @property
     def state_components(self) -> tuple[str, ...]:
-        if self.key.name in ("metric.min", "metric.max", "state_rollup.min", "state_rollup.max"):
-            return (self.key.name.rsplit(".", 1)[1], "non_null_count")
-        if self.key.name in ("metric.fold", "state_rollup.fold"):
-            return ("samples", "fold_kind")
-        if self.key.name in ("metric.mean", "state_rollup.mean"):
-            return ("sum", "non_null_count", "row_count")
-        if self.key.name in ("metric.linear", "state_rollup.linear"):
-            # Component names and signs belong to the bound occurrence tuple.
-            return ()
-        if self.key.name in ("metric.weighted_mean", "state_rollup.weighted_mean"):
-            return ("weighted_numerator", "weight_sum", "non_null_pair_count", "row_count")
-        if self.key.name in ("metric.ratio", "state_rollup.ratio"):
-            return (
-                "numerator_sum",
-                "numerator_non_null_count",
-                "denominator_sum",
-                "denominator_non_null_count",
-            )
-        if self.key.name in (
-            "state_rollup.min",
-            "state_rollup.max",
-            "state_rollup",
-            "state_rollup.count",
-            "state_rollup.sum_zero",
-            "state_rollup.ratio",
-            "state_rollup.weighted_mean",
-            "state_rollup.mean",
-            "state_rollup.fold",
-            "state_rollup.linear",
-        ):
-            return (
-                ("count",) if self.key.name == "state_rollup.count" else ("sum", "non_null_count")
-            )
-        if self.key.name in ("row.min", "row.max"):
-            return (self.key.name.removeprefix("row."), "count")
-        if self.key.name in ("row.sum", "row.mean"):
-            return ("sum", "count")
-        if self.key.name == "row.weighted_mean":
-            return ("weighted_sum", "weight_sum")
-        if self.key.name == "association.spearman":
-            return (
-                "input_observation_count",
-                "matched_observation_count",
-                "null_pair_count",
-                "complete_pair_count",
-            )
-        if self.key.name.startswith("row."):
-            return (self.key.name.removeprefix("row."),)
-        return ()
+        return self.descriptor.state_components
 
     def derive(
         self, inputs: tuple[Signature, ...], params: rules.RuleParameters
@@ -1218,74 +589,8 @@ class MethodSemantics:
         reject("closed method parameters", repr(params), "Use a registered parameter variant.")
 
 
-CONNECTED_METHODS = (
-    MethodSemantics(MethodKey("association.pearson"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("association.kendall"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("association.read"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("forecast.naive"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("forecast.drift"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("forecast.seasonal_naive"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("forecast.read"), "analysis.core.rules"),
-    *(
-        MethodSemantics(MethodKey(name), "analysis.core.rules")
-        for name in (
-            "time.runs",
-            "time.runs_read",
-            "deviation.zscore",
-            "deviation.mad",
-            "deviation.read",
-        )
-    ),
-    MethodSemantics(MethodKey("attribution.additive_difference"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("attribution.component_mix"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.min"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.max"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.min"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.max"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.distinct"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.approx_distinct"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.quantile"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.approx_quantile"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.fold"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.fold"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("time.product"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("group.attach"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.sum_zero"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.ratio"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.linear"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.linear"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.ratio"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.sum_zero"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.count"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.weighted_mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.weighted_mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup.count"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("metric.observe"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("bind_project"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("map_correspond"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("cell.difference"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("cell.compare"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("comparison.read"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("cell.relative_change"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("cell.ratio"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.sum"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.min"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.max"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.count"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.count_defined"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("row.weighted_mean"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("state_rollup"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("parts_transport"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("domain.cohort"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("display.rank"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("display.table"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("reference.share"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("reference.penetration"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("reference.standardize"), "analysis.core.rules"),
-    MethodSemantics(MethodKey("association.spearman"), "analysis.core.rules"),
+CONNECTED_METHODS = tuple(
+    MethodSemantics(MethodKey(item.name), "analysis.core.rules") for item in DESCRIPTORS
 )
 
 

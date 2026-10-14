@@ -8,7 +8,7 @@ import pytest
 
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.deviation_execution import save
+from marivo.analysis.materialization.fit_state import save
 from marivo.analysis.materialization.runs_execution import compute
 from tests.analysis.statistics.runs_fixtures import capture
 
@@ -65,7 +65,7 @@ def test_unavailable_sibling_is_not_short_circuited() -> None:
 
 
 def test_all_dependencies_and_total_state_predicate() -> None:
-    from marivo.analysis.materialization.deviation_execution import load
+    from marivo.analysis.materialization.fit_state import load
 
     original = capture((1, 0, 1, -1, 0))
     other = capture((-1, 1, 0, -1, 1))
@@ -99,7 +99,7 @@ def test_all_dependencies_and_total_state_predicate() -> None:
 
 
 def test_two_sided_opposite_signs_share_a_maximal_run() -> None:
-    from marivo.analysis.materialization.deviation_execution import load
+    from marivo.analysis.materialization.fit_state import load
 
     original = capture((1, 1, 1, 1, 0))
     table = load(original.inputs[0]).set_column(
@@ -117,7 +117,7 @@ def test_two_sided_opposite_signs_share_a_maximal_run() -> None:
 @pytest.mark.parametrize("fault", ["missing", "duplicate", "coverage"])
 def test_grid_faults_are_hard_failures(fault: str) -> None:
     original = capture((1, 1, 1, 1, 1))
-    from marivo.analysis.materialization.deviation_execution import load
+    from marivo.analysis.materialization.fit_state import load
 
     rows = load(original.inputs[0])
     if fault == "missing":
@@ -132,7 +132,7 @@ def test_grid_faults_are_hard_failures(fault: str) -> None:
 
 
 def test_identity_and_segments_ignore_row_and_batch_layout() -> None:
-    from marivo.analysis.materialization.deviation_execution import load
+    from marivo.analysis.materialization.fit_state import load
 
     original = capture((1, 1, 0, -1, 1))
     table = load(original.inputs[0])

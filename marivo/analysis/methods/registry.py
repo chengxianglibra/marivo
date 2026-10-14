@@ -80,69 +80,10 @@ class MethodRegistration:
             keys.add(implementation.key)
             rule = self.semantics.rule
             input_count = len(implementation.key.input_domains)
-            if rule == "attribution@v1" and input_count != 2:
-                reject(
-                    "two ordered attribution inputs",
-                    repr(implementation.key),
-                    "Bind original target and expanded basis.",
-                )
-            if self.semantics.key.name in ("group.attach",):
-                if input_count != 2:
-                    reject(
-                        "two ordered classification inputs",
-                        repr(implementation.key),
-                        "Bind receiver and category.",
-                    )
-            elif rule == "map_correspond@v1" or self.semantics.key.name == "parts_transport":
-                if input_count not in (1, 2):
-                    reject(
-                        "one or two ordered correspondence inputs",
-                        repr(implementation.key),
-                        "Declare a shape admitted by the closed correspondence rule.",
-                    )
-            elif (
-                rule in ("bind_project@v1", "parts_transport@v1")
-                and input_count != 1
-                and not (
-                    input_count == 2
-                    and self.semantics.key.name
-                    in (
-                        "metric.count",
-                        "metric.observe",
-                        "metric.sum_zero",
-                        "metric.mean",
-                        "metric.weighted_mean",
-                        "metric.min",
-                        "metric.max",
-                        "metric.distinct",
-                        "metric.approx_distinct",
-                        "metric.quantile",
-                    )
-                )
-            ):
-                reject(
-                    "one ordered input for this method",
-                    repr(implementation.key),
-                    "Declare the rule's exact input arity.",
-                )
-            if rule == "occurrence_combine@v1" and input_count < 2:
-                reject(
-                    "two or more ordered signed inputs",
-                    repr(implementation.key),
-                    "Declare one precise value type and domain per occurrence.",
-                )
+            arity = self.semantics.descriptor.arity
+            if arity is not None and not arity.admits(input_count):
+                reject(arity.expected, repr(implementation.key), arity.repair)
             if rule in ("cell_derive@v1", "row_state@v1", "original_reduce@v1"):
-                arity = (
-                    2
-                    if rule == "cell_derive@v1" or self.semantics.key.name == "metric.ratio"
-                    else 1
-                )
-                if input_count != arity:
-                    reject(
-                        f"{arity} ordered single-quantity inputs",
-                        repr(implementation.key),
-                        "Declare one precise value type and domain per input quantity.",
-                    )
                 if self.semantics.key.name not in ("row.count", "row.count_defined") and any(
                     isinstance(item, ScalarType) and item.name not in ("int64", "float64")
                     for item in implementation.key.input_types
@@ -195,8 +136,7 @@ class MethodRegistration:
                         "Declare precision for this method's result and ordered input types.",
                     )
             if rule == "association_score@v1" and (
-                not 1 <= input_count <= 16
-                or any(
+                any(
                     domain
                     not in (
                         "entity",

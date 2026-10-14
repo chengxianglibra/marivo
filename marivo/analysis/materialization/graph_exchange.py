@@ -90,6 +90,24 @@ def _invalid(received: str) -> MaterializationError:
     )
 
 
+# Roles whose table is exactly one ``<role>__retained`` JSON string with no key fields.
+RETAINED_ROLES: frozenset[str] = frozenset(
+    (
+        "condition_cells",
+        "run_cells",
+        "pair_inputs",
+        "association_state",
+        "training_inputs",
+        "forecast_state",
+        "future_cells",
+        "fit_inputs",
+        "fit_state",
+        "table_fits",
+        "finding_policy",
+    )
+)
+
+
 @dataclass(frozen=True, slots=True)
 class PartContract:
     role: str
@@ -159,20 +177,11 @@ class ExchangeContract:
             or any(
                 part.key_fields != self.key_fields
                 for part in self.parts
-                if part.role
+                if part.role not in RETAINED_ROLES
+                and part.role
                 not in (
                     "grid_cells",
                     "subject_map",
-                    "pair_inputs",
-                    "association_state",
-                    "training_inputs",
-                    "forecast_state",
-                    "future_cells",
-                    "condition_cells",
-                    "run_cells",
-                    "fit_inputs",
-                    "fit_state",
-                    "table_fits",
                     "fixed_reference",
                     "reference_proof",
                     "strata",
@@ -180,7 +189,6 @@ class ExchangeContract:
                     "ranking_domain",
                     "partitions",
                     "ordering",
-                    "finding_policy",
                     "coordinate_state",
                     "allocation_state",
                     "current_endpoint_coordinates",
@@ -424,19 +432,7 @@ def _validate_exchange(
             ),
             None,
         )
-        if declared.role in (
-            "condition_cells",
-            "run_cells",
-            "pair_inputs",
-            "association_state",
-            "training_inputs",
-            "forecast_state",
-            "future_cells",
-            "fit_inputs",
-            "fit_state",
-            "table_fits",
-            "finding_policy",
-        ):
+        if declared.role in RETAINED_ROLES:
             if (
                 declared.key_fields
                 or part.table.num_rows != 1

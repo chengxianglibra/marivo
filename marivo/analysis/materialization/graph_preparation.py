@@ -19,6 +19,7 @@ from marivo.analysis.compiler.graph_lowering import (
     TemporalCheck,
     canonical_layout,
 )
+from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.domain_captures import fail
 from marivo.analysis.core.graph import MethodNode, topology
 from marivo.analysis.core.model import (
@@ -292,6 +293,24 @@ def _observation(
     return table, schema, retained
 
 
+def _prior(completed: list[CompletedCheck], requirement: CheckRequirement) -> CompletedCheck | None:
+    """Return the completed proof for the same obligation, if any predecessor ran it."""
+    return next(
+        (proof for proof in completed if proof.requirement.obligation == requirement.obligation),
+        None,
+    )
+
+
+def _bind_prior(
+    completed: list[CompletedCheck], requirement: CheckRequirement, received: str
+) -> CompletedCheck:
+    """Bind ``requirement`` to its completed predecessor proof or fail admission."""
+    prior = _prior(completed, requirement)
+    if prior is None:
+        fail("input_binding", received, stage="consume")
+    return CompletedCheck(requirement, prior.result_digest)
+
+
 def execute(prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession) -> ExchangeResult:
     return _execute(prepared, lowered, source)
 
@@ -304,7 +323,7 @@ def _execute(
     from marivo.analysis.materialization.graph_local_execution import (
         _row_result,
         _subject_image,
-        _transport_stage,
+        run_kernel,
     )
     from marivo.analysis.materialization.graph_source_execution import (
         _check,
@@ -507,39 +526,28 @@ def _execute(
                 )
             ):
                 continue
-            prior = next(
-                (
-                    proof
-                    for proof in completed
-                    if proof.requirement.obligation == requirement.obligation
-                ),
-                None,
-            )
-            if prior is None:
-                fail(
-                    "input_binding",
+            completed.append(
+                _bind_prior(
+                    completed,
+                    requirement,
                     "local consumer lacks its completed originating check: "
                     + requirement.obligation.check_id,
-                    stage="consume",
                 )
-            completed.append(CompletedCheck(requirement, prior.result_digest))
-        if isinstance(params, ReferenceDerive):
-            from marivo.analysis.materialization.graph_reference import fixed_parts
-            from marivo.analysis.materialization.graph_reference import result as reference_result
-
-            values = tuple(results[key] for key in item.stage.inputs)
-            results[item.stage.output] = reference_result(
-                item.stage.node, fixed_parts(item.stage.node, values), item.stage.node.identity
             )
+        # PreparedObservation reads its candidate relation from ``tables``, not ``results``.
+        values = (
+            ()
+            if isinstance(params, PreparedObservation)
+            else tuple(results[key] for key in item.stage.inputs)
+        )
+        if isinstance(params, ReferenceDerive):
+            reference = run_kernel(item, values, item.stage.node.identity)
+            assert reference is not None
+            results[item.stage.output] = reference
             continue
         if isinstance(params, (DisplayRank, DisplayTable)):
-            from marivo.analysis.materialization.graph_display import fixed
-
-            result = fixed(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
+            result = run_kernel(item, values, item.stage.node.identity)
+            assert result is not None
             # fixed() verifies complete key pairing and partition Cells before
             # returning. Bind those checks to this local invocation, not SQL.
             proof_digest = hashlib.sha256(
@@ -561,46 +569,31 @@ def _execute(
                         fail("input_binding", "unqualified local display check", stage="consume")
                     completed.append(CompletedCheck(requirement, proof_digest))
                 else:
-                    prior = next(
-                        (
-                            proof
-                            for proof in completed
-                            if proof.requirement.obligation == requirement.obligation
-                        ),
-                        None,
-                    )
-                    if prior is None:
-                        fail(
-                            "input_binding",
+                    completed.append(
+                        _bind_prior(
+                            completed,
+                            requirement,
                             "local display lacks its completed predecessor check",
-                            stage="consume",
                         )
-                    completed.append(CompletedCheck(requirement, prior.result_digest))
+                    )
             results[item.stage.output] = result
-        elif isinstance(params, (AssociationFit, AssociationRead, ForecastFit, ForecastRead)):
-            from marivo.analysis.materialization.statistical_execution import execute as statistics
-
-            results[item.stage.output] = statistics(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, (TimeRuns, TimeRunRead)):
-            from marivo.analysis.materialization.runs_execution import execute as runs
-
-            results[item.stage.output] = runs(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
-        elif isinstance(params, (DeviationFit, DeviationRead)):
-            from marivo.analysis.materialization.deviation_execution import execute as deviation
-
-            results[item.stage.output] = deviation(
-                item.stage.node,
-                tuple(results[key] for key in item.stage.inputs),
-                item.stage.node.identity,
-            )
+        elif isinstance(
+            params,
+            (
+                AssociationFit,
+                AssociationRead,
+                ForecastFit,
+                ForecastRead,
+                TimeRuns,
+                TimeRunRead,
+                DeviationFit,
+                DeviationRead,
+                PartsTransport,
+            ),
+        ):
+            fitted = run_kernel(item, values, item.stage.node.identity)
+            assert fitted is not None
+            results[item.stage.output] = fitted
         elif isinstance(params, ComparisonRead):
             from marivo.analysis.materialization.graph_local_execution import comparison_project
 
@@ -613,22 +606,9 @@ def _execute(
             results[item.stage.output] = time_product(
                 item.stage.node, results[item.stage.inputs[0]], item.stage.node.identity
             )
-        elif isinstance(params, PartsTransport):
-            results[item.stage.output] = _transport_stage(
-                item,
-                results[item.stage.inputs[0]],
-                item.stage.node.identity,
-                tuple(results[key] for key in item.stage.inputs[1:]),
-            )
         elif isinstance(params, (OriginalReduce, CellDerive, AttributionDerive)):
-            from marivo.analysis.materialization.graph_local_execution import (
-                _coordinate_rollup_stage,
-                _difference_stage,
-                _fold_rollup_stage,
-                _original_rollup_stage,
-            )
+            from marivo.analysis.materialization.graph_local_execution import _difference_stage
 
-            values = tuple(results[key] for key in item.stage.inputs)
             input_digest = hashlib.sha256()
             for value in values:
                 input_digest.update(value.contract.schema.serialize().to_pybytes())
@@ -644,14 +624,7 @@ def _execute(
             owned = tuple(
                 c for c in prepared.admitted.checks if c.node_id == item.stage.node.identity
             )
-            if isinstance(params, OriginalReduce):
-                if params.method == "fold":
-                    result = _fold_rollup_stage(item, values[0], item.stage.node.identity)
-                elif params.coordinates:
-                    result = _coordinate_rollup_stage(item, values[0], item.stage.node.identity)
-                else:
-                    result = _original_rollup_stage(item, values[0], item.stage.node.identity)
-            elif isinstance(params, CellDerive):
+            if isinstance(params, CellDerive):
                 result = _difference_stage(
                     item,
                     (values[0], values[1]),
@@ -670,21 +643,14 @@ def _execute(
                     ),
                 )
             else:
-                from marivo.analysis.materialization.graph_attribution import fixed
-
-                result = fixed(item.stage.node, values, item.stage.node.identity)
+                kernel = run_kernel(item, values, item.stage.node.identity)
+                assert kernel is not None
+                result = kernel
             completed.extend(result.completed_checks)
             for requirement in owned:
                 if any(proof.requirement == requirement for proof in completed):
                     continue
-                prior = next(
-                    (
-                        proof
-                        for proof in completed
-                        if proof.requirement.obligation == requirement.obligation
-                    ),
-                    None,
-                )
+                prior = _prior(completed, requirement)
                 if (
                     prior is None
                     and isinstance(params, AttributionDerive)
@@ -732,21 +698,13 @@ def _execute(
                     or requirement.obligation.check_id == owned_check
                 ):
                     continue
-                prior = next(
-                    (
-                        proof
-                        for proof in completed
-                        if proof.requirement.obligation == requirement.obligation
-                    ),
-                    None,
-                )
-                if prior is None:
-                    fail(
-                        "input_binding",
+                completed.append(
+                    _bind_prior(
+                        completed,
+                        requirement,
                         "row continuation lacks its completed predecessor check",
-                        stage="consume",
                     )
-                completed.append(CompletedCheck(requirement, prior.result_digest))
+                )
             result = _row_result(
                 item,
                 results[item.stage.inputs[0]],
@@ -845,14 +803,7 @@ def _execute(
                     + repr(selected.primary.to_dict("records")).encode()
                 ).hexdigest()
             else:
-                prior = next(
-                    (
-                        proof
-                        for proof in completed
-                        if proof.requirement.obligation == requirement.obligation
-                    ),
-                    None,
-                )
+                prior = _prior(completed, requirement)
                 if prior is None:
                     fail(
                         "input_binding",

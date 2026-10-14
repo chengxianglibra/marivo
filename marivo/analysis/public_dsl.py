@@ -837,7 +837,7 @@ class _Value:
                 )
             )
             if self._dataset is not None:
-                from marivo.analysis.materialization.runs_execution import _decode as decode_runs
+                from marivo.analysis.materialization.runs_execution import decode as decode_runs
 
                 _, run_state = decode_runs(
                     (checked if checked is not None else self._dataset.verified()).parts
@@ -934,7 +934,7 @@ class _Value:
                 )
             )
             if self._dataset is not None:
-                from marivo.analysis.materialization.deviation_execution import _decode
+                from marivo.analysis.materialization.deviation_execution import decode as _decode
 
                 _, fit_state = _decode(
                     (checked if checked is not None else self._dataset.verified()).parts

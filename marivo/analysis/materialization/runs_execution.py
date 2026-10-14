@@ -11,7 +11,7 @@ from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import ConditionCellsPart, RunCellsPart, Signature, part_role
@@ -20,7 +20,15 @@ from marivo.analysis.core.rules import TimeRunRead, TimeRuns
 from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.deviation_execution import SavedTable, load, save
+from marivo.analysis.materialization.fit_state import (
+    SavedTable,
+    decode_part,
+    index,
+    load,
+    payload,
+    save,
+    validate_with,
+)
 from marivo.analysis.materialization.graph_exchange import (
     ArrowPart,
     ExchangeContract,
@@ -81,15 +89,7 @@ _VIEW_SCHEMA = pa.schema(
 
 
 def _index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
-    result: dict[tuple[object, ...], int] = {}
-    frame = table.to_pandas() if isinstance(table, pa.Table) else table
-    rows = frame.to_dict(orient="records")
-    for i, row in enumerate(rows):
-        key = tuple(row[k] for k in keys)
-        if key in result or any(x is None for x in key):
-            raise invalid("runs input has null or duplicate complete coordinates")
-        result[key] = i
-    return result
+    return index(table, keys, "runs")
 
 
 def _classify(
@@ -331,32 +331,8 @@ def _primary(views: pd.DataFrame, field: str, schema: pa.Schema) -> pa.Table:
     )
 
 
-def _payload(role: str, value: str) -> ArrowPart:
-    return ArrowPart(role, pa.table({role + "__retained": [value]}))
-
-
-def _decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Capture, Runs]:
-    by_role = {p.role: p for p in parts}
-    try:
-        capture_table = by_role["condition_cells"].table
-        state_table = by_role["run_cells"].table
-        capture_value = (
-            capture_table["condition_cells__retained"].iloc[0]
-            if isinstance(capture_table, pd.DataFrame)
-            else capture_table["condition_cells__retained"][0].as_py()
-        )
-        state_value = (
-            state_table["run_cells__retained"].iloc[0]
-            if isinstance(state_table, pd.DataFrame)
-            else state_table["run_cells__retained"][0].as_py()
-        )
-        if not isinstance(capture_value, str) or not isinstance(state_value, str):
-            raise invalid("runs retained payload is not a JSON string")
-        capture = CAPTURE.validate_json(capture_value)
-        state = RUNS.validate_json(state_value)
-    except (KeyError, IndexError, ValidationError) as error:
-        raise invalid("runs lacks valid v1 condition_cells/run_cells payloads") from error
-    return capture, state
+def decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Capture, Runs]:
+    return decode_part(parts, "condition_cells", CAPTURE), decode_part(parts, "run_cells", RUNS)
 
 
 def _result(
@@ -397,7 +373,7 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
     source_primary = source.primary
     source_parts = source.parts
     if isinstance(params, TimeRunRead):
-        capture, state = _decode(source_parts)
+        capture, state = decode(source_parts)
         view_table = load(state.views)
         views = view_table.to_pandas()
         index = _index(views, ("key_0",))
@@ -510,14 +486,14 @@ def execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str) 
     encoded = CAPTURE.dump_json(capture)
     state = Runs(hashlib.sha256(encoded).hexdigest(), save(views), classes, reasons)
     parts: list[ArrowPart] = [
-        _payload("condition_cells", encoded.decode()),
-        _payload("run_cells", RUNS.dump_json(state).decode()),
+        payload("condition_cells", encoded.decode()),
+        payload("run_cells", RUNS.dump_json(state).decode()),
     ]
     from marivo.analysis.materialization.graph_findings import POLICY, Policy
 
     parts.append(ArrowPart("grid_cells", grid_mapping(capture)))
     parts.append(
-        _payload(
+        payload(
             "finding_policy",
             POLICY.dump_json(
                 Policy(
@@ -698,18 +674,11 @@ def _verify_intervals(
 def validate(
     contract: ExchangeContract, primary: pd.DataFrame, parts: tuple[ExchangePart, ...]
 ) -> None:
-    _validate(
-        contract,
-        to_arrow(primary, contract.schema),
-        tuple(
-            ArrowPart(part.role, to_arrow(part.table, declared.schema))
-            for part, declared in zip(parts, contract.parts, strict=True)
-        ),
-    )
+    validate_with(_validate, contract, primary, parts)
 
 
 def _validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowPart, ...]) -> None:
-    capture, state = _decode(parts)
+    capture, state = decode(parts)
     from marivo.analysis.materialization.graph_findings import Policy, _policy
 
     if _policy(parts) != Policy(

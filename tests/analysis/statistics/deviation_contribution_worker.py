@@ -21,6 +21,7 @@ from marivo._temporal import TimeScope
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.rules import DeviationFit
 from marivo.analysis.materialization import deviation_execution as scoring
+from marivo.analysis.materialization import fit_state
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
@@ -78,8 +79,8 @@ def accept_chain(
             trace.append("local_consume")
         result = execute(node, inputs, binding)
         if isinstance(node.parameters, DeviationFit):
-            original, state = scoring._decode(result.parts)
-            rows, views = scoring.load(original.primary), scoring.load(state.views)
+            original, state = scoring.decode(result.parts)
+            rows, views = fit_state.load(original.primary), fit_state.load(state.views)
             valid = [
                 i
                 for i, tag in enumerate(cell_column(rows, "cell_tag").to_pylist())
@@ -118,7 +119,7 @@ def accept_chain(
                     "fit_scope": node.parameters.fit_id,
                     "input_digest": state.input_digest,
                     "parts": {
-                        p.role: hashlib.sha256(scoring.save(p.table).data.encode()).hexdigest()
+                        p.role: hashlib.sha256(fit_state.save(p.table).data.encode()).hexdigest()
                         for p in result.parts
                     },
                 }

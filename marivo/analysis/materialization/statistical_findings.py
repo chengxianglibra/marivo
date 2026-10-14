@@ -16,7 +16,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.datasets import descriptors as d
 from marivo.analysis.evidence import _dataset_types as t
 from marivo.analysis.evidence._dataset_codec import finding_identity
-from marivo.analysis.materialization.deviation_execution import load
+from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_exchange import ExchangeResult
 from marivo.analysis.materialization.graph_protocol import Descriptor, digest, invalid
 from marivo.analysis.materialization.statistical_execution import (

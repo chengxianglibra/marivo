@@ -724,6 +724,18 @@ def _pandas_cell_values(frame: pd.DataFrame, schema: pa.Schema, name: str) -> li
     return result
 
 
+def _local_checks(
+    source: SourceSession, lowered: LoweredPlan, output: str
+) -> tuple[CompletedCheck, ...]:
+    """Run the semantic checks owned by one source-local successor output."""
+    proofs = (
+        _check(source, lowered, check)
+        for check in lowered.checks
+        if isinstance(check, SemanticCheck) and check.requirement.stage_output == output
+    )
+    return tuple(proof for proof in proofs if proof is not None)
+
+
 def execute_source_graph(
     prepared: PreparedGraph, lowered: LoweredPlan, source: SourceSession
 ) -> ExchangeResult:
@@ -871,14 +883,7 @@ def execute_source_graph(
                     tables[stage.stage.output] = table
                     read_schemas[stage.stage.output] = read_schemas[predecessor.output]
                     final_local = replace(predecessor, output=stage.stage.output)
-                    for check in lowered.checks:
-                        if (
-                            isinstance(check, SemanticCheck)
-                            and check.requirement.stage_output == stage.stage.output
-                        ):
-                            proof = _check(source, lowered, check)
-                            if proof is not None:
-                                completed.append(proof)
+                    completed.extend(_local_checks(source, lowered, stage.stage.output))
                     continue
                 if predecessor is not None and isinstance(
                     stage.stage.node.parameters, (DisplayRank, DisplayTable)
@@ -899,14 +904,7 @@ def execute_source_graph(
                     )
                     tables[stage.stage.output] = table
                     read_schemas[stage.stage.output] = read_schemas[predecessor.output]
-                    for check in lowered.checks:
-                        if (
-                            isinstance(check, SemanticCheck)
-                            and check.requirement.stage_output == stage.stage.output
-                        ):
-                            proof = _check(source, lowered, check)
-                            if proof is not None:
-                                completed.append(proof)
+                    completed.extend(_local_checks(source, lowered, stage.stage.output))
                     continue
                 if predecessor is not None and isinstance(
                     stage.stage.node.parameters, ReferenceDerive
@@ -1015,14 +1013,7 @@ def execute_source_graph(
                     tables[stage.stage.output] = table
                     read_schemas[stage.stage.output] = issued_reads[predecessor.output].schema
                     final_local = replace(predecessor, output=stage.stage.output)
-                    for check in lowered.checks:
-                        if (
-                            isinstance(check, SemanticCheck)
-                            and check.requirement.stage_output == stage.stage.output
-                        ):
-                            proof = _check(source, lowered, check)
-                            if proof is not None:
-                                completed.append(proof)
+                    completed.extend(_local_checks(source, lowered, stage.stage.output))
                     continue
                 if predecessor is not None and isinstance(stage.stage.node.parameters, CellDerive):
                     node = stage.stage.node
@@ -1138,14 +1129,7 @@ def execute_source_graph(
                     )
                     tables[stage.stage.output] = table
                     read_schemas[stage.stage.output] = schema
-                    for check in lowered.checks:
-                        if (
-                            isinstance(check, SemanticCheck)
-                            and check.requirement.stage_output == stage.stage.output
-                        ):
-                            proof = _check(source, lowered, check)
-                            if proof is not None:
-                                completed.append(proof)
+                    completed.extend(_local_checks(source, lowered, stage.stage.output))
                     continue
                 if predecessor is None or predecessor.layout.extras != (
                     "va",

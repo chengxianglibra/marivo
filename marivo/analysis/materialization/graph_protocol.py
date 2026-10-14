@@ -66,9 +66,10 @@ from marivo.analysis.methods.coordinate_state import (
     key_fields as coordinate_keys,
 )
 from marivo.analysis.methods.coordinate_state import layout as coordinate_layout
+from marivo.analysis.methods.descriptor import MethodName, PersistentStateKind
 from marivo.analysis.methods.physical import NoTime, Qualified, TimeShape
 from marivo.analysis.methods.registry import REGISTRY
-from marivo.analysis.methods.semantics import MethodKey, MethodName, PersistentStateKind
+from marivo.analysis.methods.semantics import MethodKey
 
 T = TypeVar("T")
 PhysicalReceipt = Annotated[

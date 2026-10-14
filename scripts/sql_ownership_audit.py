@@ -216,13 +216,7 @@ def _manifest() -> Manifest:
     )
     add(
         "analysis/materialization/graph_local_execution",
-        ("execute_verified_fixed",),
-        tuple(f"marivo.analysis.materialization.{module}.execute" for module in local_executors),
-        typed,
-    )
-    add(
-        "analysis/materialization/graph_preparation",
-        ("_execute",),
+        ("run_kernel",),
         tuple(f"marivo.analysis.materialization.{module}.execute" for module in local_executors),
         typed,
     )

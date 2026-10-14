@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import struct
 from dataclasses import dataclass
@@ -21,7 +20,6 @@ from marivo.analysis.core.model import (
     FitStatePart,
     GridCellsPart,
     PairInputsPart,
-    PartRole,
     Signature,
     SubjectMapPart,
     SubjectPart,
@@ -32,6 +30,7 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import DeviationFit, DeviationRead
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import StatisticalRelationError
+from marivo.analysis.materialization import fit_state
 from marivo.analysis.materialization.cell_arrow import (
     compact_schema,
     from_rows,
@@ -44,6 +43,15 @@ from marivo.analysis.materialization.cell_arrow import project as cell_project
 from marivo.analysis.materialization.cell_arrow import rename as cell_rename
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.errors import IntegrityError
+from marivo.analysis.materialization.fit_state import (
+    SavedPart,
+    SavedTable,
+    decode_part,
+    load,
+    payload,
+    save,
+    validate_with,
+)
 from marivo.analysis.materialization.graph_exchange import (
     ArrowPart,
     ExchangeContract,
@@ -58,19 +66,6 @@ from marivo.analysis.methods import deviation_numeric as arithmetic
 from marivo.analysis.methods.deviation_physical import CELL_REASONS, output_type, parse_type
 from marivo.analysis.methods.physical import arrow_scalar_type
 from marivo.analysis.methods.semantics import MethodKey
-
-
-@dataclass(frozen=True, slots=True)
-class SavedTable:
-    data: str
-    rows: int
-
-
-@dataclass(frozen=True, slots=True)
-class SavedPart:
-    role: PartRole
-    keys: tuple[str, ...]
-    table: SavedTable
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,27 +133,6 @@ class TableFits:
 TABLE_FITS = TypeAdapter(TableFits)
 
 
-def save(table: pa.Table) -> SavedTable:
-    sink = pa.BufferOutputStream()
-    with pa.ipc.new_stream(sink, table.schema) as writer:
-        writer.write_table(table)
-    raw = sink.getvalue().to_pybytes()
-    return SavedTable(base64.b64encode(raw).decode(), table.num_rows)
-
-
-def load(value: SavedTable) -> pa.Table:
-    raw = base64.b64decode(value.data, validate=True)
-    with pa.ipc.open_stream(raw) as reader:
-        table = reader.read_all()
-    if table.num_rows != value.rows:
-        raise invalid("retained deviation row count differs")
-    return table
-
-
-def _part(role: str, payload: str) -> ArrowPart:
-    return ArrowPart(role, pa.table({role + "__retained": [payload]}))
-
-
 def retain_table_fits(inputs: tuple[ExchangeResult, ...], declaration: TableFitsPart) -> ArrowPart:
     columns = []
     for column in declaration.columns:
@@ -194,7 +168,7 @@ def retain_table_fits(inputs: tuple[ExchangeResult, ...], declaration: TableFits
                 source.contract.allow_empty_singleton,
             )
         )
-    return _part("table_fits", TABLE_FITS.dump_json(TableFits(tuple(columns))).decode())
+    return payload("table_fits", TABLE_FITS.dump_json(TableFits(tuple(columns))).decode())
 
 
 def validate_table_fits(
@@ -300,44 +274,16 @@ def _validate_table_fits(
         ) from error
 
 
-def _decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Inputs, State]:
-    by_role = {part.role: part.table for part in parts}
-    first_table = by_role["fit_inputs"]
-    second_table = by_role["fit_state"]
-    first = (
-        first_table["fit_inputs__retained"].iloc[0]
-        if isinstance(first_table, pd.DataFrame)
-        else first_table["fit_inputs__retained"][0].as_py()
-    )
-    second = (
-        second_table["fit_state__retained"].iloc[0]
-        if isinstance(second_table, pd.DataFrame)
-        else second_table["fit_state__retained"][0].as_py()
-    )
-    if not isinstance(first, str) or not isinstance(second, str):
-        raise invalid("deviation retained payload is not a JSON string")
-    inputs, state = (
-        INPUTS.validate_json(first, strict=True),
-        STATE.validate_json(second, strict=True),
-    )
-    if (
-        INPUTS.dump_json(inputs).decode() != first
-        or STATE.dump_json(state).decode() != second
-        or inputs.fit_id != state.fit_id
-    ):
-        raise invalid("deviation canonical encoding, input digest or fit identity differs")
+def decode(parts: tuple[ExchangePart | ArrowPart, ...]) -> tuple[Inputs, State]:
+    inputs = decode_part(parts, "fit_inputs", INPUTS)
+    state = decode_part(parts, "fit_state", STATE)
+    if inputs.fit_id != state.fit_id:
+        raise invalid("deviation input digest or fit identity differs")
     return inputs, state
 
 
 def _index(table: pa.Table | pd.DataFrame, keys: tuple[str, ...]) -> dict[tuple[object, ...], int]:
-    frame = table.to_pandas() if isinstance(table, pa.Table) else table
-    rows = frame.to_dict(orient="records")
-    result = {tuple(row[k] for k in keys): i for i, row in enumerate(rows)}
-    if len(result) != len(frame) or any(
-        value is None or pd.isna(value) for key in result for value in key
-    ):
-        raise invalid("deviation input contains null or duplicate complete keys")
-    return result
+    return fit_state.index(table, keys, "deviation")
 
 
 def _primary(views: pa.Table, field: str, keys: tuple[str, ...]) -> pa.Table:
@@ -653,9 +599,9 @@ def _execute(node: MethodNode, values: tuple[ExchangeResult, ...], binding: str)
             for part in source_parts
             if part.role == "subject"
         ),
-        _part("fit_inputs", encoded),
-        _part("fit_state", STATE.dump_json(state).decode()),
-        _part("finding_policy", POLICY.dump_json(policy).decode()),
+        payload("fit_inputs", encoded),
+        payload("fit_state", STATE.dump_json(state).decode()),
+        payload("finding_policy", POLICY.dump_json(policy).decode()),
     )
     declaration = next(p for p in node.signature.parts if isinstance(p, FitInputsPart))
     mapping = _mapping_parts(saved, declaration)
@@ -699,7 +645,7 @@ def project(
 ) -> ExchangeResult:
     source_primary = source.primary
     source_parts = source.parts
-    inputs, state = _decode(source_parts)
+    inputs, state = decode(source_parts)
     views_table = load(state.views)
     views = views_table.to_pandas()
     index = _index(views, inputs.keys)
@@ -744,7 +690,7 @@ def _validate(contract: ExchangeContract, primary: pa.Table, parts: tuple[ArrowP
     """Verify retained witnesses without fitting or replacing any output."""
     if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
         raise invalid("deviation required parts are missing, extra or reordered")
-    inputs, state = _decode(parts)
+    inputs, state = decode(parts)
     declaration = next(p for p in contract.signature.parts if isinstance(p, FitInputsPart))
     if (
         declaration.fit_id != inputs.fit_id
@@ -1131,14 +1077,7 @@ def validate(
     try:
         if tuple(part.role for part in parts) != tuple(part.role for part in contract.parts):
             raise invalid("deviation required parts are missing, reordered or extra")
-        _validate(
-            contract,
-            to_arrow(primary, contract.schema),
-            tuple(
-                ArrowPart(part.role, to_arrow(part.table, declared.schema))
-                for part, declared in zip(parts, contract.parts, strict=True)
-            ),
-        )
+        validate_with(_validate, contract, primary, parts)
     except (
         ValueError,
         ArithmeticError,

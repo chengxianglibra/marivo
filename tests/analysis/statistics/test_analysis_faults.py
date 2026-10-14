@@ -17,7 +17,7 @@ from marivo.analysis.core.domain_captures import DomainPreparationError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import runs_execution
 from marivo.analysis.materialization.cell_arrow import logical_table
-from marivo.analysis.materialization.deviation_execution import load, save
+from marivo.analysis.materialization.fit_state import load, save
 from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     from_pandas,
@@ -171,7 +171,7 @@ def test_run_recovery_rejects_frozen_damage_and_owned_field_changes(
     result = timed.runs(where=mv.any_of(timed.value.lt(2), timed.value.gt(2))).execute()
     assert result._dataset is not None
     retained = result._dataset.verified()
-    _, state = runs_execution._decode(retained.parts)
+    _, state = runs_execution.decode(retained.parts)
     original = load(state.views)
 
     def forbidden(*args: object, **kwargs: object) -> None:

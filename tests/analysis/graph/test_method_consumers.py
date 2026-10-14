@@ -20,8 +20,8 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time
-from marivo.analysis.materialization.deviation_execution import _decode as decode_deviation
-from marivo.analysis.materialization.deviation_execution import load as load_retained_table
+from marivo.analysis.materialization.deviation_execution import decode as decode_deviation
+from marivo.analysis.materialization.fit_state import load as load_retained_table
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.materialization.statistical_execution import decode_forecast
 from marivo.analysis.methods.physical import (

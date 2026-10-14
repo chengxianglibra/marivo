@@ -15,7 +15,8 @@ from typing_extensions import NotRequired
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.materialization.graph_protocol import descriptor_plan, receipt_digest
-from marivo.analysis.materialization.runs_execution import CAPTURE, RUNS, _decode
+from marivo.analysis.materialization.runs_execution import CAPTURE, RUNS
+from marivo.analysis.materialization.runs_execution import decode as _decode
 from marivo.analysis.methods.physical import Qualified
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject

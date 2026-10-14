@@ -802,6 +802,9 @@ binding/definition/scope/version and separate schema/row-count/receipt. Rational
 facts use reduced signed numerator and positive denominator decimal strings;
 bounded-root facts bind the exact radicand and directed Decimal endpoints. These
 are closed scalar records, not arbitrary reason dictionaries or public exports.
+Every single-row retained payload (fit, runs, association and forecast state) decodes
+strictly and must re-encode to its exact canonical JSON; a non-canonical or loosely typed
+payload is rejected as an integrity failure, never coerced.
 
 | Role | Required columns/facts and keys | Producer / transport |
 | --- | --- | --- |

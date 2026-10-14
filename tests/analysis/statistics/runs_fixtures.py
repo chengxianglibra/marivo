@@ -13,7 +13,7 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.time_grid import bind_grid
-from marivo.analysis.materialization.deviation_execution import save
+from marivo.analysis.materialization.fit_state import save
 from marivo.analysis.materialization.runs_execution import Capture
 from marivo.analysis.methods.physical import ScalarType
 
