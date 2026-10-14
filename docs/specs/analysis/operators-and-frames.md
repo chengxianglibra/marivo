@@ -243,8 +243,9 @@ Ibis `mean`; ratio uses `/`; weighted mean uses the same non-null pair mask for
 both sums. Sum, min/max and direct quantiles already use standard Ibis operations.
 A scalar numerator cast works around SQL dialect rewriting of a shared division
 operand; it does not rewrite stored components. Explicit output casts reconcile
-Ibis's inferred types with the provider's strict native cursor transport. The
-provider does not adopt `.execute()` or `.to_pyarrow()` conversion implicitly.
+Ibis's inferred types with the declared result schema. Source values arrive as
+pandas through Ibis/provider conversion, which may be lossy; key, Cell, time,
+and persisted-schema checks remain at their owning boundaries.
 
 Coordinate state records component types independently. Fixed consumers merge
 those actual saved types locally, then project to the captured result type. Cold

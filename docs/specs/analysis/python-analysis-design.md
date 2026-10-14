@@ -14,7 +14,7 @@ the shared Help coordinator.
 
 | Owner | Responsibility |
 | --- | --- |
-| Datasource | Connections, physical sources/schema, Ibis compilation, batch transport, native settings, cleanup and source-health evidence |
+| Datasource | Connections, physical sources/schema, Ibis compilation/execution, pandas handoff, native settings, cleanup and source-health evidence |
 | Semantic | Entity identity/versioning, field and relationship meaning, Metric equations, source-time roles, units, intrinsic aggregation and business order |
 | Analysis DSL | Explicit membership, observation scope, coordinates, comparisons, predicates, references and requested result views |
 | Analysis algebra | Bound domains/quantities, Cell policies, sufficient parts, premises, transported facts and pending obligations |
@@ -217,9 +217,9 @@ does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
 
 | Classified graph / route | Execution contract |
 | --- | --- |
-| Source-only / ibis | Governed Ibis expressions compile and execute on the datasource |
-| Source-only / ibis_python | Governed Ibis preparation captures the required input, then a registered local algorithm consumes it |
-| Fixed-only / artifact_python | Controlled retained Arrow/Parquet data enters local pandas/NumPy/SciPy consumers |
+| Source-only / ibis | Governed Ibis expressions execute on the datasource and return pandas data |
+| Source-only / ibis_python | Governed Ibis preparation returns the required input as pandas, then a registered local algorithm consumes it |
+| Fixed-only / artifact_python | Retained Parquet results are read into pandas for local pandas/NumPy/SciPy consumers |
 | Mixed live source and fixed Artifact | Reject before Run admission or either business input is read |
 
 A fixed member domain followed by a new live Metric/property dependency
@@ -233,18 +233,18 @@ one another's method qualifications. A backend name or successfully compiled
 expression is not blanket support.
 
 Ordinary contribution coordinates use flat primary/partition relations and one
-terminal transport. Complete result keys select keyed component reuse or a flat
-partition at compilation, shared across backends, exchange, persistence and fixed
-execution. `operators-and-frames.md` owns these layouts and numeric semantics;
-`session-state-and-runtime.md` owns their receipt versions. Native driver recursive
-normalization remains available for other specialized list/struct states; it does
-not relax exact Arrow carrier contracts.
+terminal pandas materialization. Complete result keys select keyed component
+reuse or a flat partition at compilation, shared across backends, exchange,
+persistence and fixed execution. `operators-and-frames.md` owns these layouts
+and numeric semantics; `session-state-and-runtime.md` owns their receipt
+versions. Source execution returns pandas frames through Ibis/provider conversion;
+the persisted Cell/Parquet representation remains Arrow.
 
-Native relational operations stay in governed Ibis expressions. Exact
-retained-state reduction and statistical kernels use
-their registered consumers. Source preparation may materialize full vectors;
-batch transport is not proof of a streaming statistical algorithm. Route choice
-is complete before execution; a failure never triggers another implementation.
+Relational operations supported by the admitted expression stay in governed
+Ibis expressions. Retained-state reduction and statistical kernels use their
+registered local consumers. Source preparation may materialize full vectors in
+pandas and is eager, not a streaming algorithm. Route choice is complete before
+execution; a failure never triggers another implementation.
 
 ## Premises, assumptions and checks
 

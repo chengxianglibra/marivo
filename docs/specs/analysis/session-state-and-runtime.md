@@ -60,6 +60,12 @@ new physical relations, their Entity output expressions are rebound to those
 captured relations before lowering; the original source bindings remain the
 execution key authority.
 
+Prepared analysis over local Parquet reads the declared file directly rather
+than making a temporary copy. It records the file identity and content digest
+before execution and checks them again after the graph finishes; a detected
+change fails the Run. This check does not provide a filesystem snapshot while
+queries are running.
+
 Plan identity normalizes retained references to an Artifact already occupying
 one unambiguous execution slot to that slot's identity. Fresh-process rebinding
 therefore preserves the same plan and fixed key when frozen cohort evidence
@@ -74,16 +80,18 @@ without allocating a new identity or replaying sources.
 ## Acquisition and local consumption
 
 A selected `ibis` plan keeps governed dependencies as Ibis expressions.
-Checks, terminal primary and required parts are submitted through SourceSession.
-Pure-native execution does not capture intermediates only to restage them as
+Checks, terminal primary and required parts execute through SourceSession, which
+uses the selected Ibis backend's `execute()` and returns pandas DataFrames.
+Source-only execution does not capture intermediates only to restage them as
 literal/temporary source relations. Temporary validation output may still be
 read for independent checks.
 
-`ibis_python` prepares the exact projected/filtered input for its registered
-local consumer. Safe member/time filters, joins, attributes and component
-aggregation stay at source. Source-native execution is preferred when an exact
-qualified implementation preserves the complete requested contract. Route
-selection happens before execution; failure never switches implementations.
+`ibis_python` prepares the exact projected/filtered input as pandas for its
+registered local consumer. Safe member/time filters, joins, attributes and
+component aggregation stay at source when the admitted Ibis expression can
+express them. Source-side Ibis execution is preferred when qualified for the
+complete requested contract. Route selection happens before execution; failure
+never switches implementations.
 
 Every source dependency needed after local selection is collected from the
 Logical DAG and prepared before that selection consumes rows. Prepared
@@ -93,9 +101,9 @@ selected Subject image. A population scalar cannot replace this support.
 No selected-ID upload, source-after-local query or implicit second
 selection is admitted.
 
-Fixed execution reads controlled local Arrow/Parquet data into registered
-pandas/NumPy/SciPy methods. It does not open DuckDB to scan retained Parquet,
-load current Semantic/calendar definitions or reconnect historical sources.
+Fixed execution reads persisted Result Parquet directly into pandas for
+registered pandas/NumPy/SciPy methods. It does not open DuckDB to scan retained
+Parquet, load current Semantic/calendar definitions or reconnect historical sources.
 A fixed member domain does not fix a new live Metric/property dependency.
 
 Independent native queries have no shared transaction-snapshot guarantee.
@@ -123,13 +131,15 @@ Downstream statistics check those actual inputs; a local stage does not erase
 its source/input binding. Historical attribute selections retain captured
 versions through a subsequent observation.
 
-Exchange preserves typed schema/decoding, compact Cell bindings, ordered parts,
-complete read/close and resource ownership. Producer
-key/Cell/business guarantees are trusted rather than repeatedly re-audited.
+The in-memory exchange uses pandas while preserving the frozen logical schema,
+compact Cell bindings, ordered parts, and resource ownership. Producer
+key/Cell/business guarantees are trusted rather than
+repeatedly re-audited. Ibis/provider value conversion may be lossy; persistence
+continues to validate its existing Arrow/Parquet schema and Cell bindings.
 Necessary indexes reject encountered duplicates and required lookups reject
 missing operands. Methods still enforce their actual consumed Cell, finite,
-coverage and arithmetic contracts. A partial/failed stream cannot publish
-successful evidence.
+coverage and arithmetic contracts. A partial or failed source read cannot
+publish successful evidence.
 
 ## Retained schemas and method state
 
@@ -191,8 +201,8 @@ graph DAG v10 and continuation v5 remain independent; there is no migration or d
 Optional correspondence endpoints use -1 solely for an absent endpoint, outside
 the four Cell states. Only a frozen optional binding permits that sentinel;
 correspondence parts still own presence and pairing checks. An absent endpoint
-is distinct from a present Null Cell. Empty streams retain bindings, schemas and
-domains; actual row distributions never alter their carrier.
+is distinct from a present Null Cell. Empty DataFrame results retain bindings,
+schemas and domains; actual row distributions never alter their carrier.
 
 Descriptor v5 and earlier, method-state v1 and earlier, and prior state/part
 contracts reject on recovery. Existing history and files are preserved. Re-execute
@@ -245,7 +255,7 @@ limits where supported and skip them otherwise. Marivo does not track remaining
 time, reject late results, start deadline workers or send KILL QUERY.
 Native connection, request and query timeouts retain their backend meanings.
 
-Native errors, Python interruption, malformed batches and failed read/close abort
+Native errors, Python interruption, malformed DataFrame results and failed reads abort
 uncommitted publication and release owned resources through their actual owners.
 Elapsed time is diagnostic only. Durable success remains committed after an
 acknowledgement error; unknown commit state belongs to reconciliation.
@@ -256,32 +266,34 @@ association's 4096 candidate ceiling, explicit horizon/limit bounds and Findings
 1000 cap remain separate contracts. Resource failure never truncates, samples
 or replaces valid input.
 
-Actual submissions, rows, decoded bytes, simultaneous buffers, stage time and
+Actual submissions, returned rows, simultaneous buffers, stage time and
 output/part sizes describe cost; they do not qualify correctness or another
-route. Batches do not imply a streaming kernel: rank/order methods and forecast
-retain their full required vectors; runs carries unfinished sequence state.
+route. pandas materialization is eager and does not imply a streaming kernel:
+rank/order methods and forecast retain their full required vectors; runs carries
+unfinished sequence state.
 
 Driver APIs own cancellation and close. Unknown remote termination is never
 reported as confirmed termination. Writer/commit ownership must be safe before
 continuation; unresolved commit or resource journal obligations block
 reconciliation. Recovery never resubmits the action.
 
-### Native read cleanup
+### Ibis read cleanup
 
-SourceSession releases all owned streams, temporary relations and connections,
+SourceSession releases owned provider-scoped resources and connections,
 including when one cleanup operation fails. Borrowed backend disconnection
-belongs to the external owner. Failed cursor close remains unconfirmed until
-that owner acknowledges connection release. Cleanup can block without suitable
-native settings; no additional worker or deadline bounds it.
+belongs to the external owner. Ibis/provider execution is eager at the Marivo
+boundary; Marivo does not maintain a separate row stream or cursor-close state.
+Cleanup can block without suitable native settings; no additional worker or
+deadline bounds it.
 
 MySQL and ClickHouse graphs create no control connection or control resource
-reservation. Python and driver interruption behavior remains native; there is
+reservation. Python and provider interruption behavior remains native; there is
 no custom SIGINT wakeup listener. A native timeout or an interrupted read never
 publishes partial success. Remote receipts retain `remote_unknown` without
 independent termination proof. Previously recorded unresolved control resources
 remain reconciliation blockers; they are not silently discharged or targeted
-by a new connection. Normal read, temporary-relation and local-output resource
-journals, commit reconciliation and atomic publication remain active.
+by a new connection. Local-output resource journals, commit reconciliation and
+atomic publication remain active.
 
 ## Store 9 publication and local trust
 
@@ -490,10 +502,12 @@ authority, calibration or release qualification.
 
 Execution diagnostics are always-on, project-local JSONL in
 `.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record actual Marivo-owned SQL
-submissions before driver calls, consumption/cleanup outcomes, Analysis execution
-phases and retained Artifact reuse. Generated-only SQL, third-party driver/Ibis
-bootstrap SQL and Store persistence SQL are outside their coverage. Local
-Python/Arrow stages record timing and result counts without inventing SQL.
+submissions before driver calls, submission/completion outcomes, returned row
+counts, Analysis execution phases and retained Artifact reuse. Governed source
+records retain the compiled Ibis SQL and its purpose/source identity.
+Generated-only SQL, third-party driver/Ibis bootstrap SQL and Store persistence
+SQL are outside their coverage. Local Python/pandas stages record timing and
+result counts without inventing SQL.
 
 Diagnostic records share available operation/session IDs with usage telemetry;
 Run admission adds the actual Run ID. Project-root and operation contexts are

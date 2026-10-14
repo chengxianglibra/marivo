@@ -280,27 +280,27 @@ unknown; it is not filled from a user assertion. Unsupported necessary types fai
 when the execution closure consumes them. Unused columns do not add execution
 type restrictions.
 
-ClickHouse native row reads, a naive datetime is restored to UTC only when the
-physical Arrow schema explicitly declares UTC; other timezone mismatches remain
-errors. A cursor close failure marks the governed submission failed and records
-`close_failed`, rather than claiming successful cursor release. Subsequent owned
-connection disconnection is recorded separately.
+Governed analysis reads run through the selected Ibis backend and return a
+pandas DataFrame. Value conversion follows Ibis/provider behavior and may be
+lossy; for example, a provider may turn an invalid date into a null value.
+Marivo does not add a per-value Arrow round-trip audit. Source schema and
+projection admission, requested row/time bounds, and downstream key, Cell,
+time, and persistence-schema checks remain in force.
 
 Missing selected optional drivers raise `DatasourceConnectionError` with the
 backend-specific `marivo[backend]` installation repair. Unselected drivers are
 not imported by provider discovery.
 
-MySQL retains its source-representation checks at execution. Temporal and
-Boolean columns must use the backend's admitted representations, and Boolean
-values must be exactly 0/1/NULL. Native temporal
-analysis also admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and ClickHouse
-`DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse timestamp
-execution retain verified UTC session/reader requirements; source and report
-timezones remain distinct. Reader and report timezone resolution accept IANA
-names and explicit offsets. An absent probe capability permits recorded system
-fallback; an actual failed or invalid probe does not. Physical instants and
-explicit parser authority skip unnecessary reader probes. Native parser
-declarations retain their existing IANA validation.
+Native temporal analysis admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and
+ClickHouse `DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse
+timestamp execution retain verified UTC session/reader requirements; source and
+report timezones remain distinct. Reader and report timezone resolution accept
+IANA names and explicit offsets. An absent probe capability permits recorded
+system fallback; an actual failed or invalid probe does not. Physical instants
+and explicit parser authority skip unnecessary reader probes. Native parser
+declarations retain their existing IANA validation. Ibis/provider conversion
+owns representation of returned values; Marivo does not require lossless
+round-tripping through a custom source decoder.
 
 
 For ClickHouse tables, inspection also reads active `system.parts_columns` and
@@ -615,24 +615,22 @@ preview does not persist an authoring checkpoint or affect readiness.
 ### Ibis-owned analysis reads and terminal raw SQL
 
 Provider operation support and exact Analysis method qualification are separate.
-The selected engine provider
-registry is lazy. `SourceSession` binds table and view relations on DuckDB,
-PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB CSV, Parquet,
-local JSON, and uncredentialed HTTP JSON. It checks exact source identity,
-runtime JSON parameters, relation ancestry, additional physical inputs, and
-the pre-read Arrow schema. One active batch stream belongs to a session; the
-submitted SQL is the unchanged Ibis compilation. Decode rejects lossy integer,
-Boolean, float, Decimal, date, and timestamp values. PostgreSQL record fields
-accept only canonical integer text where its driver returns record components
-as text; Trino named rows retain their field names; MySQL temporal converters
-preserve invalid date text for rejection rather than silently turning it into
-null. A DuckDB result is connection-owned and is released with its connection;
-remote cursor close does not prove server-side query termination.
+The selected engine provider registry is lazy. `SourceSession` binds table and
+view relations on DuckDB, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB
+CSV, Parquet, local JSON, and uncredentialed HTTP JSON. It checks exact source
+identity, runtime JSON parameters, relation ancestry, additional physical
+inputs, and the bound relation schema before execution. It calls the selected
+Ibis backend's `execute()` and returns the resulting pandas DataFrame; Ibis and
+the provider own driver fetching and value conversion. There is no Marivo-owned
+row cursor/batch protocol or strict source Arrow round-trip decoder. Column
+order, source binding, requested row/time bounds, and downstream key, Cell,
+time, and persisted-schema checks remain governed. A completed DataFrame read
+does not prove server-side query termination after an interruption or timeout.
 Connection probes and owned source sessions share the backend's single internal
 lease, which disconnects through Ibis at most once. Borrowed source sessions
-release streams and staged relations before the connection owner disconnects.
-Cleanup continues across resource failures and records disconnection only after
-confirmed release; it does not actively cancel remote queries.
+leave disconnection to the connection owner. Cleanup continues across resource
+failures and records disconnection only after confirmed release; it does not
+actively cancel remote queries.
 
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The R1 basic physical requirement
@@ -686,8 +684,8 @@ control connection, send KILL, duplicate/shut down sockets or run a timer.
 ClickHouse readers use native query settings with throwing overflow so timed-out
 partial data cannot become a successful typed result. Marivo neither requires
 query-cancellation permissions on system.processes nor creates a control client.
-Native errors retain diagnostics and actual submission facts. Cleanup releases
-owned readers and cursors; connection closure alone never proves remote query
+Errors retain diagnostics and actual submission facts. Cleanup releases owned
+source connections; connection closure alone never proves remote query
 termination. Failed reads do not publish or replace a certified snapshot.
 
 `md.raw_sql(datasource: Ref[DatasourceKind], sql: str, *, reason: str,
@@ -718,9 +716,9 @@ No other public source, inspection or Semantic expression argument accepts SQL
 text, including `backend.sql(handwritten)` disguised as a table. Typed table
 bindings still reject predicates, joins, casts and fragments. Governed business
 reads, completeness checks, counts and type/time validation are constructed as
-Ibis expressions. An adapter may submit the unmodified compiled result of a
-bound Ibis expression through a native driver; it records the expression
-identity, purpose and actual submission. The user-authored text submitted by
+Ibis expressions and executed through the selected Ibis backend. The execution
+record retains the compiled SQL, expression identity, purpose and submission
+outcome. The user-authored text submitted by
 `md.raw_sql` is the explicit terminal exception, not an implementation route
 for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; required timezone or complete-result facts block the affected execution cell. A required governed operation
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
@@ -766,19 +764,19 @@ After an entity is registered, semantic authoring reuses the entity ref rather
 than re-supplying `(datasource, source)` tuples. The full write loop is defined
 in [authoring-workflow.md](authoring-workflow.md).
 
-For MySQL bounded dataframe acquisition, nullable integer columns keep
-exact integer cells before backend conversion; a NULL must not promote large
-integers through float64. Typed inspection does not normalize PostgreSQL/MySQL/Trino
-fixed CHAR to logical string, because its padding semantics differ. Bind a
-variable-length text column instead.
+SourceSession returns the pandas DataFrame produced by Ibis, so nullable value
+representations follow that provider's conversion behavior; Marivo does not
+require an exact source-value round trip. Typed inspection still does not
+normalize PostgreSQL/MySQL/Trino fixed CHAR to logical string, because its
+padding semantics differ. Bind a variable-length text column instead.
 
 
 ## Execution logging side effects
 
 Actual governed reads, connectivity probes, registered provider statements and
 `md.raw_sql()` write always-on diagnostics to project-local `.marivo/logs/`.
-Submission records contain verbatim SQL; completion records describe actual
-consumption and cursor-release outcomes. Parameterized credential statements
+Submission records contain verbatim compiled SQL; completion records describe
+the execution outcome and returned row count. Parameterized credential statements
 record their fixed template only and never record bound values or sensitive
 failure messages. Logging is independent of the usage telemetry switch and
 cannot change query results, typed failure propagation or connection cleanup.

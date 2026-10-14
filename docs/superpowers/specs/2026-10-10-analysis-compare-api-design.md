@@ -577,7 +577,7 @@ W2 实现：见 5.2 消费方列表。
 
 文档：
 
-- 理论：`docs/specs/analysis/algebra-theory.md` 第 8.2 节增补推导说明（第 3.3 节）。
+- 理论：`docs/specs/analysis/algebra-theory.md` 第 5.2 节增补推导说明（第 3.3 节）。
 - 规范：
   - `docs/specs/analysis/operators-and-frames.md`（293、328 行附近）、`python-analysis-design.md`、`session-state-and-runtime.md`、`docs/specs/temporal-semantics.md`：双视图所有权、独立 Cell、类型准入与当前图版本。
   - `timezone-and-calendar-design.md` Period correspondence 节：W1 改名并明确等长/current 时间坐标不变；W2 改写完整桶规则，写入对齐键输出与 `graph_dag/v9`；W3 契约定义写入同一节。

@@ -8,7 +8,8 @@ and ownership, not a release or backend qualification certificate.
 
 | Document | Owns |
 | --- | --- |
-| [Analysis Algebra Theory](algebra-theory.md) | Proposed semantic foundation for typed domains, quantities, composition rules and their proof obligations; it is not current API or runtime qualification |
+| [Analysis Algebra Theory](algebra-theory.md) | Proposed core algebra: attributed finite sets, quantity sets, navigation, pointwise and axis operators, and their laws; it is not current API or runtime qualification |
+| [Algebra: Model Methods](algebra-methods.md) | Proposed signatures and required declarations for forecasting, resampling, attribution and reconciliation |
 | [Python Analysis Design](python-analysis-design.md) | Public entry shapes, algebra-to-graph architecture, method registration, planning, execution routes and composition boundaries |
 | [Operators and Frames](operators-and-frames.md) | Cell semantics, sufficient state, numerical policies, method equations, part transport and conditional continuations |
 | [Session State and Runtime](session-state-and-runtime.md) | Run identity, source/fixed execution, deadlines, atomic publication, Store 9 and recovery |
@@ -19,6 +20,19 @@ Read [Semantic and Datasource Overview](../semantic/overview.md) for reusable
 business meaning and physical access. The cross-layer temporal contract is
 [Temporal Semantics](../temporal-semantics.md). Help and result disclosure follow
 [Agent-Facing Public Surface](../agent-friendly-public-surface.md).
+
+### Lazy DSL proposal
+
+The following documents describe proposed designs, not the current implementation.
+Each document states its own revision.
+
+| Document | Owns |
+| --- | --- |
+| [Lazy Analysis DSL Definition](lazy-analysis-dsl-redesign.md) | Target objects, signatures, binding rules and evaluation semantics |
+| [Semantic Expression Proposal](../semantic/expression-model-redesign.md) | Reusable source definitions, Metric constructors and restricted authoring |
+| [Lazy DSL Execution and Result Handoff](lazy-analysis-dsl-execution.md) | Proposed execution, retention, recovery, agent disclosure and pandas layout |
+| [Lazy DSL Examples](lazy-analysis-dsl-examples.md) | Complete multi-round analysis and focused examples |
+| [Lazy DSL Scenario Validation](lazy-analysis-dsl-scenario-validation.md) | Operator rationale, business scenarios, numerical witnesses and future acceptance criteria |
 
 ## Architecture at a glance
 
@@ -39,15 +53,15 @@ work whose leaves remain fixed; Logical is a computation state, not a source-mod
 label. `session.members(...)` is the canonical member-domain entry.
 
 The algebra has an active production role. It defines what a method means and
-which state, evidence and input bindings a successor needs. It does not replace
+which facts, evidence and input bindings a successor needs. It does not replace
 specialized statistical algorithms, and its local laws do
 not authorize arbitrary graph rewriting.
 
 ## Contract and qualification boundaries
 
-These documents describe the current implementation contracts. Historical
-designs and revision-specific acceptance records remain in Git history; they
-do not qualify current execution.
+The current-architecture documents describe the implemented contracts; the proposal
+documents above remain unimplemented. Historical designs and revision-specific
+acceptance records do not qualify current execution.
 
 Exact call signatures, examples, errors and admitted result actions are exposed
 by `marivo.help("analysis")` and each receiver's `contract()`. A semantic method,
