@@ -41,6 +41,20 @@ forbidden_modules =
     marivo.semantic
     marivo.analysis
 
+[importlinter:contract:definition-is-neutral-leaf]
+name = _definition must not depend on surfaces, execution, or engines
+type = forbidden
+source_modules =
+    marivo._definition
+forbidden_modules =
+    marivo.datasource
+    marivo.semantic
+    marivo.analysis
+    ibis
+    pandas
+    pyarrow
+    duckdb
+
 [importlinter:contract:dataset-core-is-foundational]
 name = Dataset Core must not depend on executing analysis implementations
 type = forbidden

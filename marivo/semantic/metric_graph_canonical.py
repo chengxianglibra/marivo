@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import fields, is_dataclass, replace
-from enum import Enum
+from dataclasses import replace
 from typing import Literal, NoReturn, cast
 
-from marivo._temporal import Grain as TemporalGrain
+from marivo._definition import graph as _definition_graph
+from marivo._definition.types import DefinitionGraphError
 from marivo._temporal import builtin_grain, semantic_grain
 from marivo.refs import RefPayloadV1, SemanticKind
 from marivo.refs import ref as ref_factory
@@ -79,48 +78,26 @@ def _invalid(
 
 def canonical_value(value: object) -> object:
     """Convert supported typed payloads to deterministic JSON values."""
-    if isinstance(value, Enum):
-        return canonical_value(value.value)
-    if isinstance(value, TemporalGrain):
-        if value.kind == "builtin":
-            return value.to_token()
-        assert value.calendar is not None and value.level is not None
-        return {
-            "kind": "semantic",
-            "calendar_ref": value.calendar.path,
-            "level": value.level,
-        }
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            _invalid("canonical payload rejects non-finite floats")
-        return value
-    if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: canonical_value(getattr(value, field.name)) for field in fields(value)}
-    if isinstance(value, (tuple, list)):
-        return [canonical_value(item) for item in value]
-    if isinstance(value, dict):
-        if not all(isinstance(key, str) for key in value):
-            _invalid("canonical mappings require string keys")
-        return {key: canonical_value(value[key]) for key in sorted(value)}
-    _invalid(f"unsupported canonical payload type: {type(value).__name__}")
+    try:
+        return _definition_graph.canonical_value(value)
+    except DefinitionGraphError as exc:
+        _invalid(str(exc))
 
 
 def canonical_bytes(value: object) -> bytes:
     """Encode one supported payload as stable UTF-8 JSON bytes."""
-    return json.dumps(
-        canonical_value(value),
-        ensure_ascii=False,
-        allow_nan=False,
-        separators=(",", ":"),
-        sort_keys=False,
-    ).encode("utf-8")
+    try:
+        return _definition_graph.canonical_bytes(value)
+    except DefinitionGraphError as exc:
+        _invalid(str(exc))
 
 
 def fingerprint(value: object) -> str:
     """Return the lowercase SHA-256 fingerprint of canonical bytes."""
-    return hashlib.sha256(canonical_bytes(value)).hexdigest()
+    try:
+        return _definition_graph.fingerprint(value)
+    except DefinitionGraphError as exc:
+        _invalid(str(exc))
 
 
 def node_fingerprint(node: MetricGraphNodeV1) -> str:
