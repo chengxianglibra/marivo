@@ -157,8 +157,28 @@ def _key_error(expected: str, received: str) -> IntegrityError:
     )
 
 
-def _wire(value: object, identities: dict[str, str] | None = None) -> _CanonicalValue:
+def _wire(
+    value: object,
+    identities: dict[str, str] | None = None,
+    memo: dict[int, _CanonicalValue] | None = None,
+) -> _CanonicalValue:
     """Encode only closed contract values, using stable tags instead of class names."""
+    if memo is None:
+        memo = {}
+    if is_dataclass(value):
+        # Shared immutable contract values (grids, bindings) encode once per call.
+        prior = memo.get(id(value))
+        if prior is not None:
+            return prior
+        result = _wire_value(value, identities, memo)
+        memo[id(value)] = result
+        return result
+    return _wire_value(value, identities, memo)
+
+
+def _wire_value(
+    value: object, identities: dict[str, str] | None, memo: dict[int, _CanonicalValue]
+) -> _CanonicalValue:
     if value is None:
         return None
     if type(value) is datetime:
@@ -176,7 +196,7 @@ def _wire(value: object, identities: dict[str, str] | None = None) -> _Canonical
     if isinstance(value, (bool, int, float, str)):
         return value
     if type(value) is tuple:
-        return tuple(_wire(item, identities) for item in value)
+        return tuple(_wire(item, identities, memo) for item in value)
     tag = _WIRE_TAGS.get(type(value))
     if tag is None or not is_dataclass(value):
         raise _key_error("a closed canonical graph contract value", type(value).__name__)
@@ -187,7 +207,7 @@ def _wire(value: object, identities: dict[str, str] | None = None) -> _Canonical
                 item.name,
                 identities.get(getattr(value, item.name), getattr(value, item.name))
                 if identities is not None and item.name in ("node_id", "key_domain_id")
-                else _wire(getattr(value, item.name), identities),
+                else _wire(getattr(value, item.name), identities, memo),
             )
             for item in fields(value)
         ),

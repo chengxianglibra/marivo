@@ -293,6 +293,36 @@ def test_canonical_encoder_rejects_nonfinite_literals() -> None:
         _canonical_digest(("value", float("nan")))
 
 
+def test_canonical_digest_bytes_are_pinned_for_shared_and_escaped_values() -> None:
+    shared = ("grid", ("cell", 1, -2, 0.5), ())
+    payload = (
+        None,
+        True,
+        False,
+        0,
+        -17,
+        10**30,
+        1.5,
+        -0.0,
+        "plain",
+        'naïve "quote" \\ \n☃',
+        (),
+        shared,
+        shared,
+        (shared, (shared,)),
+    )
+    assert (
+        _canonical_digest(payload)
+        == "a97a1f917c96e4c526a359c591c65e2034a0c2518c6539d2d174daff453cc208"
+    )
+    assert (
+        _canonical_digest(()) == "2a5c44ea15cb1c79308a4f35b6f59bf3464501f9071c33790e480390609a8382"
+    )
+    assert (
+        _canonical_digest("x") == "19dc35daa83eac9485522e5f5f90eef7747abbfb7b922ce021377e064e0e783d"
+    )
+
+
 def test_logical_state_is_only_the_discriminator() -> None:
     value = _logical_state()
     assert {item.name for item in fields(value)} == {"kind"}

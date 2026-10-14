@@ -16,6 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
+from marivo.datasource import adapters
 from marivo.datasource.adapters import (
     TIMESTAMP_UNIT_METADATA_KEY,
     CompiledRead,
@@ -163,8 +164,10 @@ def test_compiled_read_executes_through_ibis_and_returns_pandas(
         purpose="basic.parameter",
         expected_schema=expression.schema().to_pyarrow(),
     )
-    backend_execute = Mock(wraps=session._backend.execute)
-    monkeypatch.setattr(session._backend, "execute", backend_execute)
+    duckdb_execute = Mock(wraps=adapters._execute_duckdb)
+    monkeypatch.setattr(adapters, "_execute_duckdb", duckdb_execute)
+    backend_compile = Mock(wraps=session._backend.compile)
+    monkeypatch.setattr(session._backend, "compile", backend_compile)
 
     result = session.execute(read)
 
@@ -173,9 +176,12 @@ def test_compiled_read_executes_through_ibis_and_returns_pandas(
         {"id": 10, "amount": 2},
         {"id": 11, "amount": 3},
     ]
-    assert backend_execute.call_count == 1
-    assert backend_execute.call_args.args[0].op() == read.expression.as_table().op()
-    assert backend_execute.call_args.kwargs == {"params": dict(read.params), "limit": None}
+    assert backend_compile.call_count == 0
+    assert duckdb_execute.call_count == 1
+    backend, table, sql = duckdb_execute.call_args.args
+    assert backend is session._backend
+    assert table.op() == read.expression.as_table().op()
+    assert sql == read.sql
     assert session.submissions[-1].sql == read.sql
     assert session.submissions[-1].source_identity == "facts@v1"
     assert session.submissions[-1].expression_identity == id(read.expression.op())
@@ -350,7 +356,7 @@ def test_execute_failure_is_recorded_as_a_failed_query(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     read = _read(session)
-    monkeypatch.setattr(session._backend, "execute", Mock(side_effect=RuntimeError("read failed")))
+    monkeypatch.setattr(adapters, "_execute_duckdb", Mock(side_effect=RuntimeError("read failed")))
     with pytest.raises(RuntimeError, match="read failed"):
         session.execute(read)
     assert session.submissions[-1].state == "failed"

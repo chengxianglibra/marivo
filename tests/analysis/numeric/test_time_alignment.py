@@ -305,8 +305,17 @@ def test_weekday_exact_uses_key_images_instead_of_equal_lengths(
     assert set(result.to_pandas().coord_0) == {f"weekday:{i}:1" for i in range(1, 8)}
 
 
-@pytest.mark.parametrize("kind", ["ordinal", "weekday", "holiday", "holiday_then_weekday"])
-@pytest.mark.parametrize("metric", ["order_count", "revenue"])
+# Empty-cell policy depends only on the metric and key images only on the kind:
+# each kind runs once, and each metric meets one builtin and one occurrence key.
+@pytest.mark.parametrize(
+    ("metric", "kind"),
+    [
+        ("order_count", "ordinal"),
+        ("revenue", "weekday"),
+        ("order_count", "holiday"),
+        ("revenue", "holiday_then_weekday"),
+    ],
+)
 def test_equal_key_images_keep_dual_cells_for_exact_and_empty_finish(
     analysis_dsl_case_factory: DslCaseFactory, kind: KeyKind, metric: str
 ) -> None:
@@ -329,11 +338,10 @@ def test_equal_key_images_keep_dual_cells_for_exact_and_empty_finish(
         )
         factory = mv.holiday if kind == "holiday" else mv.holiday_then_weekday
         key = factory(current=current_scope, baseline=baseline_scope)
+    current_fixed, baseline_fixed = current_grouped.execute(), baseline_grouped.execute()
     for alignment in (mv.exact(time=key), mv.outer(missing="empty_value", time=key)):
         source = current_grouped.compare(baseline_grouped, align=alignment).execute()
-        fixed = (
-            current_grouped.execute().compare(baseline_grouped.execute(), align=alignment).execute()
-        )
+        fixed = current_fixed.compare(baseline_fixed, align=alignment).execute()
         assert source.to_pandas().equals(fixed.to_pandas())
         frame = source.to_pandas()
         assert len(frame) == 21

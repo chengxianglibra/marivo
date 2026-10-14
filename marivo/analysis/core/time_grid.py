@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 from hashlib import sha256
 from itertools import pairwise
 from typing import TYPE_CHECKING, Literal
@@ -53,6 +54,30 @@ def instant(value: date | datetime, zone: str) -> datetime:
     return next(iter(candidates))
 
 
+@lru_cache(maxsize=65536, typed=True)
+def _cell_repr(
+    identity: str,
+    original_start: datetime,
+    original_end: datetime,
+    start: datetime,
+    end: datetime,
+    partial: bool,
+) -> str:
+    # Cells are immutable and UTC-only, so equal bounds always render the same
+    # ISO text; grid identities and definition digests repr the same cells often.
+    return repr(
+        (
+            "TimeCell",
+            identity,
+            original_start.isoformat(),
+            original_end.isoformat(),
+            start.isoformat(),
+            end.isoformat(),
+            partial,
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class TimeCell:
     """One stable original period and its consumed half-open intersection."""
@@ -65,16 +90,13 @@ class TimeCell:
     partial: bool
 
     def __repr__(self) -> str:
-        return repr(
-            (
-                "TimeCell",
-                self.identity,
-                self.original_start.isoformat(),
-                self.original_end.isoformat(),
-                self.start.isoformat(),
-                self.end.isoformat(),
-                self.partial,
-            )
+        return _cell_repr(
+            self.identity,
+            self.original_start,
+            self.original_end,
+            self.start,
+            self.end,
+            self.partial,
         )
 
     def __post_init__(self) -> None:

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import cast, get_type_hints
 
 import ibis
 import ibis.expr.types as ir
+import pandas as pd
 import pytest
+from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource import adapters
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.inspection import SourceInspection
@@ -656,30 +658,21 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     disconnected = 0
     original_disconnect = Backend.disconnect
 
-    original_execute = Backend.execute
+    original_execute = adapters._execute_duckdb
 
-    def fail_execute(
-        self: Backend,
-        expression: ir.Expr,
-        /,
-        *,
-        params: Mapping[ir.Scalar, object] | None = None,
-        limit: int | str | None = None,
-        **kwargs: object,
-    ) -> object:
-        sql = self.compile(expression, params=params, limit=limit)
+    def fail_execute(backend: BaseBackend, expression: ir.Table, sql: str) -> pd.DataFrame:
         if "orders" in sql.lower():
             raise ExecutionError(
                 "Code: 107. Storage file missing (FILE_DOESNT_EXIST); token=super-secret"
             )
-        return original_execute(self, expression, params=params, limit=limit, **kwargs)
+        return original_execute(backend, expression, sql)
 
     def tracked_disconnect(self: Backend) -> None:
         nonlocal disconnected
         disconnected += 1
         original_disconnect(self)
 
-    monkeypatch.setattr(Backend, "execute", fail_execute)
+    monkeypatch.setattr(adapters, "_execute_duckdb", fail_execute)
     monkeypatch.setattr(Backend, "disconnect", tracked_disconnect)
 
     with pytest.raises(DatasourceAuthoringError) as exc_info:

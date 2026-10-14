@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import re
 import unicodedata
 from dataclasses import InitVar, dataclass, field, fields, is_dataclass
+from json.encoder import encode_basestring_ascii as _encode_ascii
 from typing import Literal, TypeAlias
 
 from marivo._compat import Never
@@ -1046,28 +1046,33 @@ def _descriptor_atom(value: object) -> _CanonicalValue:
     _fail("closed canonical descriptor values", type(value).__name__, "descriptor.fingerprint")
 
 
-def _canonical(value: _CanonicalValue) -> object:
+def _canonical(value: _CanonicalValue, memo: dict[int, str]) -> str:
+    # Emits the exact compact ASCII JSON of the tagged-list encoding; shared
+    # immutable tuples are encoded once per digest call.
     if value is None:
-        return ["null"]
+        return '["null"]'
     if type(value) is bool:
-        return ["bool", value]
+        return '["bool",true]' if value else '["bool",false]'
     if type(value) is int:
-        return ["int", str(value)]
+        return f'["int","{value}"]'
     if type(value) is float:
         if not math.isfinite(value):
             _fail("finite canonical numbers", "non-finite float", "dataset.fingerprint")
-        return ["float", value.hex()]
+        return f'["float","{value.hex()}"]'
     if type(value) is str:
-        return ["str", value]
+        return f'["str",{_encode_ascii(value)}]'
     if type(value) is tuple:
-        return ["tuple", [_canonical(item) for item in value]]
+        prior = memo.get(id(value))
+        if prior is None:
+            prior = '["tuple",[' + ",".join(_canonical(item, memo) for item in value) + "]]"
+            memo[id(value)] = prior
+        return prior
     _fail("closed canonical scalar or tuple", type(value).__name__, "dataset.fingerprint")
 
 
 def _canonical_digest(value: _CanonicalValue) -> str:
     """Encode shared value primitives; each owner supplies its own identity payload."""
-    encoded = json.dumps(_canonical(value), ensure_ascii=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    return hashlib.sha256(_canonical(value, {}).encode("ascii")).hexdigest()
 
 
 def _field_binding_fingerprint(value: DatasetField) -> str:

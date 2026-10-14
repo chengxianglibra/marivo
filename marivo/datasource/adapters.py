@@ -74,6 +74,36 @@ def provider_names() -> tuple[str, ...]:
     return SUPPORTED_BACKEND_TYPES
 
 
+def _execute_duckdb(backend: BaseBackend, expression: ir.Table, sql: str) -> pd.DataFrame:
+    """Run issued Ibis SQL on DuckDB without compiling the expression again.
+
+    Mirrors ibis 12 ``duckdb.Backend.execute`` after its own compile step, so the
+    submitted text is exactly the SQL recorded on the issued read.
+    """
+    import pyarrow.types as pat
+    from ibis.backends.duckdb.converter import DuckDBPandasData
+
+    backend._run_pre_execute_hooks(expression)
+    schema = expression.schema()
+    if schema.geospatial:
+        backend._load_extensions(["spatial"])
+    table = backend.con.sql(sql).to_arrow_table()
+    frame = pd.DataFrame(
+        {
+            name: (
+                column.to_pylist()
+                if pat.is_nested(column.type) or pat.is_dictionary(column.type) or column.null_count
+                else column.to_pandas()
+            )
+            for name, column in zip(table.column_names, table.columns, strict=True)
+        }
+    )
+    result: pd.DataFrame = expression.__pandas_result__(
+        DuckDBPandasData.convert_table(frame, schema)
+    )
+    return result
+
+
 def _probe_backend(backend_name: str, backend: BaseBackend) -> None:
     expression = ibis.literal(1).name("probe").as_table()
     sql = backend.compile(expression, limit=None)
@@ -473,13 +503,6 @@ class SourceSession:
     def execute(self, read: CompiledRead) -> pd.DataFrame:
         """Execute one session-issued Ibis read and return its pandas result."""
         proof = self._issued_read(read)
-        with cr.backend_errors(self._backend):
-            current_sql = self._backend.compile(
-                proof.expression.as_table(), params=dict(proof.params), limit=None
-            )
-        if current_sql != proof.sql:
-            raise _invalid("the unchanged compiled read", "backend compilation changed")
-
         submission = SourceSubmission(
             proof.purpose, proof.source_identity, id(proof.expression.op()), proof.sql
         )
@@ -496,8 +519,11 @@ class SourceSession:
         self._query_logs[id(submission)] = query
         try:
             with cr.backend_errors(self._backend):
-                result = self._backend.execute(
-                    proof.expression.as_table(), params=dict(proof.params), limit=None
+                table = proof.expression.as_table()
+                result = (
+                    _execute_duckdb(self._backend, table, proof.sql)
+                    if self.provider.name == "duckdb"
+                    else self._backend.execute(table, params=dict(proof.params), limit=None)
                 )
             if not isinstance(result, pd.DataFrame):
                 raise _invalid("an Ibis pandas DataFrame result", type(result).__name__)

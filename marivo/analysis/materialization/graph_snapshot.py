@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import zlib
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Annotated, Literal
 
 from pydantic import Field, TypeAdapter
@@ -34,6 +35,7 @@ from marivo.analysis.core.rules import (
     RuleDerivation,
     RuleParameters,
 )
+from marivo.analysis.materialization import graph_value_tables as _value_tables
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.graph_value_tables import GraphValueCodec
 from marivo.analysis.methods.physical import FixedShape, ValueType
@@ -367,6 +369,30 @@ def _encode_document(document: GraphDocument) -> str:
     return text
 
 
+@lru_cache(maxsize=128)
+def _decoded_document(
+    text: str, max_expanded_bytes: int, _max_records: int, _max_references: int
+) -> GraphDocument:
+    # Decoding is a pure function of the exact text and the active budgets, so
+    # budgets are part of the key. Failures are never cached; node, depth and
+    # registry checks run on every restore.
+    from marivo.analysis.materialization.graph_protocol import invalid
+
+    compressed = base64.b64decode(text.removeprefix(PREFIX), validate=True)
+    decoder = zlib.decompressobj()
+    body = decoder.decompress(compressed, max_expanded_bytes + 1)
+    if (
+        len(body) > max_expanded_bytes
+        or not decoder.eof
+        or decoder.unused_data
+        or decoder.unconsumed_tail
+    ):
+        raise invalid("invalid bounded compressed definition")
+    if PREFIX + base64.b64encode(zlib.compress(body, level=9)).decode("ascii") != text:
+        raise invalid("noncanonical compressed definition")
+    return VALUE_CODEC.decode(body.decode("utf-8"))
+
+
 def read_graph_document(text: str) -> GraphDocument:
     """Validate a bounded canonical DAG before admitting its exact definitions."""
     from marivo.analysis.errors import AnalysisError
@@ -383,20 +409,12 @@ def read_graph_document(text: str) -> GraphDocument:
     if len(text.encode()) > MAX_ENCODED_BYTES:
         raise invalid("definition exceeds the 256 KiB continuation budget")
     try:
-        compressed = base64.b64decode(text.removeprefix(PREFIX), validate=True)
-        decoder = zlib.decompressobj()
-        body = decoder.decompress(compressed, MAX_EXPANDED_BYTES + 1)
-        if (
-            len(body) > MAX_EXPANDED_BYTES
-            or not decoder.eof
-            or decoder.unused_data
-            or decoder.unconsumed_tail
-        ):
-            raise invalid("invalid bounded compressed definition")
-        if PREFIX + base64.b64encode(zlib.compress(body, level=9)).decode("ascii") != text:
-            raise invalid("noncanonical compressed definition")
-        document = VALUE_CODEC.decode(body.decode("utf-8"))
-        return document
+        return _decoded_document(
+            text,
+            MAX_EXPANDED_BYTES,
+            _value_tables.MAX_VALUE_RECORDS,
+            _value_tables.MAX_VALUE_REFERENCES,
+        )
     except IntegrityError:
         raise
     except (
