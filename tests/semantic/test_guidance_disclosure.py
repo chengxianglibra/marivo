@@ -17,7 +17,12 @@ from marivo._help.render import help as show_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
-from marivo.semantic.errors import SemanticLoadError, SemanticLoadFailed
+from marivo.semantic.errors import (
+    ErrorKind,
+    SemanticLoadError,
+    SemanticLoadFailed,
+    SemanticRuntimeError,
+)
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
@@ -243,7 +248,7 @@ def test_source_health_cards_disclose_failed_facts_and_scope_without_queries(
     (
         ("dimension", "sales.orders.region"),
         ("time_dimension", "sales.orders.log_date"),
-        ("measure", "sales.orders.amount"),
+        ("measure", "sales.orders.order_amount"),
         ("metric", "sales.revenue"),
     ),
 )
@@ -258,6 +263,23 @@ def test_decorator_help_example_loads_the_declared_object(
     assert isinstance(descriptor, AuthoringCapability)
     assert descriptor.minimal_example is not None
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
+    local_assertions = ""
+    if target in {"measure", "metric"}:
+        symbol = path.rsplit(".", 1)[-1]
+        local_assertions = (
+            "from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric\n"
+            "from marivo._definition.graph import computation_fingerprint\n"
+            f"assert isinstance({symbol}, Declared{target.title()})\n"
+            f"assert {symbol}.declaration.name == {symbol!r}\n"
+            f"assert {symbol}.unit == 'CNY'\n"
+        )
+        if target == "measure":
+            local_assertions += (
+                f"assert order_amount.root.ref.path + '.' + order_amount.declaration.name == {path!r}\n"
+                "assert order_amount.sum().unit == 'CNY'\n"
+            )
+        else:
+            local_assertions += "assert computation_fingerprint(revenue.node) == computation_fingerprint(amount.sum().node)\n"
     semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -274,6 +296,7 @@ def test_decorator_help_example_loads_the_declared_object(
                 "column='event_time', granularity='second', parse=ms.timestamp(timezone='UTC'))\n"
                 + descriptor.minimal_example
                 + "\n"
+                + local_assertions
             ),
         }
     )
@@ -283,7 +306,18 @@ def test_decorator_help_example_loads_the_declared_object(
         "measure": ms.ref.measure,
         "metric": ms.ref.metric,
     }[target]
-    entry = ms.load(workspace_dir=tmp_path).require(factory(path))
+    catalog = ms.load(workspace_dir=tmp_path)
+    if target in {"measure", "metric"}:
+        # Local declaration identity is separate from R1.4 Catalog publication.
+        with pytest.raises(SemanticRuntimeError) as caught:
+            catalog.require(factory(path))
+        assert caught.value.kind == ErrorKind.NOT_FOUND
+        for dependency in ("quantity", "unit_price"):
+            dependency_entry = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
+            assert dependency_entry.path == f"sales.orders.{dependency}"
+            assert dependency_entry.kind.value == "measure"
+        return
+    entry = catalog.require(factory(path))
     assert entry.path == path
     assert entry.kind.value == target
 

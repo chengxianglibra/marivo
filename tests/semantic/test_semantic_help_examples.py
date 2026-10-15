@@ -19,8 +19,10 @@ from marivo._help.render import help as public_help
 from marivo.preview import PreviewResult
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
+from marivo.semantic.expressions import Entity, Measure, Metric
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
+from tests.support.documentation import ROOT
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 
@@ -29,6 +31,31 @@ _ORDERS = (
     _IMPORTS + "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
     "source=md.table('orders'))\n"
 )
+
+
+@pytest.mark.parametrize("edition", ("docs", "zh-cn/docs"))
+def test_modeling_tutorial_capture_sequence(
+    semantic_project_factory: ProjectFactory, edition: str
+) -> None:
+    page = ROOT / edition / "latest/guides/semantic-modeling.mdx"
+    blocks = re.findall(r"```python\n(.*?)```", page.read_text(), re.DOTALL)
+    source = "\n".join(
+        block
+        for block in blocks
+        if "sales = ms.domain" in block or "def normalized_region(" in block
+    )
+    source += (
+        "\nassert normalized_region.ref == finalized.resolve("
+        'ms.ref.dimension("sales.orders.normalized_region")).ref\n'
+    )
+    project = semantic_project_factory({"sales/_domain.py": source})
+    catalog = SemanticCatalog(project)
+    normalized = catalog._state.sidecar.bodies[ms.ref.dimension("sales.orders.normalized_region")]
+    assert normalized.bindings[0].to_ref() == ms.ref.dimension("sales.orders.region")
+    assert (
+        catalog._state.registry.dimensions["sales.orders.normalized_region"].entity
+        == "sales.orders"
+    )
 
 
 def _help_text(target: PublicHelpTarget, capsys: pytest.CaptureFixture[str]) -> str:
@@ -102,16 +129,20 @@ def test_bind_help_executes_cross_file_fields_before_their_declaration_file(
             "trino_query/_domain.py": _IMPORTS
             + "ms.domain(name='trino_query', owner='Mina Zhang', default=True)\n",
             "trino_query/a_consumer.py": _IMPORTS
+            + "orders = ms.ref.entity('trino_query.trino_query_info')\n"
+            + "amount = ms.ref.measure('trino_query.trino_query_info.amount')\n"
+            + "query_info = orders\n"
             + _example("semantic.bind", capsys)
             + "amount = ms.ref.measure('trino_query.trino_query_info.amount')\n"
             "@ms.metric(entities=[query_info], additivity=ms.additive_all())\n"
             "def revenue(rows):\n    return ms.bind(amount, rows).sum()\n",
-            "trino_query/z_fields.py": _IMPORTS + "query_info = ms.entity(name='trino_query_info', "
+            "trino_query/z_fields.py": _IMPORTS + "@ms.entity("
             "datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
+            "def trino_query_info(raw):\n    return raw.mutate(amount=raw.price * raw.quantity)\n"
+            "query_info = trino_query_info\n"
             "@ms.dimension(entity=query_info)\n"
             "def state(rows):\n    return rows.state.upper()\n"
-            "@ms.measure(entity=query_info, additivity=ms.additive_all())\n"
-            "def amount(rows):\n    return rows.price * rows.quantity\n",
+            "amount = ms.measure_column(name='amount', entity=query_info, column='amount', additivity=ms.additive_all())\n",
         }
     )
     assert project.is_ready(), project.errors()
@@ -126,7 +157,7 @@ def test_binding_to_an_absent_field_names_the_path_and_routes_to_bind(
 ) -> None:
     source = _ORDERS + (
         "state = ms.ref.dimension('sales.orders.missing_state')\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
+        "@ms.dimension(entity=orders)\n"
         "def failed(rows):\n    return (ms.bind(state, rows) == 'FAILED').cast('int64').sum()\n"
     )
     project = _project(semantic_project_factory, source)
@@ -181,7 +212,7 @@ def test_binding_repair_identifies_the_bad_argument_and_resolves_to_bind_help(
         semantic_project_factory,
         _ORDERS + "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
         "additivity=ms.additive_all())\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
+        "@ms.dimension(entity=orders)\n"
         f"def revenue(rows):\n    {body}\n",
     )
     assert not project.is_ready()
@@ -210,10 +241,20 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
     metric: str,
     expected: int,
 ) -> None:
-    source = _ORDERS
-    if target == "aggregate":
-        source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-    project = _project(semantic_project_factory, source + _example(f"semantic.{target}", capsys))
+    canonical = {"count": "Entity.count", "where": "Metric.where", "aggregate": "row.sum"}[target]
+    source = _ORDERS + "paid_at = None\n"
+    source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
+    source += "status = ms.dimension_column(name='status', entity=orders, column='state')\n"
+    source += "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
+    source += "finalized = ms.finalize()\norders = finalized.resolve(orders)\namount = finalized.resolve(amount)\nstatus = finalized.resolve(status)\nregion = finalized.resolve(region)\n"
+    source += "revenue = orders.count()\n"
+    expression = _example(f"semantic.{canonical}", capsys).strip().replace("'paid'", "'FAILED'")
+    if target == "count":
+        expression += ".where(status == 'FAILED')"
+    elif target == "aggregate":
+        expression += ".where(region == 'US')"
+    source += f"@ms.metric()\ndef {metric}():\n    return {expression}\n"
+    project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()
     materializer = Materializer(project, lambda _datasource: orders_backend)
     assert orders_backend.execute(materializer.metric(f"sales.{metric}")) == expected
@@ -243,13 +284,14 @@ def test_filter_keywords_cannot_name_dimensions_owned_by_another_entity(
         "state = ms.dimension_column(name='state', entity=users, column='state')\n"
         "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     )
-    target = "entity=orders" if builder == "count" else "measure=amount, agg='sum'"
-    source += f"failed = ms.{builder}(name='failed', {target}, filter=ms.where(state='FAILED'))\n"
+    source += "finalized = ms.finalize()\norders = finalized.resolve(orders)\namount = finalized.resolve(amount)\nstate = finalized.resolve(state)\n"
+    expression = "orders.count()" if builder == "count" else "amount.sum()"
+    source += f"failed = {expression}.where(state == 'FAILED')\n"
     project = _project(semantic_project_factory, source)
     assert not project.is_ready()
-    error = next(error for error in project.errors() if error.kind == ErrorKind.INVALID_FILTER)
+    error = next(error for error in project.errors() if error.kind == ErrorKind.INVALID_WHERE_SCOPE)
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "where"
+    assert "another" in error.message
 
 
 def test_preview_help_example_executes_with_its_linked_scope_constructor(
@@ -300,7 +342,7 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
         _IMPORTS
         + "inventory = ms.entity(name='inventory', datasource=ms.ref.datasource('warehouse'), source=md.table('inventory'))\n"
     )
-    source += example + "latest = ms.aggregate(name='latest', measure=quantity, agg='sum')\n"
+    source += example
     project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()
     orders_backend.con.execute("CREATE TABLE inventory (sample_time TIMESTAMPTZ, quantity BIGINT)")
@@ -312,7 +354,7 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
 @pytest.mark.parametrize(
     ("change", "replacement", "ready", "diagnostic"),
     (
-        ("status_time_dimension=sample_time, status_time_fold='last',", "", True, ""),
+        ("status_time_dimension=sample_time,", "", True, ""),
         (
             "parse=ms.timestamp(timezone='UTC', sample_interval=(5, 'minute'))",
             "parse=ms.timestamp(timezone='UTC')",
@@ -320,13 +362,18 @@ def test_additivity_help_example_loads_a_sampled_status_axis_and_fold(
             "",
         ),
         (
-            "status_time_dimension=sample_time, status_time_fold='last',",
+            "status_time_dimension=sample_time,",
             "status_time_fold='last',",
             False,
-            "status_time_fold requires status_time_dimension",
+            "retired declaration parameters",
         ),
         ("except_=(sample_time,)", "", False, "status time must be fixed"),
-        (", status_time_fold='last'", "", False, "missing_time_fold"),
+        (
+            "status_time_dimension=sample_time,",
+            "status_time_dimension=sample_time, status_time_fold=None,",
+            False,
+            "retired declaration parameters",
+        ),
     ),
 )
 def test_additivity_help_rules_distinguish_fixed_coordinates_and_status_roles(
@@ -365,15 +412,27 @@ def test_sampled_metric_status_axis_requires_its_own_fold(
         "def latest(rows):\n    return ms.bind(quantity, rows).sum()\n"
     )
     project = _project(semantic_project_factory, source)
-    error = next(error for error in project.errors() if error.kind == ErrorKind.MISSING_TIME_FOLD)
-    assert error.semantic_refs == ("sales.latest", "sales.inventory.sample_time")
+    error = next(
+        error for error in project.errors() if error.kind == ErrorKind.INVALID_COMPONENT_BODY
+    )
+    assert "status_time_dimension" in str(error.received)
     assert error.expected and error.received and error.hint
     assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "additive_all"
+    assert "per(" in error.repair.action
 
 
 @pytest.mark.parametrize(
-    "target", ("entity", "metric", "bind", "additive_all", "where", "count", "aggregate", "preview")
+    "target",
+    (
+        "entity",
+        "metric",
+        "bind",
+        "additive_all",
+        "Metric.where",
+        "Entity.count",
+        "row.sum",
+        "preview",
+    ),
 )
 def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes(
     target: str, capsys: pytest.CaptureFixture[str]
@@ -382,7 +441,15 @@ def test_changed_help_is_equivalent_for_callables_and_has_only_resolvable_routes
     assert len(text) <= 7000
     assert len(text.splitlines()) <= 72
     callable_target: PublicHelpTarget = (
-        ms.SemanticCatalog.preview if target == "preview" else getattr(ms, target)
+        ms.SemanticCatalog.preview
+        if target == "preview"
+        else Metric.where
+        if target == "Metric.where"
+        else Entity.count
+        if target == "Entity.count"
+        else Measure.sum
+        if target == "row.sum"
+        else getattr(ms, target)
     )
     assert _help_text(callable_target, capsys) == text
     for route in re.findall(r'marivo\.help\("([A-Za-z0-9_.]+)"\)', text):

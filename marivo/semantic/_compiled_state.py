@@ -15,12 +15,15 @@ from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     DimensionIR,
     EntityIR,
+    HourPrefixParse,
     MeasureIR,
     MetricIR,
     PeriodCalendarIR,
     RelationshipIR,
     SemiAdditive,
+    SnapshotVersioningIR,
     TemporalSetIR,
+    ValidityVersioningIR,
     WorkScheduleIR,
     composition_components,
 )
@@ -157,12 +160,20 @@ def _dependencies_for(
     paths: list[str] = []
     if isinstance(definition, EntityIR):
         paths.append(definition.datasource)
+        if isinstance(definition.versioning, SnapshotVersioningIR):
+            paths.append(definition.versioning.partition_field)
+        elif isinstance(definition.versioning, ValidityVersioningIR):
+            paths.extend((definition.versioning.valid_from, definition.versioning.valid_to))
     elif isinstance(definition, (DimensionIR, MeasureIR)):
         paths.append(definition.entity)
+        if isinstance(definition, DimensionIR) and isinstance(definition.parse, HourPrefixParse):
+            paths.append(definition.parse.prefix)
         if isinstance(definition, MeasureIR):
             if isinstance(definition.additivity, SemiAdditive):
                 paths.append(definition.additivity.over)
             paths.extend(_additivity_axes(definition.dsl_additivity))
+            if definition.status_time_dimension is not None:
+                paths.append(definition.status_time_dimension)
     elif isinstance(definition, MetricIR):
         paths.extend(definition.entities)
         paths.extend(_additivity_axes(definition.dsl_additivity))
@@ -209,6 +220,21 @@ def _dependencies_for(
     return tuple(sorted(dependencies, key=lambda item: item.key))
 
 
+def definition_graph(
+    registry: Registry, sidecar: CompiledExpressionSidecar
+) -> tuple[
+    dict[Ref[SemanticKindTag], object],
+    dict[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]],
+]:
+    """Definition rows and their direct semantic dependencies for one registry."""
+    definitions = _definition_rows(registry)
+    dependencies = {
+        ref: _dependencies_for(ref, definition, registry=registry, sidecar=sidecar)
+        for ref, definition in definitions.items()
+    }
+    return definitions, dependencies
+
+
 def build_compiled_state(
     *,
     registry: Registry,
@@ -217,11 +243,7 @@ def build_compiled_state(
     filtered_domains: Sequence[str],
 ) -> CompiledSemanticState:
     """Copy and freeze all compiled values after successful validation."""
-    definitions = _definition_rows(registry)
-    dependencies = {
-        ref: _dependencies_for(ref, definition, registry=registry, sidecar=sidecar)
-        for ref, definition in definitions.items()
-    }
+    definitions, dependencies = definition_graph(registry, sidecar)
     selected_roots = tuple(
         CompiledRootIdentity(role=role, order=index)
         for index, role in enumerate(selected_root_roles)

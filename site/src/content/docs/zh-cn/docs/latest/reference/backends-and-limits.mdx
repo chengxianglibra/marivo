@@ -42,25 +42,16 @@ amount = ms.measure_column(name="amount", entity=facts, column="amount",
 happened = ms.time_dimension_column(name="happened", entity=facts,
                                     column="happened", granularity="second",
                                     parse=ms.timestamp(timezone="UTC"), is_default=True)
-total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
-                     empty=ms.empty.zero())
+finalized = ms.finalize()
+facts = finalized.resolve(facts)
+amount = finalized.resolve(amount)
+happened = finalized.resolve(happened)
+
+@ms.metric()
+def total():
+    return amount.sum(time=happened)
 ```
-{/* example: csv-observation */}
-
-```python
-import marivo.semantic as ms
-import marivo.analysis as mv
-
-session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
-result = (
-    session.members(ms.ref.entity("sales.facts"))
-    .observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-    .execute()
-)
-result.show()
-```
-
-本例需要 warehouse、`data/facts.csv`和所列字段。将声明保存在 sales 模型根，执行使用该确切文件 Entity。
+当前示例只声明来源和局部 Metric。R1.4 尚未发布该 Metric，R2 尚未接通新的表达式执行；因此不能将此构造片段作为 CSV 分析执行资格。来源类型或 preview 成功也不能证明新路线的执行能力。
 
 ## 理解执行路径
 

@@ -187,6 +187,7 @@ class SemanticObjectContract:
     canonical_id: str
     summary: str
     semantic_kind: SemanticKind
+    construction_families: tuple[str, ...]
     ref_target: LiveHelpTarget
     catalog_collection: str
     placement_kind: AuthoringPlacementKind

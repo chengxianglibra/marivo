@@ -33,9 +33,7 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), sou
 def region(orders):
     return orders.region
 
-@ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-def amount(orders):
-    return orders.amount
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
 
 @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
 def order_date(orders):

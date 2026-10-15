@@ -72,7 +72,6 @@ sample_value = ms.measure_column(
     column="sample_value",
     additivity=ms.additive_all(except_=(sample_time,)),
     status_time_dimension=sample_time,
-    status_time_fold=("percentile", 0.95),
 )
 revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 revenue_alias = ms.aggregate(name="revenue_alias", measure=amount, agg="sum")

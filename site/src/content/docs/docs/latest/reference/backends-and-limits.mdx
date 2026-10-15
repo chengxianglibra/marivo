@@ -46,25 +46,16 @@ amount = ms.measure_column(name="amount", entity=facts, column="amount",
 happened = ms.time_dimension_column(name="happened", entity=facts,
                                     column="happened", granularity="second",
                                     parse=ms.timestamp(timezone="UTC"), is_default=True)
-total = ms.aggregate(name="total", measure=amount, agg="sum", time=happened,
-                     empty=ms.empty.zero())
+finalized = ms.finalize()
+facts = finalized.resolve(facts)
+amount = finalized.resolve(amount)
+happened = finalized.resolve(happened)
+
+@ms.metric()
+def total():
+    return amount.sum(time=happened)
 ```
-{/* example: csv-observation */}
-
-```python
-import marivo.semantic as ms
-import marivo.analysis as mv
-
-session = mv.session.get_or_create("file-analysis", report_timezone="UTC")
-result = (
-    session.members(ms.ref.entity("sales.facts"))
-    .observe(ms.ref.metric("sales.total"), by=(mv.member(),))
-    .execute()
-)
-result.show()
-```
-
-The example requires warehouse, `data/facts.csv` and the listed columns. Save its declarations under the sales model root; execution uses that exact file-backed Entity.
+This example declares source fields and a local Metric only. R1.4 has not published this Metric and R2 has not connected new expression execution; construction does not qualify CSV analysis execution. A source declaration or successful preview also does not establish that capability.
 
 ## Understand execution routes
 

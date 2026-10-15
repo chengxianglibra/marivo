@@ -18,6 +18,30 @@ See also:
 - `../agent-friendly-public-surface.md` — the cross-module result protocol this
   layer implements.
 
+R1.3 authoring amendment (2026-10-15, approved capture/finalize decision): physical
+constructors capture pending definitions and return typed Ref lookup keys. After
+all physical dependencies are declared, `ms.finalize()` validates through normal
+registry/assembly owners and freezes the scope. `finalized.resolve(ref)` returns
+immutable values with complete defaults, coordinates and retained Ibis
+closures. Finalization closes capture; it never mutates returned values, refreshes
+them from live state, or replays module/import effects. Pure Measure/Metric
+constructs closed graphs from finalized values without executing the authored
+function or requiring loader/Session. R1.4 owns Catalog Metric collection/publication
+and discovery; R2 owns new execution. Retained legacy reader descriptions below
+are internal consumers, not accepted old authoring or new execution qualification.
+
+Definition-update policy (approved 2026-10-15): a constructed semantic input is
+not required to match its original definition version. At a resolving consumer,
+kind/path selects the definition in that consumer's complete scope. The agent or
+user accepts the consequences of semantic definition changes during analysis.
+Finalization still closes default-time/coordinate facts and Ibis forward
+references; it does not enforce old-version pinning. Existing immutable values
+are not refreshed. Definition/dependency fingerprints and cache keys must match
+the definitions actually consumed; prior caches cannot be reused under a key
+that now describes a different computation. Persisted provenance/record ownership,
+Catalog handle ownership, business historical selection and all non-version
+correctness checks remain separate contracts.
+
 ## Registry and loader
 
 A semantic project is one explicit workspace boundary. Its local declarations
@@ -472,7 +496,7 @@ structured error instead of degrading.
 Checks that a single declaration is locally self-consistent: duplicate
 domain/datasource/entity/dimension/metric names; wrong ref types; illegal
 cross-domain/cross-entity refs; an expression-bearing decorator with no explicit
-`domain=` and no default domain in context; a base metric missing `entities=[...]`;
+`domain=` and no default domain in context for physical declarations; a pure declaration with nonzero arity;
 a derived metric that carries entity parameters, lacks composition components, or
 reads an entity table in its body; a decorator/metadata call executed outside a
 loader context; a metric body that violates the single-`return`-expression rule
@@ -491,7 +515,7 @@ relationships: a missing or mismatched `_domain.py`; `ms.domain(...)` in the wro
 file or a `_domain.py` declaring multiple domains; an entity referencing an
 unknown datasource; a metric referencing an unknown entity or component; a
 cross-domain `ms.ref.<kind>(path)` that is missing, type-mismatched, or cyclic; an
-`entities=[...]` count that disagrees with the function arity; an hour time
+a pure declaration returning the wrong expression stage; an hour time
 dimension missing its required prefix; invalid relationship endpoints, join
 dimension refs, entity membership, or arity. Relationship assembly also resolves
 each join ref to one direct source column on its declared endpoint, rejects
@@ -640,8 +664,8 @@ in bytecode caches may still require manual investigation.
 | `duplicate_name` | For existing sources, remove the duplicate declaration or change `name=`, then restart Python and reload. If a reported source is missing, follow the restart and cache-investigation guidance instead. |
 | `missing_domain` | Add `ms.domain(...)` in `<root>/<domain>/_domain.py`, or pass an explicit `domain=`. |
 | `missing_entity_ref` | Ensure the entity is declared; for forward references use a decorated ref or `ms.ref.<kind>(path)`. |
-| `invalid_decomposition` | Check that `ms.ratio(...)` / `ms.linear(...)` components point to registered metrics. |
-| `invalid_component_body` | Remove component calls from the metric body; use `ms.ratio`/`ms.linear`. |
+| `invalid_decomposition` | Check each completed Metric dependency, its actual definition identity and semantic facts; do not require its original definition version. |
+| `invalid_component_body` | Return a stage-correct typed expression; combine completed Metrics with arithmetic. |
 | `outside_loader_context` | Move the declaration fragment into `models/semantic/<domain>/_domain.py` or its domain module and follow `marivo.help("semantic.authoring")`. |
 | `invalid_project` | Fix the explicit `marivo.toml` configuration or pass the exact workspace root shown by `marivo.help("semantic.authoring")`; do not pass `models/semantic/` as `workspace_dir`. |
 | `domain_file_missing` | Add `models/semantic/<domain>/_domain.py` and declare the matching domain there. |

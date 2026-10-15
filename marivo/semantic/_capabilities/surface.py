@@ -119,6 +119,17 @@ def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
     type_index = MappingProxyType(
         {type_obj: contract.name for type_obj, contract in TYPE_CONTRACTS.items()}
     )
+    string_targets = dict(
+        build_string_target_index(REGISTRY, public_type_names=frozenset(type_index.values()))
+    )
+    # Public type contracts also expose inherited methods owned by shared capabilities.
+    for type_obj, contract in TYPE_CONTRACTS.items():
+        for method in contract.public_methods:
+            try:
+                descriptor = REGISTRY.by_callable(getattr(type_obj, method))
+            except (AttributeError, KeyError):
+                continue
+            string_targets[f"{contract.name}.{method}"] = descriptor.canonical_id
     return LiveSurface(
         registry=REGISTRY,
         type_index=type_index,
@@ -127,10 +138,7 @@ def _build_surface() -> LiveSurface[SemanticHelpDescriptor]:
         default_suggestions=("load", "verify", "preview", "readiness", "metric"),
         help_target_error=_help_target_error,
         enrich=_enrich,
-        string_target_index=build_string_target_index(
-            REGISTRY,
-            public_type_names=frozenset(type_index.values()),
-        ),
+        string_target_index=MappingProxyType(string_targets),
         suggestion_index=build_suggestion_index(REGISTRY),
     )
 

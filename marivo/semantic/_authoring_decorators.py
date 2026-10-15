@@ -7,7 +7,7 @@ Internal module: public symbols are re-exported from
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, overload
+from typing import Literal, overload
 
 import ibis.expr.types as ibis_ir
 
@@ -22,7 +22,7 @@ from marivo.refs import (
     TimeDimensionKind,
 )
 from marivo.refs import (
-    DimensionKind as DimensionKindTag,
+    DimensionKind as DimensionRefKind,
 )
 from marivo.refs import (
     ref as ref_factory,
@@ -31,19 +31,19 @@ from marivo.semantic._authoring_context import (
     _caller_location,
     _check_duplicate,
     _domain_from_ref_id,
+    _entity_lookup,
     _push_ir,
     _register_authoring_file,
     _require_ctx,
-    _require_entity_ref,
     _require_non_empty_column,
     _require_ref_id,
     _resolve_datasource_ref,
     _resolve_domain,
 )
+from marivo.semantic._authoring_retired import reject_parameters
 from marivo.semantic._authoring_validation import (
     _compute_column_hash,
     _normalize_additivity,
-    _normalize_time_fold,
     _validate_relationship_keys,
     _validate_sample_interval_granularity,
     _validate_time_parse,
@@ -55,8 +55,13 @@ from marivo.semantic._dsl_authoring import AdditivityPolicy
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+from marivo.semantic.expressions import (
+    DeclaredMeasure,
+    Entity,
+    RowOperand,
+    TimeField,
+)
 from marivo.semantic.ir import (
-    AggregateFoldInput,
     CsvSourceIR,
     DimensionIR,
     DimensionKind,
@@ -161,7 +166,8 @@ def entity(
     """Declare an entity directly or over one Table expression of its source.
 
     With an explicit ``name`` this declares the entity immediately and returns
-    its ``Ref[entity]``. With ``name`` omitted the call returns a decorator:
+    a typed Entity capture Ref. After all physical dependencies, call
+    ms.finalize() and finalized.resolve(ref) to obtain an immutable Entity value. With ``name`` omitted the call returns a decorator:
     the decorated function must take exactly one Table parameter and return
     exactly one Ibis Table expression derived from that parameter. The Entity
     name comes from the function name. The Entity output schema is the
@@ -184,8 +190,9 @@ def entity(
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A ``Ref[entity]`` for the direct form, or a decorator returning one for
-        the expression form. Both return values join the same Ref family.
+        A typed Entity capture Ref for the direct form, or a decorator returning
+        one for the expression form. Finalize the complete scope, then resolve
+        the Ref for an immutable Entity with Catalog exact-version fingerprints.
 
     Raises:
         SemanticDecoratorError: ``datasource`` is not a datasource ref, the
@@ -212,6 +219,10 @@ def entity(
         ... def daily_orders(raw):
         ...     '''One latest non-deleted order per day and order ID.'''
         ...     return raw.filter(~raw["is_deleted"])
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     if primary_key is not None and (
@@ -267,11 +278,11 @@ def entity(
 def dimension_column(
     *,
     name: str,
-    entity: Ref[EntityKind],
+    entity: Entity | Ref[EntityKind],
     column: str,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Ref[DimensionKindTag]:
+) -> Ref[DimensionRefKind]:
     """Declare a categorical dimension directly from one physical column.
 
     Args:
@@ -285,7 +296,8 @@ def dimension_column(
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``Ref[dimension]`` usable in metric bodies and analysis APIs.
+        A typed Dimension capture Ref. Finalize the complete scope and resolve
+        the Ref for an immutable Dimension with predicates and count reductions.
 
     Constraints:
         Use ``@ms.dimension(...)`` when the dimension is an expression over one
@@ -294,10 +306,14 @@ def dimension_column(
     Example:
         >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
         >>> region = ms.dimension_column(name="region", entity=orders, column="region")
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    entity_ref = _require_entity_ref(entity, parameter="entity")
+    entity_ref = _entity_lookup(entity, parameter="entity")
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
@@ -336,17 +352,17 @@ def dimension_column(
 def dimension(
     *,
     name: str | None = None,
-    entity: Ref[EntityKind],
+    entity: Entity | Ref[EntityKind],
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], Ref[DimensionKindTag]]:
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], Ref[DimensionRefKind]]:
     """Declare a categorical dimension whose body returns an ibis expression over its entity.
 
     The decorated function takes the entity table and returns a single
     expression (fresh sequential local bindings and one final return). Use this for both raw columns and derived
     expressions (e.g. ``table.region``).
 
-    For quantitative measures, use ``@ms.measure(entity=..., additivity=...)``
+    For quantitative expressions, use ``@ms.measure(additivity=...)``
     instead.
 
     Args:
@@ -357,7 +373,7 @@ def dimension(
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``Ref[dimension]``.
+        A decorator returning a typed Dimension capture Ref; resolve it after ms.finalize().
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
@@ -367,11 +383,15 @@ def dimension(
         >>> @ms.dimension(entity=orders)
         ... def region(orders_table):
         ...     return orders_table.region
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> Ref[DimensionKindTag]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> Ref[DimensionRefKind]:
         obj_name = name or fn.__name__
         entity_ref = _require_ref_id(
             entity,
@@ -395,7 +415,7 @@ def dimension(
         expression_body = compile_expression_body(
             fn,
             owning_ref=ref,
-            ordered_entity_refs=(entity,),
+            ordered_entity_refs=(_entity_lookup(entity, parameter="entity"),),
         )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -418,14 +438,14 @@ def dimension(
     return decorator
 
 
+@reject_parameters("status_time_fold", "fold", "empty", "time_via")
 def measure_column(
     *,
     name: str,
-    entity: Ref[EntityKind],
+    entity: Entity | Ref[EntityKind],
     column: str,
     additivity: AdditivityPolicy,
-    status_time_dimension: Ref[TimeDimensionKind] | None = None,
-    status_time_fold: AggregateFoldInput = None,
+    status_time_dimension: TimeField | Ref[TimeDimensionKind] | None = None,
     unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -439,7 +459,6 @@ def measure_column(
         column: Physical source column name to read with bracket access.
         additivity: Closed policy from ``ms.additive``, ``ms.additive_all`` or ``ms.non_additive``.
         status_time_dimension: Optional business status-time dimension.
-        status_time_fold: Fold over the status-time axis, when declared.
         unit: UCUM unit token such as ``"CNY"``, ``"USD"``, ``"%"``, or ``"1"``.
         domain: Override the active domain namespace with a ``Ref[domain]`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
@@ -447,7 +466,7 @@ def measure_column(
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``Ref[measure]`` usable by ``ms.aggregate(...)`` and expression bodies.
+        A typed Measure capture Ref; finalize and resolve it for an immutable row value.
 
     Constraints:
         Use ``@ms.measure(...)`` when the measure is an expression over one or
@@ -459,10 +478,14 @@ def measure_column(
         ...     name="amount", entity=orders, column="amount",
         ...     additivity=ms.additive_all(), unit="CNY",
         ... )
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    entity_ref = _require_entity_ref(entity, parameter="entity")
+    entity_ref = _entity_lookup(entity, parameter="entity")
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
@@ -491,11 +514,6 @@ def measure_column(
         if status_time_dimension is not None
         else None
     )
-    status_fold = (
-        _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
-        if status_time_fold is not None
-        else None
-    )
     ir = MeasureIR(
         semantic_id=semantic_id,
         domain=resolved_domain,
@@ -506,7 +524,7 @@ def measure_column(
             additivity,
             semantic_id=semantic_id,
             status_time_dimension=status_id,
-            status_time_fold=status_fold,
+            status_time_fold=None,
         ),
         unit=unit,
         python_symbol=obj_name,
@@ -514,119 +532,102 @@ def measure_column(
         body_ast_hash=_compute_column_hash(column_name),
         dsl_additivity=additivity,
         status_time_dimension=status_id,
-        status_time_fold=status_fold,
+        status_time_fold=None,
     )
-    _push_ir(ctx, ref, ir, ExpressionBody.for_column(column_name))
+    _push_ir(
+        ctx,
+        ref,
+        ir,
+        ExpressionBody.for_column(column_name),
+    )
     return ref
 
 
+@reject_parameters(
+    "name",
+    "entity",
+    "domain",
+    "status_time_dimension",
+    "status_time_fold",
+    "empty",
+    "nulls",
+    "zero_denominator",
+    "fold",
+    "time_via",
+    "fanout_policy",
+)
 def measure(
     *,
-    name: str | None = None,
-    entity: Ref[EntityKind],
-    additivity: AdditivityPolicy,
-    status_time_dimension: Ref[TimeDimensionKind] | None = None,
-    status_time_fold: AggregateFoldInput = None,
     unit: str | None = None,
-    domain: Ref[DomainKind] | None = None,
+    additivity: AdditivityPolicy | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], Ref[MeasureKind]]:
-    """Declare a row-level quantitative measure whose expression can be aggregated.
-
-    Measures represent quantitative facts (e.g. amount, quantity) that can be
-    aggregated using ``ms.aggregate()``. The decorated function takes the entity
-    table and returns a single ibis expression.
+) -> Callable[[Callable[[], RowOperand]], DeclaredMeasure]:
+    """Name a pure numeric row expression and optionally assert a business contract.
 
     Args:
-        name: Measure name. Defaults to the function name.
-        entity: Owning entity ref returned by ``ms.entity(...)``.
-        additivity: Closed coordinate-additivity policy.
-        status_time_dimension: Optional business status-time dimension.
-        status_time_fold: Fold over the status-time axis, when declared.
-        unit: UCUM unit token (e.g. ``"USD"``, ``"CNY"``, ``"%"``).
-        domain: Override the active domain namespace with a ``Ref[domain]`` returned
-            by ``ms.domain(...)``. Defaults to the file's default domain.
-        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
+        unit: Compatible unit assertion; None inherits the expression's unit.
+        additivity: Explicit sum permission; None inherits the expression's permission.
+        ai_context: Optional business meaning and guardrails from ms.ai_context(...).
 
     Returns:
-        A decorator that returns a ``Ref[measure]``.
-
-    Raises:
-        SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, or the
-            body violates the AST whitelist.
+        A decorator binding the function name to an immutable named row expression.
 
     Example:
-        >>> @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-        ... def amount(orders_table):
-        ...     return orders_table.amount
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
+        >>> @ms.measure(additivity=ms.additive_all())
+        ... def order_amount():
+        ...     return quantity * unit_price
 
-    def decorator(fn: Callable[..., Any]) -> Ref[MeasureKind]:
-        obj_name = name or fn.__name__
-        entity_ref = _require_ref_id(
-            entity,
-            parameter="entity",
-            expected=(SemanticKind.ENTITY,),
-        )
-        semantic_id = f"{entity_ref}.{obj_name}"
-        ref = ref_factory.measure(semantic_id)
-        entity_domain = entity_ref.split(".", 1)[0]
-        if entity_domain != resolved_domain:
-            _raise(
-                ErrorKind.INVALID_REF,
-                f"Measure {semantic_id!r} belongs to entity in domain {entity_domain!r}, "
-                f"but the active domain is {resolved_domain!r}.",
-                cls=SemanticDecoratorError,
-                refs=(semantic_id,),
-                constraint_id=ConstraintId.REF_SHAPE,
-            )
-        _check_duplicate(ctx, semantic_id, MeasureIR)
-        _validate_unit(unit, semantic_id, "measure")
-        expression_body = compile_expression_body(
-            fn,
-            owning_ref=ref,
-            ordered_entity_refs=(entity,),
-        )
-        ai_ctx = _build_ai_context(ai_context)
+    Constraints:
+        The body takes no parameters and returns closed row arithmetic over constructed
+        dependencies. Fresh local expressions and a leading docstring are allowed.
+        No loader, Session, source reads, arbitrary calls, or Metric returns are allowed.
+        The function name must match ``[a-z][a-z0-9_]*``; assertions retain time constraints.
+    """
+    from marivo.refs import _validate_segment
+    from marivo.semantic._expression_binding import construct_measure_expression
+    from marivo.semantic.errors import SemanticExpressionError
+    from marivo.semantic.expressions import declare_measure
+
+    def decorator(fn: Callable[[], RowOperand]) -> DeclaredMeasure:
         location = _caller_location()
-        status_id = (
-            _require_ref_id(
-                status_time_dimension,
-                parameter="status_time_dimension",
-                expected=(SemanticKind.TIME_DIMENSION,),
+        try:
+            _validate_segment(fn.__name__, role="Measure declaration name")
+        except ValueError as error:
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                message="Measure declaration name is invalid.",
+                expected="a function name matching [a-z][a-z0-9_]*",
+                received=fn.__name__,
+                action="Rename the declaration function to a lowercase snake_case name.",
+                location_label=f"{location.file}:{location.line}",
+            ) from error
+        if unit is not None and (
+            type(unit) is not str or not unit or any(not (0x21 <= ord(ch) <= 0x7E) for ch in unit)
+        ):
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                message="Measure unit must be a printable ASCII token without whitespace.",
+                expected="a non-empty unit token such as 'CNY' or '1', or None",
+                received=repr(unit),
+                action="Use a valid unit token, or omit unit to inherit the expression's unit.",
+                location_label=f"{location.file}:{location.line}",
             )
-            if status_time_dimension is not None
-            else None
-        )
-        status_fold = (
-            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
-            if status_time_fold is not None
-            else None
-        )
-        ir = MeasureIR(
-            semantic_id=semantic_id,
-            domain=resolved_domain,
-            entity=entity_ref,
-            name=obj_name,
-            ai_context=ai_ctx,
-            additivity=_normalize_additivity(
-                additivity,
-                semantic_id=semantic_id,
-                status_time_dimension=status_id,
-                status_time_fold=status_fold,
-            ),
-            unit=unit,
-            python_symbol=fn.__name__,
-            location=location,
-            body_ast_hash=expression_body.body_ast_hash,
-            dsl_additivity=additivity,
-            status_time_dimension=status_id,
-            status_time_fold=status_fold,
-        )
-        _push_ir(ctx, ref, ir, expression_body)
-        return ref
+        _build_ai_context(ai_context)
+        try:
+            row = construct_measure_expression(fn)
+            return declare_measure(
+                row,
+                name=fn.__name__,
+                unit=unit,
+                additivity=additivity,
+                ai_context=ai_context,
+                location=location,
+            )
+        except SemanticExpressionError as error:
+            error.location = location
+            if not error.semantic_refs:
+                error.semantic_refs = (fn.__name__,)
+            raise
 
     return decorator
 
@@ -634,7 +635,7 @@ def measure(
 def time_dimension_column(
     *,
     name: str,
-    entity: Ref[EntityKind],
+    entity: Entity | Ref[EntityKind],
     column: str,
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     parse: SemanticParse | None = None,
@@ -658,7 +659,8 @@ def time_dimension_column(
             business meaning and agent-facing guidance.
 
     Returns:
-        A ``Ref[time_dimension]`` usable for observe windows and metric bodies.
+        A typed TimeDimension capture Ref. Finalize the complete scope and resolve
+        the Ref for an immutable TimeField with source time roles.
 
     Constraints:
         Use ``@ms.time_dimension(...)`` when the time axis is an expression over
@@ -670,10 +672,14 @@ def time_dimension_column(
         ...     name="log_date", entity=orders, column="dt",
         ...     granularity="day", parse=ms.strptime("%Y%m%d"),
         ... )
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
-    entity_ref = _require_entity_ref(entity, parameter="entity")
+    entity_ref = _entity_lookup(entity, parameter="entity")
     entity_id = entity_ref.path
     obj_name = name
     semantic_id = f"{entity_id}.{obj_name}"
@@ -720,13 +726,13 @@ def time_dimension_column(
 def time_dimension(
     *,
     name: str | None = None,
-    entity: Ref[EntityKind],
+    entity: Entity | Ref[EntityKind],
     granularity: Literal["year", "quarter", "month", "week", "day", "hour", "minute", "second"],
     parse: SemanticParse | None = None,
     is_default: bool = False,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], Ref[TimeDimensionKind]]:
+) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], Ref[TimeDimensionKind]]:
     """Declare a time-aware dimension that carries grain and parsing metadata.
 
     Time dimensions are the only dimensions usable as window axes by ``session.observe``.
@@ -755,7 +761,8 @@ def time_dimension(
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A decorator that returns a ``Ref[time_dimension]``.
+        A decorator returning a typed TimeDimension capture Ref. Finalize the
+        complete scope, then resolve the Ref for an immutable TimeField.
 
     Raises:
         SemanticDecoratorError: ``entity`` is unknown, ``name`` collides, the
@@ -766,11 +773,15 @@ def time_dimension(
         >>> @ms.time_dimension(entity=orders, granularity="day")
         ... def created_at(orders):
         ...     return orders.created_at
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
 
-    def decorator(fn: Callable[..., Any]) -> Ref[TimeDimensionKind]:
+    def decorator(fn: Callable[[ibis_ir.Table], ibis_ir.Value]) -> Ref[TimeDimensionKind]:
         obj_name = name or fn.__name__
         ds_ref = _require_ref_id(
             entity,
@@ -795,7 +806,7 @@ def time_dimension(
         expression_body = compile_expression_body(
             fn,
             owning_ref=ref,
-            ordered_entity_refs=(entity,),
+            ordered_entity_refs=(_entity_lookup(entity, parameter="entity"),),
         )
         ai_ctx = _build_ai_context(ai_context)
         location = _caller_location()
@@ -831,8 +842,8 @@ def time_dimension(
 def relationship(
     *,
     name: str,
-    from_entity: Ref[EntityKind],
-    to_entity: Ref[EntityKind],
+    from_entity: Entity | Ref[EntityKind],
+    to_entity: Entity | Ref[EntityKind],
     keys: list[JoinKey],
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -852,7 +863,7 @@ def relationship(
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
 
     Returns:
-        A ``Ref[relationship]``.
+        A typed Relationship capture Ref; finalize and resolve it for exact endpoints.
 
     Raises:
         SemanticDecoratorError: A ref or key shape is invalid.
@@ -871,6 +882,10 @@ def relationship(
         what an allowed absence means. Physical multiplicity can be audited through source_health. Analysis trusts
         required matching as an unverified premise; a versioned endpoint needs an exact
         version selection before its one side can be consumed.
+
+    Capture constraints: The result is a lookup Ref, not an expression value.
+    Capture every physical declaration before ms.finalize(), then resolve the
+    required Refs from that frozen result. Closed scopes reject new declarations.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)

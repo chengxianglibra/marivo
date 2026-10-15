@@ -121,7 +121,7 @@ def literal_token(value: LiteralValue) -> tuple[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class ExactRef:
-    """One semantic reference pinned to the exact definition version it captured."""
+    """One semantic reference and the definition identity represented by a computation."""
 
     ref: Ref[SemanticKindTag]
     version: str

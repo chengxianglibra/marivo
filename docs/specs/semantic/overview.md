@@ -1,6 +1,6 @@
 # Semantic and Datasource Layer — Design Overview
 
-Status: current architecture, 2026-10-08. Semantic declarations and datasource
+Status: R1.3 expression authoring, 2026-10-15; Catalog Metric publication (R1.4) and new execution (R2) remain separate work. Semantic declarations and datasource
 access feed the typed, algebra-based Analysis DSL. This document specifies
 ownership and meaning; exact callable contracts are exposed by native Help.
 It does not certify all physical execution routes or release acceptance.
@@ -35,8 +35,8 @@ algebra, method-registry, Runtime and Store 9 ownership chain.
 These layers are consumed primarily by general coding agents (Claude Code, Codex)
 through a write–run–read loop. The goal is not to make an agent memorize a private
 DSL, but to let it maintain business semantics like an ordinary Python project:
-read the existing objects, declare explicit models, express calculation caliber in
-Ibis, retain business context, run validation, and hand stable semantic refs to
+read the existing objects, declare explicit models, express calculation caliber with typed row/Metric expressions and restricted Ibis source/field bodies, retain
+business context, run validation, and hand typed definitions or lookup refs to
 `marivo.analysis`.
 
 ## Design goals
@@ -61,8 +61,8 @@ The design holds to these goals:
   refs, function signatures, `ai_context=ms.ai_context(...)`, and
   structured errors.
 - **Ownership is explicit.** Domain membership comes from an explicit `domain=`
-  or an explicit default domain — never from a file path. A metric's entity comes
-  from `entities=[...]`, not a parameter name. The reader binds to a project root,
+  or an explicit default domain — never from a file path. A Metric's contribution roots come
+  from its receiver reductions and expression dependencies. The reader binds to a project root,
   not a thread-local guess.
 - **Entity identity is stable across versions.** `primary_key` identifies one
   Entity instance; `versioning` identifies its historical representations.
@@ -82,11 +82,19 @@ The design holds to these goals:
   combines these facts with its selected contributions and retained coordinates
   to admit a transformation. Additivity alone does not prove disjoint buckets,
   fold commutation, or sufficient materialized state.
-- **Ibis is the only expression language.** SQL is retained as provenance and a
-  parity oracle, but it is metadata, never an executable authoring body.
-- **Downstream depends only on refs.** Analysis, operators, skills, and scripts
-  consume stable semantic refs and materialized Ibis expressions, not a project's
-  internal file layout.
+- **Expression stages are explicit.** Entity/Source and Dimension/TimeDimension
+  retain restricted Ibis bodies. Pure zero-argument Measure/Metric declarations
+  construct the same typed graphs as local expressions, without invoking the
+  authored function. SQL is never an executable body.
+- **Constructed values and lookup refs have different roles.** Row/Metric
+  physical constructors capture typed Ref keys; ms.finalize closes the complete
+  physical scope and finalized.resolve(ref) produces immutable values. Row/Metric
+  composition consumes immutable definitions and facts. Original definition
+  versions are not mandatory bindings: agents/users accept the consequences of
+  semantic definition changes during analysis. Fingerprints and caches must
+  still describe actual consumed computations; records retain their own contracts.
+  Bare Refs are lookup inputs. Local naming does not register an object
+  or change its computation; publication and execution need their own checks.
 - **Fail closed.** When decoration, loading, assembly, materialization, or parity
   cannot prove a contract holds, the layer emits a structured error rather than a
   best-effort guess.

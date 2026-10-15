@@ -58,3 +58,11 @@ Preview and certification request native query timeouts and continue when they
 are unsupported. Read or cleanup failures do not publish a new certified snapshot.
 Certification still requires complete scoped input and all validation; closing a
 connection does not prove remote query termination.
+
+## Local expressions and publication
+
+Physical constructors return typed capture Refs. After the complete scope is finalized, resolving those lookup keys produces immutable expression values with complete dependency facts. Measure/Metric are pure zero-argument declarations over constructed objects, separating names from computation. They need no active loader/Session and do not publish Catalog objects. Current R1.3 supplies construction; R1.4 owns new Metric collection and public discovery, and R2 owns the new execution path. Entity/Source and categorical/time fields retain restricted Ibis authoring.
+
+Physical authoring captures typed Refs. Capture every dependency, then use `ms.finalize()` and `finalized.resolve(ref)` before composing row/Metric expressions. Finalization closes capture and does not publish Catalog Metrics or enable new execution.
+
+Semantic objects need not remain bound to their original definition versions. A same-path definition change alone does not reject an input; the agent/user accepts the consequences of semantic changes during analysis. Resolving consumers use their completed scope. Immutable expressions keep their stored definitions and facts without live refresh. Kind, root, grain, unit, time-role, null and permission checks still apply. Fingerprints and cache keys describe actual consumed definitions; persisted provenance and records retain their own contracts.

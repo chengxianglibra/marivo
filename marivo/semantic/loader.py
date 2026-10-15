@@ -62,6 +62,7 @@ from marivo.semantic.validator import (
 
 if TYPE_CHECKING:
     from marivo.semantic._authoring_context import PendingDefinition
+    from marivo.semantic.expressions import FinalizedDeclarations
 
 __all__ = [
     "LoadResult",
@@ -84,6 +85,9 @@ class LoaderContext:
     current_model_file: str | None = None
     default_domain: str | None = None
     pending_definitions: list[PendingDefinition] = field(default_factory=list)
+    datasource_irs: tuple[DatasourceIR, ...] = ()
+    prior_contexts: tuple[LoaderContext, ...] = ()
+    finalized: FinalizedDeclarations | None = None
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -416,6 +420,8 @@ def _load_model_dir(
     errors: list[SemanticError],
     *,
     module_prefix: str,
+    datasource_irs: tuple[DatasourceIR, ...] = (),
+    prior_contexts: tuple[LoaderContext, ...] = (),
 ) -> LoaderContext | None:
     """Load a single model directory.
 
@@ -445,6 +451,8 @@ def _load_model_dir(
         model_name=model_name,
         file_path=str(model_file),
         current_model_file=str(model_file),
+        datasource_irs=datasource_irs,
+        prior_contexts=prior_contexts,
     )
     model_package = f"{module_prefix}.{model_name}"
     _ensure_package(model_package, model_dir)
@@ -1010,6 +1018,8 @@ def load_project(
                 semantic_root,
                 errors,
                 module_prefix=module_prefix,
+                datasource_irs=tuple(datasource_irs),
+                prior_contexts=tuple(all_contexts),
             )
             if ctx is not None:
                 all_contexts.append(ctx)

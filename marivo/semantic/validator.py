@@ -36,6 +36,7 @@ from marivo.semantic.constraints import ASTSpec, ConstraintId, get_constraint
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,
+    SemanticExpressionError,
     SemanticLoadError,
     StructuredWarning,
     WarningKind,
@@ -796,10 +797,12 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         *,
         body_label: str = "Metric body",
         symbols: frozenset[str] | None = None,
+        pure_declaration: bool = False,
     ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
         self._symbols = symbols
+        self._pure_declaration = pure_declaration
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -811,6 +814,18 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         *,
         constraint_id: ConstraintId,
     ) -> None:
+        if self._pure_declaration:
+            self.errors.append(
+                SemanticExpressionError(
+                    kind=ErrorKind.INVALID_COMPONENT_BODY,
+                    message=message,
+                    refs=(self.fn_name,),
+                    expected="a zero-argument body with fresh locals and one final expression return",
+                    received=message,
+                    action="Remove control flow and mutation; return the constructed expression directly.",
+                )
+            )
+            return
         self.errors.append(
             SemanticLoadError(
                 kind=kind.value,
@@ -821,6 +836,18 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         )
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        if self._pure_declaration and (
+            node.args.posonlyargs
+            or node.args.args
+            or node.args.kwonlyargs
+            or node.args.vararg is not None
+            or node.args.kwarg is not None
+        ):
+            self._local_error(
+                node,
+                "a zero-argument declaration over already constructed fields",
+                ast.unparse(node.args),
+            )
         # Extract parameter names and build parent map for context-sensitive checks.
         self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
         self._parent_map = {
@@ -906,7 +933,9 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 elif isinstance(stmt, ast.Return):
                     if stmt.value is None:
                         self._local_error(
-                            stmt, "a final Ibis return expression", "return without a value"
+                            stmt,
+                            "a final stage-compatible return expression",
+                            "return without a value",
                         )
                     else:
                         self._validate_local_expression(stmt.value, defined)
@@ -917,6 +946,19 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self.visit(stmt)
 
     def _local_error(self, node: ast.AST, expected: str, received: str) -> None:
+        if self._pure_declaration:
+            self.errors.append(
+                SemanticExpressionError(
+                    kind=ErrorKind.INVALID_COMPONENT_BODY,
+                    message=f"{self.body_label} of {self.fn_name!r} has an invalid local expression.",
+                    refs=(self.fn_name,),
+                    expected=expected,
+                    received=received,
+                    action="Use fresh local names in definition order and finish with one expression return.",
+                    location_label=f"line {getattr(node, 'lineno', 0)}, column {getattr(node, 'col_offset', 0)}",
+                )
+            )
+            return
         self.errors.append(
             SemanticLoadError(
                 kind=ErrorKind.INVALID_COMPONENT_BODY,
@@ -930,6 +972,9 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         )
 
     def _validate_local_expression(self, value: ast.expr, defined: set[str]) -> None:
+        if self._pure_declaration:
+            # Typed expression binding validates the closed expression grammar and receivers.
+            return
         for child in ast.walk(value):
             if (
                 isinstance(child, ast.Name)
@@ -974,6 +1019,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             self._local_error(value, "an Ibis value expression", f"bare symbol {value.id!r}")
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
+        if self._pure_declaration:
+            return
         # Check for .sql / .raw_sql escape hatches
         if node.attr in _SQL_ESCAPE_ATTRS:
             self._add_error(
@@ -1004,6 +1051,8 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
+        if self._pure_declaration:
+            return
         func = node.func
         if (
             isinstance(func, ast.Attribute)
@@ -1035,6 +1084,19 @@ def _is_docstring_stmt(node: ast.stmt) -> bool:
         and isinstance(node.value, ast.Constant)
         and isinstance(node.value.value, str)
     )
+
+
+def validate_declaration_body_ast(function: ast.FunctionDef, *, symbols: frozenset[str]) -> None:
+    """Apply shared statement/local-binding rules to a pure expression declaration."""
+    validator = _BaseMetricASTValidator(
+        function.name,
+        body_label="Expression declaration",
+        symbols=symbols,
+        pure_declaration=True,
+    )
+    validator.visit(function)
+    if validator.errors:
+        raise validator.errors[0]
 
 
 def _body_hash_without_docstring(func_node: ast.FunctionDef) -> str:
@@ -1572,10 +1634,9 @@ def _validate_sampled_time_folds(registry: Registry, errors: list[SemanticError]
     from marivo.semantic._metric_resolution import resolve_metric_temporal_contract
     from marivo.semantic.ir import DimensionKind
 
-    declarations: Sequence[MeasureIR | MetricIR] = (
-        *registry.measures.values(),
-        *registry.metrics.values(),
-    )
+    # Physical Measures retain the status axis and sampling contract; temporal
+    # reduction is explicit in the new expression and has no leaf default fold.
+    declarations = tuple(registry.metrics.values())
     for declaration in declarations:
         status_axis = declaration.status_time_dimension
         if status_axis is None or declaration.status_time_fold is not None:
@@ -2354,7 +2415,6 @@ def assembly_validate(
 
     if sidecar is not None:
         errors.extend(_validate_expression_bindings(registry, sidecar))
-
     # -- Validate entity refs on metrics -------------------------------------
     for m_id, m_ir in registry.metrics.items():
         for ds_ref in m_ir.entities:

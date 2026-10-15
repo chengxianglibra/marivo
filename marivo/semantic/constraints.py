@@ -220,7 +220,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
             "event",
             "ref",
         ),
-        "References must be typed refs returned by Marivo authoring helpers.",
+        "Typed Refs are lookup keys. Constructed inputs resolve by kind/path in the completed consumer scope; original definition versions are not mandatory constraints.",
         "The loader persists semantic ids, not arbitrary Python objects.",
         'Use ms.ref.datasource("warehouse") for datasource parameters and Ref[entity]/Ref[dimension]/Ref[metric] values returned by decorators.',
     ),
@@ -240,7 +240,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ),
         (
             "Declare the filter dimension on the target entity, then use "
-            "ms.where(state='FAILED') or ms.where(type=(2, 4))."
+            "typed field comparisons combined with &, | and ~, then source_metric.where(predicate)."
         ),
     ),
     ConstraintId.COMPOSITION_SHAPE: _constraint(
@@ -261,8 +261,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "A derived metric over cumulative components can compare only when every outer component uses the "
         "same trailing or grain_to_date anchor; all_history, mixed anchors, attribute, and decompose remain unsupported.",
         "The anchor selects the accumulation shape: all_history (default), grain_to_date (MTD/QTD/YTD resets), or trailing (rolling N).",
-        "Pass anchor=ms.grain_to_date(grain=mv.grain('month'|'quarter'|'year'|'week')), "
-        "anchor=ms.trailing(count=N, unit='day'|'hour'|...), or omit anchor for all-history.",
+        "Semantic cumulative/anchor factories are retired. Preserve the original temporal equation and use the new Query window capability when available; do not translate old anchors implicitly.",
     ),
     ConstraintId.METRIC_ENTITIES_REQUIRED: _constraint(
         ConstraintId.METRIC_ENTITIES_REQUIRED,
@@ -271,8 +270,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("metric",),
         "Base metrics must declare at least one entity.",
         "Entity-backed metrics read source rows from their declared entity arguments.",
-        "Simple metrics need entities=[...]; use ms.ratio/ms.linear "
-        "for metrics composed from other metrics.",
+        "Return source receiver reductions or completed Metric arithmetic from a zero-argument @ms.metric() body; roots come from those dependencies.",
     ),
     ConstraintId.METRIC_COMPONENT_SCOPE: _constraint(
         ConstraintId.METRIC_COMPONENT_SCOPE,
@@ -280,8 +278,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "ast",
         ("metric",),
         "ms.component() is no longer supported in metric bodies.",
-        "Derived metrics are body-free and declare composition through ms.ratio/ms.linear.",
-        "Remove ms.component() calls; use ms.ratio/ms.linear with composition metadata instead.",
+        "Pure Measure/Metric declarations construct closed stage-checked expression graphs.",
+        "Return constructed row/Metric expressions; use only operations admitted on the actual receiver and move arbitrary helper calls outside the declaration.",
     ),
     ConstraintId.AI_CONTEXT_SCHEMA: _constraint(
         ConstraintId.AI_CONTEXT_SCHEMA,
@@ -316,7 +314,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Expression decorators allow fresh sequential local bindings and one final return.",
         "The body is captured as a restricted expression DSL, not arbitrary Python.",
-        "Finish with return <ibis expression>; define each local name once before use.",
+        "Finish with one stage-compatible return expression; define each local name once before use.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
     ConstraintId.AST_FORBIDDEN_STATEMENT: _constraint(
@@ -326,10 +324,8 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("entity", "dimension", "time_dimension", "metric"),
         "Decorator bodies allow only fresh local expression bindings and a final return; imports, control flow, writes, lambdas, and nested definitions are forbidden.",
         "Only deterministic expression bodies can be stored and recompiled safely.",
-        "Use fresh local bindings and one final return expression. For a metric composed from "
-        "other metrics, use the body-free constructors instead: "
-        "ms.ratio(numerator=, denominator=), ms.linear(add=, subtract=), or "
-        "ms.weighted_mean(value=<Ref[measure]>, weight=<Ref[measure]>). For conditionals, use ibis "
+        "Use fresh local bindings and one final return expression. Use completed Metric "
+        "arithmetic or row.weighted_mean(weight=...) in pure declarations. In retained Ibis source/field bodies, use Ibis "
         ".ifelse() / ibis.cases() inside the one return expression.",
         ast_spec=_EXPR_BODY_AST_SPEC,
     ),
@@ -544,19 +540,18 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_metric_fanout_policy",
         "assembly",
         ("metric",),
-        "fanout_policy must be 'block' or 'aggregate_then_join', authored on base metrics only.",
+        "fanout_policy is retired; each source receiver retains its contribution root.",
         "Fan-out is a metric-level decision, gated by measure additivity on the merge grain.",
-        "Set fanout_policy='aggregate_then_join' only on base metrics with an admitted additive or semi-additive declaration; derived metrics must keep the default.",
+        "For existence filtering, use an explicit Population preimage when available. Overlapping-label grouping has no equivalent in this version; do not substitute a semi-join or change the contribution root.",
     ),
     ConstraintId.METRIC_FANOUT_POLICY_DERIVED: _constraint(
         ConstraintId.METRIC_FANOUT_POLICY_DERIVED,
         "derived_metric_fanout_policy",
         "assembly",
         ("metric",),
-        "Derived metrics must keep fanout_policy='block'.",
+        "Metric declarations and their components do not accept fanout_policy.",
         "Derived metrics inherit fan-out behavior from their component metrics, which each declare their own policy.",
-        "Derived metrics (ms.ratio/ms.linear) must not declare fanout_policy; "
-        "set fanout_policy on the relevant base components instead.",
+        "Preserve explicit source roots and predicates; remove the retired fanout declaration without claiming an equivalent overlapping grouping route.",
     ),
     ConstraintId.ENTITY_VERSIONING_VALID: _constraint(
         ConstraintId.ENTITY_VERSIONING_VALID,
@@ -738,9 +733,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "invalid_time_fold",
         "decorator",
         ("metric",),
-        "status_time_fold or aggregate fold must be a supported fold kind with valid parameters.",
+        "Leaf/default status_time_fold and aggregate fold declarations are retired.",
         "Fold kinds define how sampled time series are compressed into a single representative value.",
-        "Use status_time_fold= (or aggregate fold=) with 'mean', 'min', 'max', 'first', 'last', or ('percentile', q) where 0 < q < 1.",
+        "Keep the source status-time axis and sampling contract, then express the intended temporal equation with per(time_field).reducer(); do not infer a closing fold.",
     ),
     ConstraintId.TIME_FOLD_SEMI_ADDITIVE: _constraint(
         ConstraintId.TIME_FOLD_SEMI_ADDITIVE,
@@ -765,9 +760,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "missing_time_fold",
         "assembly",
         ("measure", "metric"),
-        "Sampled status-time declarations require status_time_fold.",
+        "Sampled state retains its source time axis; temporal reduction is explicit.",
         "Without a fold, sampled semi-additive metrics would double-count intra-day observations.",
-        "Set status_time_fold to the business fold on the Measure or Metric declaration.",
+        "Keep status_time_dimension and fixed-axis permission on the physical Measure and author an explicit per(time_field).reducer() expression.",
     ),
     ConstraintId.STATUS_TIME_DIMENSION_REQUIRED: _constraint(
         ConstraintId.STATUS_TIME_DIMENSION_REQUIRED,

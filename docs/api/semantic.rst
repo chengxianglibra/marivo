@@ -37,32 +37,52 @@ Loaded definition reading
    SemanticDefinition
    SemanticDefinitionReadError
 
-Aggregation & measure helpers
------------------------------
+Typed expression authoring
+--------------------------
+
+Physical Entity/Field/Relationship constructors capture typed Ref lookup keys.
+Capture every physical dependency, then call ``finalized = ms.finalize()`` and
+``amount = finalized.resolve(amount_ref)``. Finalization validates and closes
+capture before immutable values are created, preserving defaults,
+coordinates and supported Ibis forward references without replaying imports. Measure and Metric
+functions are pure zero-argument declarations over constructed dependencies;
+they do not register or execute a Catalog Metric. Collection/publication and
+new execution remain separate R1.4/R2 work.
+
+The definition-update policy below is implemented in the uncommitted R1.3
+working tree. Independent review and full R1.3 completion remain pending; a
+documentation build does not qualify execution or backend behavior.
+
+Semantic objects need not remain bound to their original definition versions;
+a same-path definition change alone does not reject an input. The agent/user
+accepts the consequences of semantic changes during analysis. Resolving consumers
+use their completed scope; immutable expressions retain their stored computation
+and facts without live refresh. Pure Measure additivity still checks coordinate
+presence, kind, native time role and permission. Definition fingerprints and
+cache keys describe actual consumed definitions; persisted provenance and records
+retain their owning contracts.
+
+Use ``marivo.help("semantic.expressions")`` for receiver operations.
+``amount.show()`` inspects bounded expression metadata; ``marivo.help(amount.show)``
+and ``marivo.help("semantic.Measure.show")`` resolve the shared display contract.
+``finalized.show()`` has its own ``semantic.FinalizedDeclarations.show`` contract. Numeric
+rows reduce through ``sum/mean/min/max/median/quantile/weighted_mean``; completed
+Metrics combine through arithmetic and accept scope-checked ``where`` and
+``per(...).reducer()``. Policies are operator-local strings; declaration-wide
+empty/null/zero-denominator policies, old factories and default folds are
+rejected with a concrete reauthoring action.
 
 .. autosummary::
    :toctree: api/
    :nosignatures:
 
-   aggregate
-   count
-   where
-   linear
-   ratio
-   weighted_mean
+   finalize
    additive
    additive_all
    non_additive
    snapshot
    validity
    join_on
-   cumulative
-   grain_to_date
-   trailing
-
-Value policies are declared with ``ms.nulls.reject()`` or ``ms.nulls.ignore()``,
-``ms.empty.zero()`` or ``ms.empty.null()``, and
-``ms.zero_denominator.undefined()`` or ``ms.zero_denominator.error()``.
 
 Column helpers
 --------------
@@ -120,9 +140,13 @@ data checks require an explicit bounded scope and never change readiness.
 Refs, binding & loading
 -----------------------
 
-``ref`` is the immutable exact-kind factory namespace. Ref values themselves
+``ref`` is the immutable exact-kind lookup factory namespace. Ref values themselves
 are immutable identities and are never callable; use ``bind`` to apply a field
 ref to a direct entity alias inside a decorated expression body.
+Constructed Field inputs identify kind/path in the completed consumer scope;
+their original definition versions are not mandatory constraints. Explicit Refs
+remain lookup keys, including forward dependencies. Kind, owner/root and temporal
+role checks still apply; finalization supplies complete defaults and dependencies.
 
 .. autodata:: ref
    :annotation:
@@ -157,10 +181,11 @@ Aggregate load failures preserve child order and disclose omitted errors with
 a full read through ``exc.errors``. Check cards display actual scope, affected
 refs, and available repair routes; their display never repeats checks.
 
-A legal ``ms.where(...)`` declaration that cannot be compared with the resolved
-runtime dtype raises ``filter_value_runtime_incompatible`` before query
-submission. Its authored literal is preserved until the user or business owner
-confirms any required code/label mapping.
+Typed field predicates retain their literal values and contribution root when
+attached with ``Metric.where(...)``. The retained legacy materializer can raise
+``filter_value_runtime_incompatible`` before query submission; this does not
+qualify the new R2 execution route. Any required code/label mapping needs
+confirmation from the business owner.
 
 Details types
 -------------

@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.session.core import Session
+    from marivo.datasource.ir import DatasourceIR
     from marivo.refs import EntityKind, MeasureKind, Ref
     from marivo.semantic._dsl_authoring import AdditivityPolicy
     from marivo.semantic.catalog import SemanticCatalog
@@ -35,6 +36,15 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+def in_memory_datasource_ir(name: str) -> DatasourceIR:
+    """Return a fresh complete DuckDB declaration for source-free authoring checks."""
+    from dataclasses import replace
+
+    from marivo.datasource._builtin import default_datasource
+
+    return replace(default_datasource(), semantic_id=name, name=name)
 
 
 def observation_temporal(

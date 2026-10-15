@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import inspect
-import re
 from collections.abc import Callable
 from typing import cast
 
@@ -22,10 +21,14 @@ from marivo.semantic.constraints import CONSTRAINTS
 
 _RETURN_FAMILY_ALIASES = {
     "str": "Text",
+    "DeclaredMeasure": "Measure",
+    "DeclaredMetric": "Metric",
     "Ref[DomainKind]": "Ref[domain]",
     "Ref[DatasourceKind]": "Ref[datasource]",
     "Ref[EntityKind]": "Ref[entity]",
     "Ref[DimensionKind]": "Ref[dimension]",
+    "Ref[DimensionRefKind]": "Ref[dimension]",
+    "ResolvedValue": "Entity | Dimension | TimeField | Measure | Relationship",
     "Ref[DimensionKindTag]": "Ref[dimension]",
     "Ref[TimeDimensionKind]": "Ref[time_dimension]",
     "Ref[MeasureKind]": "Ref[measure]",
@@ -36,6 +39,7 @@ _RETURN_FAMILY_ALIASES = {
     "Ref[WorkScheduleKind]": "Ref[work_schedule]",
     "ir.BooleanValue": "IbisValue",
     "ir.Value": "IbisValue",
+    "ibis_ir.Value": "IbisValue",
     "SnapshotVersioningIR": "ValiditySpec",
     "ValidityVersioningIR": "ValiditySpec",
     "SemiAdditive": "Additivity",
@@ -166,13 +170,21 @@ def _annotation_output_family(
         annotation.strip() if isinstance(annotation, str) else inspect.formatannotation(annotation)
     )
     if descriptor.invocation_shape == "decorator" or descriptor.canonical_id == "entity":
-        ref_products = re.findall(r"Ref\[[A-Za-z_][A-Za-z0-9_]*\]", text)
-        # A direct/decorator dispatch exposes the same Ref product twice: once
-        # as the direct return and once inside the decorator's return callable.
-        assert len(ref_products) >= 1 and len(set(ref_products)) == 1, (
-            f"{descriptor.canonical_id} decorator return does not expose one Ref product: {text}"
-        )
-        text = ref_products[0]
+
+        def product(node: ast.expr) -> str:
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+                left, right = product(node.left), product(node.right)
+                assert left == right, (
+                    f"{descriptor.canonical_id} has distinct constructed return products: {text}"
+                )
+                return left
+            if isinstance(node, ast.Subscript) and _call_name(node.value) == "Callable":
+                assert isinstance(node.slice, ast.Tuple)
+                return product(node.slice.elts[-1])
+            result = ast.unparse(node)
+            return _RETURN_FAMILY_ALIASES.get(result, result)
+
+        text = product(ast.parse(text, mode="eval").body)
     if text.startswith("CatalogCollection["):
         return "CatalogCollection"
     if text.startswith("CatalogEntry["):
@@ -262,11 +274,15 @@ def validate_semantic_live_surface() -> None:
             _validate_parameter_metadata(descriptor, callable_obj)
             _validate_output_metadata(descriptor, callable_obj)
 
+    constructed_families = {
+        family
+        for contract in REGISTRY.object_contracts
+        for family in contract.construction_families
+    }
     source_authored_ids = {
         descriptor.canonical_id
         for descriptor in REGISTRY.descriptors
-        if descriptor.output_family is not None
-        and descriptor.output_family.startswith("Ref[")
+        if descriptor.output_family in constructed_families
         and descriptor.effects is not None
         and "semantic_source" in descriptor.effects.mutations
     }

@@ -10,7 +10,9 @@ from collections.abc import Sequence as _Sequence
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from marivo.refs import DimensionKind, Ref, SemanticKind, TimeDimensionKind
+import ibis.expr.types as ibis_ir
+
+from marivo.refs import DimensionKind, FieldKind, Ref, SemanticKind, TimeDimensionKind
 from marivo.semantic._authoring_context import (
     _register_authoring_file,
     _require_ref_id,
@@ -20,8 +22,9 @@ from marivo.semantic._authoring_validation import (
     _normalize_sample_interval_value,
     _validate_timezone,
 )
-from marivo.semantic.constraints import ConstraintId
+from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+from marivo.semantic.expressions import Dimension, Field, TimeField
 from marivo.semantic.ir import (
     AiContextIR,
     DatetimeParse,
@@ -35,6 +38,51 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
+
+
+def additive(
+    *, over: tuple[Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind], ...]
+) -> AdditiveOverV1:
+    """Declare the existing field coordinates on which a Measure may be summed.
+
+    Args: over: Non-empty tuple of constructed fields or explicit field lookup refs.
+    Returns: A closed additive-over policy.
+    Example: ``ms.additive(over=(region,))``.
+    Constraints: Every axis must exist on the declared contribution root. Axes resolve by kind/path in the complete physical closure or frozen row scope; original definition versions are not required.
+    """
+    from marivo.semantic._dsl_authoring import additive as build
+
+    return build(over=over)
+
+
+def additive_all(
+    *, except_: tuple[Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind], ...] = ()
+) -> AdditiveAllV1:
+    """Grant summing across native coordinates except explicitly fixed axes.
+
+    Args: ``except_``: Existing fields or lookup refs that must remain fixed.
+    Returns: A closed additive-all policy.
+    Example: ``ms.additive_all(except_=(sample_at,))``.
+    Constraints: Retain source status-time constraints; this does not prove coverage. Exceptions select the actual consumer coordinates, without original-version matching.
+    """
+    from marivo.semantic._dsl_authoring import additive_all as build
+
+    return build(except_=except_)
+
+
+def bind(field: Field | Ref[FieldKind], entity_alias: ibis_ir.Table) -> ibis_ir.Value:
+    """Apply a physical semantic field in a restricted Ibis field body.
+
+    Args:
+        field: Constructed physical field or explicit lookup Ref, supplied as a bare name.
+        entity_alias: Direct Entity table parameter of the Dimension/TimeDimension body.
+    Returns: The owning field's Ibis value on that Entity alias.
+    Example: ``return ms.bind(region, rows).upper()`` inside @ms.dimension(entity=orders).
+    Constraints: Finalization checks field kind and ownership in the completed consumer scope; lookup Refs allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.
+    """
+    from marivo.semantic._expression_binding import bind as apply
+
+    return apply(field, entity_alias)
 
 
 def ai_context(
@@ -62,7 +110,9 @@ def ai_context(
         ...     business_definition="Total revenue from all orders",
         ...     guardrails=["Do not use for margin calculations"],
         ... )
-        >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum", ai_context=ctx)
+        >>> @ms.metric(ai_context=ctx)
+        ... def revenue():
+        ...     return amount.sum()
 
     Raises:
         SemanticDecoratorError: If any value has the wrong type.
@@ -123,12 +173,22 @@ def _build_ai_context(ai_context: AiContextValue | None) -> AiContextIR:
 
 def snapshot(
     *,
-    partition_field: Ref[DimensionKind | TimeDimensionKind],
+    partition_field: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
     grain: Literal["day"],
     timezone: str | None = None,
     format: str | None = None,
 ) -> SnapshotVersioningIR:
-    """Declare daily snapshot partition versioning for an entity."""
+    """Declare daily snapshot partition versioning for an entity.
+
+    Args:
+        partition_field: Native Dimension/TimeField or explicit lookup Ref.
+        grain: Day grain.
+        timezone: Optional IANA zone.
+        format: Optional source encoding.
+    Returns: A frozen SnapshotVersioningIR with the partition lookup key.
+    Example: ``ms.snapshot(partition_field=day_ref, grain="day")``.
+    Constraints: The completed Entity scope resolves the partition field; lookup Refs may name forward dependencies.
+    """
     partition_ref = _require_ref_id(
         partition_field,
         parameter="partition_field",
@@ -160,8 +220,8 @@ def snapshot(
 
 def validity(
     *,
-    valid_from: Ref[DimensionKind | TimeDimensionKind],
-    valid_to: Ref[DimensionKind | TimeDimensionKind],
+    valid_from: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
+    valid_to: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
     timezone: str | None = None,
@@ -169,8 +229,8 @@ def validity(
     """Declare SCD2 validity interval versioning for an entity.
 
     Args:
-        valid_from: Dimension or time-dimension ref for the interval start column.
-        valid_to: Dimension or time-dimension ref for the interval end column.
+        valid_from: Native Dimension/TimeField or lookup Ref for the interval start.
+        valid_to: Native Dimension/TimeField or lookup Ref for the interval end.
         interval: ``"closed_open"`` (``[valid_from, valid_to)``) or
             ``"closed_closed"`` (``[valid_from, valid_to]``).
         open_end: Non-empty tuple of sentinel values that mean "still current"
@@ -179,7 +239,16 @@ def validity(
         timezone: Optional IANA timezone name for anchor date casting.
 
     Returns:
-        A ``ValidityVersioningIR`` for use in ``ms.entity(versioning=...)``.
+        A frozen ``ValidityVersioningIR`` with interval field lookup keys.
+        Its Entity consumer resolves these fields at finalization.
+
+    Example:
+        ``ms.validity(valid_from=start_ref, valid_to=end_ref,
+        interval="closed_open", open_end=(None,))``.
+
+    Constraints:
+        Use native fields. The completed Entity closure resolves the interval fields;
+        only explicit lookup Refs can name forward dependencies.
 
     Raises:
         SemanticDecoratorError: ``interval`` is not one of the two allowed values,
@@ -231,14 +300,20 @@ def validity(
 
 
 def join_on(
-    from_key: Ref[DimensionKind | TimeDimensionKind],
-    to_key: Ref[DimensionKind | TimeDimensionKind],
+    from_key: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
+    to_key: Dimension | TimeField | Ref[DimensionKind | TimeDimensionKind],
     /,
 ) -> JoinKey:
     """Build one relationship key pair for ``ms.relationship(keys=[...])``.
 
     Each call creates one (from_key, to_key) pairing. Pass a list of
     ``ms.join_on(...)`` calls to ``keys=``.
+
+    Args:
+        from_key: Native Dimension/TimeField or lookup Ref on the source Entity.
+        to_key: Native Dimension/TimeField or lookup Ref on the target Entity.
+    Returns: A frozen JoinKey with the endpoint field lookup keys.
+    Constraints: The completed Relationship scope checks field kind and endpoint ownership; Refs retain forward-reference semantics.
 
     Example::
 
@@ -399,7 +474,7 @@ def strptime(
 
 
 def hour_prefix(
-    prefix: Ref[TimeDimensionKind],
+    prefix: TimeField | Ref[TimeDimensionKind],
     /,
     *,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
@@ -413,14 +488,14 @@ def hour_prefix(
     analysis time.
 
     Args:
-        prefix: The ``Ref[time_dimension]`` of a day-level time dimension that
+        prefix: A native TimeField or ``Ref[time_dimension]`` for a day-level field that
             supplies the date context for this hour column.
         sample_interval: Optional ``(count, unit)`` declaring the periodic
             sampling cadence (e.g. ``(1, "hour")`` for hourly samples).
             When set, the time dimension can serve as a sampled-fold axis.
 
     Returns:
-        An ``HourPrefixParse`` value object.
+        A frozen ``HourPrefixParse`` with a native time-field lookup key.
 
     Example:
         >>> @ms.time_dimension(entity=logs, granularity="day")
@@ -436,17 +511,9 @@ def hour_prefix(
         ... def hh(logs):
         ...     return logs.hh
     """
-    if type(prefix) is not Ref or prefix.kind is not SemanticKind.TIME_DIMENSION:
-        received = getattr(prefix, "key", prefix)
-        _raise(
-            ErrorKind.INVALID_REF,
-            "ms.hour_prefix(...) prefix must be Ref[time_dimension] returned by "
-            f"semantic authoring; got {type(prefix).__name__}: {received!r}.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
+    prefix_id = _require_ref_id(prefix, parameter="prefix", expected=(SemanticKind.TIME_DIMENSION,))
     return HourPrefixParse(
-        prefix=prefix.path,
+        prefix=prefix_id,
         sample_interval=_normalize_sample_interval_value(
             sample_interval,
         ),

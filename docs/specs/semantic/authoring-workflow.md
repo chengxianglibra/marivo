@@ -204,6 +204,31 @@ and stops before typed analysis handoff. Physical observations alone do not
 authorize primary-key meaning, exhaustive enums, unit, additivity, timezone, or
 business semantics.
 
+## Pure expression authoring and current handoff boundary
+
+Capture physical declarations as typed Refs. Import every physical dependency
+once, then call `finalized = ms.finalize()` to validate and close capture. Resolve
+handles with `finalized.resolve(ref)` for immutable Entity/Field values
+before row/Metric composition. Keep physical declarations before finalization;
+failed closure checks leave capture open for repair. Bare Refs are lookup inputs.
+Constructed inputs are not required to match their original definition versions.
+Reference-resolving consumers use their complete scope; explicit Refs remain
+lookup keys, including forward references. If semantic definitions change during
+analysis, the agent/user accepts the consequences. Keep immutable captured facts,
+kind/root/grain/unit/time-role/null checks, correct computation/cache identities
+and existing provenance records; do not add live refresh or module replay.
+Measure/Metric decorators are pure zero-argument local declarations; they add
+names/context and explicit Measure business
+assertions without requiring loader registration or a Session. Keep source
+Ibis authoring separate and use ms.bind only in the remaining restricted Ibis
+field bodies. Follow structured errors for retired factories and parameters;
+do not delete old empty/fold/fanout choices and claim business equivalence.
+
+Physical leaf loading and metadata checks remain available. New Catalog Metric
+collection/publication and discovery belong to R1.4; new expression execution
+belongs to R2. Report these capability boundaries instead of treating a local
+expression or a leaf-only load as a published, executable business Metric.
+
 ## Closeout
 
 An authoring closeout records the coherent slice changed, physical evidence and

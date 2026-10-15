@@ -51,6 +51,8 @@ from marivo.semantic._capabilities.model import (
 
 OUTPUT_FAMILIES = frozenset(
     {
+        "FinalizedDeclarations",
+        "Entity | Dimension | TimeField | Measure | Relationship",
         "SemanticCatalog",
         "CatalogEntry",
         "CatalogCollection",
@@ -91,8 +93,19 @@ OUTPUT_FAMILIES = frozenset(
         "GrainToDate",
         "TrailingSpec",
         "None",
+        "Entity",
+        "Dimension",
+        "TimeField",
+        "Measure",
+        "Metric",
+        "NumericRowExpr",
+        "MetricSamples",
+        "Relationship",
+        "Predicate",
+        "Number",
         "Text",
         "WhereFilter",
+        "IbisTable",
         "IbisValue",
         "PeriodCorrespondence",
         "Grain",
@@ -105,6 +118,10 @@ OUTPUT_FAMILIES = frozenset(
 
 INPUT_FAMILIES = frozenset(
     {
+        "Expression",
+        "FinalizedDeclarations",
+        "Field",
+        "IbisTable",
         "Duration",
         "Ref",
         "Ref[domain]",
@@ -190,6 +207,16 @@ INPUT_FAMILIES = frozenset(
         "LifecycleStateName",
         "PeriodCorrespondence",
         "Grain",
+        "Entity",
+        "Dimension",
+        "TimeField",
+        "Measure",
+        "Metric",
+        "NumericRowExpr",
+        "MetricSamples",
+        "Relationship",
+        "Predicate",
+        "Number",
         "Text",
         "SourceScalarSequence",
         "RelationshipSide",
@@ -281,9 +308,7 @@ _ADDITIVITY_HELP = (
     "\n  additivity: ms.additive(over=...), ms.additive_all(except_=...), or ms.non_additive()."
     "\n  unit=None leaves the declared unit unspecified."
 )
-_FOLD_HELP = (
-    "\n  status_time_fold folds the governed status-time axis, not rows within a query group."
-)
+_FOLD_HELP = "\n  Temporal sample reduction is explicit in per(time_field).reducer(); leaf default folds are retired."
 
 
 def _capability(
@@ -365,7 +390,9 @@ def _source_contracts(
     contracts: dict[str, AuthoringSourceContract] = {}
     for object_contract in object_contracts:
         source_contract = _authoring_source_contract(object_contract.semantic_kind)
-        construction_ids = {mode.target.canonical_id for mode in object_contract.construction_modes}
+        construction_ids = {
+            mode.target.canonical_id for mode in object_contract.construction_modes
+        } - {"measure", "metric"}
         contracts.update(
             {
                 descriptor.canonical_id: source_contract
@@ -486,6 +513,10 @@ def _object_contract(
         canonical_id=f"objects.{kind.value}",
         summary=summary,
         semantic_kind=kind,
+        construction_families={
+            SemanticKind.MEASURE: ("Ref[measure]", "Measure"),
+            SemanticKind.METRIC: ("Metric",),
+        }.get(kind, (f"Ref[{kind.value}]",)),
         ref_target=_target(f"ref.{kind.value}"),
         catalog_collection=source_contract.catalog_collection,
         placement_kind=source_contract.placement_kind,
@@ -725,144 +756,128 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
         ),
         _object_contract(
             SemanticKind.MEASURE,
-            "Row-level numeric fact owning unit and additivity.",
+            "A quantitative row expression with business unit and sum permission.",
             decisions=(
-                _business_decision(
+                _source_business_decision(
                     "numeric_fact_grain",
-                    "What row-level numeric fact and grain does this Measure represent?",
-                    "ai_context",
+                    "What quantity does each contribution record represent?",
+                    "measure_column",
+                    "measure",
                 ),
                 _business_decision(
-                    "unit", "What physical unit does the value carry?", "measure_column", "measure"
+                    "unit", "What unit does this row quantity carry?", "measure_column", "measure"
                 ),
                 _business_decision(
                     "dimensional_additivity",
-                    "How may values aggregate across business dimensions?",
+                    "Which business axes may be summed?",
                     "measure_column",
                     "measure",
-                    "additive_all",
                 ),
                 _business_decision(
                     "temporal_additivity",
-                    "How may values aggregate across time?",
+                    "Which time axes must remain fixed?",
                     "measure_column",
                     "measure",
-                    "additive_all",
                 ),
                 _source_business_decision(
                     "semi_additive_axis_fold",
-                    "If semi-additive, which status axis and fold are authoritative?",
-                    "additive_all",
+                    "Which status axis and sampling contract must explicit sample reduction preserve?",
+                    "measure_column",
+                    "row.sum",
                 ),
-                _source_decision(
+                _business_decision(
                     "construction_mode",
-                    "Can a direct numeric column preserve the meaning, or is an expression required?",
+                    "Is this a physical leaf or a new typed row quantity?",
                     "measure_column",
                     "measure",
                 ),
             ),
             construction_modes=(
-                _mode("Bind one physical numeric column directly.", "default", "measure_column"),
-                _mode("Use one restricted row-level Ibis expression.", "escape_hatch", "measure"),
+                _mode("Bind one physical numeric column.", "default", "measure_column"),
+                _mode(
+                    "Declare a pure row expression and any new business authorization.",
+                    "alternative",
+                    "measure",
+                ),
             ),
             relationships=(
-                _relationship("owned_by", "objects.entity", "The Entity ref fixes fact ownership."),
+                _relationship(
+                    "owned_by", "objects.entity", "The expression has one exact contribution root."
+                ),
             ),
-            supporting=("additive", "additive_all", "non_additive", "ai_context", "bind"),
-            checks=("load", "readiness", "preview", "source_check.not_null", "source_health"),
+            supporting=("ai_context", "additive", "additive_all", "non_additive", "row.sum"),
+            checks=("readiness",),
         ),
         _object_contract(
             SemanticKind.METRIC,
-            "Analyzable business value built from governed semantic inputs.",
+            "A completed source reduction or composition of Metrics.",
             decisions=(
                 _business_decision(
                     "population_value",
-                    "Which population and business value does this Metric define?",
-                    "ai_context",
-                ),
-                _source_business_decision(
-                    "construction_mode",
-                    "Which aggregate, count, composition, cumulative, or expression mode matches the definition?",
-                    "aggregate",
-                    "count",
-                    "ratio",
-                    "weighted_mean",
-                    "linear",
-                    "cumulative",
+                    "Which contributions and completed value answer the question?",
                     "metric",
+                ),
+                _business_decision(
+                    "construction_mode",
+                    "Which source reductions and Metric arithmetic express the equation?",
+                    "metric",
+                    "row.sum",
                 ),
                 _business_decision(
                     "aggregation_filter",
-                    "Which aggregation and governed population filter apply?",
-                    "aggregate",
-                    "count",
-                    "where",
+                    "Which source contribution scope owns each predicate?",
+                    "Metric.where",
                 ),
                 _business_decision(
                     "denominator_failure",
-                    "What should happen when a denominator or required input is unavailable?",
-                    "ratio",
-                    "metric",
+                    "Should this division yield null or explicitly fail on zero?",
+                    "Metric.divide",
                 ),
                 _source_business_decision(
                     "root_fanout",
-                    "Which root Entity and fanout policy preserve the intended population?",
+                    "Are source roots and mappings explicit without implicit multi-value grouping?",
                     "metric",
                 ),
                 _business_decision(
                     "unit_additivity",
-                    "Which unit and additivity semantics apply to the result?",
-                    "aggregate",
-                    "count",
-                    "ratio",
-                    "weighted_mean",
-                    "linear",
-                    "metric",
+                    "Which inherited units and Measure permissions constrain this equation?",
+                    "measure",
                 ),
                 _business_decision(
                     "temporal_behavior",
-                    "Is the Metric ordinary, folded, cumulative, or trailing over time?",
-                    "aggregate",
-                    "cumulative",
-                    "grain_to_date",
-                    "trailing",
+                    "Which source time roles and internal sample reductions are required?",
+                    "Metric.per",
+                    "TimeField.via",
                 ),
                 _business_decision(
                     "guardrails",
-                    "Which reusable exclusions and interpretation guardrails apply?",
+                    "Which approved business limits must remain visible?",
                     "ai_context",
                 ),
             ),
             construction_modes=(
-                _mode("Aggregate one Measure.", "default", "aggregate"),
-                _mode("Count Entity rows.", "default", "count"),
-                _mode("Divide two Metrics.", "alternative", "ratio"),
-                _mode("Compute a weighted mean from Measures.", "alternative", "weighted_mean"),
-                _mode("Add or subtract commensurable Metrics.", "alternative", "linear"),
-                _mode("Accumulate one Metric over governed time.", "alternative", "cumulative"),
-                _mode("Use one restricted Ibis expression body.", "escape_hatch", "metric"),
+                _mode("Declare a zero-argument pure Metric expression.", "default", "metric"),
             ),
             relationships=(
                 _relationship(
-                    "requires", "objects.measure", "Aggregate Metrics consume one governed Measure."
+                    "may_reference", "objects.measure", "Source reductions consume row quantities."
                 ),
                 _relationship(
                     "may_reference",
-                    "objects.entity",
-                    "Count and expression Metrics may name Entities.",
-                ),
-                _relationship(
-                    "may_reference", "objects.metric", "Derived Metrics compose other Metrics."
+                    "objects.metric",
+                    "Completed Metrics compose without changing their source roots.",
                 ),
             ),
             supporting=(
-                "where",
-                "grain_to_date",
-                "trailing",
                 "ai_context",
-                "bind",
+                "row.sum",
+                "Metric.where",
+                "Metric.per",
+                "TimeField.via",
+                "Metric.divide",
+                "measure",
             ),
-            checks=("load", "readiness", "preview"),
+            checks=("readiness",),
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
@@ -1104,19 +1119,10 @@ def _builder_topics() -> tuple[SemanticBuilderTopic, ...]:
             "Field and Metric support",
             "Build Field and Metric parameters, context, anchors, and expressions.",
             (
-                "where",
                 "additive_all",
                 "additive",
                 "non_additive",
-                "nulls",
-                "nulls.reject",
-                "empty",
-                "empty.zero",
-                "zero_denominator",
-                "zero_denominator.error",
                 "bind",
-                "grain_to_date",
-                "trailing",
             ),
         ),
         (
@@ -1244,6 +1250,7 @@ def _navigation_descriptors(
         summary="Choose semantic objects, supporting builders, checks, or current catalog access.",
         members=(
             _navigation_route("object meaning and construction", _target("objects")),
+            _navigation_route("compose row and Metric expressions", _target("expressions")),
             _navigation_route("supporting parameter or handle", _target("builders")),
             _navigation_route("inspection or proof need", _target("checks")),
             _navigation_route("load current project", _target("load"), owns_discovery=False),
@@ -1294,8 +1301,8 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("authoring"),
             action=(
-                "Move the declaration into the semantic project and load it through ms.load(); "
-                "do not call source-mutating constructors directly from a REPL."
+                "Move physical capture and ms.finalize() into a semantic model loaded through "
+                "ms.load(); compose pure declarations from resolved values after finalization."
             ),
             snippet=(
                 "# models/semantic/<domain>/<module>.py\n"
@@ -1324,19 +1331,20 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
             kind="reauthor",
             help_target=_target("bind"),
             action=(
-                "Assign an exact Dimension, TimeDimension, or Measure Ref to a module-level "
+                "Assign a captured field Ref or finalized physical field value to a module-level "
                 "name before the decorator, then pass that bare name to ms.bind. For a "
-                "cross-file field, use ms.ref.<kind>(the field's exact existing path)."
+                "cross-file field, use ms.ref.<kind>(the field's exact existing path). "
+                "Use ms.bind only in the retained Ibis Dimension/TimeDimension bodies."
             ),
             preserves_evidence=True,
         ),
         SemanticRepairContract(
             error_kind="missing_time_fold",
             kind="reauthor",
-            help_target=_target("additive_all"),
+            help_target=_target("Metric.per"),
             action=(
                 "Keep the sampled status_time_dimension in additive_all(except_=...) "
-                "and declare status_time_fold with the required business aggregation."
+                "and express the temporal reduction with per(time_field).reducer()."
             ),
             preserves_evidence=True,
         ),
@@ -1377,7 +1385,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="invalid_filter",
             kind="reauthor",
-            help_target=_target("where"),
+            help_target=_target("Metric.where"),
             action=(
                 "Declare every filter dimension on the metric's target entity, then use "
                 "one finite scalar equality value or a non-empty tuple/list of finite "
@@ -1387,8 +1395,8 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
                 "status = ms.dimension_column(\n"
                 "    name='status', entity=orders, column='physical_status'\n"
                 ")\n"
-                "failed = ms.count(\n"
-                "    name='failed', entity=orders, filter=ms.where(status=('FAILED', 'ERROR'))\n"
+                "failed = orders.count().where(\n"
+                "    (status == 'FAILED') | (status == 'ERROR')\n"
                 ")"
             ),
             preserves_evidence=True,
@@ -1396,7 +1404,7 @@ def _repair_contracts() -> Mapping[str, SemanticRepairContract]:
         SemanticRepairContract(
             error_kind="filter_value_runtime_incompatible",
             kind="user_choice",
-            help_target=_target("where"),
+            help_target=_target("Metric.where"),
             action=(
                 "Preserve the authored filter literals. Do not replace business codes with "
                 "physical labels or other sampled values. Ask the user or accountable business "
@@ -1727,7 +1735,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
             descriptor = registry.by_canonical_id(mode.target.canonical_id or "")
             if not isinstance(descriptor, AuthoringCapability):
                 raise ValueError(f"semantic construction target is not exact: {kind.value}")
-            if descriptor.output_family != expected_ref_family:
+            if descriptor.output_family not in contract.construction_families:
                 raise ValueError(f"semantic construction output-kind drift: {kind.value}")
 
         supporting_ids = tuple(target.canonical_id or "" for target in contract.supporting_targets)
@@ -2090,6 +2098,196 @@ def _source_check_factory_capabilities() -> tuple[AuthoringCapability, ...]:
     )
 
 
+def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
+    """Canonical receiver contracts; dispatch never depends on method spelling alone."""
+    rows: list[AuthoringCapability] = [
+        _capability(
+            "finalize",
+            "marivo.semantic.expressions.finalize",
+            "Close physical capture after every dependency is declared. Assembly closes default-time, coordinate and retained Ibis dependencies. Constructed inputs resolve by kind/path in this scope without original-version matching; Refs retain forward-reference semantics. Resolve captured Refs from this immutable result. No module replay, source reads, Metric publication or execution. Closed scopes reject later declarations.",
+            output="FinalizedDeclarations",
+            effects=_NONE,
+            example="finalized = ms.finalize()",
+            see_also=(_target("FinalizedDeclarations.resolve"),),
+        ),
+        _capability(
+            "FinalizedDeclarations.resolve",
+            "marivo.semantic.expressions.FinalizedDeclarations.resolve",
+            "Resolve a physical capture Ref into the exact Entity, Dimension, TimeField, Measure or Relationship value in this frozen scope. Default time, permission coordinates and retained Ibis dependencies come from the complete closure. A missing key requires recapturing before finalization.",
+            kind="method",
+            output="Entity | Dimension | TimeField | Measure | Relationship",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="FinalizedDeclarations"),
+                _parameter_input("dependency", "Ref", "target"),
+            ),
+            effects=_NONE,
+            example="amount = finalized.resolve(amount_ref)",
+            public_entrypoint="finalized.resolve",
+            see_also=(_target("finalize"), _target("expressions")),
+        ),
+        _capability(
+            "Measure.show",
+            "marivo.semantic.expressions._ExpressionDisplay.show",
+            "Print bounded construction metadata for an immutable expression: its stage, roots and available facts. Shared by Entity, fields, row expressions, Metrics, samples, predicates and Relationships. Does not read business data, publish a Catalog definition or execute a query.",
+            kind="method",
+            output="None",
+            inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
+            effects=_NONE,
+            example="amount.show()",
+            public_entrypoint="amount.show",
+            see_also=(_target("expressions"),),
+        ),
+        _capability(
+            "FinalizedDeclarations.show",
+            "marivo.semantic.expressions.FinalizedDeclarations.show",
+            "Print the frozen physical definition count and how to resolve captured lookup keys. Does not read source data, publish Catalog Metrics or execute a query.",
+            kind="method",
+            output="None",
+            inputs=(AuthoringInputRequirement(role="receiver", family="FinalizedDeclarations"),),
+            effects=_NONE,
+            example="finalized.show()",
+            public_entrypoint="finalized.show",
+            see_also=(_target("FinalizedDeclarations.resolve"),),
+        ),
+        _capability(
+            "Dimension.is_null",
+            "marivo.semantic.expressions._FieldComparisons.is_null",
+            "Construct a missing-value predicate on a native categorical, time, or numeric field. "
+            "The predicate retains the field's exact version and contribution root. "
+            "Use it in a single source Metric.where(...); routed TimeFields are time roles only.",
+            kind="method",
+            output="Predicate",
+            inputs=(AuthoringInputRequirement(role="receiver", family="Field"),),
+            effects=_NONE,
+            example="region.is_null()",
+            public_entrypoint="region.is_null",
+            see_also=(_target("expressions"),),
+        ),
+    ]
+    for prefix, owner, family, methods in (
+        (
+            "row",
+            "Measure",
+            "NumericRowExpr",
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+                "divide",
+            ),
+        ),
+        ("Metric", "Metric", "Metric", ("where", "per", "divide")),
+        (
+            "MetricSamples",
+            "MetricSamples",
+            "MetricSamples",
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+            ),
+        ),
+        ("Entity", "Entity", "Entity", ("count",)),
+        ("TimeField", "TimeField", "TimeField", ("via",)),
+    ):
+        for method in methods:
+            output = (
+                "MetricSamples"
+                if method == "per"
+                else "TimeField"
+                if method == "via"
+                else "NumericRowExpr"
+                if prefix == "row" and method == "divide"
+                else "Metric"
+            )
+            inputs = [AuthoringInputRequirement(role="receiver", family=family)]
+            if prefix == "row":
+                if method == "divide":
+                    inputs.append(_parameter_input("dependency", "NumericRowExpr", "other"))
+                    example = "amount.divide(cost, zero_denominator='error')"
+                else:
+                    inputs.append(
+                        _parameter_input("dependency", "TimeField", "time", optional=True)
+                    )
+                    argument = (
+                        "0.95, "
+                        if method == "quantile"
+                        else "weight=quantity, "
+                        if method == "weighted_mean"
+                        else ""
+                    )
+                    example = f"amount.{method}({argument}time=paid_at)"
+            elif prefix == "MetricSamples":
+                argument = (
+                    "0.95"
+                    if method == "quantile"
+                    else "weight=order_count"
+                    if method == "weighted_mean"
+                    else ""
+                )
+                example = f"samples = revenue.per(customer_id)\nsamples.{method}({argument})"
+            elif prefix == "Metric":
+                parameter, input_family, example = {
+                    "where": ("predicate", "Predicate", "revenue.where(status == 'paid')"),
+                    "per": ("samples", "Dimension", "revenue.per(customer_id)"),
+                    "divide": ("other", "Metric", "revenue.divide(order_count)"),
+                }[method]
+                inputs.append(_parameter_input("dependency", input_family, parameter))
+            elif prefix == "Entity":
+                inputs.append(_parameter_input("dependency", "TimeField", "time", optional=True))
+                example = "orders.count(time=paid_at)"
+            else:
+                inputs.append(_parameter_input("dependency", "Relationship", "path"))
+                example = "payment_time.via((orders_to_payments,))"
+            if method == "quantile":
+                inputs.append(_parameter_input("dependency", "Number", "q"))
+            if method == "weighted_mean":
+                inputs.append(
+                    _parameter_input(
+                        "dependency",
+                        "Metric" if prefix == "MetricSamples" else "NumericRowExpr",
+                        "weight",
+                    )
+                )
+            if method in {"divide", "weighted_mean"}:
+                inputs.append(
+                    _parameter_input("dependency", "Text", "zero_denominator", optional=True)
+                )
+            if prefix in {"row", "MetricSamples"} and method not in {
+                "divide",
+                "count",
+                "count_distinct",
+            }:
+                inputs.append(_parameter_input("dependency", "Text", "nulls", optional=True))
+            rows.append(
+                _capability(
+                    f"{prefix}.{method}",
+                    f"marivo.semantic.expressions.{'_Countable' if prefix == 'row' and method in {'count', 'count_distinct'} else '_RowArithmetic' if prefix == 'row' else owner}.{method}",
+                    "Construct an immutable expression at this receiver's stage; no registration or business source reads. sum requires business permission; where accepts only a single source contribution scope; per must be followed by a sample reducer. Divide defaults to null for a zero denominator; explicit error stays on this operation.",
+                    kind="method",
+                    output=output,
+                    inputs=tuple(inputs),
+                    effects=_NONE,
+                    example=example,
+                    public_entrypoint=f"{'amount' if prefix == 'row' else 'samples' if prefix == 'MetricSamples' else 'revenue' if prefix == 'Metric' else 'orders' if prefix == 'Entity' else 'payment_time'}.{method}",
+                    see_also=(_target("expressions"),),
+                )
+            )
+    return tuple(rows)
+
+
 def _build_registry() -> SemanticCapabilityRegistry:
     """Build the immutable semantic descriptor catalog from live callables."""
     descriptor_rows = (
@@ -2348,24 +2546,25 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "measure",
             "marivo.semantic._authoring_decorators.measure",
-            "Declare a calculated measure on an entity." + _ADDITIVITY_HELP,
-            output="Ref[measure]",
+            "Name a pure numeric row expression. Omitted unit/additivity inherit facts; new assertions preserve compatible units and fixed time constraints. Additivity selects existing axes in the frozen row scope by kind/path, without original-version matching. Naming and ai_context do not change computation. No loader, registration or source access.",
+            output="Measure",
             inputs=(
-                _parameter_input("mapping_key", "MeasureName", "name", optional=True),
-                _parameter_input("subject", "Ref[entity]", "entity"),
-                _parameter_input("dependency", "Additivity", "additivity"),
-                _parameter_input(
-                    "dependency", "Ref[time_dimension]", "status_time_dimension", optional=True
-                ),
-                _parameter_input("dependency", "TimeFold", "status_time_fold", optional=True),
+                _parameter_input("dependency", "Text", "unit", optional=True),
+                _parameter_input("dependency", "Additivity", "additivity", optional=True),
+                _parameter_input("dependency", "AiContextValue", "ai_context", optional=True),
             ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
+            effects=_NONE,
+            constraints=("ast_single_return", "ast_forbidden_statement"),
             example=(
-                "@ms.measure(name='amount', entity=orders, additivity=ms.additive_all())\n"
-                "def amount(rows):\n"
-                "    return rows.amount"
+                "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
+                "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
+                "finalized = ms.finalize()\n"
+                "quantity = finalized.resolve(quantity)\n"
+                "unit_price = finalized.resolve(unit_price)\n"
+                "@ms.measure(additivity=ms.additive_all())\n"
+                "def order_amount():\n    return quantity * unit_price"
             ),
+            see_also=(_target("measure_column"), _target("metric")),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2381,7 +2580,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input(
                     "dependency", "Ref[time_dimension]", "status_time_dimension", optional=True
                 ),
-                _parameter_input("dependency", "TimeFold", "status_time_fold", optional=True),
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
@@ -2389,160 +2587,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "amount = ms.measure_column("
                 "name='amount', entity=orders, column='amount', additivity=ms.additive_all())"
             ),
-        ),
-        _capability(
-            "aggregate",
-            "marivo.semantic._authoring_declarations.aggregate",
-            (
-                "Declare an aggregate Metric; agg owns exact/approximate intent. "
-                "count_distinct, median and percentile require exact operations; approx_* "
-                "explicitly permits approximation. Backend support is required: scoped "
-                "readiness blocks known incompatibilities without connecting, and execution "
-                "never substitutes the definition. "
-                "Filters name dimensions on the Measure's Entity. unit= overrides the "
-                "derived unit; omitted units inherit the Measure's unit for value aggregates "
-                "and derive '1' for count/count_distinct/approx_count_distinct. ms.count "
-                "counts Entity rows with fixed unit '1' and accepts no unit= parameter."
-            ),
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "Ref[measure]", "measure"),
-                _parameter_input("dependency", "AggFunc", "agg"),
-                _parameter_input("dependency", "Ref[time_dimension]", "time", optional=True),
-                _parameter_input(
-                    "dependency", "tuple[Ref[relationship], ...]", "time_via", optional=True
-                ),
-                _parameter_input("dependency", "NullInputPolicyV1", "nulls", optional=True),
-                _parameter_input("dependency", "EmptyContributionPolicyV1", "empty", optional=True),
-                _parameter_input("dependency", "TimeFold", "fold", optional=True),
-                _parameter_input("dependency", "WhereFilter", "filter", optional=True),
-                _parameter_input("dependency", "Unit", "unit", optional=True),
-            ),
-            effects=_AUTHOR,
-            constraints=(
-                "active_loader_context",
-                "composition_shape",
-                "measure_aggregation_valid",
-                "time_fold_valid",
-                "time_fold_requires_semi_additive",
-            ),
-            example=(
-                "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
-                "us_revenue = ms.aggregate(name='us_revenue', measure=amount, agg='sum', "
-                "filter=ms.where(region='US'))"
-            ),
-            see_also=(_target("count"), _target("where"), _target("readiness")),
-        ),
-        _capability(
-            "count",
-            "marivo.semantic._authoring_declarations.count",
-            (
-                "Declare a row-count metric on an Entity. Counting has fixed unit '1' "
-                "(unit one), so count accepts no unit= parameter. Entity identity and the "
-                "metric definition describe what is counted. Filters name declared local "
-                "Dimensions on this Entity. Use aggregate for Measure aggregation and its "
-                "optional unit override."
-            ),
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "Ref[entity]", "entity"),
-                _parameter_input("dependency", "Ref[time_dimension]", "time", optional=True),
-                _parameter_input("dependency", "WhereFilter", "filter", optional=True),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "composition_shape"),
-            example=(
-                "state = ms.dimension_column(name='state', entity=orders, column='state')\n"
-                "failed = ms.count(name='failed', entity=orders, filter=ms.where(state='FAILED'))"
-            ),
-            see_also=(_target("aggregate"), _target("where")),
-        ),
-        _capability(
-            "where",
-            "marivo.semantic._authoring_declarations.where",
-            (
-                "Build an AND filter over declared local dimensions; scalars mean "
-                "equality and non-empty tuple/list values mean membership. Each keyword "
-                "must name a declared Dimension on count's Entity or aggregate's Measure "
-                "Entity, never a physical column or a dimension reached through a relationship."
-            ),
-            output="WhereFilter",
-            inputs=(AuthoringInputRequirement(role="subject", family="FilterConditions"),),
-            effects=_NONE,
-            constraints=("filter_condition_valid",),
-            example=(
-                "state = ms.dimension_column(name='state', entity=orders, column='state')\n"
-                "region = ms.dimension_column(name='region', entity=orders, column='region')\n"
-                "failed = ms.count(\n"
-                "    name='failed', entity=orders,\n"
-                "    filter=ms.where(state=('FAILED', 'ERROR'), region='US'),\n"
-                ")"
-            ),
-            see_also=(_target("count"), _target("aggregate")),
-        ),
-        _capability(
-            "cumulative",
-            "marivo.semantic._authoring_metrics.cumulative",
-            "Declare a cumulative derived metric.",
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "Ref[metric]", "base"),
-                _parameter_input("dependency", "AnchorSpec", "anchor", optional=True),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "cumulative_anchor"),
-            example=(
-                "import marivo.analysis as mv\n"
-                "mtd_revenue = ms.cumulative(name='mtd_revenue', base=revenue, "
-                "anchor=ms.grain_to_date(grain=mv.grain('month')))"
-            ),
-        ),
-        _capability(
-            "ratio",
-            "marivo.semantic._authoring_metrics.ratio",
-            "Declare a recursively composable ratio metric; each lowered node is validated independently.",
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "Ref[metric]", "numerator"),
-                _parameter_input("dependency", "Ref[metric]", "denominator"),
-                _parameter_input(
-                    "dependency", "ZeroDenominatorPolicyV1", "zero_denominator", optional=True
-                ),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "composition_shape"),
-            example="profit_ratio = ms.ratio(name='profit_ratio', numerator=revenue, denominator=cost)",
-        ),
-        _capability(
-            "weighted_mean",
-            "marivo.semantic._authoring_declarations.weighted_mean",
-            "Declare a weighted mean of same-row numeric measures; types may differ and native rounding applies.",
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "Ref[measure]", "value"),
-                _parameter_input("dependency", "Ref[measure]", "weight"),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "measure_aggregation_valid"),
-            example="avg_price = ms.weighted_mean(name='avg_price', value=unit_price, weight=volume)",
-        ),
-        _capability(
-            "linear",
-            "marivo.semantic._authoring_metrics.linear",
-            "Declare a recursively composable linear metric with commensurable term checks.",
-            output="Ref[metric]",
-            inputs=(
-                _parameter_input("mapping_key", "MetricName", "name"),
-                _parameter_input("subject", "LinearTerm", "add"),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "composition_shape", "linear_unit_commensurable"),
-            example="net_revenue = ms.linear(name='net_revenue', add=[revenue], subtract=[refund])",
         ),
         _capability(
             "relationship",
@@ -2582,79 +2626,40 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # ------------------------------------------------------------------
         _capability(
             "bind",
-            "marivo.semantic._expression_binding.bind",
-            (
-                "Apply a semantic field definition, not a physical column, to a direct Entity "
-                "parameter. Pass a bare name holding an exact field Ref before decoration. "
-                "For cross-file fields, assign ms.ref.<kind>(path) at module scope; no import "
-                "of the declaration module is needed. The target must exist and belong to "
-                "the bound Entity. Bare names enable static dependency/ownership checks. "
-                "Inline "
-                "ms.bind(rows.amount, rows), ms.bind(factory('amount'), rows), and "
-                "ms.bind(ms.ref.measure('sales.orders.amount'), rows) are invalid. "
-                "The second argument cannot be a transformed table or a local alias."
-            ),
+            "marivo.semantic._authoring_values.bind",
+            "Apply a constructed leaf field or explicit lookup Ref to a direct Entity table parameter inside a restricted Ibis Dimension/TimeDimension declaration. Finalization checks kind and ownership in the completed consumer scope; lookup Refs allow forward dependencies. Pure Measure/Metric bodies use constructed fields directly.",
             output="IbisValue",
             inputs=(
                 _parameter_input("subject", "Ref[dimension | time_dimension | measure]", "field"),
-                _parameter_input("dependency", "EntityAlias", "entity_alias"),
+                _parameter_input("dependency", "IbisTable", "entity_alias"),
             ),
             effects=_NONE,
-            constraints=("expression_binding",),
-            example=(
-                "# Consumer module; the Entity and Dimension are declared in another file.\n"
-                "query_info = ms.ref.entity('trino_query.trino_query_info')\n"
-                "state = ms.ref.dimension('trino_query.trino_query_info.state')\n"
-                "@ms.metric(name='failed_segments', entities=[query_info], additivity=ms.additive_all())\n"
-                "def failed_segments(rows):\n"
-                "    return (ms.bind(state, rows) == 'FAILED').cast('int64').sum()"
-            ),
-            see_also=(_target("metric"), _target("ref.dimension"), _target("ref.measure")),
+            constraints=("ast_single_return", "ref_shape"),
+            example="@ms.dimension(entity=orders)\ndef has_amount(rows):\n    return ms.bind(amount, rows) > 0",
+            see_also=(_target("dimension"), _target("time_dimension")),
         ),
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            (
-                "Declare a base metric with an expression body. Use ms.bind(field_ref, rows) "
-                "to consume a declared semantic field, including its calculated expression; "
-                "rows.amount accesses the physical source column and bypasses that definition. "
-                "A status_time_dimension must be fixed in additive_all(except_=...). "
-                "status_time_fold requires that axis and is required for sampled status time; "
-                "non-sampled status declarations may omit the fold."
-            ),
-            output="Ref[metric]",
+            "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions and a leading docstring are allowed; arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
+            output="Metric",
             inputs=(
-                _parameter_input("mapping_key", "MetricName", "name", optional=True),
-                _parameter_input("subject", "Ref[entity]", "entities"),
-                _parameter_input("dependency", "Ref[time_dimension]", "time", optional=True),
-                _parameter_input("dependency", "Unit", "unit", optional=True),
-                _parameter_input("dependency", "Additivity", "additivity"),
-                _parameter_input(
-                    "dependency", "Ref[time_dimension]", "status_time_dimension", optional=True
-                ),
-                _parameter_input("dependency", "TimeFold", "status_time_fold", optional=True),
-                _parameter_input("dependency", "ValuePolicy", "nulls", optional=True),
-                _parameter_input("dependency", "ValuePolicy", "empty", optional=True),
-                _parameter_input("dependency", "ValuePolicy", "zero_denominator", optional=True),
+                _parameter_input("dependency", "Ref[domain]", "domain", optional=True),
+                _parameter_input("dependency", "AiContextValue", "ai_context", optional=True),
             ),
-            effects=_AUTHOR,
-            constraints=(
-                "active_loader_context",
-                "ast_single_return",
-                "ast_forbidden_statement",
-                "metric_entities_required",
-                "metric_additivity_required",
-                "expression_binding",
-            ),
+            effects=_NONE,
+            constraints=("ast_single_return", "ast_forbidden_statement"),
             example=(
-                "@ms.measure(name='amount', entity=orders, additivity=ms.additive_all())\n"
-                "def amount(rows):\n"
-                "    return rows.price * rows.quantity\n"
-                "@ms.metric(name='revenue', entities=[orders], additivity=ms.additive_all())\n"
-                "def revenue(rows):\n"
-                "    return ms.bind(amount, rows).sum()"
+                "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
+                "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
+                "finalized = ms.finalize()\n"
+                "quantity = finalized.resolve(quantity)\n"
+                "unit_price = finalized.resolve(unit_price)\n"
+                "@ms.measure(additivity=ms.additive_all())\n"
+                "def amount():\n    return quantity * unit_price\n"
+                "@ms.metric()\ndef revenue():\n    return amount.sum()"
             ),
-            see_also=(_target("bind"), _target("additive_all")),
+            see_also=(_target("measure"), _target("expressions")),
             invocation_shape="decorator",
         ),
         _capability(
@@ -2690,24 +2695,26 @@ def _build_registry() -> SemanticCapabilityRegistry:
         ),
         _capability(
             "additive",
-            "marivo.semantic._dsl_authoring.additive",
+            "marivo.semantic._authoring_values.additive",
             "Declare exactly the native coordinates on which values may be added.",
             output="Additivity",
             inputs=(_parameter_input("dependency", "Ref[dimension | time_dimension]", "over"),),
             effects=_AUTHOR,
+            constraints=("ref_shape",),
             example="ms.additive(over=(region,))",
         ),
         _capability(
             "additive_all",
-            "marivo.semantic._dsl_authoring.additive_all",
+            "marivo.semantic._authoring_values.additive_all",
             (
                 "Declare additivity on all native coordinates except fixed axes. except_ "
                 "alone declares fixed coordinates, not a time fold. For a status fact, the "
                 "Measure or Metric declares status_time_dimension as a time axis in except_. "
-                "status_time_fold requires that axis; sampled status time requires the fold, "
+                "Temporal reduction is explicit in per(time_field).reducer(); "
                 "while non-sampled status time may omit it."
             ),
             output="Additivity",
+            constraints=("ref_shape",),
             inputs=(
                 _parameter_input(
                     "dependency", "Ref[dimension | time_dimension]", "except_", optional=True
@@ -2723,7 +2730,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "quantity = ms.measure_column(\n"
                 "    name='quantity', entity=inventory, column='quantity',\n"
                 "    additivity=ms.additive_all(except_=(sample_time,)),\n"
-                "    status_time_dimension=sample_time, status_time_fold='last',\n"
+                "    status_time_dimension=sample_time,\n"
                 ")"
             ),
             see_also=(_target("measure_column"), _target("metric")),
@@ -2735,66 +2742,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="Additivity",
             effects=_AUTHOR,
             example="ms.non_additive()",
-        ),
-        _capability(
-            "nulls",
-            "marivo.semantic._dsl_authoring._Nulls.ignore",
-            "Declare whether aggregate inputs ignore or reject Null.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.nulls.ignore()",
-            public_entrypoint="ms.nulls.ignore",
-            telemetry=False,
-        ),
-        _capability(
-            "nulls.reject",
-            "marivo.semantic._dsl_authoring._Nulls.reject",
-            "Reject aggregate inputs that contain Null.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.nulls.reject()",
-            public_entrypoint="ms.nulls.reject",
-            telemetry=False,
-        ),
-        _capability(
-            "empty",
-            "marivo.semantic._dsl_authoring._Empty.null",
-            "Declare the value of a complete empty contribution.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.empty.null()",
-            public_entrypoint="ms.empty.null",
-            telemetry=False,
-        ),
-        _capability(
-            "empty.zero",
-            "marivo.semantic._dsl_authoring._Empty.zero",
-            "Use zero for a complete empty contribution.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.empty.zero()",
-            public_entrypoint="ms.empty.zero",
-            telemetry=False,
-        ),
-        _capability(
-            "zero_denominator",
-            "marivo.semantic._dsl_authoring._ZeroDenominator.undefined",
-            "Declare how a zero denominator is handled.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.zero_denominator.undefined()",
-            public_entrypoint="ms.zero_denominator.undefined",
-            telemetry=False,
-        ),
-        _capability(
-            "zero_denominator.error",
-            "marivo.semantic._dsl_authoring._ZeroDenominator.error",
-            "Reject a zero denominator during an admitted division method.",
-            output="ValuePolicy",
-            effects=_AUTHOR,
-            example="ms.zero_denominator.error()",
-            public_entrypoint="ms.zero_denominator.error",
-            telemetry=False,
         ),
         _capability(
             "datetime",
@@ -2831,33 +2778,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             constraints=("time_granularity_parse_compatible",),
             example="ms.hour_prefix(log_date)",
-        ),
-        _capability(
-            "grain_to_date",
-            "marivo.semantic._authoring_metrics.grain_to_date",
-            (
-                "Build a grain-to-date cumulative anchor specification from a builtin reset "
-                "granularity or a certified semantic Grain."
-            ),
-            output="GrainToDate",
-            inputs=(_parameter_input("dependency", "Granularity | Grain", "grain"),),
-            effects=_AUTHOR,
-            constraints=("cumulative_anchor",),
-            example=(
-                "ms.grain_to_date("
-                "grain=ms.calendar_grain("
-                "calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month'))"
-            ),
-        ),
-        _capability(
-            "trailing",
-            "marivo.semantic._authoring_metrics.trailing",
-            "Build a trailing window cumulative anchor specification.",
-            output="TrailingSpec",
-            inputs=(_parameter_input("dependency", "PositiveInt", "count"),),
-            effects=_AUTHOR,
-            constraints=("cumulative_anchor",),
-            example="ms.trailing(count=7, unit='day')",
         ),
         # ------------------------------------------------------------------
         # scoped runtime observations and health
@@ -3064,6 +2984,27 @@ def _build_registry() -> SemanticCapabilityRegistry:
             public_entrypoint="collection.get",
         ),
     )
+    descriptor_rows = tuple(
+        row.model_copy(
+            update={
+                "summary": row.summary
+                + " Capture returns a typed lookup Ref; after all physical declarations call ms.finalize(), then finalized.resolve(ref) before composition."
+            }
+        )
+        if row.canonical_id
+        in {
+            "entity",
+            "dimension",
+            "dimension_column",
+            "measure_column",
+            "time_dimension",
+            "time_dimension_column",
+            "relationship",
+        }
+        else row
+        for row in descriptor_rows
+    )
+    descriptor_rows = (*descriptor_rows, *_expression_capabilities())
     object_contracts = _object_contracts()
     builder_topics = _builder_topics()
     return _finalize_registry(
@@ -3073,6 +3014,38 @@ def _build_registry() -> SemanticCapabilityRegistry:
         repair_contracts=_repair_contracts(),
         help_descriptors=(
             *descriptor_rows,
+            *(
+                SemanticBuilderTopic(
+                    canonical_id=f"expressions.{prefix}",
+                    label=prefix,
+                    summary="Choose the operation on this constructed receiver; focused Help owns its exact signature.",
+                    members=tuple(
+                        _target(row.canonical_id)
+                        for row in descriptor_rows
+                        if row.canonical_id.startswith(prefix + ".")
+                    ),
+                )
+                for prefix in ("row", "Metric", "MetricSamples")
+            ),
+            SemanticNavigationTopic(
+                canonical_id="expressions",
+                summary="Constructed fields retain kinds and consumed definition identities. Row arithmetic uses one contribution root; reduce before Metric arithmetic. Numeric Dimensions never gain sum permission. Per produces internal samples; finish with a reducer. Bare Refs are lookup keys. Local declarations do not publish Catalog Metrics or execute queries.",
+                members=tuple(
+                    _navigation_route(label, _target(target))
+                    for label, target in (
+                        ("close physical capture", "finalize"),
+                        ("resolve captured Refs", "FinalizedDeclarations.resolve"),
+                        ("inspect constructed expressions", "Measure.show"),
+                        ("inspect finalized declarations", "FinalizedDeclarations.show"),
+                        ("numeric source reductions", "expressions.row"),
+                        ("complete row counts", "Entity.count"),
+                        ("sample reductions", "expressions.MetricSamples"),
+                        ("Metric operations", "expressions.Metric"),
+                        ("cross-Entity time", "TimeField.via"),
+                        ("field missing-value predicates", "Dimension.is_null"),
+                    )
+                ),
+            ),
             *_navigation_descriptors(object_contracts, builder_topics),
         ),
         object_contracts=object_contracts,
@@ -3092,7 +3065,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         WorkScheduleKind,
     )
     from marivo.refs import ref as ref_factory
-    from marivo.semantic._authoring_metrics import GrainToDate
     from marivo.semantic._authoring_temporal import PeriodCorrespondence
     from marivo.semantic.catalog import (
         CalendarLevelDetails,
@@ -3198,14 +3170,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
         example="catalog = ms.load()\ndefinition = catalog.metrics.get('sales.revenue').details().definition\npayload = definition.to_dict()",
     )
-    add(
-        GrainToDate,
-        "GrainToDate",
-        ("grain_to_date",),
-        properties=("grain", "kind"),
-    )
 
-    # Catalog types
     add(
         SemanticCatalog,
         "SemanticCatalog",
@@ -3544,27 +3509,135 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
         methods=("to_dict",),
     )
+    from marivo.semantic.expressions import (
+        DeclaredMeasure,
+        DeclaredMetric,
+        Dimension,
+        Entity,
+        FinalizedDeclarations,
+        Measure,
+        Metric,
+        MetricSamples,
+        NumericRowExpr,
+        Predicate,
+        Relationship,
+        TimeField,
+    )
+
+    for expression_type, family, producers, methods in (
+        (Entity, "Entity", ("FinalizedDeclarations.resolve",), ("count", "show")),
+        (
+            Dimension,
+            "Dimension",
+            ("FinalizedDeclarations.resolve",),
+            ("count", "count_distinct", "is_null", "show"),
+        ),
+        (
+            TimeField,
+            "TimeField",
+            ("FinalizedDeclarations.resolve",),
+            ("via", "count", "count_distinct", "is_null", "show"),
+        ),
+        (
+            Measure,
+            "Measure",
+            ("FinalizedDeclarations.resolve",),
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+                "divide",
+                "show",
+            ),
+        ),
+        (
+            NumericRowExpr,
+            "NumericRowExpr",
+            (),
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+                "divide",
+                "show",
+            ),
+        ),
+        (
+            DeclaredMeasure,
+            "DeclaredMeasure",
+            ("measure",),
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+                "divide",
+                "show",
+            ),
+        ),
+        (Metric, "Metric", (), ("where", "per", "divide", "show")),
+        (DeclaredMetric, "DeclaredMetric", ("metric",), ("where", "per", "divide", "show")),
+        (
+            MetricSamples,
+            "MetricSamples",
+            ("Metric.per",),
+            (
+                "sum",
+                "mean",
+                "min",
+                "max",
+                "median",
+                "quantile",
+                "weighted_mean",
+                "count",
+                "count_distinct",
+                "show",
+            ),
+        ),
+        (Relationship, "Relationship", ("FinalizedDeclarations.resolve",), ("show",)),
+        (Predicate, "Predicate", (), ("show",)),
+    ):
+        add(
+            expression_type,
+            family,
+            producers,
+            methods=methods,
+            notes=(
+                "Immutable construction value; local declarations do not publish Catalog Metrics or execute a query.",
+            ),
+        )
+    add(
+        FinalizedDeclarations,
+        "FinalizedDeclarations",
+        ("finalize",),
+        methods=("resolve", "show"),
+        notes=(
+            "Physical capture is closed. Values have immutable complete dependency versions; local Metric publication and execution remain separate capabilities.",
+        ),
+    )
     # Identity types
     add(
         Ref,
         "Ref",
         (
             "domain",
-            "entity",
-            "dimension",
-            "dimension_column",
-            "time_dimension",
-            "time_dimension_column",
-            "measure",
-            "measure_column",
-            "aggregate",
-            "count",
-            "cumulative",
-            "ratio",
-            "weighted_mean",
-            "linear",
-            "metric",
-            "relationship",
             "period_calendar",
             "temporal_set",
             "work_schedule",
@@ -3640,6 +3713,7 @@ def _error_types() -> Mapping[str, type]:
         SemanticDecoratorError,
         SemanticDefinitionReadError,
         SemanticError,
+        SemanticExpressionError,
         SemanticHelpTargetError,
         SemanticLoadError,
         SemanticLoadFailed,
@@ -3649,6 +3723,7 @@ def _error_types() -> Mapping[str, type]:
     return MappingProxyType(
         {
             "SemanticError": SemanticError,
+            "SemanticExpressionError": SemanticExpressionError,
             "SemanticDecoratorError": SemanticDecoratorError,
             "SemanticDefinitionReadError": SemanticDefinitionReadError,
             "SemanticLoadError": SemanticLoadError,

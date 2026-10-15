@@ -18,7 +18,12 @@ Public surface::
         additivity=ms.additive_all(), unit="USD",
     )
 
-    revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+    finalized = ms.finalize()
+    amount = finalized.resolve(amount)
+
+    @ms.metric()
+    def revenue():
+        return amount.sum()
 """
 
 from __future__ import annotations
@@ -34,34 +39,26 @@ from marivo.refs import (
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic.authoring import (
-    GrainToDate,
     PeriodCorrespondence,
     additive,
     additive_all,
-    aggregate,
     ai_context,
     bind,
     calendar_grain,
-    count,
-    cumulative,
     datetime,
     dimension,
     dimension_column,
     domain,
-    empty,
     entity,
-    grain_to_date,
+    finalize,
     hour_prefix,
     join_on,
-    linear,
     measure,
     measure_column,
     metric,
     non_additive,
-    nulls,
     period_calendar,
     period_correspondence,
-    ratio,
     relationship,
     snapshot,
     strptime,
@@ -69,12 +66,44 @@ from marivo.semantic.authoring import (
     time_dimension,
     time_dimension_column,
     timestamp,
-    trailing,
     validity,
-    weighted_mean,
-    where,
     work_schedule,
-    zero_denominator,
+)
+from marivo.semantic.authoring import (
+    aggregate as aggregate,
+)
+from marivo.semantic.authoring import (
+    count as count,
+)
+from marivo.semantic.authoring import (
+    cumulative as cumulative,
+)
+from marivo.semantic.authoring import (
+    empty as empty,
+)
+from marivo.semantic.authoring import (
+    grain_to_date as grain_to_date,
+)
+from marivo.semantic.authoring import (
+    linear as linear,
+)
+from marivo.semantic.authoring import (
+    nulls as nulls,
+)
+from marivo.semantic.authoring import (
+    ratio as ratio,
+)
+from marivo.semantic.authoring import (
+    trailing as trailing,
+)
+from marivo.semantic.authoring import (
+    weighted_mean as weighted_mean,
+)
+from marivo.semantic.authoring import (
+    where as where,
+)
+from marivo.semantic.authoring import (
+    zero_denominator as zero_denominator,
 )
 from marivo.semantic.catalog import (
     CalendarLevelDetails,
@@ -113,8 +142,6 @@ from marivo.semantic.definition import SemanticDefinition
 from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import SemanticDefinitionReadError
 from marivo.semantic.ir import (
-    AggregateFoldInput,
-    AggregateFoldValue,
     JoinKey,
 )
 from marivo.semantic.readiness import (
@@ -131,8 +158,6 @@ from marivo.semantic.source_health import (
 from marivo.semantic.typing import AiContextValue
 
 __all__ = [
-    "AggregateFoldInput",
-    "AggregateFoldValue",
     "AiContextValue",
     "CalendarLevelDetails",
     "CalendarPeriodPage",
@@ -147,7 +172,6 @@ __all__ = [
     "DomainEntry",
     "EntityDetails",
     "EntityEntry",
-    "GrainToDate",
     "JoinKey",
     "MeasureDetails",
     "MeasureEntry",
@@ -183,32 +207,25 @@ __all__ = [
     "WorkScheduleKind",
     "additive",
     "additive_all",
-    "aggregate",
     "ai_context",
     "bind",
     "calendar_grain",
-    "count",
-    "cumulative",
     "datetime",
     "dimension",
     "dimension_column",
     "domain",
-    "empty",
     "entity",
     "errors",
-    "grain_to_date",
+    "finalize",
     "hour_prefix",
     "join_on",
-    "linear",
     "load",
     "measure",
     "measure_column",
     "metric",
     "non_additive",
-    "nulls",
     "period_calendar",
     "period_correspondence",
-    "ratio",
     "ref",
     "relationship",
     "snapshot",
@@ -218,13 +235,9 @@ __all__ = [
     "time_dimension",
     "time_dimension_column",
     "timestamp",
-    "trailing",
     "typing",
     "validity",
-    "weighted_mean",
-    "where",
     "work_schedule",
-    "zero_denominator",
 ]
 
 

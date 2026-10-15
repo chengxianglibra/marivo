@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import InitVar, dataclass
-from typing import Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo.refs import DimensionKind, Ref, SemanticKind, TimeDimensionKind
 
+if TYPE_CHECKING:
+    from marivo.semantic.expressions import Dimension, TimeField
+
 _TOKEN = object()
 CoordinateRef: TypeAlias = Ref[DimensionKind | TimeDimensionKind]
+CoordinateInput: TypeAlias = "CoordinateRef | Dimension | TimeField"
 
 
-def _coordinates(values: tuple[CoordinateRef, ...], *, nonempty: bool) -> tuple[str, ...]:
+def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tuple[str, ...]:
     from marivo.semantic.constraints import ConstraintId
     from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+    from marivo.semantic.expressions import Dimension, TimeField
 
     if type(values) is not tuple or (nonempty and not values):
         _raise(
@@ -23,7 +28,10 @@ def _coordinates(values: tuple[CoordinateRef, ...], *, nonempty: bool) -> tuple[
             constraint_id=ConstraintId.REF_SHAPE,
         )
     paths: list[str] = []
-    for value in values:
+    for coordinate in values:
+        if isinstance(coordinate, TimeField):
+            coordinate._require_native(operation="a sum-permission coordinate")
+        value = coordinate.ref.ref if isinstance(coordinate, (Dimension, TimeField)) else coordinate
         if type(value) is not Ref or value.kind not in {
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,
@@ -80,7 +88,7 @@ class NonAdditiveV1:
 AdditivityPolicy: TypeAlias = AdditiveOverV1 | AdditiveAllV1 | NonAdditiveV1
 
 
-def additive(*, over: tuple[CoordinateRef, ...]) -> AdditiveOverV1:
+def additive(*, over: tuple[CoordinateInput, ...]) -> AdditiveOverV1:
     """Declare exactly which native coordinates may be merged.
 
     Args: over: Non-empty tuple of governed Dimension refs.
@@ -91,16 +99,16 @@ def additive(*, over: tuple[CoordinateRef, ...]) -> AdditiveOverV1:
     return AdditiveOverV1(_coordinates(over, nonempty=True), _token=_TOKEN)
 
 
-def additive_all(*, except_: tuple[CoordinateRef, ...] = ()) -> AdditiveAllV1:
+def additive_all(*, except_: tuple[CoordinateInput, ...] = ()) -> AdditiveAllV1:
     """Declare additivity over native coordinates except named fixed axes.
 
     Args: ``except_`` names native coordinates that must remain fixed.
     Returns: A versioned additive policy.
     Example: ``ms.additive_all(except_=(SnapshotAt,))``.
     Constraints: It does not prove contribution partition or coverage. A
-    Measure/Metric status-time axis must occur in ``except_`` and be declared
-    as ``status_time_dimension``. Sampled status time additionally requires
-    ``status_time_fold``; non-sampled status time may omit it. Fixed coordinates
+    physical Measure status-time axis must occur in ``except_`` and be declared
+    as ``status_time_dimension``. Sampling stays on the time field; explicit
+    internal sample reduction owns temporal aggregation. Fixed coordinates
     alone do not require a status declaration.
     """
     return AdditiveAllV1(_coordinates(except_, nonempty=False), _token=_TOKEN)

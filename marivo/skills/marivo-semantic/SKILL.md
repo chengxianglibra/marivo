@@ -101,6 +101,34 @@ without treating one successful check as another check's evidence or as business
 authority. Do not repeat completed checks while their identity and scope remain
 applicable.
 
+## Expression authoring boundary
+
+Physical authoring captures lookup keys before dependency closure. Finalize the
+complete physical scope before consuming immutable values; resolve needed
+fields from that same frozen scope. Keep capture and expression composition in
+order. Missing dependencies are capture repairs, not permission to discard an
+Ibis forward reference or refresh a value already returned.
+Do not require original semantic-definition versions or reject an input solely
+because a same-path definition changed. The agent/user accepts the consequences
+of semantic changes during analysis. Keep kind, root, grain, unit, time-role and
+null checks; fingerprints/cache keys must describe actual consumed definitions,
+and persisted records keep their owning contracts. Resolving consumers use their
+complete scope; this does not refresh immutable values or replay authoring.
+
+Reuse constructed fields and Metrics for both reusable declarations and local
+analysis expressions. A pure zero-argument declaration adds a local business
+name and context; it does not register a Catalog object, execute a query or
+prove backend support. New Measure permission is explicit business authority;
+naming, filtering or arithmetic cannot grant it. Keep known units, contribution
+roots, status-time constraints and sampling contracts with their owners.
+
+Keep restricted Ibis source and categorical/time-field authoring separate from
+pure Measure/Metric bodies. Bare Refs identify lookup inputs. Do not revive old
+Metric factories, table-parameter bodies, default folds or declaration-wide
+value policies; follow the concrete structured reauthoring error. Where model
+publication or execution is unavailable, report that boundary and continue the
+parts of the task that construction and existing leaf checks can establish.
+
 ## Delivery and return to the parent task
 
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass

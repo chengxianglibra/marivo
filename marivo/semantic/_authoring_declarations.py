@@ -1,67 +1,24 @@
-"""Top-level domain and tier-1 metric declarations for semantic authoring.
-
-Internal module: public symbols are re-exported from
-``marivo.semantic.authoring``.
-"""
+"""Domain namespaces and pure local Metric declarations."""
 
 from __future__ import annotations
 
-import hashlib
-import math
 from collections.abc import Callable
-from typing import Any, Literal
+from typing import NoReturn
 
-from marivo.refs import (
-    DomainKind,
-    EntityKind,
-    MeasureKind,
-    MetricKind,
-    Ref,
-    RelationshipKind,
-    SemanticKind,
-    TimeDimensionKind,
-)
-from marivo.refs import (
-    ref as ref_factory,
-)
+from marivo.refs import DomainKind, Ref, SemanticKind
+from marivo.refs import ref as ref_factory
 from marivo.semantic._authoring_context import (
     _caller_location,
-    _check_duplicate,
-    _domain_from_ref_id,
     _push_ir,
     _register_authoring_file,
     _require_ctx,
-    _require_entity_ref,
-    _require_ref_id,
-    _resolve_domain,
-    _resolve_entity_refs,
 )
-from marivo.semantic._authoring_validation import (
-    _compute_agg_hash,
-    _normalize_additivity,
-    _normalize_time_fold,
-    _validate_unit,
-    _validate_value_policies,
-)
+from marivo.semantic._authoring_retired import reject_parameters, retired_factory
 from marivo.semantic._authoring_values import _build_ai_context
-from marivo.semantic._dsl_authoring import (
-    AdditivityPolicy,
-    EmptyContributionPolicyV1,
-    NullInputPolicyV1,
-    ZeroDenominatorPolicyV1,
-)
-from marivo.semantic._expression_binding import compile_expression_body
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
-from marivo.semantic.ir import (
-    AggKind,
-    AggregateFoldInput,
-    DomainIR,
-    MetricIR,
-    WeightedMeanAggregation,
-    WhereFilter,
-    WhereValue,
-)
+from marivo.semantic.expressions import DeclaredMetric, Metric
+from marivo.semantic.ir import DomainIR
 from marivo.semantic.typing import AiContextValue
 
 
@@ -126,550 +83,116 @@ def domain(
     return ref
 
 
-def aggregate(
-    *,
-    name: str,
-    measure: Ref[MeasureKind],
-    agg: AggKind,
-    time: Ref[TimeDimensionKind] | None = None,
-    time_via: tuple[Ref[RelationshipKind], ...] = (),
-    nulls: NullInputPolicyV1 | None = None,
-    empty: EmptyContributionPolicyV1 | None = None,
-    fold: AggregateFoldInput = None,
-    filter: WhereFilter | None = None,
-    unit: str | None = None,
-    domain: Ref[DomainKind] | None = None,
-    ai_context: AiContextValue | None = None,
-) -> Ref[MetricKind]:
-    """Declare a tier-1 simple metric: an aggregation over a measure.
-
-    ``agg`` determines the metric's spatial additivity at load. Independently, a
-    semi-additive ``measure`` contributes its status-time axis and default fold;
-    ``fold`` overrides that temporal fold. No function body.
-
-    Args:
-        name: Metric name (required).
-        measure: Measure to aggregate (``Ref[measure]``).
-        agg: Aggregation kind: ``"sum"``, ``"count"``, ``"count_distinct"``,
-            ``"min"``, ``"max"``, ``"mean"``, ``"median"``, or
-            ``("percentile", q)`` for the q-th percentile across rows in each
-            query group. ``"approx_count_distinct"``, ``"approx_median"`` and
-            ``("approx_percentile", q)`` explicitly permit source-native
-            approximation. Observation never overrides this definition.
-            Unsupported exact operations report the corresponding approximate
-            definition and whether the datasource supports it; no automatic substitution.
-            Loading preserves valid declarations. Scoped catalog.readiness()
-            blocks known aggregate/backend incompatibilities without opening
-            the datasource; passing does not certify a particular analysis operation.
-        time: Business event-time dimension for windowed observation.
-        time_via: Ordered to-one relationships from the measure Entity to the time Entity.
-        nulls: Declared input-Null policy for admitted Analysis methods.
-        empty: Declared complete-empty-contribution policy.
-        fold: Time-axis fold override for semi-additive measures. It does not
-            change aggregation additivity (for example, ``agg="mean"`` remains
-            non-additive while still folding its sampled time series):
-            ``"mean"``, ``"min"``, ``"max"``, ``"first"``, ``"last"``, or
-            ``("percentile", q)``. It collapses the declared status-time axis.
-            Distinct from
-            ``agg=("percentile", q)``, which aggregates across rows in each
-            query group rather than along the time axis.
-        filter: Optional ``ms.where(dimension=value, ...)`` to aggregate only
-            rows matching local semantic dimensions (e.g. a subset sum).
-            ``None`` aggregates all rows.
-        unit: Override the unit derived from ``measure`` at load. Leave None to
-            inherit the measure's unit for value aggregates. Count,
-            count_distinct, and approx_count_distinct derive unit ``"1"``.
-        domain: Override the active domain.
-        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
-
-    Returns:
-        A stable ``Ref[metric]`` for the aggregate declared in the active loader context.
-
-    Example:
-        >>> revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-        >>> inventory = ms.aggregate(name="inventory", measure=quantity, agg="sum", fold="last")
-        >>> p95_latency = ms.aggregate(name="p95_latency", measure=latency, agg=("percentile", 0.95))
-
-    Constraints:
-        Declare inside a loaded domain module. Aggregate exactness belongs to
-        this definition; static readiness checks known backend incompatibilities,
-        while the consuming analysis operation owns physical-type and shape checks.
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-    measure_id = _require_ref_id(
-        measure,
-        parameter="measure",
-        expected=(SemanticKind.MEASURE,),
-    )
-    entity_id = measure_id.rsplit(".", 1)[0]
-    event_time_id = (
-        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
-        if time is not None
-        else None
-    )
-    if type(time_via) is not tuple or (time_via and event_time_id is None):
-        _raise(
-            ErrorKind.INVALID_REF,
-            "time_via requires time and a tuple of Relationship refs.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.REF_SHAPE,
-        )
-    time_path = tuple(
-        _require_ref_id(item, parameter=f"time_via[{index}]", expected=(SemanticKind.RELATIONSHIP,))
-        for index, item in enumerate(time_via)
-    )
-    obj_name = name
-    semantic_id = f"{resolved_domain}.{obj_name}"
-    ref = ref_factory.metric(semantic_id)
-    _check_duplicate(ctx, semantic_id, MetricIR)
-    _validate_unit(unit, semantic_id)
-    _validate_value_policies(
-        semantic_id=semantic_id, nulls=nulls, empty=empty, zero_denominator=None
-    )
-    fold_ir = _normalize_time_fold(fold, semantic_id=semantic_id) if fold is not None else None
-    ai_ctx = _build_ai_context(ai_context)
-    location = _caller_location()
-    filter_pairs = _resolve_filter_pairs(filter)
-    metric_ir = MetricIR(
-        semantic_id=semantic_id,
-        domain=resolved_domain,
-        name=obj_name,
-        metric_type="simple",
-        entities=(entity_id,),
-        aggregation=agg,
-        measure=measure_id,
-        composition=None,
-        additivity=None,
-        ai_context=ai_ctx,
-        body_ast_hash=_compute_agg_hash(measure_id, agg, fold_ir, filter=filter_pairs),
-        python_symbol=obj_name,
-        location=location,
-        root_entity=entity_id,
-        fold_override=fold_ir,
-        unit=unit,
-        unit_override=unit,
-        aggregation_target=measure_id,
-        aggregation_target_kind="measure",
-        filter=filter_pairs,
-        event_time_dimension=event_time_id,
-        event_time_path=time_path,
-        null_policy=nulls,
-        empty_policy=empty,
-    )
-    _push_ir(ctx, ref, metric_ir, None)
-    return ref
-
-
-def weighted_mean(
-    *,
-    name: str,
-    value: Ref[MeasureKind],
-    weight: Ref[MeasureKind],
-    filter: WhereFilter | None = None,
-    unit: str | None = None,
-    domain: Ref[DomainKind] | None = None,
-    ai_context: AiContextValue | None = None,
-) -> Ref[MetricKind]:
-    """Declare a tier-1 weighted mean over two row-level measures.
-
-    Marivo computes ``sum(value * weight) / sum(weight)`` over rows where both
-    inputs are non-null. A zero total weight produces null. The two measures
-    must resolve to the same entity and the weight must be additive. Numeric
-    input types may differ; Ibis arithmetic determines native precision.
-    """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
-    value_id = _require_ref_id(value, parameter="value", expected=(SemanticKind.MEASURE,))
-    weight_id = _require_ref_id(weight, parameter="weight", expected=(SemanticKind.MEASURE,))
-    semantic_id = f"{resolved_domain}.{name}"
-    ref = ref_factory.metric(semantic_id)
-    _check_duplicate(ctx, semantic_id, MetricIR)
-    _validate_unit(unit, semantic_id)
-    filter_pairs = _resolve_filter_pairs(filter)
-    spec = WeightedMeanAggregation(value=value_id, weight=weight_id)
-    body_hash = hashlib.sha256(
-        repr((spec.kind, value_id, weight_id, filter_pairs)).encode()
-    ).hexdigest()[:16]
-    metric_ir = MetricIR(
-        semantic_id=semantic_id,
-        domain=resolved_domain,
-        name=name,
-        metric_type="simple",
-        entities=(value_id.rsplit(".", 1)[0],),
-        aggregation=None,
-        measure=None,
-        composition=None,
-        additivity=None,
-        ai_context=_build_ai_context(ai_context),
-        body_ast_hash=body_hash,
-        python_symbol=name,
-        location=_caller_location(),
-        root_entity=value_id.rsplit(".", 1)[0],
-        unit=unit,
-        filter=filter_pairs,
-        unit_override=unit,
-        weighted_mean=spec,
-    )
-    _push_ir(ctx, ref, metric_ir, None)
-    return ref
-
-
-def _resolve_filter_pairs(filter: WhereFilter | None) -> tuple[tuple[str, WhereValue], ...] | None:
-    """Validate and unwrap a ``filter=`` argument into IR predicate pairs.
-
-    Non-None values must be a :class:`WhereFilter` from ``ms.where(...)``; raw
-    dicts/tuples/strings raise a typed ``SemanticDecoratorError`` pointing at
-    ``ms.where(...)`` instead of a generic load failure. See MR !29 review P2.
-    """
-    if filter is None:
-        return None
-    if not isinstance(filter, WhereFilter):
-        _raise(
-            ErrorKind.INVALID_FILTER,
-            "filter must be a WhereFilter built by "
-            "ms.where(dimension=value, ...); "
-            f"got {type(filter).__name__}.",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-        )
-    return filter.conditions
-
-
-def where(
-    **conditions: str
-    | int
-    | float
-    | bool
-    | tuple[str | int | float | bool, ...]
-    | list[str | int | float | bool],
-) -> WhereFilter:
-    """Build an AND-joined filter for ``ms.count`` / ``ms.aggregate``.
-
-    Each keyword is a local semantic dimension name on the target entity.
-    For ``count``, this is its Entity; for ``aggregate``, the Measure's Entity.
-    Physical columns and dimensions on related Entities are not filter names.
-    A scalar value means equality; a non-empty tuple/list means membership.
-    Use this to express subset counts and aggregates without a hand-written
-    metric body.
-
-    Args:
-        **conditions: One or more ``dimension=value`` predicates. Values are
-            str, int, finite float, bool, or a non-empty tuple/list of those
-            scalars. ``None``, non-finite floats, sets, mappings, and nested
-            values are not supported.
-
-    Returns:
-        A :class:`WhereFilter` to pass as ``filter=``.
-
-    Example:
-        >>> state = ms.dimension_column(name="state", entity=queries, column="state")
-        >>> terminal = ms.count(
-        ...     name="terminal_count",
-        ...     entity=queries,
-        ...     filter=ms.where(state=("FAILED", "ERROR")),
-        ... )
-    """
-    if not conditions:
-        _raise(
-            ErrorKind.INVALID_FILTER,
-            "ms.where requires at least one dimension=value condition",
-            cls=SemanticDecoratorError,
-            constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-        )
-    normalized: list[tuple[str, WhereValue]] = []
-    for dimension_name, value in conditions.items():
-        if not dimension_name or "." in dimension_name:
-            _raise(
-                ErrorKind.INVALID_FILTER,
-                "ms.where keys must be local semantic dimension names without dots; "
-                f"got {dimension_name!r}.",
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-            )
-        if isinstance(value, list | tuple):
-            if not value:
-                _raise(
-                    ErrorKind.INVALID_FILTER,
-                    f"ms.where dimension {dimension_name!r} membership values must be non-empty.",
-                    cls=SemanticDecoratorError,
-                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                )
-            if any(not isinstance(item, str | int | float | bool) for item in value):
-                received = ", ".join(type(item).__name__ for item in value)
-                _raise(
-                    ErrorKind.INVALID_FILTER,
-                    f"ms.where dimension {dimension_name!r} membership values must all be "
-                    f"str/int/float/bool; got ({received}).",
-                    cls=SemanticDecoratorError,
-                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                )
-            if any(isinstance(item, float) and not math.isfinite(item) for item in value):
-                _raise(
-                    ErrorKind.INVALID_FILTER,
-                    f"ms.where dimension {dimension_name!r} membership values must be finite.",
-                    cls=SemanticDecoratorError,
-                    expected="finite str/int/float/bool membership values",
-                    received="a non-finite float membership value",
-                    constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-                )
-            normalized.append((dimension_name, tuple(value)))
-            continue
-        if not isinstance(value, str | int | float | bool):
-            _raise(
-                ErrorKind.INVALID_FILTER,
-                f"ms.where dimension {dimension_name!r} value must be str/int/float/bool "
-                "or a non-empty tuple/list of those scalars; "
-                f"got {type(value).__name__}",
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-            )
-        if isinstance(value, float) and not math.isfinite(value):
-            _raise(
-                ErrorKind.INVALID_FILTER,
-                f"ms.where dimension {dimension_name!r} value must be finite.",
-                cls=SemanticDecoratorError,
-                expected="a finite str/int/float/bool equality value",
-                received="a non-finite float equality value",
-                constraint_id=ConstraintId.FILTER_CONDITION_VALID,
-            )
-        normalized.append((dimension_name, value))
-    return WhereFilter(conditions=tuple(normalized))
-
-
-def count(
-    *,
-    name: str,
-    entity: Ref[EntityKind],
-    time: Ref[TimeDimensionKind] | None = None,
-    filter: WhereFilter | None = None,
-    ai_context: AiContextValue | None = None,
-) -> Ref[MetricKind]:
-    """Declare a row-count metric for an entity.
-
-    Args:
-        name: Metric name inside the entity's domain.
-        entity: Entity ref returned by ``ms.entity(...)``. Strings are rejected
-            so agents do not guess raw semantic ids.
-        time: Native business event-time dimension for windowed observation.
-        filter: Optional ``ms.where(dimension=value, ...)`` to count only rows
-            matching local semantic dimensions (e.g. a failure/error subset).
-            ``None`` counts all rows.
-        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra
-            agent-facing hints.
-
-    Returns:
-        A ``Ref[metric]`` for the count metric.
-
-    Example:
-        >>> orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-        >>> order_count = ms.count(name="order_count", entity=orders)
-        >>> state = ms.dimension_column(name="state", entity=orders, column="state")
-        >>> failed_count = ms.count(name="failed_count", entity=orders, filter=ms.where(state="FAILED"))
-
-    Constraints:
-        Counts rows of the target entity with fixed unit ``"1"`` (unit one).
-        No ``unit=`` parameter is accepted. The Entity and metric definition
-        identify what is counted. Use ``ms.aggregate(...)`` for measure
-        aggregation and ``@ms.metric(...)`` for custom expressions.
-    """
-    ctx = _require_ctx()
-    entity_ref = _require_entity_ref(entity, parameter="entity")
-    entity_id = entity_ref.path
-    event_time_id = (
-        _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
-        if time is not None
-        else None
-    )
-    resolved_domain = _domain_from_ref_id(entity_id)
-    semantic_id = f"{resolved_domain}.{name}"
-    ref = ref_factory.metric(semantic_id)
-    _check_duplicate(ctx, semantic_id, MetricIR)
-    ai_ctx = _build_ai_context(ai_context)
-    location = _caller_location()
-    filter_pairs = _resolve_filter_pairs(filter)
-    metric_ir = MetricIR(
-        semantic_id=semantic_id,
-        domain=resolved_domain,
-        name=name,
-        metric_type="simple",
-        entities=(entity_id,),
-        aggregation="count",
-        measure=None,
-        composition=None,
-        additivity=None,
-        ai_context=ai_ctx,
-        body_ast_hash=_compute_agg_hash(entity_id, "count", None, filter=filter_pairs),
-        python_symbol=name,
-        location=location,
-        root_entity=entity_id,
-        aggregation_target=entity_id,
-        aggregation_target_kind="entity",
-        unit="1",
-        filter=filter_pairs,
-        event_time_dimension=event_time_id,
-    )
-    _push_ir(ctx, ref, metric_ir, None)
-    return ref
-
-
+@reject_parameters(
+    "name",
+    "entities",
+    "additivity",
+    "time",
+    "status_time_dimension",
+    "status_time_fold",
+    "nulls",
+    "empty",
+    "zero_denominator",
+    "root_entity",
+    "fanout_policy",
+    "unit",
+    "time_via",
+    "fold",
+)
 def metric(
     *,
-    name: str | None = None,
-    entities: list[Ref[EntityKind]],
-    additivity: AdditivityPolicy,
-    time: Ref[TimeDimensionKind] | None = None,
-    status_time_dimension: Ref[TimeDimensionKind] | None = None,
-    status_time_fold: AggregateFoldInput = None,
-    nulls: NullInputPolicyV1 | None = None,
-    empty: EmptyContributionPolicyV1 | None = None,
-    zero_denominator: ZeroDenominatorPolicyV1 | None = None,
-    root_entity: Ref[EntityKind] | None = None,
-    fanout_policy: Literal["block", "aggregate_then_join"] = "block",
-    unit: str | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Any]], Ref[MetricKind]]:
-    """Declare a metric from an ibis body. Declares ``additivity`` directly.
+) -> Callable[[Callable[[], Metric]], DeclaredMetric]:
+    """Name a completed Metric without changing its computation or policies.
 
     Args:
-        name: Metric name. Defaults to the function name.
-        entities: List of entity refs.
-        additivity: Closed coordinate-additivity policy.
-        time: Business event-time dimension for windowed observation.
-        status_time_dimension: Optional business status-time axis.
-        status_time_fold: Fold over the status-time axis, when declared.
-        nulls: Explicit selected-input Null policy.
-        empty: Explicit complete-empty-contribution policy.
-        zero_denominator: Explicit division-by-zero policy.
-        root_entity: Required when more than one entity is provided.
-        fanout_policy: ``"block"`` (default) or ``"aggregate_then_join"``.
-        unit: UCUM unit token.
-        domain: Override the active domain namespace.
-        ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
-
+        domain: Optional declared domain ref; model collection resolves omitted domains.
+        ai_context: Optional business meaning and guardrails from ms.ai_context(...).
     Returns:
-        A decorator that returns a ``Ref[metric]``.
-
+        A decorator binding the function name to an immutable Metric declaration.
     Example:
-        >>> @ms.measure(entity=orders, additivity=ms.additive_all())
-        ... def amount(rows):
-        ...     return rows.price * rows.quantity
-        >>> @ms.metric(entities=[orders], additivity=ms.additive_all())
-        ... def revenue(rows):
-        ...     return ms.bind(amount, rows).sum()
-
+        >>> @ms.metric()
+        ... def revenue():
+        ...     return amount.sum(time=paid_at)
     Constraints:
-        Use ``ms.bind(field_ref, rows)`` to consume a semantic field's definition;
-        ``rows.amount`` accesses the physical column. A status-time axis must
-        appear in ``additive_all(except_=...)``. ``status_time_fold`` requires
-        that axis and is required for sampled status time; non-sampled status
-        declarations may omit the fold.
+        Use a zero-argument pure body over constructed dependencies. No loader or
+        Session is required. Source roots and operator policies belong to the expression.
+        Declaration does not publish a Catalog Metric or execute a query.
     """
-    ctx = _require_ctx()
-    resolved_domain = _resolve_domain(domain, ctx)
+    from marivo._definition.expressions import MetricDeclaration
+    from marivo._definition.types import SourceLocation
+    from marivo.refs import _validate_segment
+    from marivo.semantic._expression_binding import construct_metric_expression
+    from marivo.semantic.errors import SemanticExpressionError
 
-    def decorator(fn: Callable[..., Any]) -> Ref[MetricKind]:
-        obj_name = name or fn.__name__
-        semantic_id = f"{resolved_domain}.{obj_name}"
-        ref = ref_factory.metric(semantic_id)
-        _check_duplicate(ctx, semantic_id, MetricIR)
-        _validate_unit(unit, semantic_id)
-        _validate_value_policies(
-            semantic_id=semantic_id,
-            nulls=nulls,
-            empty=empty,
-            zero_denominator=zero_denominator,
+    if domain is not None and (type(domain) is not Ref or domain.kind is not SemanticKind.DOMAIN):
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            message="Metric domain must be a domain ref.",
+            expected="Ref[domain] from ms.ref.domain(...), or None",
+            received=repr(domain),
+            action="Pass the explicit domain ref, or omit domain until model collection.",
         )
-        entity_refs = _resolve_entity_refs(entities)
-        if len(entity_refs) == 0:
-            _raise(
-                ErrorKind.MISSING_ENTITIES,
-                "@ms.metric(...) requires non-empty entities.",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_ENTITIES_REQUIRED,
-            )
-        expression_body = compile_expression_body(
-            fn,
-            owning_ref=ref,
-            ordered_entity_refs=tuple(entities),
-        )
-        ai_ctx = _build_ai_context(ai_context)
+    _build_ai_context(ai_context)
+
+    def decorator(fn: Callable[[], Metric]) -> DeclaredMetric:
         location = _caller_location()
-        root_ref = (
-            _require_ref_id(
-                root_entity,
-                parameter="root_entity",
-                expected=(SemanticKind.ENTITY,),
+        try:
+            _validate_segment(fn.__name__, role="Metric declaration name")
+        except ValueError as error:
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+                message="Metric declaration name is invalid.",
+                expected="a function name matching [a-z][a-z0-9_]*",
+                received=fn.__name__,
+                action="Rename the declaration function to a lowercase snake_case name.",
+                location_label=f"{location.file}:{location.line}",
+            ) from error
+        try:
+            value = construct_metric_expression(fn)
+            return DeclaredMetric(
+                value.node,
+                value.roots,
+                value.unit,
+                MetricDeclaration(
+                    fn.__name__,
+                    value.node,
+                    domain,
+                    ai_context,
+                    SourceLocation(location.file, location.line),
+                ),
             )
-            if root_entity is not None
-            else None
-        )
-        if root_ref is None and len(entity_refs) == 1:
-            root_ref = entity_refs[0]
-        if root_ref is None:
-            _raise(
-                ErrorKind.MISSING_METRIC_ROOT_ENTITY,
-                "@ms.metric(...) with more than one entity requires root_entity=...",
-                refs=(semantic_id,),
-                cls=SemanticDecoratorError,
-                constraint_id=ConstraintId.METRIC_ROOT_ENTITY_REQUIRED,
-            )
-        event_time_id = (
-            _require_ref_id(time, parameter="time", expected=(SemanticKind.TIME_DIMENSION,))
-            if time is not None
-            else None
-        )
-        status_id = (
-            _require_ref_id(
-                status_time_dimension,
-                parameter="status_time_dimension",
-                expected=(SemanticKind.TIME_DIMENSION,),
-            )
-            if status_time_dimension is not None
-            else None
-        )
-        status_fold = (
-            _normalize_time_fold(status_time_fold, semantic_id=semantic_id)
-            if status_time_fold is not None
-            else None
-        )
-        metric_ir = MetricIR(
-            semantic_id=semantic_id,
-            domain=resolved_domain,
-            name=obj_name,
-            metric_type="simple",
-            entities=entity_refs,
-            aggregation=None,
-            measure=None,
-            composition=None,
-            additivity=_normalize_additivity(
-                additivity,
-                semantic_id=semantic_id,
-                status_time_dimension=status_id,
-                status_time_fold=status_fold,
-            ),
-            ai_context=ai_ctx,
-            body_ast_hash=expression_body.body_ast_hash,
-            python_symbol=fn.__name__,
-            location=location,
-            root_entity=root_ref,
-            fanout_policy=fanout_policy,
-            unit=unit,
-            unit_override=unit,
-            dsl_additivity=additivity,
-            event_time_dimension=event_time_id,
-            status_time_dimension=status_id,
-            status_time_fold=status_fold,
-            null_policy=nulls,
-            empty_policy=empty,
-            zero_denominator_policy=zero_denominator,
-        )
-        _push_ir(ctx, ref, metric_ir, expression_body)
-        return ref
+        except SemanticExpressionError as error:
+            error.location = location
+            if not error.semantic_refs:
+                error.semantic_refs = (fn.__name__,)
+            raise
 
     return decorator
+
+
+# Removed from public exports; retained solely to reject old authored source.
+
+
+def aggregate(*_args: object, **kwargs: object) -> NoReturn:
+    """Reject the retired aggregate declaration; no legacy shape is accepted."""
+    retired_factory("aggregate", kwargs)
+
+
+def weighted_mean(*_args: object, **kwargs: object) -> NoReturn:
+    """Reject the retired weighted_mean declaration; no legacy shape is accepted."""
+    retired_factory("weighted_mean", kwargs)
+
+
+def where(*_args: object, **kwargs: object) -> NoReturn:
+    """Reject the retired where declaration; no legacy shape is accepted."""
+    retired_factory("where", kwargs)
+
+
+def count(*_args: object, **kwargs: object) -> NoReturn:
+    """Reject the retired count declaration; no legacy shape is accepted."""
+    retired_factory("count", kwargs)
 
 
 _register_authoring_file(__file__)

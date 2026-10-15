@@ -145,6 +145,7 @@ def test_native_descriptor_models_are_frozen_and_non_invokable() -> None:
             canonical_id="objects.domain",
             summary="A governed business namespace.",
             semantic_kind=SemanticKind.DOMAIN,
+            construction_families=("Ref[domain]",),
             ref_target=target,
             catalog_collection="domains",
             placement_kind="domain_entrypoint",
@@ -299,7 +300,19 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
         )
         for mode in contract.construction_modes:
             descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
-            assert descriptor.output_family == expected
+            expected_values = {
+                SemanticKind.MEASURE: ("Ref[measure]", "Measure"),
+                SemanticKind.METRIC: ("Metric",),
+            }.get(contract.semantic_kind, (expected,))
+            assert contract.construction_families == expected_values
+            expected_output = (
+                "Measure"
+                if descriptor.canonical_id == "measure"
+                else "Metric"
+                if descriptor.canonical_id == "metric"
+                else expected
+            )
+            assert descriptor.output_family == expected_output
         assert not {mode.target for mode in contract.construction_modes} & set(
             contract.supporting_targets
         )
@@ -568,11 +581,11 @@ def test_every_registry_repair_routes_to_a_public_exact_target() -> None:
         "missing_domain": "semantic.objects.domain",
         "invalid_binding_ref": "semantic.bind",
         "binding_target_missing": "semantic.bind",
-        "missing_time_fold": "semantic.additive_all",
+        "missing_time_fold": "semantic.Metric.per",
         "binding_alias_not_direct": "semantic.bind",
         "binding_entity_mismatch": "semantic.bind",
-        "invalid_filter": "semantic.where",
-        "filter_value_runtime_incompatible": "semantic.where",
+        "invalid_filter": "semantic.Metric.where",
+        "filter_value_runtime_incompatible": "semantic.Metric.where",
         "invalid_project": "semantic.authoring",
         "domain_file_missing": "semantic.objects.domain",
         "domain_file_mismatch": "semantic.domain",
@@ -790,7 +803,11 @@ def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
         descriptor.canonical_id
         for descriptor in REGISTRY._descriptors
         if descriptor.output_family is not None
-        and descriptor.output_family.startswith("Ref[")
+        and (
+            descriptor.output_family.startswith("Ref[")
+            or descriptor.output_family
+            in {"Entity", "Dimension", "TimeField", "Measure", "Relationship"}
+        )
         and descriptor.effects is not None
         and "semantic_source" in descriptor.effects.mutations
     }

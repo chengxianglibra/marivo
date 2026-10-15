@@ -69,7 +69,7 @@ from datetime import datetime, timezone
 anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
 customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
 region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
-# A declared @ms.measure row expression uses the same read entry point:
+# This existing reader example uses a published physical Measure:
 score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
 assert isinstance(region, mv.LogicalCategoryRelation)
 selected = region.where(region.value.eq("west")).members()
@@ -148,90 +148,15 @@ Do not replace an event-time axis with a physical partition just because it is c
 
 The status example assumes a snapshot-versioned inventory Entity. Cumulative examples require their governed base Metric, event axis and, where used, certified calendar.
 
-{/* example: snapshot-status-fold */}
+Sampled state retains its source axis, interval and sum constraints. Default status_time_fold/fold is retired; express spatial reduction followed by an internal time-sample reduction on already constructed fields:
 
 ```python
-snapshot_date = ms.time_dimension_column(
-    name="snapshot_date",
-    entity=inventory_daily,
-    column="snapshot_date",
-    granularity="minute",
-    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
-)
-
-on_hand_units = ms.measure_column(
-    name="on_hand_units",
-    entity=inventory_daily,
-    column="on_hand_units",
-    additivity=ms.additive_all(except_=(snapshot_date,)),
-    status_time_dimension=snapshot_date,
-    status_time_fold="last",
-)
-```
-{/* example: cumulative-metric */}
-
-```python
-user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
-active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
-cumulative_active_users = ms.cumulative(
-    name="cumulative_active_users",
-    base=active_users,
-    over=event_time,
-)
-```
-{/* example: cumulative-grain-anchor */}
-
-```python
-mtd_revenue = ms.cumulative(
-    name="mtd_revenue",
-    base=revenue,
-    over=event_time,
-    anchor=ms.grain_to_date(grain=mv.grain("month")),
-)
-```
-{/* example: cumulative-calendar-anchor */}
-
-```python
-fiscal_mtd = ms.cumulative(
-    name="fiscal_mtd",
-    base=revenue,
-    over=event_time,
-    anchor=ms.grain_to_date(
-        grain=ms.calendar_grain(
-            calendar=ms.ref.period_calendar("sales.fiscal"),
-            level="fiscal_month",
-        )
-    ),
-)
-
-fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
-dataset = (
-    session.members(ms.ref.entity("sales.events"))
-    .observe(fiscal_mtd, at=grid.end, by=(mv.member(),))
-    .group_by(grid)
-    .rollup()
-)
-```
-{/* example: cumulative-trailing-anchor */}
-
-```python
-rolling7_active = ms.cumulative(
-    name="rolling7_active",
-    base=active_users,
-    over=event_time,
-    anchor=ms.trailing(count=7, unit="day"),
-)
+@ms.metric()
+def median_inventory():
+    return inventory.sum(time=sample_at).per(sample_at).median()
 ```
 
-Status folds aggregate spatially at each sample before folding time. Original
-rollup needs compatible retained samples. Cumulative endpoints read from their
-declared anchor, including history before the displayed grid. Overlapping
-accumulation windows cannot be summed across time.
-
-## Select Defined values first
-
-The customer model declares region, revenue and the buyer relationship. Every predicate input must cover the complete receiver domain.
+This fragment constructs a definition only. Coverage and complete binding require later execution checks; there is no implicit closing value or forward filling. Old cumulative/grain_to_date/trailing semantic declarations are also retired; new window execution belongs to later analysis work and the old factories are not compatibility entrypoints.
 
 {/* example: defined-selection */}
 
@@ -377,3 +302,5 @@ the hourly example needs that orders Entity with a UTC timestamp axis. Original
 mean rollup merges sums and counts; a row mean creates a different quantity.
 Follow [statistics](/docs/latest/guides/statistics/) for screening, and
 [calendars and schedules](/docs/latest/guides/calendars-and-schedules/) for governed civil boundaries.
+
+Physical authoring captures typed Refs. Capture every dependency, then use `ms.finalize()` and `finalized.resolve(ref)` before composing row/Metric expressions. Finalization closes capture and does not publish Catalog Metrics or enable new execution.

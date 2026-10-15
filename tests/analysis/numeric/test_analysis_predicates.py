@@ -351,6 +351,7 @@ def test_foreign_predicate_inputs_reject_before_execution(
 
 def test_closed_policy_and_predicate_inputs() -> None:
     from marivo.analysis.errors import AnalysisError
+    from marivo.semantic._dsl_authoring import empty as retired_policy_payload
 
     for value in (True, 0, -1, 2**63):
         with pytest.raises(AnalysisError):
@@ -358,7 +359,7 @@ def test_closed_policy_and_predicate_inputs() -> None:
     with pytest.raises(TypeError):
         mv.all_instances()
     with pytest.raises(AnalysisError):
-        mv.all_instances(empty=ms.empty.zero())
+        mv.all_instances(empty=retired_policy_payload.zero())
     with pytest.raises(AnalysisError):
         mv.SubjectBinding()
     with pytest.raises(AnalysisError):

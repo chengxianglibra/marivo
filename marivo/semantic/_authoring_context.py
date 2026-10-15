@@ -9,7 +9,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from marivo.refs import (
     DatasourceKind,
@@ -35,6 +35,22 @@ from marivo.semantic.ir import (
     WorkScheduleIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
+
+if TYPE_CHECKING:
+    from marivo.semantic.expressions import Entity
+
+
+def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
+    from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
+
+    if isinstance(value, TimeField):
+        value._require_native(operation="a source declaration lookup")
+    if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
+        return value.ref.ref
+    if isinstance(value, Ref):
+        return value
+    return None
+
 
 DefinitionIR: TypeAlias = (
     DomainIR
@@ -80,8 +96,10 @@ def _require_ctx() -> LoaderContext:
     if ctx is None:
         _raise(
             ErrorKind.OUTSIDE_LOADER_CONTEXT,
-            "Semantic decorators can only be used inside files loaded by the semantic project loader.",
+            "Physical capture and finalization require an active semantic model loader scope.",
             cls=SemanticDecoratorError,
+            expected="an active physical declaration capture scope",
+            received="no active loader scope",
         )
     return ctx
 
@@ -235,8 +253,9 @@ def _require_ref_id(
     parameter: str,
     expected: tuple[SemanticKind, ...],
 ) -> str:
-    if type(ref) is Ref and ref.kind in expected:
-        return ref.path
+    resolved = _value_ref(ref)
+    if resolved is not None and resolved.kind in expected:
+        return resolved.path
     expected_label = " or ".join(f"Ref[{kind.value}]" for kind in expected)
     received = getattr(ref, "key", ref)
     _raise(
@@ -254,9 +273,15 @@ def _domain_from_ref_id(ref_id: str) -> str:
     return ref_id.split(".", 1)[0]
 
 
-def _require_entity_ref(ref: Ref[EntityKind], *, parameter: str) -> Ref[EntityKind]:
-    _require_ref_id(ref, parameter=parameter, expected=(SemanticKind.ENTITY,))
-    return ref
+def _entity_lookup(value: Entity | Ref[EntityKind], *, parameter: str) -> Ref[EntityKind]:
+    from marivo.semantic.expressions import Entity
+
+    _require_ref_id(value, parameter=parameter, expected=(SemanticKind.ENTITY,))
+    if isinstance(value, Entity):
+        from marivo.refs import ref as ref_factory
+
+        return ref_factory.entity(value.ref.ref.path)
+    return value
 
 
 def _require_non_empty_column(column: str, *, semantic_id: str) -> str:
@@ -292,23 +317,37 @@ def _resolve_datasource_ref(ref: Ref[DatasourceKind]) -> str:
     )
 
 
-def _resolve_entity_refs(refs: list[Ref[EntityKind]] | None) -> tuple[str, ...]:
-    """Convert a list of entity refs to tuple of semantic_ids."""
-    if refs is None:
-        return ()
-    return tuple(
-        _require_ref_id(r, parameter=f"entities[{idx}]", expected=(SemanticKind.ENTITY,))
-        for idx, r in enumerate(refs)
-    )
-
-
 def _push_ir(
     ctx: LoaderContext,
     ref: Ref[SemanticKindTag],
     definition: DefinitionIR,
     expression_body: ExpressionBody | None,
 ) -> None:
-    """Push one identity-complete pending definition."""
+    """Capture one definition before the physical dependency closure is complete."""
+    from marivo.semantic.errors import SemanticExpressionError
+
+    closed = ctx.finalized is not None
+    for prior in ctx.prior_contexts:
+        if prior.finalized is None:
+            continue
+        owner = definition.entity if isinstance(definition, (DimensionIR, MeasureIR)) else None
+        if any(
+            pending.ref == ref
+            or (
+                isinstance(pending.definition, EntityIR) and pending.definition.semantic_id == owner
+            )
+            for pending in prior.pending_definitions
+        ):
+            closed = True
+    if closed:
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+            message="Physical declaration capture is already finalized.",
+            refs=(ref.key,),
+            expected="all physical declarations captured before ms.finalize()",
+            received=f"late declaration {ref.key}",
+            action="Move this declaration and its dependencies before ms.finalize(); compose only resolved values after finalization.",
+        )
     ctx.pending_definitions.append(
         PendingDefinition(
             ref=ref,

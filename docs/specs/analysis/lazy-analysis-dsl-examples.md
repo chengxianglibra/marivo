@@ -763,7 +763,7 @@ intrinsic_october_revenue = relation_s.observe({"revenue": october_definition}).
 
 以下片段使用目标 v0.35 API。Amount、Cost、Quantity、UnitPrice、UnitCost 是已声明的 Measure，
 Orders 是 Entity，PaidAt、Status、CustomerId 是字段；模型模块直接引用这些对象，
-分析代码从 Catalog 取得相同版本的对象。代码位置不改变计算规则。
+分析代码从 Catalog 取得其作用域解析的对象。示例假设业务定义未改变；不要求强制匹配构造时原定义版本，变更后果由 agent/用户承担。实际消费定义仍进入计算指纹，代码位置不改变计算规则。
 
 ### 6.1 同一个 Metric，只有声明与收录不同
 

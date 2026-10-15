@@ -258,6 +258,8 @@ def _value(value: TelemetryValue) -> dict[str, object]:
     if isinstance(value, bool):
         return {"boolValue": value}
     if isinstance(value, int):
+        if value.bit_length() > 192:
+            return {"stringValue": f"int with {value.bit_length()} bits"}
         return {"intValue": str(value)}
     if isinstance(value, float):
         return {"doubleValue": value}

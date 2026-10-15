@@ -154,6 +154,23 @@ Typed consumer rules own numerical specialization, input-arity expansion,
 check placement and consumer-specific shape restrictions. No method-ID prefix,
 legacy resolver or successful old route grants new admission.
 
+## Semantic definition updates
+
+Semantic objects need not remain bound to their original definition versions.
+A same-path definition change alone does not reject an input; the agent/user
+accepts the consequences of semantic changes during analysis. Reference-resolving
+consumers use their complete scope; already closed expressions keep their stored
+immutable definitions and facts, without live refresh or module replay.
+
+This removes original-version enforcement, not computation identity. The graph,
+dependency fingerprints and compiler/cache keys must describe the definitions,
+policies and bindings actually consumed. A changed definition cannot be served
+from a cache keyed as an unchanged computation. Persisted graph/provenance and
+validation records below retain their existing integrity contracts; this decision
+does not authorize their removal or add new persistence to the target terminal
+Artifact. Session ownership, kind/root/grain/unit/time-role/null and business
+snapshot/validity selection checks remain independently required.
+
 ## Definition graph and compiler
 
 `core/graph.py` owns the definition DAG:

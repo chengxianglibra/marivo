@@ -23,6 +23,33 @@ Use the host-selected verified environment. Consult live guidance when the next
 decision needs it, without reconstructing API contracts from memory or private
 implementation details.
 
+## Construction and reusable meaning
+
+Physical authoring captures lookup keys before dependency closure. Finalize the
+complete physical scope before consuming immutable values; resolve needed
+fields from that same frozen scope. Keep capture and expression composition in
+order. Missing dependencies are capture repairs, not permission to discard an
+Ibis forward reference or refresh a value already returned.
+Do not require original semantic-definition versions or reject an input solely
+because a same-path definition changed. The agent/user accepts the consequences
+of semantic changes during analysis. Keep kind, root, grain, unit, time-role and
+null checks; fingerprints/cache keys must describe actual consumed definitions,
+and persisted records keep their owning contracts. Resolving consumers use their
+complete scope; this does not refresh immutable values or replay authoring.
+
+Compose question-scoped row reductions and completed Metrics from constructed
+semantic values. A zero-argument Metric declaration can name a local definition
+without model registration; output labels do not require reusable publication.
+A new row quantity that needs additional sum permission is a Measure business
+assertion and must retain its source, units and fixed time constraints. Use the
+semantic workflow when that business authority is unresolved.
+
+Construction, Catalog publication and execution are separate capabilities. A
+constructed expression or successful leaf load is not evidence that a Session
+can execute the new expression path. Use current Help and actual checks to state
+which boundary is available; do not fall back to retired Ref-based factories or
+Ibis Metric callbacks.
+
 ## Analytical judgment
 
 Before choosing an operation, establish the distinctions that affect the answer:

@@ -1791,6 +1791,25 @@ Artifact 没有 contract，不能从 findings/evidence_digest 恢复 DSL 权限�
 数值oracle只检查数学反例；真正typed errors、lowering、保存捕获与冷恢复必须由将来实现观察。
 不因原生Ibis编译成功授予Metric权限，也不把文档Python语法通过当成可运行DSL。
 
+### 语义定义更新的验收修订（2026-10-15）
+
+先前“constructed输入同路径改版本必须拒绝”和“copy必须保留该隐藏版本约束”的验收已被用户决定取代，
+不是靠修复获得通过。新的最小验收区分以下事实，不改变上面的独立数值断言：
+
+- 相同定义复用和同路径已更新定义均不因原版本差异单独拒绝；引用解析消费者使用其完整作用域。
+  验证物理owner/helper、保留Ibis绑定和pure Measure的实际消费事实，显式Ref前向依赖仍有效。
+- complete capture后，默认时间先后顺序、amount/cost交换顺序、晚到coordinate和Ibis前向闭包的结果一致；
+  返回值不可变，不从活动scope刷新，不重跑module/import effects。仅“constructor版本等于后来Catalog版本”的旧断言须按实际闭包含义重写。
+- 存储的计算、依赖或政策改变时，指纹/缓存键须随实际内容改变或使旧缓存失效；不许路径相同就错误命中。
+  未改变的规范计算保持稳定；名称/ai_context不改变计算身份。旧表达式的定义及已有记录不得被回写成新含义。
+- copy/deepcopy不再证明原版本强制绑定；如果仍提供值复制，只校验不可变计算/公开语义事实及当前消费者正确性。
+  不保留仅服务废弃隐藏约束的测试矩阵。保留snapshot codec/记录完整性与认证依赖失效的独立回归。
+- kind/贡献根/完整键/粒度/单位/权限/native与routed时间角色/null/业务历史时点及实际覆盖错误继续拒绝。
+  SemanticExpressionError仍需保留原结构化repair，telemetry不能掩盖它，广告中的show必须有canonical Help。
+
+旧515focused/53snapshot/311typing及broad710pass37fail3errors均是旧合同证据；
+本修订的实现清理已在未提交R1.3工作树完成；独立评审、完整R1.3及新执行验收仍未完成。R1.4/R2旧声明fixture例外不覆盖新合同/缓存错误。
+
 ### 9.2 终端 Artifact 的验收
 
 - execute 和 Session.artifact(id) 返回同一终端接口；没有 origin/fixed/cold、producer 引用或 DSL contract。

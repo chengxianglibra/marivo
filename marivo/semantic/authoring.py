@@ -15,13 +15,24 @@ unchanged.  Implementations live in:
 
 from __future__ import annotations
 
+from typing import NoReturn
+
+from marivo.semantic._authoring_context import _register_authoring_file
 from marivo.semantic._authoring_declarations import (
-    aggregate,
-    count,
+    aggregate as aggregate,
+)
+from marivo.semantic._authoring_declarations import (
+    count as count,
+)
+from marivo.semantic._authoring_declarations import (
     domain,
     metric,
-    weighted_mean,
-    where,
+)
+from marivo.semantic._authoring_declarations import (
+    weighted_mean as weighted_mean,
+)
+from marivo.semantic._authoring_declarations import (
+    where as where,
 )
 from marivo.semantic._authoring_decorators import (
     dimension,
@@ -35,14 +46,26 @@ from marivo.semantic._authoring_decorators import (
 )
 from marivo.semantic._authoring_metrics import (  # noqa: F401
     CumulativeComposition,
-    GrainToDate,
     Trailing,
     _compute_composition_hash,
-    cumulative,
-    grain_to_date,
-    linear,
-    ratio,
-    trailing,
+)
+from marivo.semantic._authoring_metrics import (
+    GrainToDate as GrainToDate,
+)
+from marivo.semantic._authoring_metrics import (
+    cumulative as cumulative,
+)
+from marivo.semantic._authoring_metrics import (
+    grain_to_date as grain_to_date,
+)
+from marivo.semantic._authoring_metrics import (
+    linear as linear,
+)
+from marivo.semantic._authoring_metrics import (
+    ratio as ratio,
+)
+from marivo.semantic._authoring_metrics import (
+    trailing as trailing,
 )
 from marivo.semantic._authoring_temporal import (
     PeriodCorrespondence,
@@ -53,7 +76,10 @@ from marivo.semantic._authoring_temporal import (
     work_schedule,
 )
 from marivo.semantic._authoring_values import (
+    additive,
+    additive_all,
     ai_context,
+    bind,
     datetime,
     hour_prefix,
     join_on,
@@ -63,47 +89,66 @@ from marivo.semantic._authoring_values import (
     validity,
 )
 from marivo.semantic._dsl_authoring import (
-    additive,
-    additive_all,
-    empty,
     non_additive,
-    nulls,
-    zero_denominator,
 )
-from marivo.semantic._expression_binding import bind
-from marivo.semantic.ir import AggregateFoldInput, AggregateFoldValue
+from marivo.semantic.expressions import finalize
+
+
+class _RetiredPolicy:
+    """A diagnostic-only old namespace; every operation rejects."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __call__(self, *_args: object, **kwargs: object) -> NoReturn:
+        from marivo.semantic._authoring_retired import retired_factory
+
+        retired_factory(self._name, kwargs)
+
+    def ignore(self) -> NoReturn:
+        self()
+
+    def reject(self) -> NoReturn:
+        self()
+
+    def null(self) -> NoReturn:
+        self()
+
+    def zero(self) -> NoReturn:
+        self()
+
+    def undefined(self) -> NoReturn:
+        self()
+
+    def error(self) -> NoReturn:
+        self()
+
+
+empty = _RetiredPolicy("empty")
+nulls = _RetiredPolicy("nulls")
+zero_denominator = _RetiredPolicy("zero_denominator")
 
 __all__ = [
-    "AggregateFoldInput",
-    "AggregateFoldValue",
-    "GrainToDate",
     "PeriodCorrespondence",
     "additive",
     "additive_all",
-    "aggregate",
     "ai_context",
     "bind",
     "calendar_grain",
-    "count",
-    "cumulative",
     "datetime",
     "dimension",
     "dimension_column",
     "domain",
-    "empty",
     "entity",
-    "grain_to_date",
+    "finalize",
     "hour_prefix",
     "join_on",
-    "linear",
     "measure",
     "measure_column",
     "metric",
     "non_additive",
-    "nulls",
     "period_calendar",
     "period_correspondence",
-    "ratio",
     "relationship",
     "snapshot",
     "strptime",
@@ -111,10 +156,9 @@ __all__ = [
     "time_dimension",
     "time_dimension_column",
     "timestamp",
-    "trailing",
     "validity",
-    "weighted_mean",
-    "where",
     "work_schedule",
-    "zero_denominator",
 ]
+
+
+_register_authoring_file(__file__)

@@ -6,7 +6,8 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.semantic.errors import SemanticDecoratorError
+from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
+from marivo.semantic.expressions import Measure, Metric
 from marivo.semantic.ir import (
     AiContextIR,
     DateParse,
@@ -24,6 +25,7 @@ from marivo.semantic.ir import (
     ValidityVersioningIR,
 )
 from marivo.semantic.loader import LoaderContext, loader_context
+from tests.shared_fixtures import in_memory_datasource_ir
 
 # ---------------------------------------------------------------------------
 # Semantic IR value objects
@@ -117,7 +119,11 @@ def test_validity_open_end_has_no_any_payload() -> None:
 
 
 def test_measure_dimension_metric_and_aggregate_authoring() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
@@ -131,33 +137,44 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         def region(orders_table):
             return orders_table.region
 
-        @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-        def amount(orders_table):
-            return orders_table.amount
+        amount = ms.measure_column(
+            name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD"
+        )
+
+        finalized = ms.finalize()
+        amount_value = finalized.resolve(amount)
+        orders_value = finalized.resolve(orders)
+
+        @ms.measure()
+        def named_amount() -> Measure:
+            return amount_value
 
         @ms.metric(
-            entities=[orders],
-            additivity=ms.additive_all(),
             ai_context=ms.ai_context(
                 business_definition="Historical SQL: select sum(amount) from orders"
-            ),
+            )
         )
-        def revenue(orders_table):
-            return orders_table.amount.sum()
+        def revenue() -> Metric:
+            return named_amount.sum()
 
-        average_amount = ms.aggregate(name="average_amount", measure=amount, agg="mean")
-
+        average_amount = amount_value.mean()
     kinds = {
         pending.ref.path: type(pending.definition).__name__ for pending in ctx.pending_definitions
     }
     assert kinds["sales.orders.region"] == "DimensionIR"
     assert kinds["sales.orders.amount"] == "MeasureIR"
-    assert kinds["sales.revenue"] == "MetricIR"
-    assert average_amount.path == "sales.average_amount"
+    assert "sales.revenue" not in kinds
+    assert named_amount.declaration.name == "named_amount"
+    assert revenue.declaration.name == "revenue"
+    assert average_amount.roots == (orders_value.ref,)
 
 
 def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
@@ -175,7 +192,11 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
 
 
 def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
@@ -191,17 +212,21 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
             domain=sales,
         )
 
-        with pytest.raises(SemanticDecoratorError) as exc_info:
+        with pytest.raises(SemanticExpressionError) as exc_info:
 
             @ms.metric(entities=[orders, refunds], additivity=ms.additive_all())
             def net_revenue(orders_table, refunds_table):
                 return orders_table.amount.sum() - refunds_table.amount.sum()
 
-        assert "root_entity" in str(exc_info.value)
+        assert "zero-argument" in exc_info.value.repair.action
 
 
 def test_relationship_uses_join_key_pairs() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
@@ -217,13 +242,8 @@ def test_relationship_uses_join_key_pairs() -> None:
             domain=sales,
         )
 
-        @ms.dimension(entity=orders)
-        def customer_id(orders_table):
-            return orders_table.customer_id
-
-        @ms.dimension(entity=customers)
-        def id(customers_table):
-            return customers_table.id
+        customer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
+        id = ms.dimension_column(name="id", entity=customers, column="id")
 
         ref = ms.relationship(
             name="orders_to_customers",
@@ -247,7 +267,11 @@ def test_relationship_uses_join_key_pairs() -> None:
 
 
 def test_time_dimension_uses_parse_value_object() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(
@@ -278,7 +302,11 @@ def test_datetime_and_timestamp_accept_optional_timezone() -> None:
 
 
 def test_hour_prefix_requires_hour_granularity_at_decorator_time() -> None:
-    ctx = LoaderContext(model_name="sales", file_path="/tmp/_domain.py")
+    ctx = LoaderContext(
+        model_name="sales",
+        file_path="/tmp/_domain.py",
+        datasource_irs=(in_memory_datasource_ir("warehouse"),),
+    )
     with loader_context(ctx):
         sales = ms.domain(name="sales", owner="Mina Zhang", default=True)
         orders = ms.entity(

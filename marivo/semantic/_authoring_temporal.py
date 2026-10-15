@@ -31,6 +31,7 @@ from marivo.semantic._authoring_context import (
 from marivo.semantic._authoring_validation import _validate_timezone
 from marivo.semantic._authoring_values import _build_ai_context
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
+from marivo.semantic.expressions import Dimension, TimeField
 from marivo.semantic.ir import PeriodCalendarIR, TemporalSetIR, WorkScheduleIR
 from marivo.semantic.typing import AiContextValue
 
@@ -43,36 +44,54 @@ class PeriodCorrespondence:
     baseline_key: Ref[DimensionKind]
 
     @classmethod
-    def _create(cls, *, level: str, baseline_key: Ref[DimensionKind]) -> PeriodCorrespondence:
+    def _create(
+        cls,
+        *,
+        level: str,
+        baseline_key: Ref[DimensionKind],
+    ) -> PeriodCorrespondence:
         value = object.__new__(cls)
         object.__setattr__(value, "level", level)
         object.__setattr__(value, "baseline_key", baseline_key)
         return value
 
 
-def period_correspondence(*, level: str, baseline_key: Ref[DimensionKind]) -> PeriodCorrespondence:
-    """Declare the baseline-key field for one named calendar correspondence."""
+def period_correspondence(
+    *, level: str, baseline_key: Dimension | Ref[DimensionKind]
+) -> PeriodCorrespondence:
+    """Declare the baseline-key field for one named calendar correspondence.
+
+    Args:
+        level: Calendar level name.
+        baseline_key: Native Dimension or explicit dimension lookup Ref.
+    Returns: A frozen PeriodCorrespondence with a baseline field lookup key.
+    Example: ``ms.period_correspondence(level="week", baseline_key=previous_week)``.
+    Constraints: The calendar's completed scope checks field kind and ownership; Refs retain lookup semantics.
+    """
     if type(level) is not str or not level or level == "day":
         _raise(
             ErrorKind.INVALID_REF,
             "correspondence level must be a non-empty declared calendar level.",
             cls=SemanticDecoratorError,
         )
-    _require_ref_id(
+    key = _require_ref_id(
         baseline_key,
         parameter="baseline_key",
         expected=(SemanticKind.DIMENSION,),
     )
-    return PeriodCorrespondence._create(level=level, baseline_key=baseline_key)
+    return PeriodCorrespondence._create(
+        level=level,
+        baseline_key=ref_factory.dimension(key),
+    )
 
 
 def period_calendar(
     *,
     name: str,
-    date: Ref[TimeDimensionKind],
+    date: TimeField | Ref[TimeDimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    levels: Mapping[str, Ref[DimensionKind]],
+    levels: Mapping[str, Dimension | Ref[DimensionKind]],
     correspondences: Mapping[str, PeriodCorrespondence] | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
@@ -82,6 +101,19 @@ def period_calendar(
     The declaration fixes source fields and business coverage. Certification of
     row values remains a separate query-free operation over one persisted
     datasource snapshot.
+
+    Args:
+        name: Calendar name.
+        date: Native day TimeField or explicit lookup Ref.
+        boundary_timezone: IANA boundary zone.
+        coverage: Half-open civil-date coverage tuple.
+        levels: Level names mapped to native Dimensions or lookup Refs.
+        correspondences: Optional named correspondence records.
+        domain: Optional domain lookup Ref.
+        ai_context: Optional business context.
+    Returns: A typed calendar capture Ref, validated with the physical closure.
+    Example: ``ms.period_calendar(name="fiscal", date=day, boundary_timezone="UTC", coverage=coverage, levels={"week": week})``.
+    Constraints: Fields resolve by kind/path in the completed calendar scope; lookup Refs support forward references.
     """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
@@ -202,16 +234,31 @@ def calendar_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
 def temporal_set(
     *,
     name: str,
-    occurrence_id: Ref[DimensionKind],
-    start: Ref[TimeDimensionKind],
-    end: Ref[TimeDimensionKind],
+    occurrence_id: Dimension | Ref[DimensionKind],
+    start: TimeField | Ref[TimeDimensionKind],
+    end: TimeField | Ref[TimeDimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
-    category: Ref[DimensionKind] | None = None,
+    category: Dimension | Ref[DimensionKind] | None = None,
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[TemporalSetKind]:
-    """Declare one finite governed set of named temporal occurrences."""
+    """Declare one finite governed set of named temporal occurrences.
+
+    Args:
+        name: Set name.
+        occurrence_id: Native identity Dimension or lookup Ref.
+        start: Native start TimeField or lookup Ref.
+        end: Native end TimeField or lookup Ref.
+        boundary_timezone: IANA boundary zone.
+        coverage: Half-open civil-date coverage tuple.
+        category: Optional native category Dimension or lookup Ref.
+        domain: Optional domain lookup Ref.
+        ai_context: Optional business context.
+    Returns: A typed temporal-set capture Ref.
+    Example: ``ms.temporal_set(name="campaigns", occurrence_id=identifier, start=start, end=end, boundary_timezone="UTC", coverage=coverage)``.
+    Constraints: The completed scope resolves input fields and checks kind, ownership and time roles; Refs retain forward-reference semantics.
+    """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     if type(name) is not str or not name:
@@ -281,14 +328,27 @@ def temporal_set(
 def work_schedule(
     *,
     name: str,
-    date: Ref[TimeDimensionKind],
-    is_working: Ref[DimensionKind],
+    date: TimeField | Ref[TimeDimensionKind],
+    is_working: Dimension | Ref[DimensionKind],
     boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
     domain: Ref[DomainKind] | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Ref[WorkScheduleKind]:
-    """Declare one finite governed daily final working-status schedule."""
+    """Declare one finite governed daily final working-status schedule.
+
+    Args:
+        name: Schedule name.
+        date: Native day TimeField or lookup Ref.
+        is_working: Native status Dimension or lookup Ref.
+        boundary_timezone: IANA boundary zone.
+        coverage: Half-open civil-date coverage tuple.
+        domain: Optional domain lookup Ref.
+        ai_context: Optional business context.
+    Returns: A typed work-schedule capture Ref.
+    Example: ``ms.work_schedule(name="business", date=day, is_working=working, boundary_timezone="UTC", coverage=coverage)``.
+    Constraints: The completed scope resolves input fields and checks kind, ownership and time roles; Refs retain forward-reference semantics.
+    """
     ctx = _require_ctx()
     resolved_domain = _resolve_domain(domain, ctx)
     if type(name) is not str or not name:

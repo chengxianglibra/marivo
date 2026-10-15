@@ -1,35 +1,38 @@
 """Authoring + IR + hash tests for cumulative metrics v2 anchors."""
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Literal
 
+import ibis.expr.types as ibis_ir
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.refs import Ref, TimeDimensionKind
-from marivo.semantic._dsl_authoring import AdditivityPolicy
-from marivo.semantic.authoring import (
-    CumulativeComposition,
+from marivo._temporal import Grain
+from marivo.refs import MeasureKind, MetricKind, Ref, TimeDimensionKind
+from marivo.semantic._authoring_metrics import (
+    _GRAIN_TO_DATE_INTERNAL,
     GrainToDate,
     Trailing,
     _compute_composition_hash,
 )
-from marivo.semantic.errors import SemanticDecoratorError
-from marivo.semantic.ir import MetricIR
+from marivo.semantic._dsl_authoring import AdditivityPolicy
+from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
+from marivo.semantic.ir import CumulativeComposition, MetricIR
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
 
 @contextmanager
-def _session(domain: str = "sales"):
+def _session(domain: str = "sales") -> Iterator[LoaderContext]:
     """Enter a LoaderContext with a default domain for cumulative authoring."""
     ctx = LoaderContext(default_domain=domain)
-    _LOADER_CTX.set(ctx)
+    token = _LOADER_CTX.set(ctx)
     try:
         yield ctx
     finally:
-        _LOADER_CTX.set(None)
+        _LOADER_CTX.reset(token)
 
 
 def _pending_metric(ctx: LoaderContext, semantic_id: str) -> MetricIR:
@@ -51,51 +54,70 @@ def _build_event_time_axis() -> Ref[TimeDimensionKind]:
     )
 
     @ms.time_dimension(entity=events, granularity="day")
-    def event_time(table: Any) -> Any:
+    def event_time(table: ibis_ir.Table) -> ibis_ir.Value:
         return table["event_time"]
 
     return event_time
 
 
-def _measure(name: str, entity: str, *, additivity: AdditivityPolicy | None = None):
+def _measure(
+    name: str, entity: str, *, additivity: AdditivityPolicy | None = None
+) -> Ref[MeasureKind]:
     policy = ms.additive_all() if additivity is None else additivity
     return ms.measure_column(
         entity=ms.ref.entity(entity), name=name, column=name, additivity=policy
     )
 
 
-def test_grain_to_date_returns_frozen_value_object():
-    obj = ms.grain_to_date(grain=mv.grain("month"))
+def _grain_to_date(*, grain: Grain) -> GrainToDate:
+    """Build the retained internal Runtime value, without retired public authoring."""
+    token = _GRAIN_TO_DATE_INTERNAL.set(True)
+    try:
+        return GrainToDate(grain=grain)
+    finally:
+        _GRAIN_TO_DATE_INTERNAL.reset(token)
+
+
+def test_grain_to_date_returns_frozen_value_object() -> None:
+    obj = _grain_to_date(grain=mv.grain("month"))
     assert isinstance(obj, GrainToDate)
     assert obj.grain == mv.grain("month")
     with pytest.raises(Exception):
-        obj.grain = "quarter"  # type: ignore[misc]
+        obj.grain = mv.grain("quarter")  # type: ignore[misc]  # intentional frozen-value mutation
 
 
-def test_grain_to_date_is_exported_but_not_directly_constructible():
-    assert ms.GrainToDate is GrainToDate
+def test_grain_to_date_is_retired_and_not_directly_constructible() -> None:
+    assert not hasattr(ms, "GrainToDate")
+    assert not hasattr(ms, "Trailing")
+    with pytest.raises(SemanticExpressionError, match="retired declaration factory") as caught:
+        ms.grain_to_date(grain=mv.grain("month"))
+    assert caught.value.expected and caught.value.received and caught.value.repair
+    with pytest.raises(SemanticExpressionError, match="retired declaration factory"):
+        ms.trailing(count=7, unit="day")
     with pytest.raises(TypeError, match="direct construction is not supported"):
         GrainToDate(grain=mv.grain("month"))
 
 
-def test_grain_to_date_rejects_unknown_grain():
+def test_grain_to_date_rejects_unknown_grain() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.grain_to_date(grain=mv.grain("day"))
+        _grain_to_date(grain=mv.grain("day"))
     assert "grain_to_date" in str(exc_info.value).lower()
 
 
 @pytest.mark.parametrize("unit", ["week", "month", "quarter", "year"])
-def test_grain_to_date_accepts_reset_grains(unit):
+def test_grain_to_date_accepts_reset_grains(
+    unit: Literal["week", "month", "quarter", "year"],
+) -> None:
     value = mv.grain(unit)
-    assert ms.grain_to_date(grain=value).grain == value
+    assert _grain_to_date(grain=value).grain == value
 
 
-def test_grain_to_date_preserves_semantic_grain_identity():
+def test_grain_to_date_preserves_semantic_grain_identity() -> None:
     fiscal_month = ms.calendar_grain(
         calendar=ms.ref.period_calendar("sales.fiscal"),
         level="fiscal_month",
     )
-    authored = ms.grain_to_date(grain=fiscal_month)
+    authored = _grain_to_date(grain=fiscal_month)
 
     assert authored.grain is fiscal_month
     same_calendar = _compute_composition_hash(
@@ -121,8 +143,8 @@ def test_grain_to_date_preserves_semantic_grain_identity():
     assert same_calendar != other_calendar
 
 
-def test_trailing_returns_frozen_value_object():
-    obj = ms.trailing(count=7, unit="day")
+def test_trailing_returns_frozen_value_object() -> None:
+    obj = Trailing(count=7, unit="day")
     assert isinstance(obj, Trailing)
     assert obj.count == 7
     assert obj.unit == "day"
@@ -130,13 +152,13 @@ def test_trailing_returns_frozen_value_object():
         obj.count = 30  # type: ignore[misc]
 
 
-def test_trailing_rejects_non_positive_count():
+def test_trailing_rejects_non_positive_count() -> None:
     with pytest.raises(SemanticDecoratorError):
-        ms.trailing(count=0, unit="day")
+        Trailing(count=0, unit="day")
 
 
 @pytest.mark.parametrize("count", [True, False])
-def test_trailing_rejects_bool_count(count):
+def test_trailing_rejects_bool_count(count: bool) -> None:
     """``bool`` is a subclass of ``int`` but must not be accepted as a count.
 
     ``isinstance(True, int)`` is True, so without an explicit rejection
@@ -144,28 +166,28 @@ def test_trailing_rejects_bool_count(count):
     ``SampleIntervalIR`` guard in ``marivo/semantic/ir.py``.
     """
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.trailing(count=count, unit="day")
+        Trailing(count=count, unit="day")
     assert "positive integer count" in str(exc_info.value)
 
 
 @pytest.mark.parametrize("unit", ["second", "minute", "hour", "day", "week"])
-def test_trailing_accepts_fixed_size_units(unit):
-    assert ms.trailing(count=3, unit=unit).unit == unit
+def test_trailing_accepts_fixed_size_units(unit: str) -> None:
+    assert Trailing(count=3, unit=unit).unit == unit
 
 
-def test_trailing_rejects_calendar_variable_unit():
+def test_trailing_rejects_calendar_variable_unit() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.trailing(count=3, unit="month")
+        Trailing(count=3, unit="month")
     msg = str(exc_info.value).lower()
     assert "trailing" in msg
     assert "grain_to_date" in msg or "fixed" in msg
 
 
-def test_cumulative_accepts_grain_to_date_anchor():
+def test_cumulative_accepts_grain_to_date_anchor() -> None:
     with _session(domain="sales"):
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
-        gmv = ms.aggregate(name="gmv", measure=amt, agg="sum")
+        gmv: Ref[MetricKind] = ms.aggregate(name="gmv", measure=amt, agg="sum")
         cum = ms.cumulative(
             name="mtd_gmv",
             base=gmv,
@@ -175,11 +197,11 @@ def test_cumulative_accepts_grain_to_date_anchor():
         assert cum is not None
 
 
-def test_cumulative_accepts_trailing_anchor():
+def test_cumulative_accepts_trailing_anchor() -> None:
     with _session(domain="sales"):
         event_time = _build_event_time_axis()
         uid = _measure("uid", "sales.events", additivity=ms.non_additive())
-        active = ms.aggregate(name="active", measure=uid, agg="count_distinct")
+        active: Ref[MetricKind] = ms.aggregate(name="active", measure=uid, agg="count_distinct")
         cum = ms.cumulative(
             name="rolling7_active",
             base=active,
@@ -189,11 +211,11 @@ def test_cumulative_accepts_trailing_anchor():
         assert cum is not None
 
 
-def test_cumulative_anchor_defaults_to_all_history():
+def test_cumulative_anchor_defaults_to_all_history() -> None:
     with _session(domain="sales") as ctx:
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
-        gmv = ms.aggregate(name="gmv", measure=amt, agg="sum")
+        gmv: Ref[MetricKind] = ms.aggregate(name="gmv", measure=amt, agg="sum")
         ms.cumulative(name="all_gmv", base=gmv, over=event_time)
         # Anchor defaults to all_history: read back the authored MetricIR and
         # assert the resolved CumulativeComposition.anchor directly.
@@ -202,7 +224,7 @@ def test_cumulative_anchor_defaults_to_all_history():
         assert m.composition.anchor == "all_history"
 
 
-def test_grain_to_date_hash_differs_from_all_history():
+def test_grain_to_date_hash_differs_from_all_history() -> None:
     base = "sales.gmv"
     over = "sales.events.event_time"
     all_history_hash = _compute_composition_hash(CumulativeComposition(base=base, over=over))
@@ -212,7 +234,7 @@ def test_grain_to_date_hash_differs_from_all_history():
     assert all_history_hash != gtd_hash
 
 
-def test_trailing_hash_encodes_count_and_unit():
+def test_trailing_hash_encodes_count_and_unit() -> None:
     base = "sales.gmv"
     over = "sales.events.event_time"
     h7d = _compute_composition_hash(
@@ -224,7 +246,7 @@ def test_trailing_hash_encodes_count_and_unit():
     assert h7d != h30d
 
 
-def test_grain_to_date_hash_distinguishes_reset_grains():
+def test_grain_to_date_hash_distinguishes_reset_grains() -> None:
     """MTD vs QTD vs YTD must hash distinctly — the reset grain is part of the
     anchor tuple and must feed the composition hash so cross-grain collisions
     cannot silently misidentify a cumulative metric."""
@@ -242,7 +264,7 @@ def test_grain_to_date_hash_distinguishes_reset_grains():
     assert len({h_month, h_quarter, h_year}) == 3
 
 
-def test_trailing_hash_distinguishes_unit():
+def test_trailing_hash_distinguishes_unit() -> None:
     """trailing(7, day) vs trailing(7, week) must hash distinctly — the unit is
     part of the anchor tuple and must feed the composition hash."""
     base = "sales.gmv"
@@ -256,7 +278,7 @@ def test_trailing_hash_distinguishes_unit():
     assert h_day != h_week
 
 
-def test_cumulative_anchor_hashes_are_deterministic():
+def test_cumulative_anchor_hashes_are_deterministic() -> None:
     """Recomputing the same current anchor composition yields the same hash."""
     base = "sales.gmv"
     over = "sales.events.event_time"

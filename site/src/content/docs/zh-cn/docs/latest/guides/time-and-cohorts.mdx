@@ -63,7 +63,7 @@ from datetime import datetime, timezone
 anchor = datetime(2026, 8, 1, tzinfo=timezone.utc)
 customers = session.members(ms.ref.entity("sales.customer"), at=anchor)
 region = customers.read(ms.ref.dimension("sales.customer.region"), at=anchor)
-# A declared @ms.measure row expression uses the same read entry point:
+# This existing reader example uses a published physical Measure:
 score = customers.read(ms.ref.measure("sales.customer.score"), at=anchor)
 assert isinstance(region, mv.LogicalCategoryRelation)
 selected = region.where(region.value.eq("west")).members()
@@ -138,89 +138,15 @@ DuckDB reader 配置为 UTC。如果来源保存上海墙上时间，
 
 状态示例需要按 snapshot 版本化的 inventory Entity。累计示例需要已治理基础 Metric、事件轴，以及使用时已经认证的 calendar。
 
-{/* example: snapshot-status-fold */}
+状态采样保留来源轴、间隔和可加限制。默认 status_time_fold/fold 已退役；在已经构造的字段上显式写出空间规约与内部时间样本规约：
 
 ```python
-snapshot_date = ms.time_dimension_column(
-    name="snapshot_date",
-    entity=inventory_daily,
-    column="snapshot_date",
-    granularity="minute",
-    parse=ms.timestamp(timezone="UTC", sample_interval=(5, "minute")),
-)
-
-on_hand_units = ms.measure_column(
-    name="on_hand_units",
-    entity=inventory_daily,
-    column="on_hand_units",
-    additivity=ms.additive_all(except_=(snapshot_date,)),
-    status_time_dimension=snapshot_date,
-    status_time_fold="last",
-)
-```
-{/* example: cumulative-metric */}
-
-```python
-user_id = ms.measure_column(name="user_id", entity=events, column="user_id", additivity=ms.non_additive())
-active_users = ms.aggregate(name="active_users", measure=user_id, agg="count_distinct")
-cumulative_active_users = ms.cumulative(
-    name="cumulative_active_users",
-    base=active_users,
-    over=event_time,
-)
-```
-{/* example: cumulative-grain-anchor */}
-
-```python
-mtd_revenue = ms.cumulative(
-    name="mtd_revenue",
-    base=revenue,
-    over=event_time,
-    anchor=ms.grain_to_date(grain=mv.grain("month")),
-)
-```
-{/* example: cumulative-calendar-anchor */}
-
-```python
-fiscal_mtd = ms.cumulative(
-    name="fiscal_mtd",
-    base=revenue,
-    over=event_time,
-    anchor=ms.grain_to_date(
-        grain=ms.calendar_grain(
-            calendar=ms.ref.period_calendar("sales.fiscal"),
-            level="fiscal_month",
-        )
-    ),
-)
-
-fiscal_week = session.catalog.period_calendars.get("sales.fiscal").grain("fiscal_week")
-grid = mv.time_grid(during=mv.time_scope(start="2026-01-01", end="2026-03-01"), grain=fiscal_week)
-dataset = (
-    session.members(ms.ref.entity("sales.events"))
-    .observe(fiscal_mtd, at=grid.end, by=(mv.member(),))
-    .group_by(grid)
-    .rollup()
-)
-```
-{/* example: cumulative-trailing-anchor */}
-
-```python
-rolling7_active = ms.cumulative(
-    name="rolling7_active",
-    base=active_users,
-    over=event_time,
-    anchor=ms.trailing(count=7, unit="day"),
-)
+@ms.metric()
+def median_inventory():
+    return inventory.sum(time=sample_at).per(sample_at).median()
 ```
 
-Status fold 先在每个样本处做空间聚合，再折叠时间。原始 rollup 需要兼容的保留样本。
-累计端点从其声明的 anchor 开始读取，包含显示网格之前的历史。
-重叠累计窗口不能跨时间求和。
-
-## 先选择 Defined 值
-
-customer 模型声明了 region、revenue 和 buyer 关系。每个谓词输入必须覆盖接收者完整域。
+该片段只构造定义。覆盖与完整绑定由后续执行检查；不提供隐式期末值或前向填充。旧 cumulative/grain_to_date/trailing 语义声明也已退役；新窗口执行归 R2 后续阶段，不能把旧工厂当作兼容入口。
 
 {/* example: defined-selection */}
 
@@ -359,3 +285,5 @@ orders.observe(ms.ref.metric("sales.revenue"), during=days).execute().show()
 Entity 的 UTC timestamp 轴。原始均值 rollup 合并和与计数，行均值创建不同数量。
 筛选参见[统计方法](/zh-cn/docs/latest/guides/statistics/)，业务日历边界参见
 [日历与工作计划](/zh-cn/docs/latest/guides/calendars-and-schedules/)。
+
+物理作者阶段先捕获类型化 Ref。依赖完整后调用 `ms.finalize()`，再用 `finalized.resolve(ref)` 取得不可变值用于行/Metric 组合。finalize 关闭捕获阶段，不发布 Catalog Metric，也不启用新执行路线。

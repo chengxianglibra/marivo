@@ -18,6 +18,44 @@ v0.32 明确：execute 返回终端 Artifact；所有 DSL 组合在 Query 上完
 v0.30 采用 nullable value；普通缺失统一为 NA，非法计算和实际覆盖检查失败按错误处理。
 sum 忽略 NA，空输入与全 NA 都为 0；移除 empty 选项和逐格四态/原因传播。
 
+Implementation checkpoint (2026-10-15, R1.3 working tree): the pure
+Measure/Metric declaration, constructed Entity/Field values and retired-authoring
+boundaries in §2/A.1 now have local implementation and targeted checks. This is
+not complete R1.3 acceptance or Runtime evidence. Catalog Metric collection,
+publication and public discovery remain R1.4; the new execution route remains R2.
+Historical proposal-only notes below describe their original amendment scope.
+The approved capture/finalize adjustment addresses review1 snapshot and Ibis
+closure defects; retained regressions pass locally. The complete R1.3 diff still
+requires independent re-review and fixes before commit.
+
+## Definition changes during analysis (approved 2026-10-15)
+
+Marivo does not require semantic objects to remain bound to the exact definition
+versions from which they were constructed, and does not reject an input solely
+because a same-path definition has changed. If semantic-layer definitions change
+during analysis, the agent or user accepts the consequences. This does not relax
+type, kind, contribution-root, grain, unit, time-role, null or other semantic
+correctness checks. Definition fingerprints must still describe the computation
+and dependencies actually consumed; cache reuse must use correct keys and
+invalidation, and persisted provenance and records remain governed by their
+owning contracts.
+
+Marivo 不要求语义对象始终绑定其构造时的精确定义版本，也不因同路径定义已改变而单独拒绝输入。
+分析期间语义层定义发生更新，其后果由 agent 或用户承担。这不放宽类型、kind、贡献根、粒度、单位、
+时间角色、空值或其它语义正确性检查。定义指纹仍须描述实际消费的计算及依赖；缓存复用必须使用正确的键
+和失效规则，持久化来源记录与其它记录仍遵循各自拥有的合同。
+
+本决定取代先前要求保留原定义版本并拒绝同路径改版本输入的部分，不删除定义身份、计算指纹或记录。
+在实际进行引用解析的消费者处，constructed 输入按 kind/path 在该消费者的完整作用域解析，
+不额外核对输入原先记录的定义版本。已经构造的纯表达式仍不可变，组合其存储的定义与事实；
+不新增 live refresh、自动重跑模块或 import effects，也不把裸 Ref 变成表达式。
+既有 snapshot/validity 业务历史选择、时间路径、角色及完整键约束与“定义版本更新”不同，继续保留。
+
+Implementation checkpoint: the uncommitted R1.3 working tree removes obsolete
+original-version enforcement under this approved contract. Independent review and
+complete R1.3 acceptance remain pending. Earlier review/test results describe the
+previous contract, not acceptance of this amendment.
+
 ## 1. 从两种使用场景确定最小模型
 
 语义建模者需要保存一份有业务身份、可独立加载的定义；分析者需要在本次问题中组合一个临时量。
@@ -70,7 +108,7 @@ v0.29 只同步此命名及 population()/in_population(...)，不改变依赖、
 Field 保留精确种类；数值编码 Dimension 只能比较、分组或计数，不能因 dtype 是整数就求金额之和。
 Measure 及数值行表达式提供受限算术和以下来源规约。下面是签名说明，支持类型不扩展顶层 Help；
 NumericRowExpr 包含 Measure，NumericLiteral 是有限 int/float/Decimal，排除 bool、NaN 和无穷。
-TimeField 是已解析的时间字段；对象依赖捕获精确版本，不按同名物理列猜测。
+TimeField 是已解析的时间字段；依赖保留实际使用的定义身份，不按同名物理列猜测，也不强制绑定构造时的定义版本。
 TimeField.via(path) 保持 TimeField kind，并捕获从贡献根到时间字段 Entity 的非空、有序、
 按声明方向连续且单值的关系路径；将该对象传入 time= 保留跨 Entity 时间绑定能力，不另设 time_via。
 原生时间字段直接传入 time=，不写空路径。绑定检查贡献根、完整键、角色、版本和路径端点，
@@ -133,7 +171,19 @@ where 创建新定义，仅用于单一来源规约或同一共同配对作用�
 不能把复合式的 where 猜成“过滤所有叶子”，也不提供 on 或表达式树位置参数。
 
 表达式使用已构造对象或从 Catalog 解析的对象；裸 Ref 是加载/查找输入，不支持运算符或方法转发。
-模型模块直接组合已声明对象，先声明被依赖对象；本版不增加隐式前向解析环境。
+物理作者阶段先捕获 PendingDefinition 并返回类型化 Ref，尚不产生闭包完整的表达式值。依赖完整后显式
+`finalized = ms.finalize()`，复用 registry/assembly 校验并冻结闭包，再以
+`amount = finalized.resolve(amount_ref)` 取得不可变 Entity/Field/Relationship 值用于组合。
+finalize 后同一物理 scope/root 不再接受新增声明；缺失依赖的失败保持捕获阶段开放供修复。
+受限 Ibis 字段仍可用显式 lookup Ref 捕获前向绑定，必须在 finalize 前完成依赖。
+Ibis bind 及物理 owner、关系端点/键、versioning、status time、parse prefix、
+calendar/temporal-set/work-schedule、additivity helper 接收 constructed 输入时，
+按消费者实际闭包解析 kind/path，不再携带“必须等于输入原版本”的隐藏约束；显式 Ref 仍是查找键并支持前向依赖。
+pure Measure 的显式 additivity 在行表达式的冻结坐标中检查轴存在性、kind、native time role 和权限，
+不因原定义版本不同而拒绝，也不借活动 loader refresh 已返回值。
+保留 finalize 是为了完整默认时间/坐标事实和 Ibis 前向依赖，而不是为旧版本强制绑定提供生命周期。
+不允许 live mutable 返回值、按活动上下文 refresh 或重跑模块/import effects；纯 Measure/Metric
+仍只消费已构造值，本版不增加隐式前向表达式解析环境。
 导入顺序不能替代循环检查；loader 冻结完整依赖版本，缺失或错误 kind 必须给出具体位置。
 
 ### 2.2 一种除法与明确配对
@@ -620,14 +670,14 @@ Query Column 不能进入 Metric；Artifact 不提供 Column，也不能通过 .
 | owner | 负责 |
 | --- | --- |
 | semantic 表达式与声明 | 行/指标阶段、业务权限、稳定身份与闭合图构造 |
-| loader / Catalog | 独立持久解析、依赖与名称检查、精确版本和发现 |
+| loader / Catalog | 独立持久解析、依赖与名称检查、实际定义身份和发现 |
 | 共同私有定义图 | 行计算、规约、Metric 组合、内部样本及规范化域依赖 |
 | Ibis 来源 lowering | 合法 schema/关系上的计算、政策保持和实际后端资格；来源执行交付 pandas |
 | analysis | 观察绑定、Query 组合、统一 pandas 本地执行与中间信息、终端 Artifact 产出 |
 | Help / contract / errors | 静态导航 / 当前定义或状态 / 具体修复 |
 
 复用现有图、compiler、发布和恢复链，不建第二 Runtime、虚拟共同关系或完整 Ibis AST 镜像。
-共同定义图仅在进程中保留规范化计算、声明授权、依赖版本、节点政策与规则版本；不做分析结果图编码，
+共同定义图仅在进程中保留规范化计算、声明授权、实际依赖身份/指纹、节点政策与规则版本；这些记录不强制固定输入的原版本。缓存按实际消费的定义与绑定区分，不能因取消旧版本拒绝而复用错误缓存。不做分析结果图编码，
 不 pickle callable/Ibis/Catalog。Population 采用依赖中立的字面量/来源或 Query 程序描述，
 semantic 不导入 analysis 执行器，实际归属、读取边界和循环检查沿依赖保留。
 来源无法下推的计算只在具有合格 pandas 内核时进入本地阶段；语义政策不因执行位置改变。
