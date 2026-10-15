@@ -319,6 +319,12 @@ _EXPECTED_DECORATOR_KINDS = {
     "invalid_sample_interval",
     "invalid_time_fold",
     "entity_constructor_as_decorator",
+    "invalid_expression_stage",
+    "invalid_expression_value",
+    "cross_root_row_expression",
+    "missing_sum_permission",
+    "invalid_where_scope",
+    "invalid_time_path",
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {

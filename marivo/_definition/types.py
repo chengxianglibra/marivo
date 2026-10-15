@@ -187,11 +187,25 @@ class SumAxes:
 
 
 @dataclass(frozen=True, slots=True)
+class SumAllExcept:
+    """Sum is permitted across every axis except the listed fixed semantic axes."""
+
+    axes: tuple[ExactRef, ...]
+
+    def __post_init__(self) -> None:
+        if not self.axes:
+            invalid(
+                "sum permission except expected at least one fixed axis; received none. "
+                "Use SumAll when no axis stays fixed."
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class SumNone:
     """No sum permission; the value may still be reduced by non-additive reducers."""
 
 
-SumPermission: TypeAlias = SumAll | SumAxes | SumNone
+SumPermission: TypeAlias = SumAll | SumAxes | SumAllExcept | SumNone
 
 
 @dataclass(frozen=True, slots=True)

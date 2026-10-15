@@ -10,6 +10,7 @@ from typing import cast
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
+from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, AdditivityPolicy
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic.ir import (
     DimensionIR,
@@ -137,6 +138,15 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
     return None
 
 
+def _additivity_axes(policy: AdditivityPolicy | None) -> tuple[str, ...]:
+    """Coordinate paths a declared additivity policy names; they define its meaning."""
+    if isinstance(policy, AdditiveOverV1):
+        return policy.coordinates
+    if isinstance(policy, AdditiveAllV1):
+        return policy.exceptions
+    return ()
+
+
 def _dependencies_for(
     ref: Ref[SemanticKindTag],
     definition: object,
@@ -149,10 +159,13 @@ def _dependencies_for(
         paths.append(definition.datasource)
     elif isinstance(definition, (DimensionIR, MeasureIR)):
         paths.append(definition.entity)
-        if isinstance(definition, MeasureIR) and isinstance(definition.additivity, SemiAdditive):
-            paths.append(definition.additivity.over)
+        if isinstance(definition, MeasureIR):
+            if isinstance(definition.additivity, SemiAdditive):
+                paths.append(definition.additivity.over)
+            paths.extend(_additivity_axes(definition.dsl_additivity))
     elif isinstance(definition, MetricIR):
         paths.extend(definition.entities)
+        paths.extend(_additivity_axes(definition.dsl_additivity))
         if definition.measure is not None:
             paths.append(definition.measure)
         if definition.aggregation_target is not None:

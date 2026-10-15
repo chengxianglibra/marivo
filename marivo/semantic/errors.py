@@ -14,6 +14,7 @@ from typing import Any, Literal, NoReturn
 from marivo._authoring.errors import ContractScopeErrorPayload
 from marivo._authoring.model import AuthoringRepair
 from marivo._compat import StrEnum
+from marivo._definition.types import DefinitionGraphError
 from marivo._errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
@@ -107,6 +108,14 @@ class ErrorKind(StrEnum):
     SQL_ESCAPE_HATCH = "sql_escape_hatch"
     IBIS_ATTR_SHADOW = "ibis_attr_shadow"
     ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"
+
+    # expression construction
+    INVALID_EXPRESSION_STAGE = "invalid_expression_stage"
+    INVALID_EXPRESSION_VALUE = "invalid_expression_value"
+    CROSS_ROOT_ROW_EXPRESSION = "cross_root_row_expression"
+    MISSING_SUM_PERMISSION = "missing_sum_permission"
+    INVALID_WHERE_SCOPE = "invalid_where_scope"
+    INVALID_TIME_PATH = "invalid_time_path"
 
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
@@ -304,6 +313,53 @@ class SemanticError(MarivoError):
 
 class SemanticDecoratorError(SemanticError):
     """Error raised during decorator-time validation."""
+
+
+class SemanticExpressionError(SemanticError):
+    """Error raised while constructing a semantic Row or Metric expression.
+
+    Every instance states the expected shape, the received value, and one
+    reauthoring action; construction never reads business sources.
+    """
+
+    def __init__(
+        self,
+        *,
+        kind: ErrorKind,
+        message: str,
+        expected: str,
+        received: str,
+        action: str,
+        refs: tuple[str, ...] = (),
+        details: dict[str, Any] | None = None,
+        location_label: str | None = None,
+    ) -> None:
+        super().__init__(
+            kind=kind.value,
+            message=message,
+            refs=refs,
+            details=details,
+            expected=expected,
+            received=received,
+            location_label=location_label,
+            repair=repair(kind="reauthor", canonical_id="authoring", action=action),
+        )
+
+    @classmethod
+    def from_definition(
+        cls, error: DefinitionGraphError, *, operation: str
+    ) -> SemanticExpressionError:
+        """Translate a private definition-layer failure raised while building ``operation``."""
+        path = " > ".join(error.path) if error.path else None
+        return cls(
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            message=f"{operation} received a value the expression definition rejects.",
+            expected=f"a valid {operation} input",
+            received=str(error),
+            action=f"Correct the {operation} input named above and rebuild the expression.",
+            details={"definition_kind": error.kind, "definition_path": list(error.path)},
+            location_label=path,
+        )
 
 
 class SemanticDefinitionReadError(SemanticError):

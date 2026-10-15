@@ -148,6 +148,31 @@ RowNode: TypeAlias = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class TimeBinding:
+    """Business time role of a source reduction: a time field and its single-valued path.
+
+    An empty path reads a time field native to the contribution root; a non-empty
+    path is the ordered relationship chain from the root to the field's Entity.
+    """
+
+    field: ExactRef
+    path: tuple[ExactRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:
+            invalid(
+                f"time binding expected a time_dimension reference; received "
+                f"{self.field.ref.key}. Pass a declared time field."
+            )
+        for step in self.path:
+            if step.ref.kind is not SemanticKind.RELATIONSHIP:
+                invalid(
+                    f"time path on {self.field.ref.key} expected relationship references; "
+                    f"received {step.ref.key}. Pass declared relationships in path order."
+                )
+
+
 # Field predicates --------------------------------------------------------
 
 
@@ -172,6 +197,18 @@ class FieldIn:
 
 
 @dataclass(frozen=True, slots=True)
+class RowCompare:
+    """Comparison of a derived numeric row expression with a finite constant."""
+
+    operand: RowNode
+    op: CompareOp
+    value: FiniteNumber
+
+    def __post_init__(self) -> None:
+        check_finite_number(self.value, role="row comparison constant")
+
+
+@dataclass(frozen=True, slots=True)
 class FieldIsNull:
     field: ExactRef
 
@@ -191,7 +228,9 @@ class PredNot:
     operand: FieldPredicate
 
 
-FieldPredicate: TypeAlias = FieldCompare | FieldIn | FieldIsNull | PredAnd | PredOr | PredNot
+FieldPredicate: TypeAlias = (
+    FieldCompare | FieldIn | FieldIsNull | RowCompare | PredAnd | PredOr | PredNot
+)
 
 
 # Metric stage ------------------------------------------------------------
@@ -203,7 +242,7 @@ class SourceAggregate:
 
     operand: RowNode
     reducer: Reducer
-    time: ExactRef | None
+    time: TimeBinding | None
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
@@ -215,7 +254,7 @@ class SourceAggregate:
 @dataclass(frozen=True, slots=True)
 class EntityCount:
     entity: ExactRef
-    time: ExactRef | None
+    time: TimeBinding | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,7 +263,7 @@ class SourceWeightedMean:
 
     value: RowNode
     weight: RowNode
-    time: ExactRef | None
+    time: TimeBinding | None
     nulls: NullPolicy = "ignore"
     zero_denominator: ZeroDenominator = "null"
     rule_version: int = RULE_VERSION

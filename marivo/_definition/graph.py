@@ -35,7 +35,11 @@ from marivo._definition.expressions import (
     MetricSubtract,
     PerReduce,
     PerWeightedMean,
+    PredAnd,
+    PredNot,
+    PredOr,
     RowAdd,
+    RowCompare,
     RowConstant,
     RowDivide,
     RowField,
@@ -159,6 +163,21 @@ def _population_inputs(
     return ()
 
 
+def _predicate_inputs(predicate: object) -> tuple[tuple[EdgeRole, DefinitionNode], ...]:
+    """Row expressions compared inside a field predicate, in predicate order."""
+    match predicate:
+        case RowCompare():
+            return (("predicate", predicate.operand),)
+        case PredAnd() | PredOr():
+            return tuple(
+                item for operand in predicate.operands for item in _predicate_inputs(operand)
+            )
+        case PredNot():
+            return _predicate_inputs(predicate.operand)
+        case _:
+            return _population_inputs("predicate", predicate)
+
+
 def children(node: DefinitionNode) -> tuple[Edge, ...]:
     """Return the ordered role edges of ``node``; declared refs expand only during ``walk``."""
     match node:
@@ -185,9 +204,7 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
         case SourceWeightedMean():
             return _edges(("value", node.value), ("weight", node.weight))
         case ContributionFilter():
-            return _edges(
-                ("operand", node.operand), *_population_inputs("predicate", node.predicate)
-            )
+            return _edges(("operand", node.operand), *_predicate_inputs(node.predicate))
         case PerReduce():
             return _edges(("operand", node.operand), *_population_inputs("samples", node.samples))
         case PerWeightedMean():

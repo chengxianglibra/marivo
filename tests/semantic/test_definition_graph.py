@@ -11,15 +11,19 @@ import pytest
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
+    FieldIsNull,
     MeasureAssertion,
     MetricAdd,
     MetricConstant,
     MetricDeclaration,
     MetricDivide,
     MetricNode,
+    PredAnd,
+    RowCompare,
     RowField,
     RowSubtract,
     SourceAggregate,
+    TimeBinding,
 )
 from marivo._definition.graph import children, computation_fingerprint, walk
 from marivo._definition.relations import (
@@ -36,11 +40,13 @@ from marivo._definition.types import (
     ExactRef,
     Owner,
     SumAll,
+    SumAllExcept,
 )
 from marivo.refs import ref
 
 ORDERS = ExactRef(ref.entity("sales.orders"), "v1")
 PAID_AT = ExactRef(ref.time_dimension("sales.orders.paid_at"), "v1")
+PAID = TimeBinding(PAID_AT)
 CUSTOMER = AxisBinding(
     entity=ExactRef(ref.entity("sales.customers"), "v1"), field=None, path=(), role="identity"
 )
@@ -63,7 +69,7 @@ def _field(name: str, *, unit: str | None = "CNY") -> RowField:
 
 
 def _margin() -> SourceAggregate:
-    return SourceAggregate(RowSubtract(_field("amount"), _field("cost")), "sum", time=PAID_AT)
+    return SourceAggregate(RowSubtract(_field("amount"), _field("cost")), "sum", time=PAID)
 
 
 def _no_declarations(_ref: ExactRef) -> MetricNode | None:
@@ -109,8 +115,8 @@ def test_measure_assertion_enters_fingerprint() -> None:
 
 
 def test_zero_denominator_policy_is_part_of_the_computation() -> None:
-    revenue = SourceAggregate(_field("amount"), "sum", time=PAID_AT)
-    cost = SourceAggregate(_field("cost"), "sum", time=PAID_AT, nulls="error")
+    revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
+    cost = SourceAggregate(_field("cost"), "sum", time=PAID, nulls="error")
 
     default = MetricDivide(cost, revenue)
     explicit_null = MetricDivide(cost, revenue, zero_denominator="null")
@@ -126,7 +132,7 @@ def test_metric_population_query_cycle_is_located() -> None:
         metrics=(("revenue", DeclaredMetricRef(self_ref)),), by=(CUSTOMER,), owner=None
     )
     cohort = PopulationProgram(root=QueryKeys(query=query, axes=(CUSTOMER,)), owner=None)
-    definition = ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID_AT), cohort)
+    definition = ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), cohort)
 
     def resolve(target: ExactRef) -> MetricNode | None:
         return definition if target == self_ref else None
@@ -146,7 +152,7 @@ def test_metric_population_query_cycle_is_located() -> None:
     def resolve_fresh(target: ExactRef) -> MetricNode | None:
         if target != self_ref:
             return None
-        return ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID_AT), cohort)
+        return ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), cohort)
 
     with pytest.raises(DefinitionGraphError) as fresh:
         walk([DeclaredMetricRef(self_ref)], resolve=resolve_fresh)
@@ -183,7 +189,7 @@ def test_walk_visits_each_shared_dag_node_once() -> None:
 
 
 def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
-    revenue = SourceAggregate(_field("amount"), "sum", time=PAID_AT)
+    revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
     first = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-a", "owner-a"))
     second = PopulationProgram(SourceIdentities(CUSTOMER.entity), Owner("session-b", "owner-b"))
     combined = MetricAdd(ContributionFilter(revenue, first), ContributionFilter(revenue, second))
@@ -193,7 +199,7 @@ def test_ownership_conflict_and_unknown_rule_version_fail() -> None:
     assert conflict.value.kind == "ownership_conflict"
     assert conflict.value.path == ("MetricAdd.right[1]", "ContributionFilter.predicate[1]")
 
-    stale = SourceAggregate(_field("amount"), "sum", time=PAID_AT, rule_version=99)
+    stale = SourceAggregate(_field("amount"), "sum", time=PAID, rule_version=99)
     with pytest.raises(DefinitionGraphError) as version:
         walk([MetricDivide(revenue, stale)], resolve=_no_declarations)
     assert version.value.kind == "unknown_rule_version"
@@ -262,6 +268,39 @@ def test_definition_records_reject_invalid_names_and_values() -> None:
         LiteralPopulation(axes=(TIER,), keys=((float("nan"),),), version="v1")
     with pytest.raises(DefinitionGraphError, match="role='identity'"):
         AxisBinding(entity=ORDERS, field=PAID_AT, path=(), role="identity")
+
+
+def test_time_binding_path_is_part_of_the_computation() -> None:
+    buyer = ExactRef(ref.relationship("sales.orders_to_customers"), "v1")
+    created_at = ExactRef(ref.time_dimension("sales.customers.created_at"), "v1")
+    native = SourceAggregate(_field("amount"), "sum", time=TimeBinding(created_at))
+    via = SourceAggregate(_field("amount"), "sum", time=TimeBinding(created_at, (buyer,)))
+
+    assert computation_fingerprint(native) != computation_fingerprint(via)
+    with pytest.raises(DefinitionGraphError, match="time_dimension"):
+        TimeBinding(ExactRef(ref.dimension("sales.orders.status"), "v1"))
+    with pytest.raises(DefinitionGraphError, match="relationship references"):
+        TimeBinding(created_at, (ORDERS,))
+
+
+def test_row_comparisons_are_predicate_edges_and_sum_except_needs_an_axis() -> None:
+    margin = RowSubtract(_field("amount"), _field("cost"))
+    status = ExactRef(ref.dimension("sales.orders.status"), "v1")
+    positive = RowCompare(margin, "gt", 0)
+    predicate = PredAnd((FieldIsNull(status), positive))
+    filtered = ContributionFilter(SourceAggregate(_field("amount"), "sum", time=PAID), predicate)
+
+    edges = children(filtered)
+    assert [(edge.role, edge.index) for edge in edges] == [("operand", 0), ("predicate", 1)]
+    assert edges[1].child is margin
+    revenue = SourceAggregate(_field("amount"), "sum", time=PAID)
+    assert computation_fingerprint(
+        ContributionFilter(revenue, RowCompare(margin, "gt", 0))
+    ) != computation_fingerprint(ContributionFilter(revenue, RowCompare(margin, "ge", 0)))
+    with pytest.raises(DefinitionGraphError, match="finite"):
+        RowCompare(margin, "gt", float("inf"))
+    with pytest.raises(DefinitionGraphError, match="at least one fixed axis"):
+        SumAllExcept(())
 
 
 def test_definition_layer_imports_no_semantic_analysis_or_engine_modules() -> None:
