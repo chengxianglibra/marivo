@@ -15,7 +15,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
 from typing import (
@@ -35,11 +35,54 @@ from pydantic_core import core_schema
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, WorkScheduleKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
+if TYPE_CHECKING:
+    from marivo._temporal_grid import BoundTimeGrid
+
 _DATE_TYPE = date
 
 _GRAIN_UNITS = frozenset({"second", "minute", "hour", "day", "week", "month", "quarter", "year"})
 _JSON_SCALAR = str | int | float | bool
 _TIME_SCOPE_INTERNAL = ContextVar("marivo_time_scope_internal", default=False)
+
+
+class InstantAnchor(datetime):
+    """An immutable exact instant returned by Session.instant or scope boundaries.
+
+    This datetime subtype preserves compatibility with existing temporal consumers.
+    Construct through Session.instant; analysis constructors always return UTC.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return f"<InstantAnchor {self.isoformat()}; use .show()>"
+
+    def show(self) -> None:
+        """Display the exact instant.
+
+        Args: None.
+        Returns: None.
+        Example: ``session.instant('2026-01-01').show()``.
+        Constraints: Does not consult a clock, Session, or source.
+        """
+        print(self.isoformat())
+
+
+def anchor_from_datetime(value: datetime) -> InstantAnchor:
+    """Preserve an aware datetime as an exact UTC anchor without float conversion."""
+    if value.utcoffset() is None:
+        raise ValueError("an exact instant requires an aware datetime")
+    utc = value.astimezone(timezone.utc)
+    return InstantAnchor(
+        utc.year,
+        utc.month,
+        utc.day,
+        utc.hour,
+        utc.minute,
+        utc.second,
+        utc.microsecond,
+        tzinfo=timezone.utc,
+    )
 
 
 @contextmanager
@@ -103,6 +146,10 @@ class Grain:
     """
 
     kind: Literal["builtin", "semantic"]
+
+    @property
+    def _snapshot(self) -> PeriodCalendarSnapshotV1 | None:
+        return self._captured_snapshot if isinstance(self, _SemanticGrain) else None
 
     # Variant fields are intentionally type-checker-only on the public base.
     # Concrete values expose only the fields belonging to their closed kind at
@@ -327,8 +374,15 @@ class _BuiltinGrain(Grain):
 class _SemanticGrain(Grain):
     calendar: Ref[PeriodCalendarKind]
     level: str
+    _captured_snapshot: PeriodCalendarSnapshotV1 | None
 
-    def __init__(self, *, calendar: Ref[PeriodCalendarKind], level: str) -> None:
+    def __init__(
+        self,
+        *,
+        calendar: Ref[PeriodCalendarKind],
+        level: str,
+        snapshot: PeriodCalendarSnapshotV1 | None = None,
+    ) -> None:
         if type(calendar) is not Ref or calendar.kind.value != "period_calendar":
             raise TypeError("semantic Grain requires Ref[period_calendar]")
         if type(level) is not str or not level:
@@ -336,6 +390,7 @@ class _SemanticGrain(Grain):
         object.__setattr__(self, "kind", "semantic")
         object.__setattr__(self, "calendar", calendar)
         object.__setattr__(self, "level", level)
+        object.__setattr__(self, "_captured_snapshot", snapshot)
 
 
 def builtin_grain(unit: str, *, count: int = 1) -> Grain:
@@ -343,9 +398,14 @@ def builtin_grain(unit: str, *, count: int = 1) -> Grain:
     return _BuiltinGrain(unit=unit, count=count)
 
 
-def semantic_grain(*, calendar: Ref[PeriodCalendarKind], level: str) -> Grain:
+def semantic_grain(
+    *,
+    calendar: Ref[PeriodCalendarKind],
+    level: str,
+    snapshot: PeriodCalendarSnapshotV1 | None = None,
+) -> Grain:
     """Create the semantic Grain variant behind ``ms.calendar_grain``."""
-    return _SemanticGrain(calendar=calendar, level=level)
+    return _SemanticGrain(calendar=calendar, level=level, snapshot=snapshot)
 
 
 _CIVIL_DAY_SECONDS = 86_400
@@ -493,8 +553,14 @@ class TimeScopeContractV1(BaseModel):
             self.occurrence_category,
         )
         if self.kind == "absolute":
-            if any(value is not None for value in provenance):
+            if any(value is not None for index, value in enumerate(provenance) if index != 2):
                 raise ValueError("absolute time-scope contract cannot contain period provenance")
+            if self.boundary_timezone is not None:
+                from marivo._timezones import parse_timezone
+
+                parse_timezone(self.boundary_timezone)
+                if not isinstance(self.start, datetime) or self.start.utcoffset() is None:
+                    raise ValueError("a frozen absolute timezone requires exact instant bounds")
             return self
         if self.kind == "calendar_period":
             if self.temporal_set_ref is not None or self.occurrence_category is not None:
@@ -631,6 +697,16 @@ class TimeScope(BaseModel):
     start: date | datetime
     end: date | datetime
 
+    def by(self, grain: Grain) -> CalendarAxis:
+        """Bind this scope to a complete finite calendar.
+
+        Args: grain: A builtin Grain or a certified catalog calendar Grain.
+        Returns: An immutable CalendarAxis with nominal and actual boundaries.
+        Example: ``session.time_scope(start='2026-01-01', end='2026-02-01').by(mv.grain('day'))``.
+        Constraints: Uses frozen scope timezone or certified calendar authority; no source reads.
+        """
+        return calendar_axis(self, grain)
+
     @property
     def before_end(self) -> BeforeEndBoundary:
         """Return the symbolic left limit of this scope's end.
@@ -736,7 +812,9 @@ class TimeScope(BaseModel):
         )
         if calendar is None:
             if temporal_set is None:
-                if any(value is not None for value in provenance[2:]):
+                if any(value is not None for value in provenance[2:]) and not isinstance(
+                    self, _SessionTimeScope
+                ):
                     raise ValueError(
                         "absolute TimeScope cannot contain semantic temporal provenance"
                     )
@@ -784,6 +862,8 @@ class TimeScope(BaseModel):
         identically across artifact round-trips.
         """
         if self.kind == "absolute":
+            if isinstance(self, _SessionTimeScope):
+                return ("absolute", self.start, self.end, self.boundary_timezone)
             return ("absolute", self.start, self.end)
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
@@ -820,6 +900,8 @@ class TimeScope(BaseModel):
 
     def __repr__(self) -> str:
         if self.kind == "absolute":
+            if isinstance(self, _SessionTimeScope):
+                return f"TimeScope([{self.start.isoformat()}, {self.end.isoformat()}), timezone={self.boundary_timezone}; use .show())"
             return f"TimeScope([{_scope_bound_text(self.start)}, {_scope_bound_text(self.end)}))"
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
@@ -856,6 +938,8 @@ class TimeScope(BaseModel):
             f"start={_scope_bound_text(self.start)}",
             f"end={_scope_bound_text(self.end)}",
         ]
+        if isinstance(self, _SessionTimeScope):
+            values.append(f"boundary_timezone={self.boundary_timezone}")
         if self.kind == "calendar_period":
             calendar_scope = cast("_CalendarPeriodTimeScope", self)
             values.extend(
@@ -883,7 +967,14 @@ class TimeScope(BaseModel):
         """Return the bounded, versioned scope identity used by artifacts."""
         start, end = self.start, self.end
         if self.kind == "absolute":
-            return TimeScopeContractV1(kind="absolute", start=start, end=end)
+            return TimeScopeContractV1(
+                kind="absolute",
+                start=start,
+                end=end,
+                boundary_timezone=self.boundary_timezone
+                if isinstance(self, _SessionTimeScope)
+                else None,
+            )
         if self.kind == "temporal_occurrence":
             occurrence_scope = cast("_TemporalOccurrenceTimeScope", self)
             return TimeScopeContractV1(
@@ -927,6 +1018,26 @@ class _AbsoluteTimeScope(TimeScope):
     pass
 
 
+class _SessionTimeScope(TimeScope):
+    """Absolute scope with exact anchors and a frozen calendar boundary zone."""
+
+    start: InstantAnchor
+    end: InstantAnchor
+    boundary_timezone: str
+
+
+def session_time_scope(
+    start: InstantAnchor,
+    end: InstantAnchor,
+    boundary_timezone: str,
+) -> _SessionTimeScope:
+    """Construct the shared TimeScope's exact Session-boundary variant."""
+    with _trusted_time_scope_validation():
+        return _SessionTimeScope.model_validate(
+            {"start": start, "end": end, "boundary_timezone": boundary_timezone}
+        )
+
+
 class _CalendarPeriodTimeScope(TimeScope):
     """Private concrete scope carrying one certified calendar period."""
 
@@ -955,6 +1066,15 @@ def _new_time_scope(**data: Any) -> TimeScope:
         scope_type: type[TimeScope] = _CalendarPeriodTimeScope
     elif data.get("temporal_set") is not None:
         scope_type = _TemporalOccurrenceTimeScope
+    elif data.get("boundary_timezone") is not None:
+        start, end = data["start"], data["end"]
+        if isinstance(start, str) and isinstance(end, str):
+            start, end = _parse_scope_strings(start, end)
+        if not isinstance(start, datetime) or not isinstance(end, datetime):
+            raise ValueError("a frozen absolute scope requires exact instant bounds")
+        return session_time_scope(
+            anchor_from_datetime(start), anchor_from_datetime(end), data["boundary_timezone"]
+        )
     else:
         scope_type = _AbsoluteTimeScope
     with _trusted_time_scope_validation():
@@ -977,6 +1097,10 @@ def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
     """
     contract = TimeScopeContractV1.model_validate(dict(data))
     if contract.kind == "absolute":
+        if contract.boundary_timezone is not None:
+            return _new_time_scope(
+                start=contract.start, end=contract.end, boundary_timezone=contract.boundary_timezone
+            )
         return _new_time_scope(start=contract.start, end=contract.end)
     if contract.kind == "calendar_period":
         assert contract.calendar_ref is not None
@@ -3305,3 +3429,51 @@ def ref_factory_work_schedule(path: str) -> Ref[WorkScheduleKind]:
     from marivo.refs import ref
 
     return ref.work_schedule(path)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class CalendarAxis:
+    """Complete finite calendar obtained from TimeScope.by(Grain)."""
+
+    scope: TimeScope
+    grid: BoundTimeGrid
+
+    def __repr__(self) -> str:
+        return f"<CalendarAxis id={self.grid.identity[:16]} buckets={len(self.grid.cells)}; use .show()>"
+
+    def show(self) -> None:
+        """Display a bounded calendar summary.
+
+        Args: None.
+        Returns: None.
+        Example: ``scope.by(mv.grain('day')).show()``.
+        Constraints: Uses frozen metadata only; never reads a source.
+        """
+        print(
+            f"CalendarAxis {self.grid.grain_token}: {len(self.grid.cells)} buckets; timezone={self.grid.boundary_timezone}"
+        )
+
+
+def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
+    """Use the existing time-grid kernel and already captured calendar authority."""
+    if not isinstance(grain, Grain):
+        raise ValueError("Expected a Grain; use mv.grain(unit) or calendar.grain(level).")
+    if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
+        raise ValueError(
+            "Expected a scope with a frozen timezone; construct it with session.time_scope(...)."
+        )
+    zone = scope.boundary_timezone
+    if (
+        grain.kind == "semantic"
+        and grain._snapshot is not None
+        and zone != grain._snapshot.boundary_timezone
+    ):
+        raise ValueError(
+            "Expected compatible scope and calendar timezones; construct the scope in the certified calendar boundary timezone."
+        )
+    from marivo._temporal_grid import bind_grid
+
+    grid = bind_grid(
+        scope, grain, report_timezone=zone, explicit_timezone=zone, snapshot=grain._snapshot
+    )
+    return CalendarAxis(scope, grid)

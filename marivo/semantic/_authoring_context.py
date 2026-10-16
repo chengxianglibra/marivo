@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
 
-    if isinstance(value, TimeField):
+    if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="a source declaration lookup")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
         return value.ref.ref

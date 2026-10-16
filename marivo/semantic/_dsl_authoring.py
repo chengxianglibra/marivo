@@ -29,7 +29,7 @@ def _coordinates(values: tuple[CoordinateInput, ...], *, nonempty: bool) -> tupl
         )
     paths: list[str] = []
     for coordinate in values:
-        if isinstance(coordinate, TimeField):
+        if isinstance(coordinate, (Dimension, TimeField)):
             coordinate._require_native(operation="a sum-permission coordinate")
         value = coordinate.ref.ref if isinstance(coordinate, (Dimension, TimeField)) else coordinate
         if type(value) is not Ref or value.kind not in {

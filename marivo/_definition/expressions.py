@@ -15,6 +15,7 @@ from marivo._definition.types import (
     Authorization,
     AxisBinding,
     ExactRef,
+    FieldRead,
     FiniteNumber,
     LiteralValue,
     NullPolicy,
@@ -25,6 +26,7 @@ from marivo._definition.types import (
     check_literal,
     invalid,
 )
+from marivo._temporal import InstantAnchor
 from marivo.refs import DomainKind, Ref, SemanticKind, _validate_segment
 
 if TYPE_CHECKING:
@@ -158,6 +160,7 @@ class TimeBinding:
 
     field: ExactRef
     path: tuple[ExactRef, ...] = ()
+    at: InstantAnchor | None = None
 
     def __post_init__(self) -> None:
         if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:
@@ -181,6 +184,7 @@ class FieldCompare:
     field: ExactRef
     op: CompareOp
     value: LiteralValue
+    read: FieldRead | None = None
 
     def __post_init__(self) -> None:
         check_literal(self.value, role=f"predicate on {self.field.ref.key}")
@@ -190,6 +194,7 @@ class FieldCompare:
 class FieldIn:
     field: ExactRef
     values: tuple[LiteralValue, ...]
+    read: FieldRead | None = None
 
     def __post_init__(self) -> None:
         for value in self.values:
@@ -211,6 +216,7 @@ class RowCompare:
 @dataclass(frozen=True, slots=True)
 class FieldIsNull:
     field: ExactRef
+    read: FieldRead | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -10,6 +10,19 @@ import marivo.semantic as ms
 
 if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", report_timezone="UTC")
+    from marivo.semantic.expressions import Dimension, Metric
+
+    def ordinary_observation(metric: Metric, region: Dimension) -> mv.Query:
+        scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+        assert_type(scope.start, mv.InstantAnchor)
+        assert_type(scope.end, mv.InstantAnchor)
+        assert_type(session.instant(scope.end), mv.InstantAnchor)
+        assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
+        assert_type(region.at(scope.end), Dimension)
+        return session.observe(
+            {"value": metric}, during=scope, by=(region,), where=region == "APAC"
+        )
+
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
     approximate_count = mv.runtime_metric.aggregate(

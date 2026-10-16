@@ -8,6 +8,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Final, Literal, NoReturn, TypeAlias
 
+from marivo._temporal import InstantAnchor
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 DefinitionErrorKind: TypeAlias = Literal[
@@ -158,6 +159,7 @@ class AxisBinding:
     field: ExactRef | None
     path: tuple[ExactRef, ...]
     role: Literal["identity", "field"]
+    at: InstantAnchor | None = None
 
     def __post_init__(self) -> None:
         if self.entity.ref.kind is not SemanticKind.ENTITY:
@@ -172,6 +174,27 @@ class AxisBinding:
                 f"{'none' if self.field is None else self.field.ref.key}. "
                 "Use role='identity' without a field or role='field' with one."
             )
+
+
+@dataclass(frozen=True, slots=True)
+class FieldRead:
+    """Scalar field usage with its declared owner, directed path and exact anchor."""
+
+    field: ExactRef
+    entity: ExactRef
+    path: tuple[ExactRef, ...] = ()
+    at: InstantAnchor | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarCoordinate:
+    """Frozen output calendar, including nominal and actual half-open buckets."""
+
+    identity: str
+    grain: str
+    timezone: str
+    snapshot_digest: str | None
+    cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
 
 
 @dataclass(frozen=True, slots=True)

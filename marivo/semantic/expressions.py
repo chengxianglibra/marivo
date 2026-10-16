@@ -16,8 +16,9 @@ from dataclasses import fields as dataclass_fields
 from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal
-from itertools import pairwise
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, TypeVar, cast, overload
+
+from typing_extensions import Self
 
 from marivo._definition.expressions import (
     CompareOp,
@@ -70,6 +71,7 @@ from marivo._definition.types import (
     AxisBinding,
     DefinitionGraphError,
     ExactRef,
+    FieldRead,
     FiniteNumber,
     NullPolicy,
     SumAll,
@@ -82,6 +84,7 @@ from marivo._definition.types import (
 from marivo._definition.types import (
     SourceLocation as DefinitionSourceLocation,
 )
+from marivo._temporal import InstantAnchor, TimeScope
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -450,6 +453,121 @@ class _FieldComparisons:
     ref: ExactRef
     root: ExactRef
     __hash__ = object.__hash__
+    path: tuple[Relationship, ...]
+    anchor: InstantAnchor | None
+    _versioned: bool
+
+    def via(self, path: tuple[Relationship, ...]) -> Self:
+        """Bind a scalar field to an ordered directed single-valued path.
+
+        Args: path: Nonempty tuple of resolved Relationships in declared direction.
+        Returns: An immutable field of the same kind with the captured path.
+        Example: ``region.via((orders_to_customers,))``.
+        Constraints: Paths must be continuous and end at the field owner; no reads.
+        """
+        if self.path or not isinstance(path, tuple) or not path:
+            _fail(
+                ErrorKind.INVALID_TIME_PATH,
+                "Invalid scalar field path.",
+                expected="an unbound field and a nonempty relationship tuple",
+                received=_received(path),
+                action="Call via once with the complete ordered path.",
+            )
+        current = None
+        for step in path:
+            if not isinstance(step, Relationship) or step.cardinality not in (
+                "one_to_one",
+                "many_to_one",
+            ):
+                _fail(
+                    ErrorKind.INVALID_TIME_PATH,
+                    "A scalar path cannot fan out.",
+                    expected="resolved one_to_one or many_to_one relationships",
+                    received=step.cardinality
+                    if isinstance(step, Relationship)
+                    else _received(step),
+                    action="Choose a directed single-valued relationship path.",
+                )
+            if current is not None and current != step.from_entity.ref:
+                _fail(
+                    ErrorKind.INVALID_TIME_PATH,
+                    "Disconnected field path.",
+                    expected=str(current),
+                    received=step.from_entity.ref.path,
+                    action="Order steps continuously in declared direction.",
+                )
+            current = step.to_entity.ref
+        if current != self.root.ref:
+            _fail(
+                ErrorKind.INVALID_TIME_PATH,
+                "Field path ends at another Entity.",
+                expected=self.root.ref.path,
+                received=f"{path[-1].ref.ref.path} to {current.path if current else 'unknown'}",
+                action="End the path at the field owner.",
+            )
+        if isinstance(self, (Dimension, TimeField, Measure)):
+            return dataclass_replace(self, path=path)
+        raise TypeError("Expected a resolved field")
+
+    def at(self, anchor: InstantAnchor) -> Self:
+        """Bind an exact attribute-version selection without reading source rows.
+
+        Args: anchor: An InstantAnchor returned by Session.instant or scope boundaries.
+        Returns: An immutable field retaining its kind and directed path.
+        Example: ``region.at(session.instant('2026-01-01'))``.
+        Constraints: Only versioned field owners admit at; no latest or left-limit selection.
+        """
+        if (
+            not self._versioned
+            or not isinstance(anchor, InstantAnchor)
+            or anchor.utcoffset() is None
+        ):
+            _fail(
+                ErrorKind.INVALID_TIME_PATH,
+                "Invalid attribute version binding.",
+                expected="a versioned field and an exact InstantAnchor",
+                received=f"{self.ref.ref.path} versioned={self._versioned}; anchor={anchor!r}",
+                action="Use Session.instant on a field of a versioned Entity.",
+            )
+        if isinstance(self, (Dimension, TimeField, Measure)):
+            return dataclass_replace(self, anchor=anchor)
+        raise TypeError("Expected a resolved field")
+
+    def _read(self) -> FieldRead | None:
+        if not self.path and self.anchor is None:
+            return None
+        return FieldRead(self.ref, self.root, tuple(step.ref for step in self.path), self.anchor)
+
+    def _read_root(self) -> ExactRef:
+        return self.path[0].from_entity if self.path else self.root
+
+    def _require_native(self, *, operation: str) -> None:
+        if self.path or self.anchor is not None:
+            _fail(
+                ErrorKind.INVALID_TIME_PATH,
+                f"A bound scalar field cannot be used in {operation}.",
+                expected="a native field for source reductions, sample axes and permissions",
+                received=repr(self),
+                action="Use native fields for source computation; bound fields belong to scalar predicates, classification or an explicit time= role.",
+            )
+
+    def within(self, scope: TimeScope) -> Predicate:
+        """Test membership in a half-open time scope.
+
+        Args: scope: A frozen TimeScope from Session.time_scope or a certified calendar.
+        Returns: A typed field predicate preserving path and version bindings.
+        Example: ``created_at.within(scope)``.
+        Constraints: Only TimeField values admit this test; this is not an observation period.
+        """
+        if not isinstance(self, TimeField) or not isinstance(scope, TimeScope):
+            _fail(
+                ErrorKind.INVALID_EXPRESSION_VALUE,
+                "within requires a time field and scope.",
+                expected="TimeField.within(TimeScope)",
+                received=_received(scope),
+                action="Use an exact scope and a resolved time field.",
+            )
+        return self._compare("ge", scope.start) & self._compare("lt", scope.end)
 
     def __eq__(self, value: object) -> Predicate:  # type: ignore[override]  # builds a predicate
         return self._compare("eq", value)
@@ -470,20 +588,15 @@ class _FieldComparisons:
         return self._compare("ge", value)
 
     def is_null(self) -> Predicate:
-        """Test this native field for a missing value on its contribution root.
+        """Test this scalar field for a missing value on its contribution root.
 
         Returns: A Predicate retaining the exact field and contribution root.
         Example: ``revenue.where(region.is_null())``.
-        Constraints: Only native fields qualify; a routed TimeField is a time role.
+        Constraints: Retains directed paths and exact attribute anchors without reads.
         """
-        self._require_native(operation="is_null")
-        return Predicate(FieldIsNull(self.ref), (self.root,))
-
-    def _require_native(self, *, operation: str) -> None:
-        """Hook for fields that are only valid as a time role; native fields pass."""
+        return Predicate(FieldIsNull(self.ref, self._read()), (self._read_root(),))
 
     def _compare(self, op: CompareOp, value: object) -> Predicate:
-        self._require_native(operation="comparison")
         if value is None:
             _fail(
                 ErrorKind.INVALID_EXPRESSION_VALUE,
@@ -501,7 +614,7 @@ class _FieldComparisons:
                 action="Compare the field with a literal; combine predicates with &, |, ~.",
             )
         try:
-            return Predicate(FieldCompare(self.ref, op, value), (self.root,))
+            return Predicate(FieldCompare(self.ref, op, value, self._read()), (self._read_root(),))
         except DefinitionGraphError as error:
             raise SemanticExpressionError.from_definition(
                 error, operation="field comparison"
@@ -533,11 +646,18 @@ class Dimension(_FieldComparisons, _Countable):
     ref: ExactRef
     root: ExactRef
     default_time: ExactRef | None
+    anchor: InstantAnchor | None = field(default=None, kw_only=True)
+    _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
+    path: tuple[Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def _source(self) -> _Source:
+        self._require_native(operation="a count reduction")
         return _Source(
-            RowField(self.ref, self.root, None, SumNone()), self.root, None, self.default_time
+            RowField(self.ref, self.root, None, SumNone()),
+            self.root,
+            None,
+            self.default_time,
         )
 
     def __repr__(self) -> str:
@@ -550,91 +670,24 @@ class TimeField(_FieldComparisons, _Countable):
 
     ``path`` is empty for a field read on its own Entity; ``via`` returns the same
     field bound to an ordered single-valued relationship path from another root,
-    usable only as a reduction's ``time=`` role.
+    usable for scalar conditions, coordinates, or a reduction's ``time=`` role.
     """
 
     ref: ExactRef
     root: ExactRef
     default_time: ExactRef | None
     path: tuple[Relationship, ...] = ()
+    anchor: InstantAnchor | None = field(default=None, kw_only=True)
+    _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
-
-    def via(self, path: tuple[Relationship, ...]) -> TimeField:
-        """Bind this time field through a declared single-valued relationship path.
-
-        ``path`` is a non-empty tuple of resolved Relationships in declared
-        direction, each one_to_one or many_to_one, ending at this field's Entity.
-        Example: ``customer_created_at.via((orders_to_customers,))``.
-        """
-        if self.path:
-            _fail(
-                ErrorKind.INVALID_TIME_PATH,
-                f"TimeField {self.ref.ref.path} is already bound through a path.",
-                expected="a native TimeField",
-                received=repr(self),
-                action="Call via once on the resolved field with the complete ordered path.",
-            )
-        if not isinstance(path, tuple) or not path:
-            _fail(
-                ErrorKind.INVALID_TIME_PATH,
-                "TimeField.via expects a non-empty tuple of relationships.",
-                expected="(relationship,) or (first, second, ...)",
-                received=_received(path),
-                action="Pass resolved Relationships as a tuple, e.g. via((orders_to_customers,)).",
-            )
-        for step in path:
-            if not isinstance(step, Relationship):
-                _fail(
-                    ErrorKind.INVALID_TIME_PATH,
-                    "TimeField.via path contains a value that is not a resolved Relationship.",
-                    expected="Relationship values resolved from the Catalog",
-                    received=_received(step),
-                    action="Resolve each relationship first; a bare Ref is only a lookup key.",
-                )
-            if step.cardinality not in ("many_to_one", "one_to_one"):
-                _fail(
-                    ErrorKind.INVALID_TIME_PATH,
-                    f"Relationship {step.ref.ref.path} can reach several rows of its target.",
-                    expected="one_to_one or many_to_one steps in declared direction",
-                    received=step.cardinality,
-                    action=(
-                        "Use a single-valued relationship path; a time role cannot fan out "
-                        "a contribution to several time values."
-                    ),
-                )
-        for first, second in pairwise(path):
-            if first.to_entity.ref != second.from_entity.ref:
-                _fail(
-                    ErrorKind.INVALID_TIME_PATH,
-                    "TimeField.via path steps are not connected.",
-                    expected=f"a step starting at {first.to_entity.ref.path}",
-                    received=f"{second.ref.ref.path} from {second.from_entity.ref.path}",
-                    action="Order the relationships so each step starts where the previous ends.",
-                )
-        if path[-1].to_entity.ref != self.root.ref:
-            _fail(
-                ErrorKind.INVALID_TIME_PATH,
-                f"TimeField.via path does not end at {self.root.ref.path}.",
-                expected=f"a last step ending at {self.root.ref.path}",
-                received=f"{path[-1].ref.ref.path} to {path[-1].to_entity.ref.path}",
-                action="End the path at the Entity that declares this time field.",
-            )
-        return TimeField(self.ref, self.root, self.default_time, path, _facts=self._facts)
-
-    def _require_native(self, *, operation: str) -> None:
-        if self.path:
-            _fail(
-                ErrorKind.INVALID_TIME_PATH,
-                f"A via-bound time field cannot be used in {operation}.",
-                expected="a native field for predicates, counts, and sample axes",
-                received=repr(self),
-                action="Use the via-bound field only as time= of a source reduction.",
-            )
 
     def _source(self) -> _Source:
         self._require_native(operation="a count reduction")
         return _Source(
-            RowField(self.ref, self.root, None, SumNone()), self.root, None, self.default_time
+            RowField(self.ref, self.root, None, SumNone()),
+            self.root,
+            None,
+            self.default_time,
         )
 
     def __repr__(self) -> str:
@@ -652,9 +705,13 @@ class Measure(_FieldComparisons, _RowArithmetic):
     permission: SumPermission
     default_time: ExactRef | None
     coordinates: tuple[ExactRef, ...] = ()
+    anchor: InstantAnchor | None = field(default=None, kw_only=True)
+    _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
+    path: tuple[Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def _as_row(self) -> NumericRowExpr:
+        self._require_native(operation="a numeric row expression")
         field = RowField(self.ref, self.root, self.unit, self.permission)
         return NumericRowExpr(
             field, self.root, self.unit, self.permission, self.default_time, self.coordinates
@@ -1251,12 +1308,15 @@ class Metric(_ExpressionDisplay):
                         "quantities, not sample axes."
                     ),
                 )
-            if isinstance(axis, TimeField):
-                axis._require_native(operation="a per sample axis")
+            axis._require_native(operation="a per sample axis")
             bindings.append(AxisBinding(entity=axis.root, field=axis.ref, path=(), role="field"))
-        if len({binding.field.ref for binding in bindings if binding.field is not None}) != len(
-            bindings
-        ):
+        if len(
+            {
+                (binding.field.ref, tuple(step.ref for step in binding.path), binding.at)
+                for binding in bindings
+                if binding.field is not None
+            }
+        ) != len(bindings):
             _fail(
                 ErrorKind.INVALID_EXPRESSION_VALUE,
                 "Metric.per received the same sample axis more than once.",
@@ -1523,7 +1583,7 @@ def _time_binding(
                 received=f"{time.path[0].ref.ref.path} from {start.ref.path}",
                 action="Start the via path at the reduced Entity's relationship.",
             )
-        return TimeBinding(time.ref, tuple(step.ref for step in time.path))
+        return TimeBinding(time.ref, tuple(step.ref for step in time.path), time.anchor)
     if time.root.ref != root.ref:
         _fail(
             ErrorKind.INVALID_TIME_PATH,
@@ -1535,7 +1595,7 @@ def _time_binding(
                 "time field with via((relationship, ...))."
             ),
         )
-    return TimeBinding(time.ref)
+    return TimeBinding(time.ref, at=time.anchor)
 
 
 def _reduce(
@@ -1814,6 +1874,7 @@ class _Resolver:
                 if field.entity == measure.entity
             ),
             _facts=self.facts(ref_factory.measure(path)),
+            _versioned=self._registry.entities[measure.entity].versioning is not None,
         )
 
     def field(self, path: str) -> Dimension | TimeField:
@@ -1822,9 +1883,14 @@ class _Resolver:
         default = self.default_time(field.entity)
         ref = self.coordinate(path)
         facts = self.facts(ref.ref)
+        versioned = self._registry.entities[field.entity].versioning is not None
         if field.is_time_dimension:
-            return TimeField(ref=ref, root=root, default_time=default, _facts=facts)
-        return Dimension(ref=ref, root=root, default_time=default, _facts=facts)
+            return TimeField(
+                ref=ref, root=root, default_time=default, _facts=facts, _versioned=versioned
+            )
+        return Dimension(
+            ref=ref, root=root, default_time=default, _facts=facts, _versioned=versioned
+        )
 
     def metric(self, path: str) -> Metric:
         """A published Metric as a dependency on its exact declaration version."""
@@ -2138,17 +2204,20 @@ def _expression_contract(value: object) -> ExpressionContract:
     elif isinstance(value, (Dimension, TimeField)):
         stage = "time_field" if isinstance(value, TimeField) else "dimension"
         ref, roots, default_time = value.ref, (value.root,), value.default_time
-        operations = ("==", "!=", "<", "<=", ">", ">=", "isin", "is_null", "count")
+        operations = ("==", "!=", "<", "<=", ">", ">=", "is_null", "count", "via")
+        if value._versioned:
+            operations = (*operations, "at")
         if isinstance(value, TimeField):
-            operations = (*operations, "via")
-            if value.path:
-                detail_rows.append(("via", " > ".join(step.ref.ref.path for step in value.path)))
+            operations = (*operations, "within")
     elif isinstance(value, (Measure, NumericRowExpr)):
         roots, unit, permission = (value.root,), value.unit, value.permission
         default_time = value.default_time
         operations = _ROW_OPERATIONS
         if isinstance(value, Measure):
             stage, ref = "measure", value.ref
+            operations = (*operations, "via", "is_null")
+            if value._versioned:
+                operations = (*operations, "at")
         else:
             stage = "declared_measure" if isinstance(value, DeclaredMeasure) else "row_expression"
             computation = computation_fingerprint(value.node)
@@ -2212,6 +2281,11 @@ def _expression_contract(value: object) -> ExpressionContract:
     if facts is not None:
         reads = reads or facts.reads
         detail_rows.extend(facts.details)
+    if isinstance(value, (Dimension, TimeField, Measure)):
+        if value.path:
+            detail_rows.append(("via", " > ".join(step.ref.ref.path for step in value.path)))
+        if value.anchor is not None:
+            detail_rows.append(("at", value.anchor.isoformat()))
     return ExpressionContract(
         stage=stage,
         ref=ref,

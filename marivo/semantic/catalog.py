@@ -883,7 +883,12 @@ class PeriodCalendarEntry(CatalogEntry[PeriodCalendarKind]):
             )
         from marivo._temporal import semantic_grain
 
-        return semantic_grain(calendar=self.ref, level=level)
+        status, snapshot = self._snapshot_with_status()
+        return semantic_grain(
+            calendar=self.ref,
+            level=level,
+            snapshot=snapshot if status == "current" else None,
+        )
 
     def period(self, level: str, key: str | int | float | bool, /) -> TimeScope:
         """Return the exact certified scope for one named period.

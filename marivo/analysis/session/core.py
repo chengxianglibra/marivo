@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import AbstractContextManager
-from datetime import datetime, tzinfo
+from datetime import date, datetime, tzinfo
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from marivo._temporal import BeforeEndBoundary
+from marivo._temporal import BeforeEndBoundary, InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.analysis.observation.source_bindings import SourceBindingMap
@@ -27,9 +27,10 @@ if TYPE_CHECKING:
     from marivo.analysis.core.graph import BoundGraph
     from marivo.analysis.dsl.artifact import Artifact
     from marivo.analysis.dsl.query import Query
+    from marivo.analysis.dsl.temporal import CalendarAxis
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.public_dsl import LogicalAnalysisDomain
-    from marivo.semantic.expressions import Metric
+    from marivo.semantic.expressions import Field, Metric, Predicate
 
 
 class Session:
@@ -198,21 +199,82 @@ class Session:
         """
         return self._sources().binding_scopes.scope(bindings)
 
-    def observe(self, metrics: Mapping[str, Metric]) -> Query:
+    def instant(
+        self, value: str | date | datetime, *, timezone: str | None = None
+    ) -> InstantAnchor:
+        """Freeze a precise instant using this Session's saved timezone by default.
+
+        Args:
+            value: ISO date/timestamp, date, aware datetime, or existing anchor.
+            timezone: Explicit parsing timezone; None uses report_tz_name.
+        Returns: An immutable UTC InstantAnchor.
+        Example: ``anchor = session.instant('2026-01-01')``.
+        Constraints: Rejects naive datetimes and ambiguous/nonexistent local clocks; no source reads.
+        """
+        from marivo.analysis.dsl.temporal import exact_instant
+
+        return exact_instant(value, self.report_tz_name if timezone is None else timezone)
+
+    def time_scope(
+        self,
+        *,
+        start: str | date | datetime,
+        end: str | date | datetime,
+        timezone: str | None = None,
+    ) -> _SessionTimeScope:
+        """Freeze a nonempty half-open observation scope and its calendar timezone.
+
+        Args:
+            start: Inclusive explicit boundary.
+            end: Exclusive explicit boundary.
+            timezone: Parsing/calendar timezone; None uses the saved report timezone.
+        Returns: The shared TimeScope with exact InstantAnchor boundaries.
+        Example: ``scope = session.time_scope(start='2026-01-01', end='2026-02-01')``.
+        Constraints: No source/schema reads; DST ambiguity and naive datetime inputs reject.
+        """
+        from marivo.analysis.dsl.temporal import exact_scope
+
+        return exact_scope(start, end, self.report_tz_name if timezone is None else timezone)
+
+    def observe(
+        self,
+        metrics: Mapping[str, Metric],
+        *,
+        during: TimeScope | CalendarAxis | None = None,
+        by: tuple[Field, ...] = (),
+        where: Predicate | None = None,
+    ) -> Query:
         """Capture named Metric expressions in a lazy Query.
 
-        Args: metrics: Nonempty ordered mapping of output names to resolved Metric expressions.
+        Args:
+            metrics: Nonempty ordered mapping of names to resolved Metric expressions.
+            during: Exact scope, CalendarAxis, or None for no added time filter.
+            by: Ordered tuple of resolved fields for single-valued classification.
+            where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Captures definitions only; no schema or business reads and no Run. Observation context binding arrives in R2.2; execution/publication arrives in R2.3-R2.5. Artifact objects and IDs are not Metric inputs.
+        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. Execution/publication arrives in R2.3-R2.5. Artifact objects and IDs are not Metric inputs.
         """
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
+        from marivo.semantic.expressions import Metric
 
         return Query._from_metrics(
             metrics,
             Owner(self.id, self._runtime.store.store_id),
             self._execute_query,
+            during=during,
+            by=by,
+            where=where,
+            timezone=self.report_tz_name,
+            state=self.catalog._state
+            if isinstance(metrics, Mapping)
+            and (
+                any(isinstance(metric, Metric) and metric.roots for metric in metrics.values())
+                or by
+                or where is not None
+            )
+            else None,
         )
 
     def _execute_query(self, graph: BoundGraph) -> Artifact:
@@ -220,9 +282,9 @@ class Session:
 
         raise AnalysisStageUnavailableError(
             stage="query_execution",
-            expected="observation binding, qualified execution and terminal output publication",
-            received=f"R2.1 captured Query with {len(graph.signature.quantities)} named outputs",
-            repair="Keep the Query definition; use a build with R2.2-R2.5 implemented before calling execute(). No Run was admitted.",
+            expected="qualified execution and terminal output publication",
+            received=f"R2.2 bound Query with {len(graph.signature.quantities)} named outputs",
+            repair="Keep the bound Query; execution and publication arrive in R2.3-R2.5. No Run was admitted.",
             target="Query.execute",
         )
 

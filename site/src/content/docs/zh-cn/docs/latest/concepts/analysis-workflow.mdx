@@ -3,27 +3,42 @@ title: 分析流程
 description: 构造明确的分析，执行后读取已提交结果。
 ---
 
-## R2.1：直接构造 Metric Query
+## R2.2：绑定普通 Metric Query
 
-已有销售语义模型时，直接传入已解析的 Metric 表达式：
+已有销售语义模型时，直接解析 Metric 和字段：
 
 ```python
 import marivo.analysis as mv
 
-session = mv.session.get_or_create("metric-review")
+session = mv.session.get_or_create("metric-review", report_timezone="Asia/Shanghai")
 revenue = session.catalog.metrics.get("sales.revenue")
 aov = session.catalog.metrics.get("sales.aov")
-query = session.observe({"revenue": revenue, "aov": aov})
+region = session.catalog.fields.get("sales.customers.region")
+scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+query = session.observe(
+    {"revenue": revenue, "aov": aov},
+    during=scope.by(mv.grain("day")),
+    by=(region,),
+    where=region == "APAC",
+)
 query.contract().show()
 ```
 
-构造与检查 Query 不读取业务行或 schema，也不创建 Run。
-当前 `query.execute()` 会报结构化阶段缺口；绑定、执行和发布由 R2.2–R2.5 交付。
-`Artifact` 是独立的终端只读类型，只提供 `id`、`session_id`、`show(n=20)`、
-`to_pandas()`、`findings()` 和 `evidence_digest()`，没有 DSL 方法或 `contract()`。
-`session.artifact(id)` 只接受精确字符串 ID，并保留文件、拒绝旧图产物。
+每个贡献根必须有唯一的声明单值路径到 `region`。
+显式字段角色使用 `field.via((relationship,))`；版本化属性还需
+`field.at(session.instant(...))`。这些绑定保持不可变。
+构造和检查 Query 不读取业务行或 schema，也不创建 Run。
+期间冻结 UTC 精确锚点和日历时区；拒绝 Python naive datetime、DST 歧义和不存在的时刻。
+普通规约省略 `during` 时不追加时间过滤；采样依赖仍须显式提供期间。
+共同条件分别绑定到每个来源规约出现。
+
+当前 `query.execute()` 会指出执行和发布仍待 R2.3–R2.5。
+Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读，只提供
+`id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
+`evidence_digest()`，没有 DSL 方法或 `contract()`。
+`session.artifact(id)` 只接受精确字符串 ID，保留文件并拒绝旧图产物。
 终端存储和读取由 R2.5/R2.6 交付；Store 在 R2.5 前保持第 9 代。
-以下示例描述等待替换的旧执行路径，不能作为新 Query 的执行回退。
+以下示例描述等待替换的旧执行路径。
 
 从已确认口径的 Metric、成员 Entity 和针对当前问题的 Session 开始。
 [Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)提供完整本地项目。

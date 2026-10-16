@@ -2,10 +2,38 @@
 
 Status: implemented current contract.
 
+R2.2 exact observation bindings were added on 2026-10-16; new Query execution
+remains pending R2.3–R2.5. Legacy execution sections remain until their owning cutover.
+
 Temporal meaning is governed semantic authority. A civil date, absolute instant,
 localizable wall clock, period-calendar partition, temporal occurrence and working
 status are different facts. The analysis API consumes certified authority rather
 than inferring calendar meaning from a display label.
+
+## Exact Metric-first observation boundaries
+
+`Session.instant(value, timezone=None)` freezes an exact UTC InstantAnchor.
+`Session.time_scope(start=..., end=..., timezone=None)` returns the common
+TimeScope family with exact anchor boundaries and its frozen calendar timezone.
+The saved Session report timezone supplies the default only at construction.
+Dates and offset-free ISO strings are local civil inputs; Python naive datetime
+values and ambiguous/nonexistent local clocks reject. Aware inputs and existing
+anchors keep their absolute instant even with an explicit parsing timezone.
+
+`TimeScope.by(Grain)` uses the existing grid kernel and captured certified calendar
+authority. It retains nominal and clipped actual bucket boundaries, canonical
+order and snapshot identity, and checks coverage/timezone conflicts without
+business reads. Calendar grains returned by the Catalog capture the current
+certified snapshot. Legacy unbound absolute scopes must first use the Session
+constructor to call `by`; new observe can freeze an existing civil scope once.
+
+Omitted `during` and `during=None` add no time constraint to ordinary source
+reductions. A time role alone does not require a period. Sampling and time-sample
+reductions in the full Metric closure still require explicit `during`; a field
+`within(scope)` filter, attribute `at(anchor)`, or multiplication by zero does not
+supply it. Attribute version selection keeps the exact endpoint instant, including
+a change at the exclusive scope end; it never subtracts a tick. These are binding
+contracts; new Query execution remains pending R2.3–R2.5.
 
 ## Ownership and invariants
 

@@ -66,7 +66,7 @@ def provider() -> DisclosureProvider:
         exports.append(ExportInput(target, value, target))
     for type_value, target, producer in (
         (Grain, "Grain", "grain"),
-        (TimeScope, "TimeScope", "time_scope"),
+        (TimeScope, "TimeScope", "session.time_scope"),
         (BeforeEndBoundary, "BeforeEndBoundary", "TimeScope"),
     ):
         descriptors.append(
@@ -76,6 +76,9 @@ def provider() -> DisclosureProvider:
                 summary=f"Exact {target} input contract.",
                 acquisition="Read scope.before_end from an existing TimeScope."
                 if type_value is BeforeEndBoundary
+                else "Construct with session.time_scope(...); its frozen timezone supports by(Grain). "
+                "mv.time_scope(...) returns legacy civil scopes; reconstruct them with session.time_scope before calling by."
+                if type_value is TimeScope
                 else f"Construct with mv.{producer}(...).",
                 producers=(producer,),
             )
@@ -201,6 +204,7 @@ def provider() -> DisclosureProvider:
         "Grain": (_temporal._BuiltinGrain, _temporal._SemanticGrain),
         "TimeScope": (
             _temporal._AbsoluteTimeScope,
+            _temporal._SessionTimeScope,
             _temporal._CalendarPeriodTimeScope,
             _temporal._TemporalOccurrenceTimeScope,
         ),

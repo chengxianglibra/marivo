@@ -207,7 +207,7 @@ def provider() -> DisclosureProvider:
             "observe",
             "Query",
             "result = session.observe(metrics)",
-            "Capture named Metric definitions without schema reads or a Run; binding and execution are pending R2.2-R2.5.",
+            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execution/publication are pending R2.3-R2.5.",
         ),
         (
             Session,
@@ -249,6 +249,20 @@ def provider() -> DisclosureProvider:
         *operations,
         (
             Session,
+            "instant",
+            "InstantAnchor",
+            "result = session.instant('2026-01-01')",
+            "Freeze one exact instant without source reads.",
+        ),
+        (
+            Session,
+            "time_scope",
+            "TimeScope",
+            "result = session.time_scope(start='2026-01-01', end='2026-02-01')",
+            "Freeze half-open exact boundaries and their calendar timezone.",
+        ),
+        (
+            Session,
             "render",
             "str",
             "result = session.render()",
@@ -256,6 +270,11 @@ def provider() -> DisclosureProvider:
         ),
     )
     acquisition = {
+        "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
+        "timezone": "Use None for the saved report timezone or supply an explicit boundary timezone.",
+        "start": "Choose the inclusive exact boundary.",
+        "end": "Choose the exclusive exact boundary, strictly after start.",
+        "where": "Pass a resolved Field predicate applied separately to every contribution occurrence.",
         "during": "Select starts with a finite half-open TimeScope.",
         "at": "Versioned: datetime or TimeScope.before_end; else omit.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
@@ -290,6 +309,8 @@ def provider() -> DisclosureProvider:
                 summary=effect,
                 discovery_group="entry"
                 if name in ("members", "observe")
+                else "inputs.time"
+                if name in ("instant", "time_scope")
                 else "methods.events"
                 if name == "anchors"
                 else "session.namespace"
@@ -299,12 +320,20 @@ def provider() -> DisclosureProvider:
                 else "runtime.runs"
                 if name in ("runs", "get_run")
                 else "runtime",
-                related=("session.resume",) if name in ("runs", "get_run", "artifact") else (),
+                related=("session.resume",)
+                if name in ("runs", "get_run", "artifact")
+                else ("session.observe", "TimeScope.by")
+                if name in ("instant", "time_scope")
+                else (),
                 parameters=tuple(
                     P(
                         n,
                         "Use an exact incomplete or failed Run id; committed success cannot be abandoned."
                         if n == "run_id" and name == "abandon_run"
+                        else "Pass an ordered tuple of resolved scalar fields, e.g. by=(region,)."
+                        if name == "observe" and n == "by"
+                        else "Pass a TimeScope or CalendarAxis; None adds no time filter."
+                        if name == "observe" and n == "during"
                         else acquisition[n],
                     )
                     for n in signature(value).parameters

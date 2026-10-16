@@ -1,6 +1,6 @@
 # Python Analysis Design
 
-Status: R2.1 contract separation, 2026-10-16; legacy execution sections remain
+Status: R2.2 ordinary observation binding, 2026-10-16; legacy execution sections remain
 until their owning R2 work packages replace them. This document owns the implemented
 Analysis DSL's public model and the path from algebraic definition to execution.
 Method equations and numerical contracts belong to
@@ -30,14 +30,38 @@ sample values or natural-language labels.
 
 ## Construct, execute, inspect
 
-The new Metric-first entry is `session.observe({"revenue": revenue, "aov": aov})`,
-where each value is a resolved semantic Metric expression. It returns immutable
-`Query`; the ordered multi-output `BoundSignature` and R1 definition graph belong
-to that Query, independently of terminal `DataSchema` and `ArtifactManifest`.
-`contract()` describes known definitions and unresolved physical dtype without
-schema/business reads or a Run. R2.1 `execute()` raises
-`AnalysisStageUnavailableError` before admission: binding, execution and publication
-are delivered in R2.2–R2.5. No old graph executor is used as a fallback.
+The Metric-first entry is `session.observe({"revenue": revenue, "aov": aov},
+during=scope, by=(region,), where=region == "APAC")`, using resolved semantic
+expressions. It returns immutable `Query`; `BoundSignature` and captured R1
+definitions remain separate from terminal output schema. ObservationBinding
+captures the frozen period and complete output axes; ContributionBinding preserves
+each source reduction occurrence, intrinsic filters, common conditions, time role
+and per-root scalar paths. Different fact roots are never joined or collapsed at
+binding. Omitted `during` and `None` add no time filter, including ordinary
+reductions with a time role. Sampling and temporal sample reductions require an
+explicit period throughout the captured dependency closure.
+
+`session.instant(...)` returns an exact UTC InstantAnchor. `session.time_scope(...)`
+returns the shared TimeScope's exact-boundary variant; its start/end are statically
+and dynamically InstantAnchor values. It freezes the parsing/calendar timezone,
+defaulting to the saved report timezone. `scope.by(mv.grain("day"))` creates a
+complete CalendarAxis with nominal and clipped actual buckets; catalog calendar
+grains capture their current certified snapshot. Naive Python datetimes and
+ambiguous/nonexistent wall clocks reject. Offset inputs keep their instant.
+Legacy civil scopes bind once when consumed by the new observe path; their
+existing constructors/consumers remain until the R8 cutover.
+
+Resolved fields support directed single-valued `via((relationship, ...))`, and
+versioned fields support `at(session.instant(...))` without reading attributes.
+Field predicates and output coordinates retain these bindings. Scope filters and
+attribute anchors do not replace a sampling period. Missing/ambiguous paths,
+fanout and unbound versioned attributes fail with concrete typed repair.
+Population, members and observation windows are not new observe parameters in
+R2.2. `contract()` reports bound context and explicitly unresolved physical dtype
+without schema/business reads or Run admission. `execute()` still raises
+AnalysisStageUnavailableError before admission: R2.3 owns schema preparation and
+scheduling, R2.4 numerical execution, and R2.5 publication. There is no old-executor
+fallback.
 
 `Artifact` is a distinct terminal wrapper: exact ID, manifest and read service.
 It exposes `show(n=20)`, `to_pandas()`, `findings()` and `evidence_digest()`;

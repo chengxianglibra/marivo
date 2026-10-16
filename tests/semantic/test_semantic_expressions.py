@@ -1808,7 +1808,7 @@ def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCa
     assert twice.value.kind == ErrorKind.INVALID_TIME_PATH.value
 
 
-def test_via_time_requires_root_start_and_stays_a_time_role(catalog: SemanticCatalog) -> None:
+def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     customers = resolve(catalog, ms.ref.entity("sales.customers"))
     credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
@@ -1827,9 +1827,9 @@ def test_via_time_requires_root_start_and_stays_a_time_role(catalog: SemanticCat
         customers.count(time=buyer_created)
     assert entity_start.value.kind == ErrorKind.INVALID_TIME_PATH.value
 
+    assert (buyer_created == "2026-01-01").node.read.path == (buyer.ref,)
+    assert buyer_created.is_null().node.read.path == (buyer.ref,)
     for misuse in (
-        lambda: buyer_created == "2026-01-01",
-        lambda: buyer_created.is_null(),
         lambda: buyer_created.count(),
         lambda: amount.sum().per(buyer_created),
     ):
@@ -1837,7 +1837,8 @@ def test_via_time_requires_root_start_and_stays_a_time_role(catalog: SemanticCat
             misuse()
         assert role.value.kind == ErrorKind.INVALID_TIME_PATH.value
         assert role.value.repair is not None
-        assert "only as time=" in role.value.repair.action
+        assert "time=" in role.value.repair.action
+        assert "scalar" in role.value.repair.action
 
 
 def test_via_construction_reads_no_business_source(

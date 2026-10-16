@@ -72,7 +72,13 @@ class BoundGraph:
 
     @property
     def fingerprint(self) -> str:
-        return computation_fingerprint(self.root)
+        definition = computation_fingerprint(self.root)
+        observation = self.signature.observation
+        return (
+            definition
+            if observation is None
+            else sha256(f"{definition}:{observation.fingerprint}".encode()).hexdigest()
+        )
 
 
 def _fail(expected: str, received: str) -> None:

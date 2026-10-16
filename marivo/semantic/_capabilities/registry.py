@@ -51,6 +51,7 @@ from marivo.semantic._capabilities.model import (
 
 OUTPUT_FAMILIES = frozenset(
     {
+        "Dimension | TimeField | Measure",
         "FinalizedDeclarations",
         "ExpressionContract",
         "Entity | Dimension | TimeField | Measure | Relationship",
@@ -120,6 +121,8 @@ OUTPUT_FAMILIES = frozenset(
 
 INPUT_FAMILIES = frozenset(
     {
+        "InstantAnchor",
+        "TimeScope",
         "Expression",
         "FinalizedDeclarations",
         "Field",
@@ -849,7 +852,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "temporal_behavior",
                     "Which source time roles and internal sample reductions are required?",
                     "Metric.per",
-                    "TimeField.via",
+                    "Field.via",
                 ),
                 _business_decision(
                     "guardrails",
@@ -875,7 +878,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "row.sum",
                 "Metric.where",
                 "Metric.per",
-                "TimeField.via",
+                "Field.via",
                 "Metric.divide",
                 "measure",
             ),
@@ -2168,7 +2171,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "marivo.semantic.expressions._FieldComparisons.is_null",
             "Construct a missing-value predicate on a native categorical, time, or numeric field. "
             "The predicate retains the field's exact version and contribution root. "
-            "Use it in a single source Metric.where(...); routed TimeFields are time roles only.",
+            "Use it in Metric.where(...) or Session.observe(where=...); scalar paths and attribute anchors remain captured.",
             kind="method",
             output="Predicate",
             inputs=(AuthoringInputRequirement(role="receiver", family="Field"),),
@@ -2214,7 +2217,6 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             ),
         ),
         ("Entity", "Entity", "Entity", ("count",)),
-        ("TimeField", "TimeField", "TimeField", ("via",)),
     ):
         for method in methods:
             output = (
@@ -2299,6 +2301,52 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     see_also=(_target("expressions"),),
                 )
             )
+    for target, owner, method, output, parameter, family, example in (
+        (
+            "Field.via",
+            "_FieldComparisons",
+            "via",
+            "Dimension | TimeField | Measure",
+            "path",
+            "Relationship",
+            "region.via((orders_to_customers,))",
+        ),
+        (
+            "Field.at",
+            "_FieldComparisons",
+            "at",
+            "Dimension | TimeField | Measure",
+            "anchor",
+            "InstantAnchor",
+            "region.at(session.instant('2026-01-01'))",
+        ),
+        (
+            "TimeField.within",
+            "_FieldComparisons",
+            "within",
+            "Predicate",
+            "scope",
+            "TimeScope",
+            "created_at.within(scope)",
+        ),
+    ):
+        rows.append(
+            _capability(
+                target,
+                f"marivo.semantic.expressions.{owner}.{method}",
+                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued; at requires a versioned owner and an exact anchor. No schema or business reads.",
+                kind="method",
+                output=output,
+                inputs=(
+                    AuthoringInputRequirement(role="receiver", family="Field"),
+                    _parameter_input("dependency", family, parameter),
+                ),
+                effects=_NONE,
+                example=example,
+                public_entrypoint=example.split("(", 1)[0],
+                see_also=(_target("expressions"),),
+            )
+        )
     return tuple(rows)
 
 
@@ -3041,7 +3089,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         ("complete row counts", "Entity.count"),
                         ("sample reductions", "expressions.MetricSamples"),
                         ("Metric operations", "expressions.Metric"),
-                        ("cross-Entity time", "TimeField.via"),
+                        ("scalar field paths", "Field.via"),
+                        ("attribute versions", "Field.at"),
+                        ("half-open time predicates", "TimeField.within"),
                         ("field missing-value predicates", "Dimension.is_null"),
                     )
                 ),

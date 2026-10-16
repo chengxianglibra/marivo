@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 from marivo._definition.types import (
     AxisBinding,
+    CalendarCoordinate,
     CoordinateValue,
     ExactRef,
     Owner,
@@ -108,7 +109,7 @@ class ObserveQuery:
     """Lazy observation of labelled metrics over output axes."""
 
     metrics: tuple[tuple[str, MetricNode], ...]
-    by: tuple[AxisBinding, ...]
+    by: tuple[AxisBinding | CalendarCoordinate, ...]
     owner: Owner | None
 
 

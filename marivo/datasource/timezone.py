@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from marivo._timezones import parse_timezone as parse_timezone
 from marivo.datasource.engines import profile_for_backend
 from marivo.datasource.errors import DatasourceConnectionError, repair
 
@@ -61,7 +61,6 @@ def _resolve_system_timezone() -> DatasourceEngineTimezone:
 
 
 def _fixed_offset_fallback() -> DatasourceEngineTimezone:
-    from datetime import datetime
 
     local_tz = datetime.now().astimezone().tzinfo
     if local_tz is None:
@@ -86,20 +85,6 @@ def _fallback(warning: str | None = None) -> DatasourceEngineTimezone:
             warning=warning,
         )
     return system_tz
-
-
-def parse_timezone(value: str) -> tuple[str, tzinfo]:
-    """Normalize IANA or explicit offsets without guessing timezone abbreviations."""
-    offset = value[3:] if value.startswith("UTC") else value
-    if re.fullmatch(r"[+-]\d{2}:\d{2}(?::\d{2})?", offset):
-        hours, minutes, *seconds = (int(part) for part in offset[1:].split(":"))
-        if hours >= 24 or minutes >= 60 or (seconds and seconds[0] >= 60):
-            raise ValueError("invalid fixed timezone offset")
-        zone = datetime.fromisoformat("2000-01-01T00:00:00" + offset).tzinfo
-        if zone is None:
-            raise ValueError("missing fixed timezone offset")
-        return "UTC" + offset, zone
-    return value, ZoneInfo(value)
 
 
 def probe_engine_timezone(backend: object) -> DatasourceEngineTimezone:

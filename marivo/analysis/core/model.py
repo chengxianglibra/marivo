@@ -6,10 +6,10 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
-from typing import Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._definition.expressions import MetricNode
-from marivo._definition.types import AxisBinding, ExactRef, Owner
+from marivo._definition.types import AxisBinding, CalendarCoordinate, ExactRef, Owner
 from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -17,6 +17,9 @@ from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import DimensionKind, EntityKind, MetricKind, Ref, SemanticKind
 from marivo.semantic.ir import TargetSnapshotSelection, TargetValiditySelection
 from marivo.semantic.runtime_metric import RuntimeMetricExpr
+
+if TYPE_CHECKING:
+    from marivo.analysis.binding.observe import ObservationBinding
 
 
 class CoreRuleError(AnalysisError):
@@ -64,10 +67,11 @@ class BoundSignature:
 
     owner: Owner
     quantities: tuple[BoundQuantity, ...]
-    axes: tuple[AxisBinding, ...] = ()
+    axes: tuple[AxisBinding | CalendarCoordinate, ...] = ()
     declared_metrics: tuple[tuple[ExactRef, MetricNode], ...] = ()
     evidence: tuple[Evidence, ...] = ()
     obligations: tuple[Obligation, ...] = ()
+    observation: ObservationBinding | None = None
 
     def __post_init__(self) -> None:
         if (

@@ -4,6 +4,24 @@ Status: R1.3 authoring contract, 2026-10-15; R1.4 publication and R2 execution r
 Semantic owns authored business meaning and normalized declarations.
 Analysis owns invocation checks, exact implementation admission and execution.
 
+## R2.2 scalar observation reads
+
+Resolved Dimension, TimeField and Measure values support immutable scalar
+`via((relationship, ...))` bindings for conditions and output classification.
+Paths retain declared direction and require single-valued full-key mappings;
+ambiguous or missing paths reject when bound to each contribution root.
+Metric declaration bodies admit `via` on Dimension, Measure and TimeField
+receivers for scalar conditions; source reductions still require native fields.
+`field.at(anchor)` binds an exact attribute version only on versioned owners;
+it reads no attributes and does not prove a version exists. Anchor and path
+remain part of field predicates and Query identity. TimeField.within(scope)
+constructs a half-open condition; it does not replace the observation period
+required by sampling. Source reductions, sample axes and sum-permission declarations
+continue to require native fields; bound scalar reads do not expand row arithmetic.
+Focused Help routes are `semantic.Field.via`,
+`semantic.Field.at` and `semantic.TimeField.within`. New Query execution is still
+pending R2.3–R2.5; no numerical qualification is implied.
+
 ## Definition changes during analysis
 
 Approved 2026-10-15; implemented in the uncommitted R1.3 working tree after

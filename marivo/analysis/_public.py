@@ -4,6 +4,7 @@ import marivo.analysis.runtime_metric as runtime_metric
 import marivo.analysis.session as session
 from marivo._temporal import BeforeEndBoundary as BeforeEndBoundary
 from marivo._temporal import Grain as Grain
+from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis import time_scope as time_scope
@@ -32,6 +33,7 @@ from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByte
 from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
 from marivo.analysis.dsl.artifact import Artifact as Artifact
 from marivo.analysis.dsl.query import Query as Query
+from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
@@ -166,6 +168,8 @@ from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "Query",
+    "InstantAnchor",
+    "CalendarAxis",
     "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",

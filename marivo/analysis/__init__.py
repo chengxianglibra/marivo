@@ -10,6 +10,7 @@ from marivo._temporal import Grain, TimeScope
 from marivo._temporal import time_scope as _time_scope
 
 if TYPE_CHECKING:
+    from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import runtime_metric as runtime_metric
     from marivo.analysis import session as session
     from marivo.analysis._cohort import AllInstances as AllInstances
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
     from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
     from marivo.analysis.dsl.artifact import Artifact as Artifact
     from marivo.analysis.dsl.query import Query as Query
+    from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
     from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
     from marivo.analysis.evidence._dataset_types import Finding as Finding
     from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage

@@ -69,6 +69,8 @@ SEMANTIC_PUBLIC = {
 
 ANALYSIS_PUBLIC = (
     "Query",
+    "InstantAnchor",
+    "CalendarAxis",
     "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",

@@ -592,7 +592,7 @@ class _DeclarationExpressionBuilder:
                     methods.update(count=receiver.count)
                 if isinstance(receiver, Metric):
                     methods.update(divide=receiver.divide, where=receiver.where, per=receiver.per)
-                if isinstance(receiver, TimeField):
+                if isinstance(receiver, (Dimension, Measure, TimeField)):
                     methods.update(via=receiver.via)
             if isinstance(receiver, (Measure, Dimension, TimeField)):
                 methods.update(is_null=receiver.is_null)
@@ -679,7 +679,7 @@ def construct_metric_expression(fn: Callable[[], Metric]) -> Metric:
 def _binding_field_ref(value: object) -> Ref[SemanticKindTag] | None:
     from marivo.semantic.expressions import Dimension, Entity, Measure, Relationship, TimeField
 
-    if isinstance(value, TimeField):
+    if isinstance(value, (Dimension, TimeField, Measure)):
         value._require_native(operation="an Ibis field binding")
     if isinstance(value, (Dimension, Entity, Measure, Relationship, TimeField)):
         return value.ref.ref

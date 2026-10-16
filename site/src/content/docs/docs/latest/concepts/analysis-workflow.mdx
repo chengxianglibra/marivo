@@ -3,29 +3,44 @@ title: Analysis workflow
 description: Construct explicit analysis, execute it, and read its committed results.
 ---
 
-## R2.1: capture a Metric-first Query
+## R2.2: bind an ordinary Metric-first Query
 
-With an authored sales model, capture resolved Metric expressions directly:
+With an authored sales model, resolve Metrics and fields directly:
 
 ```python
 import marivo.analysis as mv
 
-session = mv.session.get_or_create("metric-review")
+session = mv.session.get_or_create("metric-review", report_timezone="Asia/Shanghai")
 revenue = session.catalog.metrics.get("sales.revenue")
 aov = session.catalog.metrics.get("sales.aov")
-query = session.observe({"revenue": revenue, "aov": aov})
+region = session.catalog.fields.get("sales.customers.region")
+scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+query = session.observe(
+    {"revenue": revenue, "aov": aov},
+    during=scope.by(mv.grain("day")),
+    by=(region,),
+    where=region == "APAC",
+)
 query.contract().show()
 ```
 
-Query capture and inspection read no business rows or schemas and create no Run.
-`query.execute()` currently raises a structured unavailable-stage error;
-binding, execution and publication arrive in R2.2–R2.5. `Artifact` is a separate
-read-only type with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
-and `evidence_digest()`. It has no DSL methods or `contract()`.
+Each contribution root must have one declared single-valued path to `region`.
+Use `field.via((relationship,))` for an explicit scalar role; a versioned attribute
+also needs `field.at(session.instant(...))`. Both bindings remain immutable.
+Query construction and inspection read no business rows or schemas and create no
+Run. The scope freezes UTC anchor boundaries and its calendar timezone; naive
+Python datetimes and ambiguous/nonexistent clocks reject. Omitted `during` adds
+no time filter to ordinary reductions, while sampling dependencies still require
+an explicit period. Common conditions bind separately to every source occurrence.
+
+`query.execute()` currently reports that execution/publication await R2.3–R2.5.
+Population and window inputs are delivered by their later stages. `Artifact`
+remains terminal, with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
+and `evidence_digest()`, and no DSL methods or `contract()`.
 `session.artifact(id)` accepts only an exact string ID and rejects old graph
 outputs unchanged. Terminal storage and reading arrive in R2.5/R2.6; Store
 generation remains 9 until R2.5. The examples below describe the legacy execution
-surface awaiting replacement, not a Query execution fallback.
+surface awaiting replacement.
 
 Start with an approved Metric, a member Entity and a question-scoped Session.
 Use [the Python tutorial](/docs/latest/guides/python-quick-start/) for a complete local project.

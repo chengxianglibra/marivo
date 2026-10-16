@@ -1,5 +1,6 @@
 """Native disclosure for the distinct Query and terminal Artifact protocols."""
 
+from marivo._temporal import InstantAnchor, TimeScope
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
     DisclosureProvider,
@@ -12,6 +13,7 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis.dsl.artifact import Artifact
 from marivo.analysis.dsl.query import Query
+from marivo.analysis.dsl.temporal import CalendarAxis
 
 
 def provider() -> DisclosureProvider:
@@ -24,7 +26,7 @@ def provider() -> DisclosureProvider:
             producers=("session.observe",),
             consumers=("Query.contract", "Query.execute"),
             constraints=(
-                "R2.1 captures definitions; binding and execution are pending R2.2-R2.5.",
+                "R2.2 binds ordinary observation context; execution/publication are pending R2.3-R2.5.",
             ),
         ),
         value_type(
@@ -46,11 +48,45 @@ def provider() -> DisclosureProvider:
     ]
     operations = (
         (
+            TimeScope,
+            "by",
+            (
+                ParameterInput(
+                    "grain", "Pass mv.grain(unit) or an already certified calendar.grain(level)."
+                ),
+            ),
+            "CalendarAxis",
+            "Construct complete nominal and actual calendar buckets using frozen authority.",
+            "result = scope.by(grain)",
+            ("scope", "grain"),
+            "inputs.time",
+        ),
+        (
+            InstantAnchor,
+            "show",
+            (),
+            "None",
+            "Display the exact frozen UTC instant.",
+            "result = anchor.show()",
+            ("anchor",),
+            "inputs.time",
+        ),
+        (
+            CalendarAxis,
+            "show",
+            (),
+            "None",
+            "Display bounded frozen calendar metadata.",
+            "result = axis.show()",
+            ("axis",),
+            "inputs.time",
+        ),
+        (
             Query,
             "contract",
             (),
             "AnalysisContract",
-            "Describe known definitions and pending binding without reading a schema.",
+            "Describe bound definitions and unresolved physical types without reading a schema.",
             "result = query.contract()",
             ("query",),
             "entry",
@@ -60,7 +96,7 @@ def provider() -> DisclosureProvider:
             "execute",
             (),
             "Artifact",
-            "Request explicit execution; R2.1 fails before data reads or Run admission.",
+            "Request explicit execution; R2.2 fails before data reads or Run admission.",
             "result = query.execute()",
             ("query",),
             "entry",
@@ -109,6 +145,21 @@ def provider() -> DisclosureProvider:
             "artifacts.reads",
         ),
     )
+    for value, producer, consumer in (
+        (InstantAnchor, "session.instant", "InstantAnchor.show"),
+        (CalendarAxis, "TimeScope.by", "CalendarAxis.show"),
+    ):
+        descriptors.append(
+            value_type(
+                value.__name__,
+                value,
+                summary=f"Immutable {value.__name__} temporal binding.",
+                acquisition=f"Call {producer}(...).",
+                producers=(producer,),
+                consumers=(consumer,),
+                constraints=("Frozen metadata only; no source or schema reads.",),
+            )
+        )
     for owner, name, parameters, output, summary, code, requires, group in operations:
         value = getattr(owner, name)
         descriptors.append(
@@ -125,6 +176,10 @@ def provider() -> DisclosureProvider:
                 ),
                 effects=summary,
                 failures=(
+                    "ValueError: read the temporal validation message and use a compatible scope, Grain and certified calendar.",
+                )
+                if owner is TimeScope
+                else (
                     "AnalysisError: follow the structured expected/received facts and repair; unavailable stages never fall back to graph execution.",
                 ),
                 example=ExampleInput(code, requires, "result", output),
@@ -134,5 +189,10 @@ def provider() -> DisclosureProvider:
     return DisclosureProvider(
         "analysis.dsl",
         tuple(descriptors),
-        (ExportInput("Query", Query, "Query"), ExportInput("Artifact", Artifact, "Artifact")),
+        (
+            ExportInput("Query", Query, "Query"),
+            ExportInput("Artifact", Artifact, "Artifact"),
+            ExportInput("InstantAnchor", InstantAnchor, "InstantAnchor"),
+            ExportInput("CalendarAxis", CalendarAxis, "CalendarAxis"),
+        ),
     )

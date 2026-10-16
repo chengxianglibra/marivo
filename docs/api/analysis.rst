@@ -6,15 +6,27 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-R2.1 Query and terminal Artifact
+R2.2 ordinary Query binding
 ----------------------------------------
 
-``session.observe({"revenue": revenue, "aov": aov})`` captures resolved Metric
-expressions in an immutable ``Query`` without schema reads, business reads or Run
-admission. ``query.contract().show()`` reports captured definitions and unresolved
-physical types. In R2.1, ``query.execute()`` raises a structured
-``AnalysisStageUnavailableError``; binding, execution and publication belong to
-R2.2–R2.5. There is no fallback to the legacy graph executor.
+``session.observe({"revenue": revenue, "aov": aov}, during=scope,
+by=(region,), where=region == "APAC")`` binds ordinary observation context in an
+immutable ``Query`` without schema/business reads or Run admission. Each source
+reduction occurrence retains its intrinsic conditions and receives common
+conditions independently. Scalar paths must be directed, single-valued and
+unambiguous. ``query.contract().show()`` describes the frozen context and unresolved
+physical types. Execution and publication remain pending R2.3–R2.5;
+``query.execute()`` raises ``AnalysisStageUnavailableError`` before admission.
+
+Construct exact time with ``session.instant(value, timezone=None)`` and
+``session.time_scope(start=..., end=..., timezone=None)``. Omitted timezone uses
+the saved report timezone; returned scope boundaries are ``InstantAnchor`` values.
+``scope.by(mv.grain("day"))`` constructs complete calendar buckets. Date/offset-free
+strings use the frozen zone, aware inputs preserve their instant, and naive
+Python datetimes or ambiguous/nonexistent clocks reject. ``during=None`` adds no
+time filter; sampling dependencies still require an explicit period. Scalar
+fields support ``via((relationship, ...))`` and versioned attributes support
+``at(anchor)``. Population and window inputs remain outside this R2.2 surface.
 
 ``Artifact`` has only exact identity, a committed output manifest and a read
 service. It offers ``show(n=20)``, ``to_pandas()``, ``findings()`` and
@@ -23,6 +35,12 @@ service. It offers ``show(n=20)``, ``to_pandas()``, ``findings()`` and
 descriptors unchanged and does not load current semantics or Parquet rows.
 The new writer and complete reader arrive in R2.5/R2.6. Store generation remains
 9 until R2.5; same-generation Session recovery is unchanged.
+
+.. autoclass:: InstantAnchor
+   :members: show
+
+.. autoclass:: CalendarAxis
+   :members: show
 
 .. autoclass:: Query
    :members:
