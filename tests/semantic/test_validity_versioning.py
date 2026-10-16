@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 
 import marivo.semantic as ms
-from marivo.semantic.catalog import EntityDetails, SemanticCatalog
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
+from marivo.semantic.expressions import Entity
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,9 +45,9 @@ def test_validity_versioning_round_trip(semantic_project_factory):
         }
     )
 
-    dataset = SemanticCatalog(project).require(ms.ref.entity("sales.user_history")).details()
-    assert isinstance(dataset, EntityDetails)
-    versioning = dataset.versioning
+    dataset = SemanticCatalog(project).require(ms.ref.entity("sales.user_history"))
+    assert isinstance(dataset, Entity)
+    versioning = project._registry.entities["sales.user_history"].versioning
     assert versioning is not None
     assert versioning.kind == "validity"
     assert versioning.valid_from == "sales.user_history.valid_from"

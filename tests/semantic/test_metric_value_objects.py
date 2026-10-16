@@ -174,36 +174,35 @@ def test_status_time_policy_keeps_fixed_axis():
 # ---------------------------------------------------------------------------
 
 
-def test_metric_body_form_declares_additivity():
-    with authoring_session(domain="sales") as sess:
+def test_metric_global_additivity_requires_reauthoring():
+    from marivo.semantic.errors import SemanticExpressionError
 
-        @authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())
-        def gmv(orders):
-            return (orders.price * orders.qty).sum()
+    with (
+        authoring_session(domain="sales"),
+        pytest.raises(SemanticExpressionError) as caught,
+    ):
+        authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())
+    assert caught.value.kind == "invalid_component_body"
+    assert caught.value.repair is not None
+    assert "sum permission on source Measures" in caught.value.repair.action
 
-        m = sess.pending_metric("sales.gmv")
-    assert m.metric_type == "simple"
-    assert m.aggregation is None and m.measure is None
-    assert m.additivity == "additive"
-    assert m.entities == ("sales.orders",)
 
+def test_metric_global_status_fold_requires_explicit_sample_reduction():
+    from marivo.semantic.errors import SemanticExpressionError
 
-def test_metric_semi_additive_via_builder():
-    with authoring_session(domain="ops") as sess:
-        t = ms.ref.time_dimension("ops.samples.t")
-
-        @authoring.metric(
+    with (
+        authoring_session(domain="ops"),
+        pytest.raises(SemanticExpressionError) as caught,
+    ):
+        authoring.metric(
             entities=[ms.ref.entity("ops.samples")],
-            additivity=authoring.additive_all(except_=(t,)),
-            status_time_dimension=t,
+            additivity=authoring.additive_all(except_=(ms.ref.time_dimension("ops.samples.t"),)),
+            status_time_dimension=ms.ref.time_dimension("ops.samples.t"),
             status_time_fold="max",
         )
-        def peak_bw(samples):
-            return samples.bw.sum()
-
-        m = sess.pending_metric("ops.peak_bw")
-    assert isinstance(m.additivity, ir.SemiAdditive)
-    assert m.additivity.fold.kind == "max"
+    assert caught.value.kind == "invalid_component_body"
+    assert caught.value.repair is not None
+    assert "per(status_time_field).reducer()" in caught.value.repair.action
 
 
 # ---------------------------------------------------------------------------

@@ -72,7 +72,7 @@ def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     )
     adapter = TypeAdapter(BoundTimeGrid)
     assert adapter.validate_json(adapter.dump_json(grid), strict=True) == grid
-    with pytest.raises(DatasetConstructionError, match="identity"):
+    with pytest.raises(ValueError, match="identity"):
         replace(grid, boundary_timezone="UTC")
 
 

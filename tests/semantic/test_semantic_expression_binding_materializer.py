@@ -1,215 +1,134 @@
-"""Integration coverage for compiled Tier-2 expression binding execution."""
+"""Pure Measure composition and retained restricted Ibis field binding."""
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 import ibis
 import pytest
 
+import marivo.datasource as md
+from marivo._definition.graph import computation_fingerprint
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.materializer import Materializer
-from marivo.semantic.metric_graph_lowering import dependency_digest
+from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import patch_semantic_connections
 
+ProjectFactory = Callable[[dict[str, str]], SemanticProject]
 _MODEL = """\
 import marivo.datasource as md
 import marivo.semantic as ms
-
-orders = ms.entity(
-    name="orders",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"),
-)
-
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def amount(order_rows):
-    return order_rows.amount
-
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def net_amount(order_rows):
-    return ms.bind(amount, order_rows) * 0.9
-
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
+discount_ref = ms.measure_column(name="discount", entity=orders, column="discount", additivity=ms.additive_all())
 @ms.dimension(entity=orders)
-def country(order_rows):
-    return order_rows.country
-
+def country(rows):
+    return rows.country
 @ms.time_dimension(entity=orders, granularity="day", is_default=True)
-def ordered_at(order_rows):
-    return order_rows.ordered_at
-
-@ms.metric(entities=[orders], additivity=ms.additive_all())
-def revenue(order_rows):
-    return ms.bind(net_amount, order_rows).sum()
+def ordered_at(rows):
+    return rows.ordered_at
+finalized = ms.finalize()
+amount = finalized.resolve(amount_ref)
+discount = finalized.resolve(discount_ref)
+@ms.measure(additivity=ms.additive_all())
+def net_amount():
+    return amount * 0.9
+@ms.metric()
+def revenue():
+    return net_amount.sum()
 """
 
 
-@pytest.mark.parametrize("use_locals", [False, True])
-def test_materializer_executes_nested_field_binding(
-    semantic_project_factory, use_locals: bool
-) -> None:
-    project = semantic_project_factory(
+def _project(factory: ProjectFactory, source: str) -> SemanticProject:
+    return factory(
         {
-            "datasources/warehouse.py": (
-                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-            ),
-            "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
-                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
-            ),
-            "sales/model.py": _MODEL
-            if not use_locals
-            else _MODEL.replace(
-                "return ms.bind(amount, order_rows) * 0.9",
-                "value = ms.bind(amount, order_rows)\n    net = value * 0.9\n    return net",
-            ).replace(
-                "return ms.bind(net_amount, order_rows).sum()",
-                "value = ms.bind(net_amount, order_rows)\n    return value.sum()",
-            ),
+            "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/model.py": source,
         }
     )
+
+
+@pytest.mark.parametrize("use_locals", (False, True))
+def test_pure_measure_composition_and_physical_fields_execute(
+    semantic_project_factory: ProjectFactory, use_locals: bool
+) -> None:
+    source = _MODEL
+    if use_locals:
+        source = source.replace(
+            "return amount * 0.9", "value = amount\n    net = value * 0.9\n    return net"
+        )
+        source = source.replace(
+            "return net_amount.sum()", "value = net_amount\n    return value.sum()"
+        )
+    project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()
-
     connection = ibis.duckdb.connect(":memory:")
-    connection.con.execute("CREATE TABLE orders (amount DOUBLE, country VARCHAR, ordered_at DATE)")
     connection.con.execute(
-        "INSERT INTO orders VALUES "
-        "(10.0, 'US', DATE '2026-01-01'), "
-        "(20.0, 'CA', DATE '2026-01-02'), "
-        "(30.0, 'US', DATE '2026-01-03')"
+        "CREATE TABLE orders(amount DOUBLE, discount DOUBLE, country VARCHAR, ordered_at DATE)"
     )
-    materializer = Materializer(project, lambda _datasource: connection)
+    connection.con.execute(
+        "INSERT INTO orders VALUES (10,1,'US','2026-01-01'),(20,2,'CA','2026-01-02'),(30,3,'US','2026-01-03')"
+    )
+    try:
+        materializer = Materializer(project, lambda _name: connection)
+        assert connection.execute(materializer.dimension("sales.orders.country")).tolist() == [
+            "US",
+            "CA",
+            "US",
+        ]
+        assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
+        catalog = SemanticCatalog(project)
+        metric = catalog.metrics.get("sales.revenue")
+        assert "callable" not in metric.contract().render()
+        dependencies = catalog._state.dependencies[ref_factory.metric("sales.revenue")]
+        assert ref_factory.measure("sales.orders.amount") in dependencies
+        with patch_semantic_connections(project, lambda _name: connection):
+            assert catalog.preview(
+                metric, scope=md.unpruned(max_rows=10, timeout_seconds=30)
+            ).rows == ({"value": 54.0},)
+    finally:
+        connection.disconnect()
 
-    assert connection.execute(materializer.metric("sales.revenue")) == 54.0
-    assert connection.execute(materializer.measure("sales.orders.net_amount")).tolist() == [
-        9.0,
-        18.0,
-        27.0,
-    ]
-    assert connection.execute(materializer.dimension("sales.orders.country")).tolist() == [
-        "US",
-        "CA",
-        "US",
-    ]
-    assert len(connection.execute(materializer.dimension("sales.orders.ordered_at"))) == 3
 
-    catalog = SemanticCatalog(project)
-    net_details = catalog.require(ref_factory.measure("sales.orders.net_amount")).details()
-    metric_details = catalog.require(ref_factory.metric("sales.revenue")).details()
-    assert ref_factory.measure("sales.orders.amount") in net_details.parents
-    assert ref_factory.measure("sales.orders.net_amount") in metric_details.parents
-    assert "callable" not in repr(net_details)
-    assert "callable" not in net_details.render()
-
-
-def test_loader_rejects_field_bound_to_wrong_positional_entity(
-    semantic_project_factory,
+def test_field_bind_rejects_wrong_positional_entity(
+    semantic_project_factory: ProjectFactory,
 ) -> None:
-    project = semantic_project_factory(
-        {
-            "datasources/warehouse.py": (
-                "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-            ),
-            "sales/_domain.py": (
-                "import marivo.semantic as ms\n"
-                "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
-            ),
-            "sales/model.py": (
-                "import marivo.datasource as md\n"
-                "import marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'))\n"
-                "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-                "def amount(order_rows):\n"
-                "    return order_rows.amount\n"
-                "@ms.metric(entities=[users], additivity=ms.additive_all())\n"
-                "def revenue(user_rows):\n"
-                "    return ms.bind(amount, user_rows).sum()\n"
-            ),
-        }
-    )
-    assert not project.is_ready()
+    source = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+users = ms.entity(name="users", datasource=ms.ref.datasource("warehouse"), source=md.table("users"))
+amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
+@ms.dimension(entity=users)
+def revenue(rows):
+    return ms.bind(amount, rows)
+"""
+    project = _project(semantic_project_factory, source)
     error = next(
         error for error in project.errors() if error.kind == ErrorKind.BINDING_ENTITY_MISMATCH
     )
     assert error.expected == ref_factory.entity("sales.users").key
     assert error.received == ref_factory.entity("sales.orders").key
-    assert "direct parameter" in str(error)
-    assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "bind"
-    assert "expected and received Entity refs" in error.repair.action
+    assert error.repair is not None and error.repair.help_target.canonical_id == "bind"
 
 
-def test_binding_identity_ignores_names_but_tracks_ref_and_definition_changes(
-    semantic_project_factory,
+def test_computation_identity_ignores_local_aliases_but_tracks_consumed_fields(
+    semantic_project_factory: ProjectFactory,
 ) -> None:
-    def load(metric_body: str, *, amount_expression: str = "order_rows.amount"):
-        return semantic_project_factory(
-            {
-                "datasources/warehouse.py": (
-                    "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-                ),
-                "sales/_domain.py": (
-                    "import marivo.semantic as ms\n"
-                    "ms.domain(name='sales', owner='Mina Zhang', default=True)\n"
-                ),
-                "sales/model.py": (
-                    "import marivo.datasource as md\n"
-                    "import marivo.semantic as ms\n"
-                    "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                    "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-                    "def amount(order_rows):\n"
-                    f"    return {amount_expression}\n"
-                    "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-                    "def discount(order_rows):\n"
-                    "    return order_rows.discount\n"
-                    f"{metric_body}\n"
-                ),
-            }
-        )
-
-    original = load(
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def revenue(order_rows):\n"
-        "    return ms.bind(amount, order_rows).sum()"
+    sources = (
+        _MODEL,
+        _MODEL.replace("return amount * 0.9", "value = amount\n    return value * 0.9"),
+        _MODEL.replace("return amount * 0.9", "return discount * 0.9"),
+        _MODEL.replace("return amount * 0.9", "return amount * 0.8"),
     )
-    renamed = load(
-        "amount_alias = amount\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def revenue(rows):\n"
-        "    return ms.bind(amount_alias, rows).sum()"
-    )
-    rebound = load(
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def revenue(order_rows):\n"
-        "    return ms.bind(discount, order_rows).sum()"
-    )
-    redefined = load(
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def revenue(order_rows):\n"
-        "    return ms.bind(amount, order_rows).sum()",
-        amount_expression="order_rows.amount * 0.9",
-    )
-    for project in (original, renamed, rebound, redefined):
+    identities = []
+    for source in sources:
+        project = _project(semantic_project_factory, source)
         assert project.is_ready(), project.errors()
-
-    def identities(project, expected_binding) -> tuple[str, str]:
-        registry = project._registry
-        sidecar = project._expression_sidecar
-        compiled_state = project._compiled_state
-        assert registry is not None and sidecar is not None and compiled_state is not None
-        digest = dependency_digest(
-            registry,
-            sidecar=sidecar,
-            semantic_refs=(ref_factory.metric("sales.revenue"),),
-        )
-        assert expected_binding in {
-            binding.to_ref() for entry in digest.entries for binding in entry.bindings
-        }
-        return compiled_state.definition_fingerprint, digest.digest
-
-    amount_ref = ref_factory.measure("sales.orders.amount")
-    discount_ref = ref_factory.measure("sales.orders.discount")
-    original_identity = identities(original, amount_ref)
-    assert identities(renamed, amount_ref) == original_identity
-    assert identities(rebound, discount_ref) != original_identity
-    assert identities(redefined, amount_ref) != original_identity
+        metric = SemanticCatalog(project)._state.registry.declared_metrics["sales.revenue"]
+        identities.append(computation_fingerprint(metric.node))
+    assert identities[0] == identities[1]
+    assert identities[2] != identities[0]
+    assert identities[3] != identities[0]

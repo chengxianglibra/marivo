@@ -22,6 +22,7 @@ from marivo.semantic.errors import ErrorKind
 from marivo.semantic.expressions import Entity, Measure, Metric
 from marivo.semantic.materializer import Materializer
 from marivo.semantic.reader import SemanticProject
+from tests.shared_fixtures import patch_semantic_connections
 from tests.support.documentation import ROOT
 
 ProjectFactory = Callable[[dict[str, str]], SemanticProject]
@@ -112,11 +113,14 @@ def test_metric_help_executes_the_declared_computed_measure(
 ) -> None:
     project = _project(semantic_project_factory, _ORDERS + _example("semantic.metric", capsys))
     assert project.is_ready(), project.errors()
-    materializer = Materializer(project, lambda _datasource: orders_backend)
-    assert orders_backend.execute(materializer.metric("sales.revenue")) == 46
     assert orders_backend.table("orders").amount.sum().execute() == 2997
-    parents = SemanticCatalog(project).require(ms.ref.metric("sales.revenue")).details().parents
-    assert ms.ref.measure("sales.orders.amount") in parents
+    with patch_semantic_connections(project, lambda _datasource: orders_backend):
+        assert SemanticCatalog(project).preview(
+            ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+        ).rows == ({"value": 46},)
+    parents = SemanticCatalog(project)._state.dependencies[ms.ref.metric("sales.revenue")]
+    assert ms.ref.measure("sales.orders.quantity") in parents
+    assert ms.ref.measure("sales.orders.unit_price") in parents
 
 
 def test_bind_help_executes_cross_file_fields_before_their_declaration_file(
@@ -132,10 +136,7 @@ def test_bind_help_executes_cross_file_fields_before_their_declaration_file(
             + "orders = ms.ref.entity('trino_query.trino_query_info')\n"
             + "amount = ms.ref.measure('trino_query.trino_query_info.amount')\n"
             + "query_info = orders\n"
-            + _example("semantic.bind", capsys)
-            + "amount = ms.ref.measure('trino_query.trino_query_info.amount')\n"
-            "@ms.metric(entities=[query_info], additivity=ms.additive_all())\n"
-            "def revenue(rows):\n    return ms.bind(amount, rows).sum()\n",
+            + _example("semantic.bind", capsys),
             "trino_query/z_fields.py": _IMPORTS + "@ms.entity("
             "datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
             "def trino_query_info(raw):\n    return raw.mutate(amount=raw.price * raw.quantity)\n"
@@ -148,8 +149,13 @@ def test_bind_help_executes_cross_file_fields_before_their_declaration_file(
     assert project.is_ready(), project.errors()
     orders_backend.con.execute("UPDATE orders SET state=lower(state)")
     materializer = Materializer(project, lambda _datasource: orders_backend)
-    assert orders_backend.execute(materializer.metric("trino_query.failed_segments")) == 1
-    assert orders_backend.execute(materializer.metric("trino_query.revenue")) == 46
+    assert orders_backend.execute(
+        materializer.dimension("trino_query.trino_query_info.has_amount")
+    ).tolist() == [True, True, True]
+    assert (
+        orders_backend.execute(materializer.measure("trino_query.trino_query_info.amount")).sum()
+        == 46
+    )
 
 
 def test_binding_to_an_absent_field_names_the_path_and_routes_to_bind(
@@ -256,8 +262,10 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
     source += f"@ms.metric()\ndef {metric}():\n    return {expression}\n"
     project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()
-    materializer = Materializer(project, lambda _datasource: orders_backend)
-    assert orders_backend.execute(materializer.metric(f"sales.{metric}")) == expected
+    with patch_semantic_connections(project, lambda _datasource: orders_backend):
+        assert SemanticCatalog(project).preview(
+            ms.ref.metric(f"sales.{metric}"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+        ).rows == ({"value": expected},)
 
 
 def test_entity_help_projection_gets_types_and_values_from_the_physical_source(

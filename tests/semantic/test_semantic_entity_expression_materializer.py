@@ -18,7 +18,7 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import Materializer
-from tests.semantic.test_semantic_materializer import _patch_connection_service
+from tests.shared_fixtures import patch_semantic_connections
 
 _WAREHOUSE_FILES = {
     "datasources/warehouse.py": (
@@ -79,7 +79,11 @@ amount = ms.measure_column(
     name="amount", entity=latest_orders, column="amount", additivity=ms.additive_all(), unit="USD"
 )
 order_id = ms.dimension_column(name="order_id", entity=latest_orders, column="order_id")
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+finalized = ms.finalize()
+amount_value = finalized.resolve(amount)
+@ms.metric()
+def revenue():
+    return amount_value.sum()
 """
 
 _GROUPED_MODEL = """\
@@ -107,7 +111,11 @@ order_count = ms.measure_column(
     name="order_count", entity=regional_sales, column="order_count",
     additivity=ms.additive_all(), unit="USD",
 )
-regional_revenue = ms.aggregate(name="regional_revenue", measure=sales_amount, agg="sum")
+finalized = ms.finalize()
+sales_amount_value = finalized.resolve(sales_amount)
+@ms.metric()
+def regional_revenue():
+    return sales_amount_value.sum()
 """
 
 _DIRECT_MODEL = """\
@@ -141,7 +149,10 @@ def test_expression_entity_materializes_output_rows_and_metric(
     assert sorted(rows["order_id"].tolist()) == [1, 2, 3]
     assert rows.set_index("order_id")["amount"].to_dict() == {1: 12.0, 2: 25.0, 3: 30.0}
 
-    assert connection.execute(materializer.metric("sales.revenue")) == 67.0
+    with patch_semantic_connections(project, lambda _name: connection):
+        assert SemanticCatalog(project).preview(
+            ms.ref.metric("sales.revenue"), scope=md.unpruned(max_rows=10, timeout_seconds=30)
+        ).rows == ({"value": 67.0},)
 
 
 def test_expression_entity_grouping_exposes_output_grain(
@@ -156,11 +167,15 @@ def test_expression_entity_grouping_exposes_output_grain(
     grouped = connection.execute(table).set_index("region")
     assert grouped["sales_amount"].to_dict() == {"east": 52.0, "west": 45.0}
     assert grouped["order_count"].to_dict() == {"east": 3, "west": 2}
-    assert connection.execute(materializer.metric("sales.regional_revenue")) == 97.0
     assert connection.execute(materializer.dimension("sales.regional_sales.region")).tolist() == [
         "east",
         "west",
     ]
+    with patch_semantic_connections(project, lambda _name: connection):
+        assert SemanticCatalog(project).preview(
+            ms.ref.metric("sales.regional_revenue"),
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
+        ).rows == ({"value": 97.0},)
 
 
 def test_expression_entity_accepts_self_derived_branches(
@@ -310,7 +325,7 @@ def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
     # The same rejection guards the public preview path.
     catalog = SemanticCatalog(project)
     with (
-        _patch_connection_service(project, lambda _name: connection),
+        patch_semantic_connections(project, lambda _name: connection),
         pytest.raises(SemanticRuntimeError) as preview_info,
     ):
         catalog.preview(
@@ -496,7 +511,7 @@ def test_entity_preview_reports_output_columns(semantic_project_factory) -> None
     connection = _warehouse_connection()
     catalog = SemanticCatalog(project)
 
-    with _patch_connection_service(project, lambda _name: connection):
+    with patch_semantic_connections(project, lambda _name: connection):
         result = catalog.preview(
             ms.ref.entity("sales.regional_sales"),
             scope=md.unpruned(max_rows=100, timeout_seconds=30),
@@ -517,7 +532,7 @@ def test_metric_preview_over_expression_entity_keeps_sampling_disclosure(
     connection = _warehouse_connection()
     catalog = SemanticCatalog(project)
 
-    with _patch_connection_service(project, lambda _name: connection):
+    with patch_semantic_connections(project, lambda _name: connection):
         result = catalog.preview(
             ms.ref.metric("sales.revenue"),
             scope=md.unpruned(max_rows=100, timeout_seconds=30),

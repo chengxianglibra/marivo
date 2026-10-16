@@ -14,7 +14,7 @@ from marivo.ontology.errors import (
     InvalidSemanticEdgeError,
     OntologyLoadError,
 )
-from tests.conftest import bootstrap_sales_project
+from tests.shared_fixtures import bootstrap_sales_project_from_template as bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
@@ -35,23 +35,14 @@ def _add_order_count_metric(tmp_path) -> None:
         ),
     )
     source = source.replace(
-        "name='revenue', )",
-        (
-            "name='revenue', ai_context=ms.ai_context("
-            "business_definition='Recognized order revenue.'))"
-        ),
+        "@ms.metric()",
+        "@ms.metric(ai_context=ms.ai_context(business_definition='Recognized order revenue.'))",
     )
     datasets.write_text(
         source
-        + "\n@ms.metric(entities=[orders], additivity=ms.additive_all(), name='order_count')\n".replace(
-            "name='order_count')",
-            (
-                "name='order_count', ai_context=ms.ai_context("
-                "business_definition='Count of observed orders.'))"
-            ),
-        )
-        + "def order_count(orders):\n"
-        + "    return orders.amount.count()\n"
+        + "\n@ms.metric(ai_context=ms.ai_context(business_definition='Count of observed orders.'))\n"
+        + "def order_count():\n"
+        + "    return amount_value.count()\n"
     )
 
 

@@ -62,13 +62,6 @@ def test_observe_uses_registered_global_datasource(
         .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
     session = mv.session.get_or_create("registered", report_timezone="UTC")
-    output = (
-        session.members(ms.ref.entity("sales.orders"))
-        .observe(ms.ref.metric("sales.revenue"), by=(mv.member(),))
-        .rollup()
-        .execute()
-    )
-    assert output.to_pandas()["value"].tolist() == [expected]
-    assert (
-        session.artifact(output.state.artifact_ref).state.artifact_ref == output.state.artifact_ref
-    )
+    output = session.observe({"revenue": session.catalog.metrics.get("sales.revenue")}).execute()
+    assert output.to_pandas()[("value", "revenue")].tolist() == [expected]
+    assert session.artifact(output.id).id == output.id

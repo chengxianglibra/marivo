@@ -98,10 +98,14 @@ def _probe(
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
-                revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
-                def net_revenue(orders, refunds):
-                    return orders.amount.sum()
+                finalized = ms.finalize()
+                amount_value = finalized.resolve(amount)
+                @ms.metric()
+                def revenue():
+                    return amount_value.sum()
+                @ms.metric()
+                def net_revenue():
+                    return amount_value.sum()
                 """
             ),
         }

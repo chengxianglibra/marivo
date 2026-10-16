@@ -12,6 +12,7 @@ from marivo.semantic.errors import (
     SemanticLoadFailed,
     SemanticRuntimeError,
 )
+from marivo.semantic.expressions import Entity, Measure
 
 
 def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
@@ -47,9 +48,12 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
                 "@ms.dimension(entity=orders)\n"
                 "def region(orders):\n"
                 "    return orders.region\n"
-                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
+                "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
+                "finalized = ms.finalize()\n"
+                "amount_value = finalized.resolve(amount)\n"
+                "@ms.metric()\n"
+                "def revenue():\n"
+                "    return amount_value.sum()\n"
             )
         },
         workspace_dir=tmp_path,
@@ -66,9 +70,9 @@ def test_require_entity_is_static_without_audit_side_effects(
 
     result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
 
-    assert result.kind.value == "entity"
-    assert result.ref == ms.ref.entity("sales.orders")
-    assert not hasattr(result, "contract")
+    assert isinstance(result, Entity)
+    assert result.ref.ref == ms.ref.entity("sales.orders")
+    assert result.contract().stage == "entity"
     assert not (Path(project.state_root) / "evidence").exists()
 
 
@@ -78,7 +82,7 @@ def test_require_entity_uses_current_loaded_project(
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
     first = ms.SemanticCatalog(project).require(ms.ref.entity("sales.orders"))
-    assert first.ref == ms.ref.entity("sales.orders")
+    assert first.ref.ref == ms.ref.entity("sales.orders")
 
     # Rewrite the entity with a different source table name
     import ibis
@@ -101,7 +105,8 @@ def test_require_entity_uses_current_loaded_project(
     )
 
     second = ms.SemanticCatalog(project2).require(ms.ref.entity("sales.orders"))
-    assert second.ref == first.ref
+    assert second.ref.ref == first.ref.ref
+    assert second.ref.version != first.ref.version
     assert not (Path(project2.state_root) / "evidence").exists()
 
 
@@ -216,17 +221,15 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
         "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-        "@ms.measure(entity=orders, additivity=ms.additive_all())\n"
-        "def amount(orders):\n"
-        "    return orders.amount\n"
+        "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     )
     project = semantic_project_factory({"sales/_domain.py": model})
     project.load()
 
     result = ms.SemanticCatalog(project).require(ms.ref.measure("sales.orders.amount"))
 
-    assert result.kind.value == "measure"
-    assert result.ref == ms.ref.measure("sales.orders.amount")
+    assert isinstance(result, Measure)
+    assert result.ref.ref == ms.ref.measure("sales.orders.amount")
 
 
 def test_require_unknown_ref_is_not_found_when_loaded(

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import ibis
+import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -48,17 +49,20 @@ def _ready_project(semantic_project_factory, *, datasource_path: Path | None = N
                         guardrails=["Use normalized values."],
                     ),
                 )
-                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-                def amount(orders):
-                    return orders.amount
-                revenue = ms.aggregate(
-                    name="revenue", measure=amount, agg="sum",
+                amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
+                finalized = ms.finalize()
+                amount = finalized.resolve(amount_ref)
+                @ms.metric(
                     ai_context=ms.ai_context(
                         business_definition="Order revenue.",
                         guardrails=["Exclude tests."],
                     ),
                 )
-                double_revenue = ms.linear(name="double_revenue", add=[revenue, revenue])
+                def revenue():
+                    return amount.sum()
+                @ms.metric()
+                def double_revenue():
+                    return revenue + revenue
                 """
         ),
     }
@@ -183,39 +187,22 @@ def test_runtime_expression_with_unobservable_inherited_fold_is_blocked(
             ),
         }
     )
-    catalog = ms.SemanticCatalog(project)
-    expression = mv.runtime_metric.aggregate(
-        ms.ref.measure("sales.snapshots.value"),
-        agg="mean",
-        label="Runtime p95",
-    )
-
-    report = catalog.readiness(refs=[expression])
-
-    assert report.status == "blocked"
-    assert report.analysis_ready_inputs == ()
-    assert len(report.blockers) == 1
-    issue = report.blockers[0]
-    assert issue.kind == "snapshot_fold_unobservable"
-    assert issue.repair is not None
-    assert issue.repair.help_target.canonical_id == "objects.metric"
-    assert issue.details == {
-        "time_fold": "percentile",
-        "status_time_dimension": "sales.snapshots.snapshot_date",
-        "root_entity": "sales.snapshots",
-        "snapshot_partition_field": None,
-        "reason": "unsampled_non_selection_fold",
-    }
+    assert not project.is_ready()
+    (error,) = project.errors()
+    assert error.kind == "invalid_component_body"
+    assert error.received is not None and "status_time_fold" in error.received
+    assert error.repair is not None
+    assert "per(status_time_field).reducer()" in error.repair.action
 
 
 def test_direct_requests_only_are_ready_inputs(semantic_project_factory) -> None:
     project = _ready_project(semantic_project_factory)
 
-    report = project.readiness(refs=("sales.double_revenue",))
+    report = project.readiness(refs=("sales.orders.amount",))
 
-    assert report.analysis_ready_inputs == (ms.ref.metric("sales.double_revenue"),)
+    assert report.analysis_ready_inputs == (ms.ref.measure("sales.orders.amount"),)
     assert ms.ref.metric("sales.revenue") not in report.analysis_ready_inputs
-    assert ms.ref.measure("sales.orders.amount") not in report.analysis_ready_inputs
+    assert ms.ref.entity("sales.orders") not in report.analysis_ready_inputs
 
 
 def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
@@ -241,8 +228,8 @@ def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
         ),
     )
 
-    metric = project.readiness(refs=(ms.ref.metric("sales.revenue"),))
-    assert metric.analysis_ready_inputs == (ms.ref.metric("sales.revenue"),)
+    metric = project.readiness(refs=(ms.ref.measure("sales.orders.amount"),))
+    assert metric.analysis_ready_inputs == (ms.ref.measure("sales.orders.amount"),)
     assert "sales.orders.amount" in metric.input_summary.refs
     assert "sales.orders.region" not in metric.input_summary.refs
     assert tuple(issue.refs for issue in metric.warnings) == (("sales.orders.amount",),)
@@ -324,22 +311,26 @@ def test_missing_business_context_does_not_block_readiness(semantic_project_fact
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 region = ms.dimension_column(name="region", entity=orders, column="region")
-                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-                def amount(orders):
-                    return orders.amount
-                revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
+                amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
+                finalized = ms.finalize()
+                amount = finalized.resolve(amount_ref)
+                @ms.metric()
+                def revenue():
+                    return amount.sum()
                 """
             ),
         }
     )
 
-    readiness = project.readiness(refs=("sales.revenue",))
+    readiness = project.readiness(refs=("sales.orders.amount",))
     assert readiness.status == "ready"
     assert not readiness.blockers
     assert not readiness.warnings
 
 
-def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_path: Path) -> None:
+def test_cross_datasource_metric_certification_checks_physical_inputs(
+    semantic_project_factory, tmp_path: Path
+) -> None:
     project = semantic_project_factory(
         {
             "datasources/warehouse.py": (
@@ -357,17 +348,27 @@ def test_cross_datasource_metric_remains_blocked(semantic_project_factory, tmp_p
                 import marivo.semantic as ms
                 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
                 refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"))
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
-                def net_revenue(orders, refunds):
-                    return orders.amount.sum()
+                amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
+                refund_ref = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all())
+                finalized = ms.finalize()
+                amount = finalized.resolve(amount_ref)
+                refunded = finalized.resolve(refund_ref)
+                @ms.metric()
+                def net_revenue():
+                    return amount.sum() - refunded.sum()
                 """
             ),
         }
     )
 
-    report = project.readiness(refs=("sales.net_revenue",))
-    assert report.status == "blocked"
-    assert report.analysis_ready_inputs == ()
-    issue = next(issue for issue in report.blockers if issue.kind == "cross_datasource_unfederated")
-    assert issue.repair is not None
-    assert issue.repair.help_target.canonical_id == "objects.metric"
+    catalog = ms.SemanticCatalog(project)
+    with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
+        catalog.readiness(refs=[ms.ref.metric("sales.net_revenue")])
+    assert caught.value.kind == "invalid_expression_stage"
+    assert caught.value.repair is not None
+    assert "physical fields and Entities" in caught.value.repair.action
+    inputs = (ms.ref.measure("sales.orders.amount"), ms.ref.measure("sales.refunds.amount"))
+    report = catalog.readiness(refs=inputs)
+    assert report.status == "ready"
+    assert report.analysis_ready_inputs == inputs
+    assert set(report.input_summary.datasources) == {"warehouse", "finance"}

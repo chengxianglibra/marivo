@@ -80,7 +80,9 @@ def test_local_file_declarations_are_closed_to_verified_methods() -> None:
             assert isinstance(item.qualification, Qualified)
             # Persisted qualification identities are stable across test relocation.
             assert item.qualification.evidence_id == (
-                "tests/test_r94_producer_recovery.py"
+                "tests/analysis/graph/test_capability_consumers.py"
+                if item.qualification.implementation_id.startswith("source.local.")
+                else "tests/test_r94_producer_recovery.py"
                 if prior
                 else "tests/test_r96_local_file_cost_routes.py"
             )

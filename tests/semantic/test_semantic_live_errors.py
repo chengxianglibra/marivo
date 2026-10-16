@@ -52,7 +52,7 @@ def test_runtime_filter_incompatibility_preserves_authored_business_literals() -
 
     assert err.repair is not None
     assert err.repair.kind == "user_choice"
-    assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="where")
+    assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="Metric.where")
     assert err.repair.preserves_evidence is True
     assert "Preserve the authored filter literals" in err.repair.action
     assert "Do not replace business codes" in err.repair.action

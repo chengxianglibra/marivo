@@ -59,9 +59,6 @@ def _catalog(semantic_project_factory):
                 "@ms.dimension(entity=orders)\n"
                 "def amount(table):\n"
                 "    return table.amount\n"
-                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
-                "def total_amount(table):\n"
-                "    return table.amount.sum()\n"
             ),
         }
     )

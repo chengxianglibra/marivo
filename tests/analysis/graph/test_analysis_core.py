@@ -8,6 +8,7 @@ from dataclasses import replace
 import duckdb
 import pytest
 
+import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import (
     Binding,
@@ -52,7 +53,8 @@ from marivo.analysis.core.rules import (
 )
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetSnapshotSelection, TargetSnapshotVersion
-from marivo.semantic.metric_graph_lowering import normalize_target_metric
+from marivo.semantic.metric_graph import CatalogMetricIdentity
+from marivo.semantic.metric_graph_lowering import normalize_target_metric_inputs
 from marivo.semantic.validator import (
     normalize_target_dimension,
     normalize_target_entity,
@@ -209,8 +211,17 @@ def test_bind_project_checks_exact_ref_owner_path_and_bound_quantity(
         derive((source,), replace(direct, path=(buyer,)))
 
     metric = ms.ref.metric("sales.revenue")
-    metric_contract = normalize_target_metric(
-        case.catalog._state.registry, metric.path, sidecar=case.catalog._state.sidecar
+    (runtime_contract,) = normalize_target_metric_inputs(
+        case.catalog._state.registry,
+        (
+            mv.runtime_metric.aggregate(
+                ms.ref.measure("sales.order.amount"), agg="sum", label="Amount"
+            ),
+        ),
+        sidecar=case.catalog._state.sidecar,
+    )
+    metric_contract = replace(
+        runtime_contract, identity=CatalogMetricIdentity("catalog", RefPayloadV1.from_ref(metric))
     )
     quantity = replace(_quantity(), graph_fingerprint=metric_contract.bound_graph_fingerprint)
     order_ref = ms.ref.entity(f"{case.names.domain}.{case.names.order}")

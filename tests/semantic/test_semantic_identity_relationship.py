@@ -11,8 +11,9 @@ from marivo.analysis.observation.coordinates import (
     functional_path,
 )
 from marivo.analysis.observation.errors import ObservationConstructionError
-from marivo.semantic.catalog import RelationshipDetails, SemanticCatalog
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
+from marivo.semantic.expressions import Relationship
 from marivo.semantic.ir import TargetSnapshotSelection
 from marivo.semantic.validator import (
     normalize_target_entity,
@@ -80,11 +81,10 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     assert mapping.role == "line_to_order"
     assert mapping.to_version_resolution_required is True
     assert mapping.from_version_resolution_required is False
-    details = catalog.require(ms.ref.relationship("sales.line_to_order")).details()
-    assert isinstance(details, RelationshipDetails)
-    assert details.cardinality == "many_to_one"
-    assert "structural_cardinality: many_to_one" in details.render()
-    assert details.to_version_resolution_required is True
+    relationship = catalog.require(ms.ref.relationship("sales.line_to_order"))
+    assert isinstance(relationship, Relationship)
+    assert relationship.cardinality == "many_to_one"
+    assert "many_to_one" in relationship.contract().render()
     with pytest.raises(ObservationConstructionError, match="versioned source or intermediate path"):
         functional_path(project._registry, "sales.lines", "sales.orders")
     selection = normalize_target_version_selection(

@@ -6,6 +6,9 @@ Tests follow the behavior they protect. Daily tests need no external datasource
 service; Runtime tests require an already-running service. Release tests own
 package installation and installed-origin boundaries.
 
+The [2026-10-16 unit-test triage](unit-test-triage.md) records the current
+redesign blockers and exact deferred cases; it does not alter test selection.
+
 ## Goal ownership
 
 | Behavior | Owning tests | Gate |

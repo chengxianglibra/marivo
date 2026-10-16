@@ -39,9 +39,6 @@ def test_file_cost_keys_are_exact_and_do_not_specialize_other_numeric_inputs() -
     ] = (
         ("csv", "ibis"),
         ("json", "ibis"),
-        ("csv", "ibis_python"),
-        ("json", "ibis_python"),
-        ("parquet", "ibis_python"),
     )
     expected = {
         QualificationKey(

@@ -211,27 +211,22 @@ def test_terminal_type_protocol_and_byte_contract(builder: Callable[[], object])
 
 
 def test_committed_runtime_projections_satisfy_terminal_protocol(analysis_dsl_case_factory) -> None:
-    from marivo.analysis.materialization import graph_store
+    from marivo.analysis.materialization import terminal_store
     from marivo.analysis.materialization.contracts import RunFailure
-    from tests.analysis.materialization.state_fixtures import _values
 
     case = analysis_dsl_case_factory("j2")
-    fixed = _values(case).execute()
+    output = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).execute()
     runtime = case.session._runtime
     store = runtime.store
-    with store._read() as connection:
-        artifact = graph_store.artifact(store, connection, fixed.state.artifact_ref.ref)
-        assert artifact is not None
-        succeeded = graph_store.run(store, connection, artifact.producing_run_ref)
-    assert succeeded is not None
-    graph_store.admit(store, runtime.session_ref, "failed-key", succeeded.dataset_input, "failed")
+    assert case.session.artifact(output.id).id == output.id
+    terminal_store.admit(store, case.session.id, "failed")
     store.fail(
         "failed",
         RunFailure(
             "stage_execution", "execution_failed", "fixture stopped", None, "success", "stop", None
         ),
     )
-    graph_store.admit(store, runtime.session_ref, "pending-key", succeeded.dataset_input, "pending")
+    terminal_store.admit(store, case.session.id, "pending")
     page = runtime.runs()
     assert {item.lifecycle for item in page.items} == {"succeeded", "failed", "incomplete"}
     candidates = (*page.items, page, runtime.graph(), _artifact_digest())

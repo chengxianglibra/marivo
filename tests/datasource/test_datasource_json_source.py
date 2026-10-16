@@ -400,7 +400,11 @@ def _write_project_with_json_entity(
         "warehouse = ms.ref.datasource('warehouse')\n"
         f"events = ms.entity(name='events', datasource=warehouse, source=md.json({source_args}))\n"
         "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
-        "revenue = ms.aggregate(name='revenue', measure=amount, agg='sum', unit='USD')\n"
+        "finalized = ms.finalize()\n"
+        "amount_value = finalized.resolve(amount)\n"
+        "@ms.metric()\n"
+        "def revenue():\n"
+        "    return amount_value.sum()\n"
     )
 
 
@@ -416,8 +420,8 @@ def test_load_and_require_json_entity(tmp_path: Path) -> None:
 
     result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.events"))
 
-    assert result.kind.value == "entity"
-    assert result.ref == ms.ref.entity("sales.events")
+    assert result.ref.ref == ms.ref.entity("sales.events")
+    assert result.primary_key == ()
 
 
 def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
@@ -432,8 +436,8 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
 
     result = ms.SemanticCatalog(project).require(ms.ref.entity("sales.events"))
 
-    assert result.kind.value == "entity"
-    assert result.ref == ms.ref.entity("sales.events")
+    assert result.ref.ref == ms.ref.entity("sales.events")
+    assert result.primary_key == ()
 
 
 def test_loaded_json_project_materializes_metric(tmp_path: Path) -> None:

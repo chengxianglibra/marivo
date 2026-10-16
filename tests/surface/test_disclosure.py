@@ -15,9 +15,7 @@ from pathlib import Path
 
 import pytest
 
-import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.datasource.authoring import DuckDBSpec
 from tests.support.paths import PROJECT_ROOT
 
@@ -113,19 +111,12 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
 
 
 def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
-    result = (
-        analysis_dsl_case_factory("j2")
-        .session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-    )
+    case = analysis_dsl_case_factory("j2")
+    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")})
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
-    assert "logical" in rendered.lower()
+    assert "Query id=" in rendered
     assert ".show()" in rendered
 
 
@@ -142,33 +133,17 @@ def test_catalog_collection_repr_is_one_line(semantic_project_factory) -> None:
 
 
 def test_dataset_contract_render_is_silent(analysis_dsl_case_factory, capsys) -> None:
-    result = (
-        analysis_dsl_case_factory("j2")
-        .session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .contract()
-    )
-    assert result.actions
+    case = analysis_dsl_case_factory("j2")
+    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).contract()
+    assert result.kind == "Query" and result.phase == "logical"
     assert capsys.readouterr().out == ""
 
 
 def test_dataset_contract_show_prints_render_plus_newline(
     analysis_dsl_case_factory, capsys
 ) -> None:
-    result = (
-        analysis_dsl_case_factory("j2")
-        .session.members(ms.ref.entity("sales.customer"))
-        .observe(
-            ms.ref.metric("sales.revenue"),
-            via=ms.ref.relationship("sales.order_buyer"),
-            by=(mv.member(),),
-        )
-        .contract()
-    )
+    case = analysis_dsl_case_factory("j2")
+    result = case.session.observe({"revenue": case.catalog.metrics.get("sales.revenue")}).contract()
     assert result.show() is None
     first = capsys.readouterr().out
     assert first and len(first) <= 8192

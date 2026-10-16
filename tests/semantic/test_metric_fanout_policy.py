@@ -1,122 +1,48 @@
-"""Metric fanout policy authoring and validation."""
+"""Retired Metric-wide fanout authoring cannot bypass source permissions."""
 
 from __future__ import annotations
 
-from marivo.semantic.ir import MetricIR
+import pytest
+
+from marivo.semantic.errors import ErrorKind
+from tests.shared_fixtures import load_inline_semantic
 
 
-def test_metric_ir_has_fanout_policy_default_block():
-    # Construct a minimal MetricIR-like dict via dataclasses.fields to assert
-    # the new field exists with the documented default.
-    import dataclasses
-
-    fields = {f.name: f for f in dataclasses.fields(MetricIR)}
-    assert "fanout_policy" in fields
-    assert fields["fanout_policy"].default == "block"
-
-
-def test_metric_authoring_accepts_fanout_policy(tmp_path, monkeypatch):
-    from marivo.semantic.loader import load_project
-
-    semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-    )
-    datasource_dir = tmp_path / "models" / "datasources"
-    datasource_dir.mkdir(parents=True, exist_ok=True)
-    (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-    )
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=ms.ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
-        "@ms.dimension(entity=orders)\n"
-        "def order_id(orders):\n"
-        "    return orders.order_id\n"
-        "@ms.metric(\n"
-        "    entities=[orders, order_items],\n"
-        "    root_entity=orders,\n"
-        "    additivity=ms.additive_all(),\n"
-        "    fanout_policy='aggregate_then_join',\n"
-        "    name='gmv_with_items',\n"
-        "    )\n"
-        "def gmv_with_items(orders, order_items):\n"
-        "    return orders.amount.sum()\n"
-    )
-    monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "models" / "semantic")
-    assert project.status == "ready", project.errors
-    assert project.registry is not None
-    metric = project.registry.metrics["sales.gmv_with_items"]
-    assert metric.fanout_policy == "aggregate_then_join"
+@pytest.mark.parametrize("permission", ("ms.additive_all()", "ms.non_additive()"))
+def test_metric_fanout_policy_requires_explicit_reauthoring(permission: str) -> None:
+    source = f"""\
+import marivo.datasource as md
+import marivo.semantic as ms
+orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+@ms.metric(entities=[orders], additivity={permission}, fanout_policy="aggregate_then_join")
+def invalid(rows):
+    return rows.amount.sum()
+"""
+    with load_inline_semantic(source) as result:
+        (error,) = result.errors
+        assert error.kind == ErrorKind.INVALID_COMPONENT_BODY
+        assert error.received is not None and "fanout_policy" in error.received
+        assert error.repair is not None
+        assert "no equivalent in this version" in error.repair.action
+        assert "semi-join" in error.repair.action
 
 
-def _bootstrap_min(tmp_path):
-    semantic_dir = tmp_path / "models" / "semantic" / "sales"
-    semantic_dir.mkdir(parents=True)
-    datasource_dir = tmp_path / "models" / "datasources"
-    datasource_dir.mkdir(parents=True, exist_ok=True)
-    (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
-    )
-    (semantic_dir / "__init__.py").write_text("")
-    (semantic_dir / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
-    )
-    return semantic_dir
-
-
-def test_validator_rejects_fanout_policy_on_non_additive_metric(tmp_path, monkeypatch):
-    from marivo.semantic.errors import ErrorKind
-    from marivo.semantic.loader import load_project
-
-    semantic_dir = _bootstrap_min(tmp_path)
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "order_items = ms.entity(name='order_items', datasource=ms.ref.datasource('warehouse'), primary_key=['item_id'], source=md.table('order_items'))\n"
-        "@ms.metric(\n"
-        "    entities=[orders, order_items],\n"
-        "    root_entity=orders,\n"
-        "    additivity=ms.non_additive(),\n"
-        "    fanout_policy='aggregate_then_join',\n"
-        "    name='non_additive_bad',\n"
-        "    )\n"
-        "def non_additive_bad(orders, order_items):\n"
-        "    return orders.user_id.nunique()\n"
-    )
-    monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "models" / "semantic")
-    assert project.status == "errored"
-    kinds = {err.kind for err in project.errors}
-    assert ErrorKind.INVALID_METRIC_FANOUT_POLICY in kinds
-
-
-def test_derived_metric_keeps_default_fanout_policy(tmp_path, monkeypatch):
-    from marivo.semantic.loader import load_project
-
-    semantic_dir = _bootstrap_min(tmp_path)
-    (semantic_dir / "datasets.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='gmv', )\n"
-        "def gmv(orders):\n"
-        "    return orders.amount.sum()\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='cnt', )\n"
-        "def cnt(orders):\n"
-        "    return orders.count()\n"
-        "aov = ms.ratio(\n"
-        "    name='aov',\n"
-        "    numerator=gmv, denominator=cnt,\n"
-        ")\n"
-    )
-    monkeypatch.chdir(tmp_path)
-    project = load_project(tmp_path / "models" / "semantic")
-    assert project.status == "ready", project.errors
-    assert project.registry is not None
-    metric = project.registry.metrics["sales.aov"]
-    assert metric.metric_type == "derived"
-    assert metric.fanout_policy == "block"
+def test_derived_metric_uses_source_permission_without_global_fanout_policy() -> None:
+    source = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())
+finalized = ms.finalize()
+amount = finalized.resolve(amount_ref)
+orders = finalized.resolve(orders_ref)
+@ms.metric()
+def aov():
+    return amount.sum() / orders.count()
+"""
+    with load_inline_semantic(source) as result:
+        assert result.registry is not None, result.errors
+        metric = result.registry.declared_metrics["test.aov"]
+        assert metric.roots == (metric.roots[0],)
+        assert metric.roots[0].ref.path == "test.orders"
+        assert not hasattr(metric, "fanout_policy")

@@ -1,24 +1,12 @@
-"""Tests for marivo.semantic.materializer — dataset/field/metric materialization.
+"""Physical Entity and field materialization, source scopes, and resolver ownership.
 
-Tests cover:
-- Dataset materialize with real DuckDB backend
-- Field materialize on materialized dataset
-- Base metric materialize (e.g., orders.amount.sum())
-- Backend cache: same datasource reuses backend
-- Dataset cache: same dataset reuses table
-- SQL escape hatches are rejected by the semantic loader
-- Cross-datasource fail: metric with datasets from different datasources -> error
-- Metric not found -> error
-- Dataset not found -> error
-- Resolver creates fresh Materializer instances for expression access
-- EntityRuntimeMetadata stored on project after materialize
+Published Metric execution is covered through current public previews in
+`test_metric_materialization.py` and the R2 Query/Artifact tests.
 """
 
 from __future__ import annotations
 
 import textwrap
-from contextlib import contextmanager
-from unittest.mock import patch
 
 import ibis
 import pyarrow as pa
@@ -31,6 +19,7 @@ from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
+from tests.shared_fixtures import patch_semantic_connections
 from tests.support.refs import make_ref
 
 # ---------------------------------------------------------------------------
@@ -66,41 +55,6 @@ def backend_factory(duckdb_backend):
 # ---------------------------------------------------------------------------
 
 
-class _FakeConnectionService:
-    """Stub DatasourceConnectionService that delegates to a test factory."""
-
-    def __init__(self, factory):
-        self._factory = factory
-
-    @property
-    def project_root(self):
-        return None
-
-    def session_backend(self, name):
-        return self._factory(name)
-
-    @contextmanager
-    def use_backend(self, name):
-        yield self._factory(name)
-
-    def close_all(self):
-        pass
-
-
-@contextmanager
-def _patch_connection_service(project, factory):
-    """Inject the same source factory into long-lived and operation owners."""
-    from marivo.datasource.runtime import DatasourceConnectionService
-
-    fake = _FakeConnectionService(factory)
-    owner = DatasourceConnectionService(backend_factory=factory, use_datasources=False)
-    with (
-        patch.object(project, "_connection_service", return_value=fake),
-        patch.object(project, "_connection_operation", side_effect=owner.operation),
-    ):
-        yield
-
-
 def _materialize_dataset(project, ref: str, *, source_bindings=None):
     return (
         SemanticCatalog(project)
@@ -116,14 +70,6 @@ def _materialize_field(project, ref: str):
         SemanticCatalog(project)
         ._semantic_resolver(connections=project._connection_service())
         .dimension(make_ref(ref, SemanticKind.DIMENSION))
-    )
-
-
-def _materialize_metric(project, ref: str):
-    return (
-        SemanticCatalog(project)
-        ._semantic_resolver(connections=project._connection_service())
-        .metric(make_ref(ref, SemanticKind.METRIC))
     )
 
 
@@ -147,9 +93,12 @@ _DATASET_AND_METRIC_PY = textwrap.dedent("""\
     def amount(table):
         return table.amount
 
-    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-    def total_amount(table):
-        return table.amount.sum()
+    amount_ref = ms.measure_column(name="amount_value", entity=orders, column="amount", additivity=ms.additive_all())
+    finalized = ms.finalize()
+    amount_value = finalized.resolve(amount_ref)
+    @ms.metric()
+    def total_amount():
+        return amount_value.sum()
 """)
 
 _PROJECTED_DATASET_PY = textwrap.dedent("""\
@@ -188,11 +137,15 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""\
         parse=ms.timestamp(timezone="UTC"),
         is_default=True,
     )
-    total_amount = ms.aggregate(name="total_amount", measure=amount, agg="sum")
+    finalized = ms.finalize()
+    amount_value = finalized.resolve(amount)
+    @ms.metric()
+    def total_amount():
+        return amount_value.sum()
 
-    @ms.metric(entities=[orders], additivity=ms.additive_all())
-    def amount_again(table):
-        return ms.bind(amount, table).sum()
+    @ms.metric()
+    def amount_again():
+        return amount_value.sum()
 """)
 
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
@@ -219,7 +172,7 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
     )
     assert project.is_ready()
 
-    with _patch_connection_service(project, backend_factory):
+    with patch_semantic_connections(project, backend_factory):
         table = _materialize_dataset(project, "sales.orders")
     assert isinstance(table, ibis.Table)
     # The table should have the expected columns
@@ -277,7 +230,7 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
             assert database == "sales_mart"
             return ibis.table({"amount": "float64"}, name=f"{database}.{name}")
 
-    with _patch_connection_service(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.get_name() == "sales_mart.orders"
 
@@ -293,7 +246,7 @@ def test_dataset_projected_table_materializes_output_aliases(
         }
     )
 
-    with _patch_connection_service(project, lambda _: duckdb_backend):
+    with patch_semantic_connections(project, lambda _: duckdb_backend):
         table = _materialize_dataset(project, "sales.orders")
 
     assert table.columns == ("order_key", "value")
@@ -349,7 +302,7 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
         def table(self, name, /, *, database=None):
             return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
 
-    with _patch_connection_service(project, lambda _: _LookupOnlyBackend()):
+    with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()):
         _materialize_dataset(project, "sales.orders")
 
 
@@ -374,7 +327,7 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
             assert options == {"hive_partitioning": True}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with _patch_connection_service(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.columns == ("order_id", "amount")
     assert table.schema() == ibis.schema({"order_id": "string", "amount": "int64"})
@@ -406,7 +359,7 @@ def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) 
             assert options == {"header": False, "delimiter": "|"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with _patch_connection_service(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.columns == ("amount", "order_id")
     assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
@@ -437,7 +390,7 @@ def test_dataset_json_source_projects_inferred_columns(semantic_project_factory)
             assert options == {"format": "newline_delimited"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
 
-    with _patch_connection_service(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()):
         table = _materialize_dataset(project, "sales.orders")
     assert table.columns == ("amount", "order_id")
     assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
@@ -488,7 +441,7 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     monkeypatch.setattr(json_source, "_request_payload", request_payload)
 
-    with _patch_connection_service(project, lambda _: _Backend()):
+    with patch_semantic_connections(project, lambda _: _Backend()):
         table = _materialize_dataset(
             project,
             "sales.orders",
@@ -519,7 +472,7 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
     )
 
     with (
-        _patch_connection_service(project, lambda _: object()),
+        patch_semantic_connections(project, lambda _: object()),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
         _materialize_dataset(project, "sales.orders")
@@ -544,7 +497,7 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
     )
 
     with (
-        _patch_connection_service(project, lambda _: object()),
+        patch_semantic_connections(project, lambda _: object()),
         pytest.raises(SemanticRuntimeError) as exc_info,
     ):
         _materialize_dataset(project, "sales.orders")
@@ -566,309 +519,15 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with _patch_connection_service(project, backend_factory):
+    with patch_semantic_connections(project, backend_factory):
         field_expr = _materialize_field(project, "sales.orders.amount")
     # ibis Value is the base of column expressions
     assert field_expr is not None
 
 
 # ---------------------------------------------------------------------------
-# Base metric materialize
-# ---------------------------------------------------------------------------
-
-
-def test_metric_materialize_sum(semantic_project_factory, backend_factory) -> None:
-    """Materializing a sum metric should return a scalar ibis Value."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-    with _patch_connection_service(project, backend_factory):
-        metric_expr = _materialize_metric(project, "sales.total_amount")
-    assert metric_expr is not None
-    # Execute the metric to verify the value
-    result = metric_expr.to_pandas()
-    assert result == pytest.approx(300.0)
-
-
-def test_count_with_filter_materializes_subset_count(
-    semantic_project_factory, backend_factory
-) -> None:
-    """ms.count(filter=ms.where(...)) counts only matching rows. See issue #27."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-                "source=md.table('orders'))\n"
-                "market = ms.dimension_column(name='market', entity=orders, column='region')\n"
-                "us_order_count = ms.count(name='us_order_count', entity=orders, "
-                "filter=ms.where(market='US'))\n"
-            ),
-        }
-    )
-    with _patch_connection_service(project, backend_factory):
-        metric_expr = _materialize_metric(project, "sales.us_order_count")
-    # orders has one US row and one EU row.
-    assert metric_expr.to_pandas() == 1
-
-
-def test_aggregate_with_filter_materializes_subset_sum(
-    semantic_project_factory, backend_factory
-) -> None:
-    """ms.aggregate(filter=ms.where(...)) aggregates only matching rows."""
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-                "source=md.table('orders'))\n"
-                "market = ms.dimension_column(name='market', entity=orders, column='region')\n"
-                "amount = ms.measure_column(name='amount', entity=orders, column='amount', "
-                "additivity=ms.additive_all())\n"
-                "us_amount = ms.aggregate(name='us_amount', measure=amount, agg='sum', "
-                "filter=ms.where(market='US'))\n"
-            ),
-        }
-    )
-    with _patch_connection_service(project, backend_factory):
-        metric_expr = _materialize_metric(project, "sales.us_amount")
-    assert metric_expr.to_pandas() == pytest.approx(100.0)
-
-
-def test_count_with_membership_filter_materializes_subset_count(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-                "source=md.table('orders'))\n"
-                "order_code = ms.dimension_column("
-                "name='order_code', entity=orders, column='order_id')\n"
-                "selected = ms.count(name='selected', entity=orders, "
-                "filter=ms.where(order_code=(1, 2)))\n"
-            ),
-        }
-    )
-    with _patch_connection_service(project, backend_factory):
-        metric_expr = _materialize_metric(project, "sales.selected")
-    assert metric_expr.to_pandas() == 2
-
-
-def test_filter_type_mismatch_fails_before_metric_execution(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-                "source=md.table('orders'))\n"
-                "order_code = ms.dimension_column("
-                "name='order_code', entity=orders, column='order_id')\n"
-                "selected = ms.count(name='selected', entity=orders, "
-                "filter=ms.where(order_code='one'))\n"
-            ),
-        }
-    )
-    with (
-        _patch_connection_service(project, backend_factory),
-        pytest.raises(SemanticRuntimeError) as exc_info,
-    ):
-        _materialize_metric(project, "sales.selected")
-    assert exc_info.value.kind == ErrorKind.FILTER_VALUE_RUNTIME_INCOMPATIBLE
-    assert exc_info.value.expected == "authored values comparable with runtime dtype int32"
-    assert exc_info.value.received == "str"
-    assert exc_info.value.details == {
-        "metric": "sales.selected",
-        "dimension": "sales.orders.order_code",
-        "physical_dtype": "int32",
-        "received_value_types": ("str",),
-        "query_executed": False,
-        "declaration_preserved": True,
-        "cause_type": "IbisTypeError",
-    }
-    assert exc_info.value.repair is not None
-    assert exc_info.value.repair.kind == "user_choice"
-
-
-def test_missing_filter_dimension_fails_during_load_with_focused_repair(
-    semantic_project_factory,
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
-                "source=md.table('orders'))\n"
-                "selected = ms.count(name='selected', entity=orders, "
-                "filter=ms.where(order_code=(1, 2)))\n"
-            ),
-        }
-    )
-
-    error = next(error for error in project.errors() if error.kind == ErrorKind.INVALID_FILTER)
-    assert error.expected == "a local semantic dimension declared on the metric target entity"
-    assert error.received == "order_code"
-    assert error.repair is not None
-    assert error.repair.help_target.canonical_id == "where"
-
-
-def test_trino_explicit_approximate_aggregates_use_approx_quantile(
-    semantic_project_factory,
-) -> None:
-    project = semantic_project_factory(
-        {
-            "datasources/warehouse.py": (
-                "import marivo.datasource as md\n"
-                "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-                "user_env='TRINO_USER')\n"
-            ),
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/latency.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "queries = ms.entity(\n"
-                "    name='queries',\n"
-                "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('query_info'),\n"
-                ")\n"
-                "elapsed_time = ms.measure_column(\n"
-                "    name='elapsed_time',\n"
-                "    entity=queries,\n"
-                "    column='elapsed_time',\n"
-                "    additivity=ms.non_additive(),\n"
-                "    unit='s',\n"
-                ")\n"
-                "exact_median = ms.aggregate(name='exact_median', measure=elapsed_time, agg='median')\n"
-                "exact_p95 = ms.aggregate(name='exact_p95', measure=elapsed_time, agg=('percentile', 0.95))\n"
-                "median_elapsed_time = ms.aggregate(\n"
-                "    name='median_elapsed_time', measure=elapsed_time, agg='approx_median', unit='s'\n"
-                ")\n"
-                "p50_elapsed_time = ms.aggregate(\n"
-                "    name='p50_elapsed_time', measure=elapsed_time,\n"
-                "    agg=('approx_percentile', 0.5), unit='s'\n"
-                ")\n"
-                "p95_elapsed_time = ms.aggregate(\n"
-                "    name='p95_elapsed_time', measure=elapsed_time,\n"
-                "    agg=('approx_percentile', 0.95), unit='s'\n"
-                ")\n"
-            ),
-        }
-    )
-
-    class _TrinoCompileBackend:
-        def table(self, name, /, *, database=None):
-            assert name == "query_info"
-            assert database is None
-            return ibis.table({"elapsed_time": "float64"}, name=name)
-
-    sql_by_metric: dict[str, str] = {}
-    with _patch_connection_service(project, lambda _: _TrinoCompileBackend()):
-        for name, alternate in (
-            ("exact_median", "agg='approx_median'"),
-            ("exact_p95", "agg=('approx_percentile', 0.95)"),
-        ):
-            with pytest.raises(SemanticRuntimeError) as caught:
-                _materialize_metric(project, f"sales.{name}")
-            assert alternate in str(caught.value)
-            assert caught.value.repair is not None
-            assert caught.value.repair.help_target.canonical_id == "aggregate"
-            assert "Execution never substitutes" in caught.value.repair.action
-        for metric_id in (
-            "sales.median_elapsed_time",
-            "sales.p50_elapsed_time",
-            "sales.p95_elapsed_time",
-        ):
-            sql_by_metric[metric_id] = ibis.trino.compile(_materialize_metric(project, metric_id))
-
-    assert all("APPROX_PERCENTILE" in sql.upper() for sql in sql_by_metric.values())
-    assert "CAST(0.5 AS DOUBLE)" in sql_by_metric["sales.median_elapsed_time"]
-    assert "CAST(0.5 AS DOUBLE)" in sql_by_metric["sales.p50_elapsed_time"]
-    assert "CAST(0.95 AS DOUBLE)" in sql_by_metric["sales.p95_elapsed_time"]
-
-
-def test_duckdb_percentile_aggregate_keeps_exact_quantile(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/latency.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(\n"
-                "    name='orders',\n"
-                "    datasource=ms.ref.datasource('warehouse'),\n"
-                "    source=md.table('orders'),\n"
-                ")\n"
-                "amount = ms.measure_column(\n"
-                "    name='amount',\n"
-                "    entity=orders,\n"
-                "    column='amount',\n"
-                "    additivity=ms.non_additive(),\n"
-                "    unit='USD',\n"
-                ")\n"
-                "p95_amount = ms.aggregate(\n"
-                "    name='p95_amount',\n"
-                "    measure=amount,\n"
-                "    agg=('percentile', 0.95),\n"
-                "    unit='USD',\n"
-                ")\n"
-            ),
-        }
-    )
-
-    with _patch_connection_service(project, backend_factory):
-        metric_expr = _materialize_metric(project, "sales.p95_amount")
-
-    assert metric_expr.op().__class__.__name__ == "Quantile"
-    assert metric_expr.to_pandas() == pytest.approx(195.0)
-
-
-# ---------------------------------------------------------------------------
 # Column helper parity
 # ---------------------------------------------------------------------------
-
-
-def test_column_helper_measure_materializes(semantic_project_factory, backend_factory) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
-        }
-    )
-    assert project.is_ready()
-
-    with _patch_connection_service(project, backend_factory):
-        metric = _materialize_metric(project, "sales.total_amount")
-
-    assert metric.to_pandas() == pytest.approx(300.0)
-
-
-def test_column_helper_refs_bind_in_metric_bodies(
-    semantic_project_factory,
-    backend_factory,
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/columns.py": _COLUMN_HELPER_PROJECT_PY,
-        }
-    )
-    assert project.is_ready()
-
-    with _patch_connection_service(project, backend_factory):
-        metric = _materialize_metric(project, "sales.amount_again")
-
-    assert metric.to_pandas() == pytest.approx(300.0)
 
 
 def test_column_helper_catalog_details_and_preview_requires_snapshot(
@@ -884,13 +543,13 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     catalog = SemanticCatalog(project)
 
     amount = catalog.require(ms.ref.measure("sales.orders.amount"))
-    details = amount.details()
-    assert amount.ref.kind == SemanticKind.MEASURE
-    assert details.ref.path == "sales.orders.amount"
-    assert details.unit == "USD"
+    assert amount.ref.ref.kind == SemanticKind.MEASURE
+    assert amount.ref.ref.path == "sales.orders.amount"
+    assert amount.unit == "USD"
+    assert amount.contract().unit == "USD"
 
-    with _patch_connection_service(project, backend_factory), pytest.raises(TypeError):
-        catalog.preview(catalog.require(ms.ref.measure("sales.orders.amount")).ref, limit=2)  # type: ignore[call-arg]
+    with patch_semantic_connections(project, backend_factory), pytest.raises(TypeError):
+        catalog.preview(amount, limit=2)  # type: ignore[call-arg]
 
 
 def test_materializer_dimension_on_uses_supplied_table(
@@ -931,56 +590,6 @@ def test_materializer_dimension_on_is_not_ref_cached(
     assert "second_orders" in repr(second_value)
 
 
-def test_materializer_metric_on_uses_supplied_table(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-    mat = Materializer(project, backend_factory)
-    supplied = ibis.table({"amount": "float64", "region": "string"}, name="supplied_orders")
-
-    value = mat.metric_on("sales.total_amount", supplied)
-
-    assert isinstance(value, ibis.expr.types.Value)
-    assert "supplied_orders" in repr(value)
-
-
-def test_materializer_metric_on_rejects_derived_metric(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
-                "def revenue(table):\n"
-                "    return table.amount.sum()\n"
-                "@ms.metric(entities=[orders], additivity=ms.additive_all(), )\n"
-                "def orders_count(table):\n"
-                "    return table.order_id.nunique()\n"
-                "ratio = ms.ratio(\n"
-                "    name='ratio',\n"
-                "    numerator=revenue, denominator=orders_count,\n"
-                ")\n"
-            ),
-        }
-    )
-    mat = Materializer(project, backend_factory)
-    supplied = ibis.table({"amount": "float64", "order_id": "int64"}, name="supplied_orders")
-
-    with pytest.raises(SemanticRuntimeError) as exc_info:
-        mat.metric_on("sales.ratio", supplied)
-
-    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "derived metric" in str(exc_info.value)
-
-
 # ---------------------------------------------------------------------------
 # Backend cache
 # ---------------------------------------------------------------------------
@@ -1019,8 +628,8 @@ def test_backend_by_datasource_within_single_materializer(semantic_project_facto
     mat.entity("sales.orders")
     assert call_count == 1
 
-    # Materialize a metric on the same datasource — should still be cached
-    mat.metric("sales.total_amount")
+    # Materialize a physical field on the same datasource; reuse its backend
+    mat.dimension("sales.orders.amount")
     assert call_count == 1
 
 
@@ -1165,52 +774,13 @@ def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with _patch_connection_service(project, factory):
+    with patch_semantic_connections(project, factory):
         _materialize_dataset(project, "sales.orders")
 
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
     assert meta.entity_provenance == EntityProvenance.IBIS_TABLE
     assert meta.raw_sql_snippet is None
-
-
-# ---------------------------------------------------------------------------
-# Cross-datasource fail-closed
-# ---------------------------------------------------------------------------
-
-
-def test_cross_datasource_metric_fails(semantic_project_factory, duckdb_backend) -> None:
-    """A metric referencing datasets from different datasources must raise."""
-
-    cross_ds_model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders_a = ms.entity(name="orders_a", datasource=ms.ref.datasource("warehouse1"), source=md.table("orders"))
-
-        orders_b = ms.entity(name="orders_b", datasource=ms.ref.datasource("warehouse2"), source=md.table("orders"))
-
-        @ms.metric(entities=[orders_a, orders_b], root_entity=orders_a, additivity=ms.additive_all(), )
-        def cross_metric(t1, t2):
-            return t1.amount.sum()
-    """)
-
-    def factory(ds_id: str):
-        return duckdb_backend
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": cross_ds_model,
-        }
-    )
-
-    with (
-        _patch_connection_service(project, factory),
-        pytest.raises(SemanticRuntimeError) as exc_info,
-    ):
-        _materialize_metric(project, "sales.cross_metric")
-
-    assert exc_info.value.kind == ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED
 
 
 # ---------------------------------------------------------------------------
@@ -1226,163 +796,15 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
             "sales/datasets.py": _DATASET_AND_METRIC_PY,
         }
     )
-    with _patch_connection_service(project, backend_factory):
+    with patch_semantic_connections(project, backend_factory):
         for operation in (
-            lambda: _materialize_metric(project, "sales.nonexistent"),
+            lambda: SemanticCatalog(project).require(ms.ref.metric("sales.nonexistent")),
             lambda: _materialize_dataset(project, "sales.nonexistent"),
             lambda: _materialize_field(project, "sales.orders.nonexistent"),
         ):
             with pytest.raises(SemanticRuntimeError) as exc_info:
                 operation()
             assert exc_info.value.kind == ErrorKind.NOT_FOUND
-
-
-# ---------------------------------------------------------------------------
-# Derived metric materialization
-# ---------------------------------------------------------------------------
-
-
-def test_derived_metric_ratio_materialize(semantic_project_factory, backend_factory) -> None:
-    """Derived ratio execution does not create a materializer expression entry."""
-
-    derived_model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-        @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
-
-        revenue_ratio = ms.ratio(
-            name="revenue_ratio",
-            numerator=revenue,
-            denominator=revenue,
-        )
-    """)
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": derived_model,
-        }
-    )
-
-    sidecar = project._expression_sidecar
-    assert sidecar is not None
-    assert ms.ref.metric("sales.revenue") in sidecar.bodies
-    assert ms.ref.metric("sales.revenue_ratio") not in sidecar.bodies
-
-    # revenue_ratio = revenue / revenue = 1.0
-    with _patch_connection_service(project, backend_factory):
-        result = _materialize_metric(project, "sales.revenue_ratio")
-    value = result.to_pandas()
-    assert value == pytest.approx(1.0)
-
-
-def test_weighted_mean_multiplies_and_aggregates_measures(
-    semantic_project_factory, backend_factory
-) -> None:
-    """Tier-1 weighted_mean owns multiplication, pairing, and aggregation."""
-
-    derived_model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-        amount = ms.measure_column(
-            name="amount", entity=orders, column="amount", additivity=ms.additive_all()
-        )
-        aov = ms.weighted_mean(
-            name="aov",
-            value=amount,
-            weight=amount,
-        )
-    """)
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": derived_model,
-        }
-    )
-
-    # (100 * 100 + 200 * 200) / (100 + 200)
-    with _patch_connection_service(project, backend_factory):
-        result = _materialize_metric(project, "sales.aov")
-    value = result.to_pandas()
-    assert value == pytest.approx(166.6666667)
-
-
-def test_weighted_mean_pairs_nulls_and_inherits_value_unit(semantic_project_factory) -> None:
-    model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-        latency = ms.measure_column(
-            name="latency", entity=orders, column="latency",
-            additivity=ms.non_additive(), unit="ms",
-        )
-        requests = ms.measure_column(
-            name="requests", entity=orders, column="requests", additivity=ms.additive_all(),
-        )
-        avg_latency = ms.weighted_mean(
-            name="avg_latency", value=latency, weight=requests,
-        )
-    """)
-    project = semantic_project_factory({"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": model})
-    backend = ibis.duckdb.connect(":memory:")
-    backend.raw_sql("CREATE TABLE orders (latency DOUBLE, requests DOUBLE)")
-    backend.raw_sql("INSERT INTO orders VALUES (10, 2), (20, NULL), (NULL, 100), (30, 1)")
-
-    with _patch_connection_service(project, lambda _: backend):
-        catalog = SemanticCatalog(project)
-        details = catalog.require(ms.ref.metric("sales.avg_latency")).details()
-        result = catalog._semantic_resolver(connections=project._connection_service()).metric(
-            ms.ref.metric("sales.avg_latency")
-        )
-
-    assert details.unit == "ms"
-    assert result.to_pandas() == pytest.approx(50.0 / 3.0)
-
-
-def test_derived_metric_recursive(semantic_project_factory, backend_factory) -> None:
-    """Derived metric referencing another derived metric's component."""
-
-    derived_model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-        @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
-
-        revenue_ratio = ms.ratio(
-            name="revenue_ratio",
-            numerator=revenue,
-            denominator=revenue,
-        )
-
-        double_ratio = ms.ratio(
-            name="double_ratio",
-            numerator=revenue_ratio,
-            denominator=revenue_ratio,
-        )
-    """)
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": derived_model,
-        }
-    )
-
-    # double_ratio = revenue_ratio / revenue_ratio = 1.0
-    with _patch_connection_service(project, backend_factory):
-        result = _materialize_metric(project, "sales.double_ratio")
-    value = result.to_pandas()
-    assert value == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1414,13 +836,13 @@ def test_fresh_materializer_per_resolver_call(semantic_project_factory) -> None:
         return con
 
     # First call creates a Materializer and calls factory
-    with _patch_connection_service(project, tracking_factory):
+    with patch_semantic_connections(project, tracking_factory):
         _materialize_dataset(project, "sales.orders")
     assert len(factory_calls) == 1
 
-    # The separate metric resolver call creates another Materializer.
-    with _patch_connection_service(project, tracking_factory):
-        _materialize_metric(project, "sales.total_amount")
+    # A separate physical-field resolver call creates another Materializer.
+    with patch_semantic_connections(project, tracking_factory):
+        _materialize_field(project, "sales.orders.amount")
     assert len(factory_calls) == 2
     assert factory_calls == ["warehouse", "warehouse"]
 
@@ -1447,7 +869,7 @@ def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) ->
     assert project._runtime_metadata.get("sales.orders") is None
 
     # After materialization
-    with _patch_connection_service(project, factory):
+    with patch_semantic_connections(project, factory):
         _materialize_dataset(project, "sales.orders")
     meta = project._runtime_metadata.get("sales.orders")
     assert meta is not None
@@ -1457,43 +879,6 @@ def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) ->
 
     project.load()
     assert project._runtime_metadata.get("sales.orders") is None
-
-
-# ---------------------------------------------------------------------------
-# Metric with multiple datasets from same datasource
-# ---------------------------------------------------------------------------
-
-
-def test_same_datasource_multiple_datasets_ok(semantic_project_factory, duckdb_backend) -> None:
-    """A metric using multiple datasets from the same datasource should work."""
-
-    multi_ds_model = textwrap.dedent("""\
-        import marivo.datasource as md
-        import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-        orders_alias = ms.entity(name="orders_alias", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-
-        @ms.metric(entities=[orders, orders_alias], root_entity=orders, additivity=ms.additive_all(), )
-        def combined(t1, t2):
-            return t1.amount.sum()
-    """)
-
-    def factory(ds_id: str):
-        return duckdb_backend
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": multi_ds_model,
-        }
-    )
-
-    with _patch_connection_service(project, factory):
-        metric_expr = _materialize_metric(project, "sales.combined")
-    result = metric_expr.to_pandas()
-    # root-only aggregation on orders = 300.0
-    assert result == pytest.approx(300.0)
 
 
 # ---------------------------------------------------------------------------
@@ -1517,12 +902,12 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
         load=False,
     )
     # Not loaded yet
-    with _patch_connection_service(project, factory), pytest.raises(ms.errors.SemanticLoadFailed):
+    with patch_semantic_connections(project, factory), pytest.raises(ms.errors.SemanticLoadFailed):
         _materialize_dataset(project, "sales.orders")
 
 
-def test_materialization_sample_size_bounds_entities_and_metrics(semantic_project_factory) -> None:
-    """Sample size bounds both entity reads and aggregate input rows."""
+def test_materialization_sample_size_bounds_entity_output(semantic_project_factory) -> None:
+    """The retained physical materializer bounds Entity output rows."""
     con = ibis.duckdb.connect(":memory:")
     con.con.execute(
         "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
@@ -1542,37 +927,7 @@ def test_materialization_sample_size_bounds_entities_and_metrics(semantic_projec
     mat_full = Materializer(project, factory)
     table_full = mat_full.entity("sales.orders")
     assert len(table_full.to_pandas()) == 11
-    value_full = mat_full.metric("sales.total_amount")
-    assert value_full.to_pandas() == 66.0
 
     mat_sampled = Materializer(project, factory, sample_size=5)
     table_sampled = mat_sampled.entity("sales.orders")
     assert len(table_sampled.to_pandas()) == 5
-    value_sampled = mat_sampled.metric("sales.total_amount")
-    assert value_sampled.to_pandas() == 15.0
-
-
-def test_metric_callable_name_error_adds_import_hint(
-    semantic_project_factory, backend_factory
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum() + ibis.literal(0)\n"
-            ),
-        }
-    )
-    with (
-        _patch_connection_service(project, backend_factory),
-        pytest.raises(SemanticRuntimeError) as exc_info,
-    ):
-        _materialize_metric(project, "sales.revenue")
-    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert exc_info.value.received == "NameError"
-    assert "Import every name used by the body" in exc_info.value.message
-    assert isinstance(exc_info.value.__cause__, NameError)

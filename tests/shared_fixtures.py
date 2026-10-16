@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
+from unittest.mock import patch
 
 import duckdb
 import ibis
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.ir import DimensionIR, MetricIR, TargetDimensionContract
     from marivo.semantic.loader import LoadResult
+    from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
 # Named DuckDB templates (versioned, cached in /tmp)
@@ -34,6 +36,48 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+class _PreviewConnections:
+    """Keep caller-owned test backends available to physical resolver calls."""
+
+    def __init__(self, factory: Callable[[str], object]) -> None:
+        self._factory = factory
+
+    @property
+    def project_root(self) -> None:
+        return None
+
+    def session_backend(self, name: str) -> object:
+        return self._factory(name)
+
+    @contextmanager
+    def use_backend(self, name: str) -> Iterator[object]:
+        yield self._factory(name)
+
+    def close_all(self) -> None:
+        pass
+
+
+@contextmanager
+def patch_semantic_connections(
+    project: SemanticProject,
+    factory: Callable[[str], object],
+) -> Iterator[None]:
+    """Use one supplied source factory for resolver and bounded preview owners.
+
+    Resolver callers retain their backend; operation-owned previews still close
+    their acquired backend through the production connection owner.
+    """
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    fake = _PreviewConnections(factory)
+    owner = DatasourceConnectionService(backend_factory=factory, use_datasources=False)
+    with (
+        patch.object(project, "_connection_service", return_value=fake),
+        patch.object(project, "_connection_operation", side_effect=owner.operation),
+    ):
+        yield
 
 
 def in_memory_datasource_ir(name: str) -> DatasourceIR:
@@ -153,7 +197,7 @@ class DslCaseFactory(Protocol):
 def analysis_dsl_project_files(
     names: DslNames, database_path: Path, *, revenue_unit: str = "CNY"
 ) -> dict[str, str]:
-    """Return real authoring files for the inactive DSL journeys."""
+    """Return current expression declarations for isolated DSL journeys."""
     n = names
     models = f"""\
 import marivo.datasource as md
@@ -194,18 +238,28 @@ buyer = ms.relationship(name={n.buyer!r}, from_entity=orders, to_entity=customer
                         keys=[ms.join_on(order_customer_id, customer_id)])
 line_order = ms.relationship(name={n.line_order!r}, from_entity=lines, to_entity=orders,
                              keys=[ms.join_on(line_order_id, order_id)])
-revenue = ms.aggregate(name={n.revenue!r}, measure=amount, agg='sum', time=ordered_at)
-@ms.metric(name='opaque_revenue', entities=[orders], time=ordered_at,
-           unit={revenue_unit!r}, additivity=ms.additive_all(),
-           nulls=ms.nulls.ignore(), empty=ms.empty.null())
-def opaque_revenue(order_rows):
-    return order_rows.{n.amount}.sum()
-order_count = ms.count(name={n.order_count!r}, entity=orders, time=ordered_at)
-line_revenue = ms.aggregate(name={n.line_revenue!r}, measure=line_amount, agg='sum',
-                            time=ordered_at, time_via=(line_order,),
-                            nulls=ms.nulls.ignore(), empty=ms.empty.zero())
-aov = ms.ratio(name={n.aov!r}, numerator=line_revenue, denominator=order_count,
-               zero_denominator=ms.zero_denominator.undefined())
+finalized = ms.finalize()
+amount_value = finalized.resolve(amount)
+line_amount_value = finalized.resolve(line_amount)
+orders_value = finalized.resolve(orders)
+time_value = finalized.resolve(ordered_at)
+line_order_value = finalized.resolve(line_order)
+
+@ms.metric()
+def {n.revenue}():
+    return amount_value.sum(time=time_value)
+
+@ms.metric()
+def {n.order_count}():
+    return orders_value.count(time=time_value)
+
+@ms.metric()
+def {n.line_revenue}():
+    return line_amount_value.sum(time=time_value.via((line_order_value,)))
+
+@ms.metric()
+def {n.aov}():
+    return {n.line_revenue} / {n.order_count}
 """
     return {
         "datasources/warehouse.py": (
@@ -434,12 +488,11 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date', granularity='day')\n"
             "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
             "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
-            "gmv = ms.aggregate(name='gmv', measure=amount, agg='sum')\n"
-            "active_users = ms.aggregate(name='active_users', measure=user_id, agg='count_distinct')\n"
-            "weighted_user = ms.weighted_mean(name='weighted_user', value=user_id, weight=amount)\n"
-            "fiscal_mtd = ms.cumulative(name='fiscal_mtd', base=gmv, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
-            "fiscal_active_users = ms.cumulative(name='fiscal_active_users', base=active_users, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
-            "fiscal_weighted_user = ms.cumulative(name='fiscal_weighted_user', base=weighted_user, over=event_date, anchor=ms.grain_to_date(grain=ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='fiscal_month')))\n"
+            "finalized = ms.finalize()\n"
+            "amount_value = finalized.resolve(amount)\n"
+            "@ms.metric()\n"
+            "def gmv():\n"
+            "    return amount_value.sum()\n"
         ),
     }
 
@@ -626,7 +679,7 @@ def sales_backends(
 # Project directory templates (versioned, cached in /tmp)
 # ---------------------------------------------------------------------------
 
-_SALES_PROJECT_V = "v1"
+_SALES_PROJECT_V = "v2"
 
 
 def sales_project_template(*, with_time: bool = True) -> Path:
@@ -673,9 +726,12 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def region(orders):\n"
         "    return orders.region.upper()\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all(), name='revenue', )\n"
-        "def revenue(orders):\n"
-        "    return orders.amount.sum()\n"
+        "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
+        "finalized = ms.finalize()\n"
+        "amount_value = finalized.resolve(amount)\n"
+        "@ms.metric()\n"
+        "def revenue():\n"
+        "    return amount_value.sum()\n"
     )
     try:
         os.replace(building, cache)

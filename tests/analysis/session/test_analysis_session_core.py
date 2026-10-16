@@ -6,7 +6,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
+from marivo._definition.expressions import DeclaredMetricRef
 from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -70,9 +70,12 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
                 source = ms.ref.datasource("{datasource}")
                 rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}, columns={{"id": "id", "amount": "amount"}}), primary_key=["id"])
 
-                @ms.metric(entities=[rows], additivity=ms.additive_all())
-                def {metric}(table):
-                    return table.amount.sum()
+                amount_ref = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
+                finalized = ms.finalize()
+                amount = finalized.resolve(amount_ref)
+                @ms.metric()
+                def {metric}():
+                    return amount.sum()
                 """
             ),
             encoding="utf-8",
@@ -82,10 +85,9 @@ def test_session_catalog_loads_external_semantic_layer(tmp_path, monkeypatch):
 
     session = mv.session.get_or_create(name="external_layer_session")
 
-    assert (
-        session.catalog.require(ms.ref.metric("finance.refunds_total")).ref.path
-        == "finance.refunds_total"
-    )
+    refunds = session.catalog.metrics.get("finance.refunds_total")
+    assert isinstance(refunds.node, DeclaredMetricRef)
+    assert refunds.node.ref.ref.path == "finance.refunds_total"
 
 
 def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
@@ -136,7 +138,11 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
 
             amount = ms.measure_column(name="amount", entity=rows, column="amount", additivity=ms.additive_all())
             instant = ms.time_dimension_column(name="instant", entity=rows, column="occurred_at", granularity="day", parse=None, is_default=True)
-            refunds_total = ms.aggregate(name="refunds_total", measure=amount, agg="sum")
+            finalized = ms.finalize()
+            amount_value = finalized.resolve(amount)
+            @ms.metric()
+            def refunds_total():
+                return amount_value.sum()
             """
         ),
         encoding="utf-8",
@@ -144,12 +150,7 @@ def test_session_observe_uses_external_layer_datasource(tmp_path, monkeypatch):
     monkeypatch.chdir(project_root)
 
     session = mv.session.get_or_create(name="external_layer_observe", report_timezone="UTC")
-    metric = session.catalog.require(ms.ref.metric("finance.refunds_total")).ref
-    frame = (
-        session.members(ms.ref.entity("finance.refunds"))
-        .observe(metric, by=(mv.member(),))
-        .rollup()
-        .execute()
-    )
+    metric = session.catalog.metrics.get("finance.refunds_total")
+    frame = session.observe({"refunds": metric}).execute()
 
-    assert frame.to_pandas()["value"].tolist() == [150.0]
+    assert frame.to_pandas()[("value", "refunds")].tolist() == [150.0]

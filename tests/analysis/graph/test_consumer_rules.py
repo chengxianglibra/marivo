@@ -159,28 +159,6 @@ def test_declarations_and_dynamic_specialization_match_baseline(
 ) -> None:
     expected = _BASELINE[str(registration.semantics.key)]
     items = registration.implementations
-    # The explicitly requested remote ordinary Count adds eight keys. Preserve
-    # the original ordered declarations and specialization oracle unchanged.
-    if registration.semantics.key == MethodKey("metric.count"):
-        additions = tuple(
-            item
-            for item in items
-            if isinstance(item.key.shape, SourceShape)
-            and item.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
-            and item.key.route == "ibis"
-            and item.key.input_domains == ("entity",)
-        )
-        assert len(additions) == 8
-        items = tuple(item for item in items if item not in additions)
-    if registration.semantics.key == MethodKey("state_rollup.count"):
-        additions = tuple(
-            item
-            for item in items
-            if isinstance(item.key.shape, SourceShape)
-            and item.key.shape.backend in ("postgres", "mysql", "trino", "clickhouse")
-        )
-        assert len(additions) == 12
-        items = tuple(item for item in items if item not in additions)
     assert len(items) == expected["count"]
     assert _declaration_digest(items) == expected["declarations"]
     assert _specialization_digest(items) == expected["specialization"]

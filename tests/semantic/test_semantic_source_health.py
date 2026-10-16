@@ -133,18 +133,9 @@ def _catalog(
                 customer_id = ms.dimension_column(
                     name="customer_id", entity=customers, column="customer_id"
                 )
-                revenue = ms.aggregate(
-                    name="revenue", measure=amount, agg="sum", unit="USD"
-                )
-
-                @ms.measure(entity=decorator_orders, additivity=ms.additive_all())
-                def decorator_amount(rows):
-                    return rows.amount
-
-                decorator_revenue = ms.aggregate(
-                    name="decorator_revenue",
-                    measure=decorator_amount,
-                    agg="sum",
+                decorator_amount = ms.measure_column(
+                    name="decorator_amount", entity=decorator_orders,
+                    column="amount", additivity=ms.additive_all(),
                 )
                 projected_amount = ms.measure_column(
                     name="amount",
@@ -152,17 +143,25 @@ def _catalog(
                     column="amount",
                     additivity=ms.additive_all(),
                 )
-                projected_revenue = ms.aggregate(
-                    name="projected_revenue",
-                    measure=projected_amount,
-                    agg="sum",
-                )
                 orders_to_customers = ms.relationship(
                     name="orders_to_customers",
                     from_entity=orders,
                     to_entity=customers,
                     keys=[ms.join_on(order_customer_id, customer_id)],
                 )
+                finalized = ms.finalize()
+                amount_value = finalized.resolve(amount)
+                decorator_value = finalized.resolve(decorator_amount)
+                projected_value = finalized.resolve(projected_amount)
+                @ms.metric()
+                def revenue():
+                    return amount_value.sum()
+                @ms.metric()
+                def decorator_revenue():
+                    return decorator_value.sum()
+                @ms.metric()
+                def projected_revenue():
+                    return projected_value.sum()
                 """
             ),
         }
@@ -183,7 +182,7 @@ def test_source_health_without_declared_checks_is_metadata_only(
         if path.is_file()
     }
 
-    report = catalog.source_health([ms.ref.metric("sales.revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
     state_files_after = {
         path.relative_to(catalog._project.state_root)
@@ -226,7 +225,7 @@ def test_source_health_runs_only_explicit_bounded_data_checks(
     }
 
     report = catalog.source_health(
-        [ms.ref.metric("sales.revenue"), relationship],
+        [ms.ref.measure("sales.orders.amount"), relationship],
         checks=[
             ms.source_check.not_null(ms.ref.measure("sales.orders.amount")),
             ms.source_check.allowed_values(
@@ -266,7 +265,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     catalog, database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     relationship = ms.ref.relationship("sales.orders_to_customers")
     before = catalog.readiness(refs=[relationship])
-    details = catalog.require(relationship).details()
+    details = catalog.require(relationship)
     assert details.cardinality == "many_to_one"
 
     connection = duckdb.connect(str(database_path))
@@ -292,7 +291,7 @@ def test_missing_relationship_rows_do_not_change_structural_cardinality_or_readi
     assert check.user_data_queried is True
     assert check.observed["from_unmatched_count"] == 2
     assert len(check.scopes) == 2
-    assert catalog.require(relationship).details().cardinality == "many_to_one"
+    assert catalog.require(relationship).cardinality == "many_to_one"
     assert catalog.readiness(refs=[relationship]).to_dict() | {"checked_at": None} == (
         before.to_dict() | {"checked_at": None}
     )
@@ -311,13 +310,12 @@ def test_schema_drift_reports_current_affected_refs_and_repair(
     finally:
         connection.close()
 
-    report = catalog.source_health([ms.ref.metric("sales.revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "failed"
     assert schema.status == "failed"
     assert ms.ref.measure("sales.orders.amount") in schema.affected_refs
-    assert ms.ref.metric("sales.revenue") in schema.affected_refs
     assert schema.repair is not None
     assert schema.repair.kind == "reauthor"
 
@@ -330,7 +328,7 @@ def test_source_health_inspection_stays_bound_to_loaded_workspace(
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     monkeypatch.chdir(tmp_path.parent)
 
-    report = catalog.source_health([ms.ref.metric("sales.revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "current"
@@ -351,13 +349,12 @@ def test_decorator_field_schema_drift_fails_closed_with_affected_refs(
     finally:
         connection.close()
 
-    report = catalog.source_health([ms.ref.metric("sales.decorator_revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.decorator_orders.decorator_amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "failed"
     assert schema.status == "failed"
     assert ms.ref.measure("sales.decorator_orders.decorator_amount") in schema.affected_refs
-    assert ms.ref.metric("sales.decorator_revenue") in schema.affected_refs
     assert schema.repair is not None
     assert schema.repair.kind == "reauthor"
 
@@ -369,7 +366,7 @@ def test_projected_source_health_does_not_require_a_declared_type(
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
 
-    report = catalog.source_health([ms.ref.metric("sales.projected_revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.projected_orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "current"
@@ -388,7 +385,7 @@ def test_permission_failure_is_distinct_from_failed_and_unknown(
         raise PermissionError("permission denied for source metadata")
 
     monkeypatch.setattr(source_health_module, "_inspect_in_project", deny_inspection)
-    report = catalog.source_health([ms.ref.metric("sales.revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "unavailable"
@@ -410,7 +407,7 @@ def test_source_unavailability_has_its_own_code(
     finally:
         connection.close()
 
-    report = catalog.source_health([ms.ref.metric("sales.revenue")])
+    report = catalog.source_health([ms.ref.measure("sales.orders.amount")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "unavailable"
@@ -426,7 +423,7 @@ def test_unprovable_freshness_is_unknown_instead_of_guessed(
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
 
     report = catalog.source_health(
-        [ms.ref.metric("sales.revenue")],
+        [ms.ref.measure("sales.orders.amount")],
         checks=[
             ms.source_check.freshness(
                 ms.ref.time_dimension("sales.orders.created_at_naive"),
@@ -452,8 +449,8 @@ def test_data_checks_require_scope_and_metadata_checks_forbid_it(
 
     with pytest.raises(SemanticRuntimeError, match="requires one explicit AuthoringScope"):
         catalog.source_health(
-            [ms.ref.metric("sales.revenue")],
+            [ms.ref.measure("sales.orders.amount")],
             checks=[ms.source_check.not_null(ms.ref.measure("sales.orders.amount"))],
         )
     with pytest.raises(SemanticRuntimeError, match="requires at least one explicit data check"):
-        catalog.source_health([ms.ref.metric("sales.revenue")], scope=scope)
+        catalog.source_health([ms.ref.measure("sales.orders.amount")], scope=scope)

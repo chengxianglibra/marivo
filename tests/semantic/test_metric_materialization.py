@@ -1,196 +1,124 @@
-"""Metric and measure materialization against seeded DuckDB tables."""
+"""Published Metric preview and physical Measure access over real DuckDB rows."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import ibis
 import pytest
 
-from marivo.semantic.errors import SemanticRuntimeError
-from marivo.semantic.materializer import Materializer
-
-# ---------------------------------------------------------------------------
-# Inline model: sales domain with tier-1 + derived metrics
-# ---------------------------------------------------------------------------
-
-_INLINE_SALES = """\
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.errors import SemanticRuntimeError
+from marivo.semantic.materializer import Materializer
+from marivo.semantic.reader import SemanticProject
 
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def amount(orders): return orders.amount
-
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def gross(orders): return orders.gross
-
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def refund(orders): return orders.refund
-
-@ms.metric(entities=[orders], additivity=ms.additive_all(), name="revenue_via_measure")
-def revenue_via_measure(orders): return ms.bind(amount, orders).sum()
-
-revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
-order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
-order_rows = ms.count(entity=orders, name="order_rows")
-gross_total = ms.aggregate(measure=gross, agg="sum", name="gross_total")
-refund_total = ms.aggregate(measure=refund, agg="sum", name="refund_total")
-aov = ms.ratio(name="aov", numerator=revenue, denominator=order_rows)
-net = ms.linear(name="net", add=[gross_total], subtract=[refund_total])
+_MODEL = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+amount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())
+gross_ref = ms.measure_column(name="gross", entity=orders_ref, column="gross", additivity=ms.additive_all())
+refund_ref = ms.measure_column(name="refund", entity=orders_ref, column="refund", additivity=ms.additive_all())
+finalized = ms.finalize()
+amount = finalized.resolve(amount_ref)
+gross = finalized.resolve(gross_ref)
+refund = finalized.resolve(refund_ref)
+orders = finalized.resolve(orders_ref)
+@ms.metric()
+def revenue():
+    return amount.sum()
+@ms.metric()
+def order_count():
+    return amount.count()
+@ms.metric()
+def order_rows():
+    return orders.count()
+@ms.metric()
+def revenue_via_measure():
+    return amount.sum()
+@ms.metric()
+def aov():
+    return revenue / order_rows
+@ms.metric()
+def net():
+    return gross.sum() - refund.sum()
 """
 
 
-def _seed_orders(con: ibis.duckdb.DuckDBBackend) -> None:
-    """Seed the in-memory DuckDB with the orders table."""
-    con.con.execute(
-        "CREATE TABLE orders ("
-        "order_id INTEGER, amount DOUBLE, gross DOUBLE, refund DOUBLE, "
-        "region VARCHAR, created_at DATE)"
-    )
-    con.con.execute(
-        "INSERT INTO orders VALUES "
-        "(1, 10.0, 12.0, 2.0, 'north', DATE '2026-07-01'),"
-        "(2, 20.0, 24.0, 4.0, 'north', DATE '2026-07-02'),"
-        "(3, 30.0, 36.0, 6.0, 'south', DATE '2026-08-01'),"
-        "(4, 40.0, 48.0, 8.0, 'north', DATE '2026-09-15')"
-    )
-
-
-@dataclass
-class MaterializedProject:
-    """Wrapper around a loaded project + materializer for test assertions."""
-
-    materializer: Materializer
-    _con: ibis.duckdb.DuckDBBackend
-
-    def execute_scalar(self, value: Any) -> Any:
-        """Execute an ibis value expression and return the scalar result."""
-        result = self._con.execute(value)
-        if isinstance(result, (int, float)):
-            return result
-        return result.iloc[0]
-
-    def expected_sum(self, col: str) -> float:
-        """Return SUM(col) over the orders table."""
-        return self._con.con.execute(f"SELECT SUM({col}) FROM orders").fetchone()[0]
-
-    def row_count(self, table: str) -> int:
-        """Return COUNT(*) for the named table."""
-        return self._con.con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-
-    def table(self, name: str) -> Any:
-        """Return the ibis table expression for the named table."""
-        return self._con.table(name)
-
-
 @pytest.fixture
-def materialized_project(semantic_project_factory):
-    """Load the inline sales model with a seeded DuckDB backend."""
+def materialized_project(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+) -> Iterator[tuple[SemanticCatalog, ibis.duckdb.DuckDBBackend]]:
+    path = tmp_path / "warehouse.duckdb"
+    connection = ibis.duckdb.connect(path)
+    connection.con.execute(
+        "CREATE TABLE orders(order_id INTEGER, amount DOUBLE, gross DOUBLE, refund DOUBLE)"
+    )
+    connection.con.execute(
+        "INSERT INTO orders VALUES (1,10,12,2),(2,20,24,4),(3,30,36,6),(4,40,48,8)"
+    )
     project = semantic_project_factory(
         {
-            "sales/_domain.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang', default=True)\n"
-            ),
-            "sales/models.py": _INLINE_SALES,
+            "datasources/warehouse.py": "import marivo.datasource as md\n"
+            f"md.duckdb(name='warehouse', path={str(path)!r})\n",
+            "sales/_domain.py": "import marivo.semantic as ms\n"
+            "ms.domain(name='sales', owner='Data', default=True)\n",
+            "sales/models.py": _MODEL,
         }
     )
-    assert project.is_ready(), f"Project failed to load: {project.errors()}"
-    con = ibis.duckdb.connect(":memory:")
-    _seed_orders(con)
-
-    def backend_factory(datasource_name: str):
-        return con
-
-    mat = Materializer(project, backend_factory)
     try:
-        yield MaterializedProject(materializer=mat, _con=con)
+        yield SemanticCatalog(project), connection
     finally:
-        con.disconnect()
+        connection.disconnect()
 
 
-# ---------------------------------------------------------------------------
-# tier-1 metric materialization
-# ---------------------------------------------------------------------------
-
-
-def test_tier1_sum_materializes_as_aggregation(materialized_project):
-    # revenue = ms.aggregate(measure=amount, agg="sum")
-    value = materialized_project.materializer.metric("sales.revenue")
-    assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
-
-
-def test_tier1_count_materializes_as_count(materialized_project):
-    # order_count = ms.aggregate(measure=amount, agg="count")
-    value = materialized_project.materializer.metric("sales.order_count")
-    assert materialized_project.execute_scalar(value) == materialized_project.row_count("orders")
-
-
-def test_count_materializes_as_entity_row_count(materialized_project):
-    value = materialized_project.materializer.metric("sales.order_rows")
-    assert materialized_project.execute_scalar(value) == materialized_project.row_count("orders")
-
-
-def test_tier2_body_can_reference_measure(materialized_project):
-    # revenue_via_measure: a tier-2 @ms.metric body that calls the `amount`
-    # measure -> amount(orders).sum(). The Ref[measure] binding must resolve
-    # through the compiled expression sidecar just like Ref[dimension].
-    value = materialized_project.materializer.metric("sales.revenue_via_measure")
-    assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
-
-
-# ---------------------------------------------------------------------------
-# derived metric materialization via Composition
-# ---------------------------------------------------------------------------
-
-
-def test_ratio_materializes_as_division(materialized_project):
-    # aov = ms.ratio(numerator=revenue, denominator=order_count)
-    value = materialized_project.materializer.metric("sales.aov")
-    expected = materialized_project.expected_sum("amount") / materialized_project.row_count(
-        "orders"
+@pytest.mark.parametrize(
+    ("metric", "oracle"),
+    (
+        ("revenue", "SUM(amount)"),
+        ("order_count", "COUNT(amount)"),
+        ("order_rows", "COUNT(*)"),
+        ("revenue_via_measure", "SUM(amount)"),
+        ("aov", "SUM(amount)/COUNT(*)"),
+        ("net", "SUM(gross)-SUM(refund)"),
+    ),
+)
+def test_published_metric_preview_matches_source_equation(
+    materialized_project: tuple[SemanticCatalog, ibis.duckdb.DuckDBBackend],
+    metric: str,
+    oracle: str,
+) -> None:
+    catalog, connection = materialized_project
+    expected = connection.con.execute(f"SELECT {oracle} FROM orders").fetchone()[0]
+    connection.disconnect()
+    result = catalog.preview(
+        ms.ref.metric(f"sales.{metric}"),
+        scope=md.unpruned(max_rows=10, timeout_seconds=30),
     )
-    assert materialized_project.execute_scalar(value) == expected
+    assert result.rows == ({"value": expected},)
 
 
-def test_linear_materializes_with_signs(materialized_project):
-    # net = ms.linear(add=[gross_total], subtract=[refund_total])
-    value = materialized_project.materializer.metric("sales.net")
-    expected = materialized_project.expected_sum("gross") - materialized_project.expected_sum(
-        "refund"
-    )
-    assert materialized_project.execute_scalar(value) == expected
+def test_physical_measure_on_uses_caller_table(
+    materialized_project: tuple[SemanticCatalog, ibis.duckdb.DuckDBBackend],
+) -> None:
+    catalog, connection = materialized_project
+    materializer = Materializer(catalog._project, lambda _name: connection)
+    table = connection.table("orders").filter(lambda rows: rows.amount > 10)
+    value = materializer.measure_on("sales.orders.amount", table)
+    assert connection.execute(value.sum()) == connection.execute(table.amount.sum()) == 90
 
 
-# ---------------------------------------------------------------------------
-# metric_on dispatch
-# ---------------------------------------------------------------------------
-
-
-def test_metric_on_rejects_derived(materialized_project):
-    table = materialized_project.table("orders")
-    with pytest.raises(SemanticRuntimeError):
-        materialized_project.materializer.metric_on("sales.aov", table)
-
-
-def test_metric_on_tier1_applies_to_caller_table(materialized_project):
-    table = materialized_project.table("orders")
-    value = materialized_project.materializer.metric_on("sales.revenue", table)
-    assert materialized_project.execute_scalar(value) == materialized_project.expected_sum("amount")
-
-
-# ---------------------------------------------------------------------------
-# measure_on accessor (applies a measure callable to a caller table)
-# ---------------------------------------------------------------------------
-
-
-def test_measure_on_applies_to_caller_table(materialized_project):
-    table = materialized_project.table("orders").filter(lambda t: t.amount > 10)
-
-    value = materialized_project.materializer.measure_on("sales.orders.amount", table)
-
-    assert materialized_project.execute_scalar(value.sum()) == materialized_project.execute_scalar(
-        table.amount.sum()
-    )
+@pytest.mark.parametrize("metric", ("revenue", "aov"))
+def test_published_metric_cannot_be_rebound_to_an_arbitrary_ibis_table(
+    materialized_project: tuple[SemanticCatalog, ibis.duckdb.DuckDBBackend],
+    metric: str,
+) -> None:
+    catalog, connection = materialized_project
+    materializer = Materializer(catalog._project, lambda _name: connection)
+    with pytest.raises(SemanticRuntimeError) as caught:
+        materializer.metric_on(f"sales.{metric}", connection.table("orders"))
+    assert caught.value.kind == "metric_not_found"

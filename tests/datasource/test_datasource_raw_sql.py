@@ -23,7 +23,6 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
-from tests.shared_fixtures import DslCaseFactory
 
 
 def _register_raw_sql_fixture(project_root: Path) -> None:
@@ -99,7 +98,7 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
 
 
 def test_raw_sql_result_cannot_reenter_typed_analysis(
-    tmp_path: Path, analysis_dsl_case_factory: DslCaseFactory
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
@@ -109,14 +108,10 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
         project_root=tmp_path,
     )
 
-    case = analysis_dsl_case_factory("j2")
-    metric = case.session.members(ms.ref.entity("sales.customer")).observe(
-        ms.ref.metric("sales.revenue"),
-        during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-        via=ms.ref.relationship("sales.order_buyer"),
-    )
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("raw-sql-terminal", report_timezone="UTC")
     with pytest.raises(AnalysisError, match="RawSqlResult"):
-        metric.compare(result)
+        session.observe({"raw": result})
     from marivo.datasource.adapters import provider_for
 
     datasource = store.load_one("warehouse", project_root=tmp_path)
