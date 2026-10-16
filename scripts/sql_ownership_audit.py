@@ -148,7 +148,7 @@ def _manifest() -> Manifest:
     add(
         "analysis/materialization/graph_source_execution",
         ("read_stage",),
-        ("prepared.source.execute",),
+        ("source.execute",),
         governed,
     )
     compile_owner = Owner(
@@ -172,7 +172,7 @@ def _manifest() -> Manifest:
     add(
         "analysis/materialization/graph_source_execution",
         ("read_stage",),
-        ("prepared.source.compile",),
+        ("source.compile",),
         compile_owner,
     )
     add(

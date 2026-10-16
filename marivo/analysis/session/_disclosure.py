@@ -207,7 +207,7 @@ def provider() -> DisclosureProvider:
             "observe",
             "Query",
             "result = session.observe(metrics)",
-            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute prepares schema and plans stages; numeric execution/publication are pending R2.4-R2.5.",
+            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute prepares schema and plans stages; ordinary numeric routes are implemented internally; terminal publication is pending R2.5.",
         ),
         (
             Session,

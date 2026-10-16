@@ -1072,16 +1072,14 @@ def test_catalog_preview_field_published_metric_and_context_boundaries(
     assert field_preview.ref == "sales.orders.region"
     assert field_preview.columns[:2] == ("order_id", "region")
 
-    with pytest.raises(SemanticRuntimeError) as published:
-        catalog.preview(
-            catalog.require(ms.ref.metric("sales.revenue")),
-            scope=snapshot.scope,
-            limit=2,
-        )
-
-    assert published.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
-    assert published.value.semantic_refs == ("metric:sales.revenue",)
-    assert "published expression declaration" in str(published.value)
+    published = catalog.preview(
+        catalog.require(ms.ref.metric("sales.revenue")),
+        scope=snapshot.scope,
+        limit=2,
+    )
+    assert published.kind == "semantic_metric"
+    assert published.rows == ({"value": 300.0},)
+    assert published.sample_policy.method == "pre_aggregate_limit"
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(

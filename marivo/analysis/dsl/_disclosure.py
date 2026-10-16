@@ -26,7 +26,7 @@ def provider() -> DisclosureProvider:
             producers=("session.observe",),
             consumers=("Query.contract", "Query.execute"),
             constraints=(
-                "R2.2 binds ordinary observation context; R2.3 execute prepares schema and plans stages; numeric execution/publication are pending R2.4-R2.5.",
+                "R2.2 binds ordinary observation context; R2.3 execute prepares schema and plans stages; ordinary numeric routes are implemented internally; terminal publication is pending R2.5.",
             ),
         ),
         value_type(

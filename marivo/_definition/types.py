@@ -186,6 +186,19 @@ class FieldRead:
     at: InstantAnchor | None = None
 
 
+def field_read_key(read: FieldRead) -> str:
+    """Identify a physical field usage including its path and attribute anchor."""
+    if not read.path and read.at is None:
+        return read.field.ref.path
+    return repr(
+        (
+            read.field.ref.path,
+            tuple(step.ref.path for step in read.path),
+            read.at.isoformat() if read.at is not None else None,
+        )
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class CalendarCoordinate:
     """Frozen output calendar, including nominal and actual half-open buckets."""

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from marivo._definition.expressions import (
@@ -290,13 +290,28 @@ def bind_observation(
                     "Declare a default time or construct the reduction with time=field.",
                     "session.observe",
                 )
+
+            def bind_predicate(predicate: FieldPredicate) -> FieldPredicate:
+                if isinstance(predicate, (PredAnd, PredOr)):
+                    return replace(
+                        predicate, operands=tuple(bind_predicate(p) for p in predicate.operands)
+                    )
+                if isinstance(predicate, PredNot):
+                    return replace(predicate, operand=bind_predicate(predicate.operand))
+                if isinstance(predicate, RowCompare):
+                    return predicate
+                read = predicate.read or native_read(predicate.field, state.registry, resolver)
+                return replace(
+                    predicate, read=bind_read(read, root, state.registry, resolver, paths)
+                )
+
             contributions.append(
                 ContributionBinding(
                     occurrence,
                     node,
                     root,
-                    filters,
-                    condition,
+                    tuple(bind_predicate(p) for p in filters),
+                    bind_predicate(condition) if condition is not None else None,
                     bound,
                     coordinates,
                     time,

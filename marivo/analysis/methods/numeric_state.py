@@ -8,6 +8,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, localcontext
 from fractions import Fraction
 from typing import Literal, TypeAlias
 
+import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, ValueType
@@ -177,3 +178,60 @@ def merge_original(
     totals = merge_components(rows, schema, components)
     value, tag, reason = finish_original(totals, components, method, output, empty_rules)
     return totals, value, tag, reason
+
+
+def nullable_arithmetic(
+    operation: str,
+    left: pd.Series,
+    right: pd.Series,
+    *,
+    zero_denominator: str = "null",
+    exact_duration: bool = False,
+) -> pd.Series:
+    """Compute over nullable pandas values, masking zeros before division.
+
+    Object arithmetic preserves int64 precision until the shared output
+    normalizer checks overflow. Decimal work uses the existing wide context.
+    """
+    from marivo.semantic.metric_graph_lowering import numeric_failure
+
+    a, b = left.astype(object), right.astype(object)
+    if exact_duration:
+        a = pd.Series(
+            [Fraction(v) if pd.notna(v) else pd.NA for v in a], dtype=object, index=a.index
+        )
+        b = pd.Series(
+            [Fraction(v) if pd.notna(v) else pd.NA for v in b], dtype=object, index=b.index
+        )
+    if any(isinstance(value, float) for value in a) or any(isinstance(value, float) for value in b):
+        a = a.map(lambda value: float(value) if isinstance(value, Decimal) else value)
+        b = b.map(lambda value: float(value) if isinstance(value, Decimal) else value)
+    if operation == "divide":
+        zero = b.notna() & (b == 0).fillna(False)
+        if zero_denominator == "error" and zero.any():
+            numeric_failure("a nonzero denominator", "metric.divide(zero_denominator='error')")
+        b = b.mask(zero, pd.NA)
+    try:
+        with localcontext() as context:
+            context.prec = 120
+            if operation == "add":
+                result = a + b
+            elif operation == "subtract":
+                result = a - b
+            elif operation == "multiply":
+                result = a * b
+            elif operation == "divide":
+                result = a / b
+            else:
+                numeric_failure("an admitted nullable arithmetic operator", operation)
+    except (ArithmeticError, TypeError, ValueError) as error:
+        numeric_failure("valid numeric arithmetic", f"{operation}: {error}")
+    if any(isinstance(value, int) and not -(2**63) <= value < 2**63 for value in result):
+        numeric_failure("signed int64 arithmetic", f"{operation}: integer overflow")
+    if any(
+        (isinstance(value, float) and not math.isfinite(value))
+        or (isinstance(value, Decimal) and not value.is_finite())
+        for value in result
+    ):
+        numeric_failure("finite numeric output", operation)
+    return result

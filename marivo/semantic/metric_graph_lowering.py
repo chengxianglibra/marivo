@@ -13,7 +13,38 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+from ibis.common.exceptions import IbisTypeError
 
+from marivo._definition.expressions import (
+    ContributionFilter,
+    DeclaredMetricRef,
+    EntityCount,
+    FieldIn,
+    FieldIsNull,
+    FieldPredicate,
+    MeasureAssertion,
+    MetricAdd,
+    MetricConstant,
+    MetricDivide,
+    MetricMultiply,
+    MetricNegate,
+    MetricNode,
+    MetricSubtract,
+    PredAnd,
+    PredNot,
+    PredOr,
+    RowAdd,
+    RowCompare,
+    RowConstant,
+    RowDivide,
+    RowField,
+    RowNegate,
+    RowNode,
+    RowSubtract,
+    SourceAggregate,
+    SourceWeightedMean,
+)
+from marivo._definition.types import ExactRef
 from marivo._temporal import Grain as TemporalGrain
 from marivo.refs import (
     EntityKind,
@@ -2020,3 +2051,332 @@ __all__ = [
     "lower_catalog_metric",
     "lower_catalog_metrics",
 ]
+
+
+# Nullable Row/Metric lowering for the definition DSL. These inputs contain no
+# analysis Signature, Session, Population program or persisted state.
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class NumericCheck:
+    """A temporary boolean violation expression, consumed before publication."""
+
+    violation: ir.BooleanValue
+    expected: str
+    received: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class NumericValue:
+    value: ir.Value
+    checks: tuple[NumericCheck, ...] = ()
+
+
+def numeric_failure(expected: str, received: str) -> NoReturn:
+    from marivo.semantic.errors import ErrorKind, SemanticExpressionError
+
+    action = "Repair the input values to satisfy the expected numeric/type constraints, then retry."
+    if "nonzero denominator" in expected:
+        action = "Use a nonzero denominator, or explicitly select zero_denominator='null' on this operator."
+    elif "non-NA" in expected:
+        action = "Supply non-NA inputs, or explicitly select nulls='ignore' on this reducer."
+    raise SemanticExpressionError(
+        kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+        message="The numeric operation cannot produce an admitted nullable value.",
+        expected=expected,
+        received=received,
+        action=action,
+    )
+
+
+def _finite_check(value: ir.Value, operation: str) -> tuple[NumericCheck, ...]:
+    if not value.type().is_floating():
+        return ()
+    return (
+        NumericCheck(
+            value.notnull() & (value.isnan() | value.isinf()), "finite numeric values", operation
+        ),
+    )
+
+
+def numeric_binary(
+    operation: str, left: NumericValue, right: NumericValue, *, zero_denominator: str = "null"
+) -> NumericValue:
+    """Emit arithmetic with the denominator masked before division."""
+    a, b = left.value, right.value
+    if a.type().is_floating() and b.type().is_decimal():
+        b = b.cast("float64")
+    elif b.type().is_floating() and a.type().is_decimal():
+        a = a.cast("float64")
+    checks = (*left.checks, *right.checks)
+    if operation == "divide":
+        zero = b == 0
+        if zero_denominator == "error":
+            checks = (
+                *checks,
+                NumericCheck(zero, "a nonzero denominator", "divide(zero_denominator='error')"),
+            )
+        safe = zero.ifelse(ibis.null().cast(b.type()), b)
+        value = a / safe
+    elif operation == "add":
+        value = add_numeric(a, b)
+    elif operation == "subtract":
+        value = add_numeric(a, -b)
+    elif operation == "multiply":
+        value = multiply_numeric(a, b)
+    else:
+        numeric_failure("add/subtract/multiply/divide", operation)
+    if (
+        operation in ("add", "subtract", "multiply")
+        and a.type().is_integer()
+        and b.type().is_integer()
+    ):
+        wide_a, wide_b = a.cast("decimal(38,0)"), b.cast("decimal(38,0)")
+        wide = (
+            wide_a + wide_b
+            if operation == "add"
+            else wide_a - wide_b
+            if operation == "subtract"
+            else wide_a * wide_b
+        )
+        overflow = (wide < -(2**63)) | (wide > 2**63 - 1)
+        checks = (
+            *checks,
+            NumericCheck(overflow, "signed int64 arithmetic", f"{operation}: integer overflow"),
+        )
+        value = overflow.ifelse(ibis.null().cast("int64"), wide.cast("int64"))
+    return NumericValue(value, (*checks, *_finite_check(value, operation)))
+
+
+def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
+    """Lower one closed Row expression over already prepared physical fields."""
+    if isinstance(node, RowField):
+        value = fields.get(node.ref.ref.path)
+        if value is None:
+            numeric_failure(
+                f"a prepared physical field for {node.ref.ref.path}", "unbound field read"
+            )
+        if value.type().is_integer() and value.type().nbytes < 8:
+            value = value.cast("int64")
+        elif value.type().is_floating() and value.type().nbytes < 8:
+            value = value.cast("float64")
+        return NumericValue(value, _finite_check(value, node.ref.ref.path))
+    if isinstance(node, RowConstant):
+        return NumericValue(ibis.literal(node.value))
+    if isinstance(node, MeasureAssertion):
+        return lower_row(node.operand, fields)
+    if isinstance(node, RowNegate):
+        operand = lower_row(node.operand, fields)
+        return numeric_binary("multiply", operand, NumericValue(ibis.literal(-1)))
+    if isinstance(node, RowDivide):
+        return numeric_binary(
+            "divide",
+            lower_row(node.numerator, fields),
+            lower_row(node.denominator, fields),
+            zero_denominator=node.zero_denominator,
+        )
+    operation = (
+        "add"
+        if isinstance(node, RowAdd)
+        else "subtract"
+        if isinstance(node, RowSubtract)
+        else "multiply"
+    )
+    return numeric_binary(operation, lower_row(node.left, fields), lower_row(node.right, fields))
+
+
+def lower_field_predicate(node: FieldPredicate, fields: Mapping[str, ir.Value]) -> NumericValue:
+    """Lower a Field/Row predicate with the Row operation's own checks."""
+    if isinstance(node, (PredAnd, PredOr)):
+        values = tuple(lower_field_predicate(child, fields) for child in node.operands)
+        result = ibis.literal(isinstance(node, PredAnd))
+        for item in values:
+            result = result & item.value if isinstance(node, PredAnd) else result | item.value
+        return NumericValue(result, tuple(check for item in values for check in item.checks))
+    if isinstance(node, PredNot):
+        item = lower_field_predicate(node.operand, fields)
+        return NumericValue(~item.value, item.checks)
+    if isinstance(node, RowCompare):
+        item = lower_row(node.operand, fields)
+        value, checks = item.value, item.checks
+    else:
+        from marivo._definition.types import field_read_key
+
+        value = fields.get(
+            field_read_key(node.read) if node.read is not None else node.field.ref.path
+        )
+        if value is None:
+            numeric_failure(
+                f"a prepared physical field for {node.field.ref.path}",
+                "unbound predicate field read",
+            )
+        checks = ()
+        if isinstance(node, FieldIsNull):
+            return NumericValue(value.isnull())
+        if isinstance(node, FieldIn):
+            present = tuple(item for item in node.values if item is not None)
+            result = value.isin(present) if present else ibis.literal(False)
+            return NumericValue(result | value.isnull() if None in node.values else result)
+    if node.value is None:
+        return NumericValue(value.isnull() if node.op == "eq" else value.notnull(), checks)
+    literal = ibis.literal(node.value)
+    result = {
+        "eq": value == literal,
+        "ne": value != literal,
+        "lt": value < literal,
+        "le": value <= literal,
+        "gt": value > literal,
+        "ge": value >= literal,
+    }[node.op]
+    return NumericValue(result, checks)
+
+
+def lower_source_reduction(
+    node: SourceAggregate | SourceWeightedMean | EntityCount,
+    table: ir.Table,
+    fields: Mapping[str, ir.Value],
+) -> NumericValue:
+    """Reduce one contribution. Checks returned here are scalar aggregates."""
+    if isinstance(node, EntityCount):
+        return NumericValue(table.count())
+    item = lower_row(node.value if isinstance(node, SourceWeightedMean) else node.operand, fields)
+    value = item.value
+    checks = list(item.checks)
+    if isinstance(node, SourceWeightedMean):
+        weight = lower_row(node.weight, fields)
+        checks.extend(weight.checks)
+        pair = value.notnull() & weight.value.notnull()
+        if node.nulls == "error":
+            checks.append(
+                NumericCheck(~pair, "non-NA value/weight pairs", "weighted_mean(nulls='error')")
+            )
+        product = numeric_binary("multiply", NumericValue(value), NumericValue(weight.value))
+        checks.extend(product.checks)
+        numerator = (
+            pair.ifelse(product.value, ibis.null().cast(product.value.type())).sum().fill_null(0)
+        )
+        denominator = (
+            pair.ifelse(weight.value, ibis.null().cast(weight.value.type())).sum().fill_null(0)
+        )
+        divided = numeric_binary(
+            "divide",
+            NumericValue(numerator, _finite_check(numerator, "weighted numerator sum")),
+            NumericValue(denominator, _finite_check(denominator, "weight sum")),
+            zero_denominator=node.zero_denominator,
+        )
+        return NumericValue(
+            divided.value, (*(_aggregate_check(c) for c in checks), *divided.checks)
+        )
+    if node.nulls == "error":
+        checks.append(
+            NumericCheck(value.isnull(), "non-NA source values", f"{node.reducer}(nulls='error')")
+        )
+    if node.reducer == "count":
+        result = value.count()
+    elif node.reducer == "count_distinct":
+        result = value.nunique()
+    elif node.reducer == "sum":
+        result = value.sum().fill_null(0)
+    elif node.reducer == "mean":
+        result = value.mean()
+    elif node.reducer == "min":
+        result = value.min()
+    elif node.reducer == "max":
+        result = value.max()
+    elif node.reducer == "median":
+        result = value.median()
+    else:
+        assert node.q is not None
+        result = value.quantile(node.q)
+    return NumericValue(
+        result, (*(_aggregate_check(c) for c in checks), *_finite_check(result, node.reducer))
+    )
+
+
+def _aggregate_check(check: NumericCheck) -> NumericCheck:
+    return NumericCheck(check.violation.any().fill_null(False), check.expected, check.received)
+
+
+def lower_metric_formula(
+    node: MetricNode,
+    occurrence: tuple[int, ...],
+    values: Mapping[tuple[int, ...], NumericValue],
+    declared: Mapping[ExactRef, MetricNode],
+) -> NumericValue:
+    """Compose completed reductions only; never join contribution rows."""
+    if occurrence in values:
+        return values[occurrence]
+    if isinstance(node, DeclaredMetricRef):
+        return lower_metric_formula(declared[node.ref], (*occurrence, 0), values, declared)
+    if isinstance(node, ContributionFilter):
+        return lower_metric_formula(node.operand, (*occurrence, 0), values, declared)
+    if isinstance(node, MetricConstant):
+        return NumericValue(ibis.literal(node.value))
+    if isinstance(node, MetricNegate):
+        item = lower_metric_formula(node.operand, (*occurrence, 0), values, declared)
+        return numeric_binary("multiply", item, NumericValue(ibis.literal(-1)))
+    if isinstance(node, MetricDivide):
+        return numeric_binary(
+            "divide",
+            lower_metric_formula(node.numerator, (*occurrence, 0), values, declared),
+            lower_metric_formula(node.denominator, (*occurrence, 1), values, declared),
+            zero_denominator=node.zero_denominator,
+        )
+    if isinstance(node, (MetricAdd, MetricSubtract, MetricMultiply)):
+        operation = (
+            "add"
+            if isinstance(node, MetricAdd)
+            else "subtract"
+            if isinstance(node, MetricSubtract)
+            else "multiply"
+        )
+        return numeric_binary(
+            operation,
+            lower_metric_formula(node.left, (*occurrence, 0), values, declared),
+            lower_metric_formula(node.right, (*occurrence, 1), values, declared),
+        )
+    numeric_failure(
+        "ordinary source reductions and Metric arithmetic",
+        f"{type(node).__name__}; Population/sample preparation is delivered in R3",
+    )
+
+
+def multiply_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
+    """Use native multiplication with necessary Decimal/float and scale adaptation."""
+    a, b = left.type(), right.type()
+    if a.is_floating() and isinstance(b, dt.Decimal):
+        right = right.cast(a)
+    elif b.is_floating() and isinstance(a, dt.Decimal):
+        left = left.cast(b)
+    try:
+        return left * right
+    except IbisTypeError:
+        a, b = left.type(), right.type()
+        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
+            raise
+        scale = max(a.scale or 0, b.scale or 0)
+        precision = (
+            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
+        )
+        common = dt.Decimal(min(38, precision), scale)
+        return left.cast(common) * right.cast(common)
+
+
+def add_numeric(left: ir.Value, right: ir.Value) -> ir.Value:
+    """Add numeric components with the minimal Ibis Decimal adaptation."""
+    a, b = left.type(), right.type()
+    if a.is_floating() and isinstance(b, dt.Decimal):
+        right = right.cast(a)
+    elif b.is_floating() and isinstance(a, dt.Decimal):
+        left = left.cast(b)
+    try:
+        return left + right
+    except IbisTypeError:
+        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
+            raise
+        scale = max(a.scale or 0, b.scale or 0)
+        precision = (
+            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
+        )
+        common = dt.Decimal(min(38, precision), scale)
+        return left.cast(common) + right.cast(common)

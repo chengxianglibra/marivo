@@ -141,6 +141,14 @@ empty collections into one summary.
 | `catalog.source_health(entries_or_refs, checks=(), scope=None)` | Check current connectivity and schema/capability identity, plus only explicitly declared bounded data expectations, independently from readiness. |
 | `catalog.readiness(refs=[entry_or_ref_or_runtime_expr])` | Zero-query readiness gate over current entries, exact refs, or closed runtime metric expressions. |
 
+Published DuckDB Metric previews reuse the pure nullable Row/Metric kernel for ordinary
+source reductions, weighted means and formulas, with at most 10,000 scoped
+Entity output rows. Empty sum is zero, weighted means use common non-NA pairs,
+and division masks zero denominators. Explicit strict policies and invalid
+arithmetic fail, including overflow of either weighted component. Population/sample
+and path/attribute-anchor preview preparation is rejected before opening a source.
+These bounded previews do not qualify analysis execution or persist outputs.
+
 Ordinary preview returns current execution results and never persists an
 authoring checkpoint. Dedicated period-calendar, temporal-set, and work-schedule
 preview may publish their immutable certified artifact after an exhaustive

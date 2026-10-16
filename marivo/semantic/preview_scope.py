@@ -69,7 +69,7 @@ def _semantic_kind(ref: str, registry: Registry) -> SemanticKind:
         )
     if ref in registry.measures:
         return SemanticKind.MEASURE
-    if ref in registry.metrics:
+    if ref in registry.metrics or ref in registry.declared_metrics:
         return SemanticKind.METRIC
     if ref in registry.relationships:
         return SemanticKind.RELATIONSHIP
@@ -121,6 +121,13 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
         return (field.entity,) if field is not None else ()
     if kind != SemanticKind.METRIC:
         return ()
+
+    if ref in registry.declared_metrics:
+        from marivo.semantic._numeric_preview import validate_preview_metric
+
+        metric = registry.declared_metrics[ref]
+        validate_preview_metric(metric)
+        return tuple(root.ref.path for root in metric.roots)
 
     ordered: list[str] = []
     visited_metrics: set[str] = set()

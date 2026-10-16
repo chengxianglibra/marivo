@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import math
 from collections.abc import Iterator
-from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass, field, replace
 from typing import NoReturn
 
 import ibis.expr.operations as ops
@@ -14,18 +14,23 @@ import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 
-from marivo._definition.types import FieldRead
 from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
     IntegrityCheck,
     LoweredLocal,
     LoweredPlan,
+    LoweredQuery,
     LoweredRead,
     LoweredRelation,
     SemanticCheck,
     TemporalCheck,
 )
-from marivo.analysis.compiler.graph_plan import CheckRequirement, SourceField, SourceSchema
+from marivo.analysis.compiler.graph_plan import (
+    CheckRequirement,
+    PlannedCheck,
+    SourceField,
+    SourceSchema,
+)
 from marivo.analysis.core.cell_encoding import (
     CellBook,
     CellEncoding,
@@ -99,11 +104,8 @@ from marivo.datasource.adapters import (
     provider_for,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.refs import SemanticKind
-from marivo.refs import ref as semantic_ref
 from marivo.semantic._compiled_state import CompiledSemanticState
-from marivo.semantic._expression_binding import CompiledExpressionSidecar
-from marivo.semantic.validator import Registry, normalize_target_entity
+from marivo.semantic.validator import normalize_target_entity
 
 
 def _as_arrow(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
@@ -1318,6 +1320,7 @@ class PreparedSources:
     schemas: tuple[SourceSchema, ...]
     relations: dict[str, ir.Table]
     bound: dict[str, BoundSource]
+    sources: dict[str, SourceSession] = field(default_factory=dict)
 
 
 def _preparation_error(expected: str, received: str) -> MaterializationError:
@@ -1345,12 +1348,16 @@ def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
 def admit_source_type(field: pa.Field, path: str) -> DataType:
     """Map one bound source column to its lossless stage type, before any read."""
     physical = field.type
-    if (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY) is not None:
-        _route_gap(
-            f"a native Duration column for {path}",
-            "an int64 tick column with Duration metadata",
-            "Encoded Duration reads arrive with the R2.4 value routes.",
-        )
+    unit = (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY)
+    if unit is not None:
+        if physical != pa.int64() or unit not in (b"s", b"ms", b"us", b"ns"):
+            raise _preparation_error("int64 ticks with a fixed Duration unit", repr(field))
+        return {
+            b"s": DurationDataType("s"),
+            b"ms": DurationDataType("ms"),
+            b"us": DurationDataType("us"),
+            b"ns": DurationDataType("ns"),
+        }[unit]
     if pa.types.is_signed_integer(physical) or physical in (pa.uint8(), pa.uint16(), pa.uint32()):
         return ScalarDataType("int64")
     if pa.types.is_floating(physical):
@@ -1382,35 +1389,6 @@ def admit_source_type(field: pa.Field, path: str) -> DataType:
     )
 
 
-def _field_column(registry: Registry, sidecar: CompiledExpressionSidecar, read: FieldRead) -> str:
-    path = read.field.ref.path
-    if read.path or read.at is not None:
-        _route_gap(
-            f"a native field read for {path}",
-            "a relationship path or attribute anchor read",
-            "Path and anchored field reads are lowered by the R2.4 observation route.",
-        )
-    if read.field.ref.kind is SemanticKind.MEASURE:
-        body = sidecar.bodies.get(semantic_ref.measure(path))
-        column = None if body is None else body.source_column
-    else:
-        dimension = registry.dimensions[path]
-        if dimension.parse is not None:
-            _route_gap(
-                f"a native time column for {path}",
-                "a parsed time field",
-                "Parsed time fields are lowered by the R2.4 time route.",
-            )
-        column = dimension.source_column
-    if column is None:
-        _route_gap(
-            f"a direct source column for {path}",
-            "a computed field body",
-            "Computed fields are lowered by the R2.4 row kernel.",
-        )
-    return column
-
-
 def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
     index = schema.get_field_index(column)
     if index < 0:
@@ -1421,137 +1399,277 @@ def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
     return SourceField(path, column, admit_source_type(item, path), item.nullable)
 
 
-def _validate_source_metadata(
-    bound: BoundSource, relation: ir.Table, columns: tuple[str, ...]
-) -> None:
-    """Check original carriers before Entity projection can erase their metadata."""
-    source_node = bound.relation.op()
-    physical_columns = {
-        field.name
-        for field in relation.select(*columns).op().find(ops.Field)
-        if field.rel == source_node
-    }
-    for name in sorted(physical_columns):
-        field = bound.facts.schema.field(name)
-        metadata = field.metadata or {}
-        if DURATION_UNIT_METADATA_KEY in metadata or TIMESTAMP_UNIT_METADATA_KEY in metadata:
-            admit_source_type(field, f"{bound.facts.source_identity}.{name}")
+def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[str, ...]:
+    """Resolve every required Entity before opening connections."""
+    from marivo._definition.expressions import MemberCount, PerReduce, PerWeightedMean
+    from marivo._definition.graph import walk
 
-
-@dataclass(frozen=True, slots=True)
-class _RootReads:
-    """Registry-resolved columns for one contribution root, before any connection."""
-
-    root: str
-    columns: tuple[tuple[str, str], ...]
-    period_fields: tuple[str, ...]
-
-
-def _query_reads(graph: BoundGraph, state: CompiledSemanticState) -> tuple[_RootReads, ...]:
-    """Resolve every read to a direct column, rejecting later-stage routes without I/O."""
+    closure = walk((graph.root,), resolve=dict(graph.signature.declared_metrics).get)
+    if any(isinstance(node, (MemberCount, PerReduce, PerWeightedMean)) for node in closure.order):
+        _route_gap(
+            "ordinary source reductions and Metric formulas",
+            "Population/sample preparation",
+            "Population and internal sample execution are delivered in R3.",
+        )
     observation = graph.signature.observation
-    contributions = () if observation is None else observation.contributions
-    registry, sidecar = state.registry, state.sidecar
-    columns: dict[str, dict[str, str]] = {}
-    times: dict[str, dict[str, None]] = {}
-    for contribution in contributions:
+    entities: dict[str, None] = {}
+    for contribution in () if observation is None else observation.contributions:
         root = contribution.root.ref.path
-        resolved = columns.setdefault(root, {})
+        entities[root] = None
         for read in (*contribution.reads, *contribution.coordinates):
-            column = _field_column(registry, sidecar, read)
-            resolved.setdefault(read.field.ref.path, column)
-        if contribution.period is not None and contribution.time is not None:
-            times.setdefault(root, {})[contribution.time.field.ref.path] = None
-    return tuple(
-        _RootReads(root, tuple(resolved.items()), tuple(times.get(root, {})))
-        for root, resolved in columns.items()
-    )
+            entities[read.entity.ref.path] = None
+            for step in read.path:
+                relation = state.registry.relationships[step.ref.path]
+                entities[relation.from_entity] = None
+                entities[relation.to_entity] = None
+            if (
+                state.registry.entities[root].datasource
+                != state.registry.entities[read.entity.ref.path].datasource
+            ):
+                _route_gap(
+                    "scalar relationship endpoints on one datasource",
+                    read.field.ref.path,
+                    "Reduce independent datasource roots separately before combining Metrics.",
+                )
+    return tuple(entities)
 
 
 def prepare_query_sources(
-    graph: BoundGraph, state: CompiledSemanticState, source: SourceSession
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    source: SourceSession,
+    *,
+    sources: dict[str, SourceSession] | None = None,
 ) -> PreparedSources:
-    """Bind every contribution root and admit its read types without business reads."""
-    if source.provider.name != "duckdb":
-        _route_gap(
-            "a lossless qualified source read route",
-            f"{source.provider.name} datasource",
-            "Remote lossless read routes are qualified with Runtime tests after R2.3.",
-        )
+    """Prepare all physical fields and checked relationships without business reads."""
+    from marivo.analysis.materialization.query_preparation import physical_fields, prepare_fields
+    from marivo.datasource.timezone import probe_engine_timezone
+
+    available = sources or {source.datasource.semantic_id: source}
     registry, sidecar = state.registry, state.sidecar
+    entities: dict[str, ir.Table] = {}
+    bounds: dict[str, BoundSource] = {}
+    owners: dict[str, SourceSession] = {}
+    for path in _query_entities(graph, state):
+        contract = normalize_target_entity(registry, path)
+        owner = available[contract.datasource_ref.path]
+        if owner.provider.name != "duckdb":
+            _route_gap(
+                "a qualified numeric datasource route",
+                owner.provider.name,
+                "Use a qualified DuckDB datasource for this numeric route.",
+            )
+        bound = owner.bind(contract.source, source_identity=path)
+        entities[path] = bind_entity_output(
+            registry, sidecar, path, owner, bound, contract.dependency_fingerprint
+        )
+        bounds[path] = bound
+        owners[path] = owner
     schemas: list[SourceSchema] = []
     relations: dict[str, ir.Table] = {}
-    bound_sources: dict[str, BoundSource] = {}
-    for item in _query_reads(graph, state):
-        root = item.root
-        contract = normalize_target_entity(registry, root)
-        if contract.datasource_ref.path != source.datasource.semantic_id:
-            _route_gap(
-                f"contributions on datasource {source.datasource.semantic_id}",
-                f"{root} on {contract.datasource_ref.path}",
-                "Cross-datasource combination is not delivered in R2.3.",
-            )
-        bound = source.bind(contract.source, source_identity=root)
-        relation = bind_entity_output(
-            registry, sidecar, root, source, bound, contract.dependency_fingerprint
+    observation = graph.signature.observation
+    for contribution in () if observation is None else observation.contributions:
+        root = contribution.root.ref.path
+        prepared = prepare_fields(
+            contribution, entities, state, probe_engine_timezone(owners[root]._backend)
         )
-        schema = relation.schema().to_pyarrow()
-        keys = tuple(_admitted(schema, column, column) for column in contract.primary_key)
-        fields = tuple(_admitted(schema, path, column) for path, column in item.columns)
-        _validate_source_metadata(
-            bound,
-            relation,
-            tuple(dict.fromkeys((*contract.primary_key, *(column for _, column in item.columns)))),
+        for dependency in prepared.dependencies:
+            for physical in physical_fields(dependency):
+                for bound in bounds.values():
+                    if physical.rel == bound.relation.op():
+                        raw = bound.facts.schema.field(physical.name)
+                        metadata = raw.metadata or {}
+                        if (
+                            DURATION_UNIT_METADATA_KEY in metadata
+                            or TIMESTAMP_UNIT_METADATA_KEY in metadata
+                        ):
+                            admit_source_type(raw, f"{root}: {physical.name}")
+        table = prepared.table
+        schema = table.schema().to_pyarrow()
+        keys = tuple(_admitted(schema, name, name) for name in registry.entities[root].primary_key)
+        fields = []
+        originals = dict(prepared.originals)
+        for path, column in prepared.columns:
+            admitted = _admitted(schema, path, column)
+            expression = originals[column]
+            duration = None
+            for physical in physical_fields(expression):
+                for bound in bounds.values():
+                    if physical.rel == bound.relation.op():
+                        raw = bound.facts.schema.field(physical.name)
+                        metadata = raw.metadata or {}
+                        if not (
+                            DURATION_UNIT_METADATA_KEY in metadata
+                            or TIMESTAMP_UNIT_METADATA_KEY in metadata
+                        ):
+                            continue
+                        dtype = admit_source_type(raw, path)
+                        if isinstance(dtype, DurationDataType):
+                            if duration is not None and duration != dtype:
+                                raise _preparation_error("one exact Duration unit", path)
+                            duration = dtype
+            if duration is not None and (
+                isinstance(admitted.dtype, DecimalDataType)
+                or admitted.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
+            ):
+                admitted = replace(admitted, dtype=duration)
+            fields.append(admitted)
+        schemas.append(
+            SourceSchema(root, keys, tuple(fields), contribution.occurrence, prepared.checks)
         )
-        for path in item.period_fields:
-            dtype = next(item.dtype for item in fields if item.field == path)
-            if not isinstance(dtype, TimestampDataType) or dtype.timezone is None:
-                _route_gap(
-                    f"a timezone-aware instant column for the {path} period filter",
-                    f"{path}: {dtype}",
-                    "Civil-date and naive time periods are lowered by the R2.4 time route.",
-                )
-        schemas.append(SourceSchema(root, keys, fields))
-        relations[root] = relation
-        bound_sources[root] = bound
-    return PreparedSources(source, tuple(schemas), relations, bound_sources)
+        stage_id = "read:" + ".".join(str(i) for i in contribution.occurrence)
+        relations[stage_id] = table
+    return PreparedSources(source, tuple(schemas), relations, bounds, owners)
 
 
 @contextmanager
 def open_query_sources(
     service: DatasourceConnectionService, graph: BoundGraph, state: CompiledSemanticState
 ) -> Iterator[PreparedSources]:
-    """Open the one datasource read by ``graph`` and yield its prepared bindings."""
-    roots = _query_reads(graph, state)
-    datasources = {state.registry.entities[item.root].datasource for item in roots}
-    if len(datasources) != 1:
-        _route_gap(
-            "contributions on one datasource",
-            repr(sorted(datasources)),
-            "Cross-datasource combination is not delivered in R2.3.",
-        )
-    datasource = state.registry.datasources[next(iter(datasources))]
-    with (
-        service.use_backend(datasource.name, read_only=True) as backend,
-        SourceSession(
-            provider_for(datasource.backend_type), datasource, backend, owns_backend=False
-        ) as source,
-    ):
-        yield prepare_query_sources(graph, state, source)
+    """Open the declared datasource sessions used by this invocation."""
+    entities = _query_entities(graph, state)
+    datasources = tuple(
+        dict.fromkeys(state.registry.entities[path].datasource for path in entities)
+    )
+    with ExitStack() as stack:
+        sources: dict[str, SourceSession] = {}
+        for name in datasources:
+            datasource = state.registry.datasources[name]
+            backend = stack.enter_context(service.use_backend(datasource.name, read_only=True))
+            sources[name] = stack.enter_context(
+                SourceSession(provider_for(datasource.backend_type), datasource, backend)
+            )
+        if not sources:
+            _route_gap(
+                "a source contribution",
+                "source-free query",
+                "Execute the local-only plan directly.",
+            )
+        yield prepare_query_sources(graph, state, next(iter(sources.values())), sources=sources)
 
 
 def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
     """Submit one lowered SourceRead and normalize its pandas result."""
     stage = lowered.stage
     expression = lowered.expression
-    qualified = prepared.source.qualify(
-        prepared.bound[stage.source_id],
-        PhysicalRequirement("query.source_read", 1, relation_operations(expression)),
+    source = prepared.sources.get(stage.source_id, prepared.source)
+    relations = set(expression.op().find(ops.Relation))
+    qualified = tuple(
+        source.qualify(
+            bound, PhysicalRequirement("query.source_read", 1, relation_operations(expression))
+        )
+        for path, bound in prepared.bound.items()
+        if prepared.sources.get(path, prepared.source) is source
+        and bound.relation.op() in relations
     )
-    issued = prepared.source.compile(
+    issued = source.compile(
         qualified,
         expression,
         purpose=f"query.{stage.stage_id}",
         expected_schema=expression.schema().to_pyarrow(),
     )
-    return StageOutput.from_frame(prepared.source.execute(issued), stage.columns, stage.keys)
+    frame = source.execute(issued)
+    from marivo.semantic.metric_graph_lowering import numeric_failure
+
+    for name, check in lowered.numeric_checks:
+        if frame[name].fillna(False).any():
+            coordinates = frame.loc[frame[name].fillna(False), list(stage.keys)].head(6)
+            received = f"{check.received}; source={stage.source_id}; coordinates={coordinates.to_dict(orient='records')}"
+            if any(name == column for column, _, _ in stage.preparation_checks):
+                raise MaterializationError(
+                    expected=check.expected,
+                    received=received,
+                    repair="Inspect the relationship keys and exact snapshot/validity selection. Correct missing matches or overlapping rows so each selected contribution has exactly one matching field row, then retry.",
+                    stage="scalar_field_lookup",
+                    help_target="Query.execute",
+                )
+            numeric_failure(check.expected, received)
+    if "__numeric_present" in frame.columns:
+        frame = frame.loc[frame["__numeric_present"].fillna(False)]
+    from fractions import Fraction
+
+    from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
+
+    reduction = stage.reduction
+    if (
+        reduction is not None
+        and reduction.duration is not None
+        and isinstance(reduction.node, SourceAggregate)
+    ):
+        node = reduction.node
+        if node.reducer in ("mean", "median", "quantile"):
+            finished: list[int | None] = []
+            for row in frame.to_dict("records"):
+                count = int(row["__duration_count"])
+                if count == 0:
+                    finished.append(None)
+                    continue
+                lower = int(row[reduction.value_slot])
+                if node.reducer == "mean":
+                    exact = Fraction(lower, count)
+                else:
+                    q = 0.5 if node.reducer == "median" else node.q
+                    assert q is not None
+                    position = Fraction(q * (count - 1))
+                    fraction = position - (position.numerator // position.denominator)
+                    exact = lower + fraction * (int(row["__duration_upper"]) - lower)
+                finished.append(round(exact))
+            frame[reduction.value_slot] = pd.Series(
+                finished, dtype="int64[pyarrow]", index=frame.index
+            )
+    if (
+        reduction is not None
+        and reduction.duration is not None
+        and isinstance(reduction.node, SourceWeightedMean)
+    ):
+        values: list[int | None] = []
+        for numerator, denominator in zip(
+            frame[reduction.value_slot], frame["__duration_weight_sum"], strict=True
+        ):
+            ticks = None if denominator == 0 else round(Fraction(numerator) / Fraction(denominator))
+            if ticks is not None and not -(2**63) <= ticks < 2**63:
+                numeric_failure("signed int64 Duration ticks", "weighted_mean output overflow")
+            values.append(ticks)
+        frame[reduction.value_slot] = pd.Series(values, dtype="int64[pyarrow]", index=frame.index)
+    for column in stage.columns:
+        if isinstance(column.dtype, DurationDataType):
+            try:
+                tick_array = pa.array(frame[column.slot_id], type=pa.int64(), from_pandas=True)
+                frame[column.slot_id] = pd.Series(
+                    pd.arrays.ArrowExtensionArray(tick_array.cast(pa.duration(column.dtype.unit))),
+                    index=frame.index,
+                )
+            except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
+                numeric_failure("lossless signed int64 Duration ticks", str(error))
+    return StageOutput.from_frame(
+        frame.loc[:, [c.slot_id for c in stage.columns]], stage.columns, stage.keys
+    )
+
+
+def execute_numeric_query(prepared: PreparedSources, lowered: LoweredQuery) -> StageOutput:
+    """Execute the fixed numeric schedule and return invocation-local pandas data."""
+    from marivo.analysis.core.model import reject
+    from marivo.analysis.materialization.graph_execution import run_query_plan
+    from marivo.analysis.materialization.graph_local_execution import run_local
+
+    def check(requirement: PlannedCheck, output: StageOutput) -> None:
+        reject(
+            "an implemented Query check algorithm",
+            requirement.check_id,
+            "Bind a qualified check route before executing this plan.",
+            "analysis.query_check",
+        )
+
+    if lowered.plan.checks:
+        reject(
+            "implemented Query check algorithms",
+            repr(tuple(item.check_id for item in lowered.plan.checks)),
+            "Use the qualified numeric checks emitted by lowering; no business row was read.",
+            "analysis.query_check",
+        )
+    return run_query_plan(
+        lowered.plan,
+        lambda stage: read_stage(prepared, lowered.read(stage.stage_id)),
+        lambda stage, inputs: run_local(stage, inputs),
+        check,
+    )

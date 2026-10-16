@@ -1934,12 +1934,13 @@ def _normalize_semantic_input(
     *,
     allowed_kinds: frozenset[SemanticKind],
     location: str,
+    metric_preview: bool = False,
 ) -> Ref[SemanticKindTag]:
     """Normalize one ref, current-catalog entry, or catalog value to its canonical ref.
 
     Entries must belong to this catalog instance. Expression values are lookup
-    keys resolved by kind and path in this catalog. Published expression
-    declarations have no physical preview, certification or source check yet.
+    keys resolved by kind and path in this catalog. Metric previews opt into
+    ordinary numeric lowering; certification and source checks remain physical.
     """
     if not allowed_kinds:
         raise ValueError("allowed_kinds must not be empty")
@@ -2065,7 +2066,7 @@ def _normalize_semantic_input(
             candidate_kinds=frozenset({exact_ref.kind}),
         )
     registry = catalog._state.registry
-    if exact_ref.kind is SemanticKind.METRIC or (
+    if (exact_ref.kind is SemanticKind.METRIC and not metric_preview) or (
         exact_ref.kind is SemanticKind.MEASURE and exact_ref.path in registry.declared_measures
     ):
         _raise(
@@ -3910,6 +3911,7 @@ class SemanticCatalog(RenderableResult):
                     ref,
                     allowed_kinds=_ALL_SEMANTIC_KINDS,
                     location="catalog.preview(ref)",
+                    metric_preview=True,
                 ),
                 scope=scope,
                 connections=connections,
@@ -3963,6 +3965,7 @@ class SemanticCatalog(RenderableResult):
                 value,
                 allowed_kinds=_ALL_SEMANTIC_KINDS,
                 location=f"catalog.preview_many(refs)[{index}]",
+                metric_preview=True,
             )
             for index, value in enumerate(refs)
         )
@@ -4001,6 +4004,12 @@ class SemanticCatalog(RenderableResult):
                 cls=SemanticRuntimeError,
                 refs=(ref_str,),
             )
+        if kind is SemanticKind.METRIC:
+            from marivo.semantic._numeric_preview import validate_preview_metric
+
+            metric = self.metrics.get(ref_str)
+            assert isinstance(metric, Metric)
+            validate_preview_metric(metric)
         bindings = normalize_preview_scope(
             ref=ref_str,
             kind=kind,
@@ -4008,6 +4017,13 @@ class SemanticCatalog(RenderableResult):
             source_bindings=source_bindings,
             registry=reg,
         )
+        if kind is SemanticKind.METRIC and bindings.backend != "duckdb":
+            from marivo.semantic.metric_graph_lowering import numeric_failure
+
+            numeric_failure(
+                "a qualified DuckDB ordinary Metric preview",
+                f"unqualified {bindings.backend} numeric preview route",
+            )
         if kind in {
             SemanticKind.PERIOD_CALENDAR,
             SemanticKind.TEMPORAL_SET,
@@ -4139,6 +4155,30 @@ class SemanticCatalog(RenderableResult):
                 entity_scopes=bindings.entity_scopes,
                 source_bindings=bindings.source_bindings,
             )
+            if kind is SemanticKind.METRIC:
+                from marivo.semantic._numeric_preview import lower_preview_metric
+                from marivo.semantic.metric_graph_lowering import numeric_failure
+
+                metric = self.metrics.get(ref_str)
+                assert isinstance(metric, Metric)
+                expression, checks = lower_preview_metric(metric, resolver)
+                frame = connections.collect_source(
+                    bindings.datasource_id, expression, purpose="semantic.preview", max_rows=1
+                )
+                for name, check in checks:
+                    if frame[name].fillna(False).any():
+                        numeric_failure(check.expected, f"{ref_str}: {check.received}")
+                return preview_from_pandas(
+                    frame.loc[:, ["value"]],
+                    kind="semantic_metric",
+                    ref=ref_str,
+                    requested_limit=preview_limit,
+                    sample_policy=PreviewSamplePolicy(
+                        method="pre_aggregate_limit", limit=METRIC_PREVIEW_SAMPLE_SIZE
+                    ),
+                    types={"value": str(expression.value.type())} if include_types else {},
+                    warnings=(_metric_preview_warning(),),
+                )
             if kind == SemanticKind.ENTITY:
                 table = resolver.entity(_make_ref(ref_str, SemanticKind.ENTITY))
                 return preview_with_source(
@@ -4355,6 +4395,7 @@ class SemanticCatalog(RenderableResult):
             )
 
         supported_kinds = {
+            SemanticKind.METRIC,
             SemanticKind.ENTITY,
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,

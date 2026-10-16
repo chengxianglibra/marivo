@@ -401,3 +401,11 @@ REGISTRY = MethodRegistry(
         for method in CONNECTED_METHODS
     )
 )
+
+
+def require_query_kernel(key: str) -> None:
+    """Resolve the ordinary nullable pandas kernel without alternate routing."""
+    from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
+
+    if key != QUERY_COMBINE_KERNEL:
+        reject("a registered Query numeric kernel", key, "Use the kernel fixed by the Query plan.")

@@ -7,9 +7,17 @@ from typing import Literal, TypeAlias, get_args
 
 import pyarrow as pa
 
+from marivo.analysis.core.data_types import (
+    DataType,
+    DecimalDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.core.model import CheckId, DomainKind, PartRole
 from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.semantics import MethodKey
+
+QUERY_COMBINE_KERNEL = "query.combine@v1"
 
 Backend: TypeAlias = Literal["duckdb", "postgres", "mysql", "trino", "clickhouse"]
 ScalarName: TypeAlias = Literal["boolean", "string", "int64", "float64", "date", "timestamp"]
@@ -359,3 +367,20 @@ def matches_arrow_scalar(dtype: object, scalar: ValueType) -> bool:
     if scalar.name == "date":
         return bool(pa.types.is_date(dtype))
     return bool(dtype == pa.type_for_alias(scalar.name))
+
+
+def stage_arrow_type(dtype: DataType) -> pa.DataType:
+    """Return the exact Arrow carrier for one stage slot type."""
+    if isinstance(dtype, ScalarDataType):
+        return {
+            "boolean": pa.bool_(),
+            "string": pa.string(),
+            "int64": pa.int64(),
+            "float64": pa.float64(),
+            "date": pa.date32(),
+        }[dtype.name]
+    if isinstance(dtype, DecimalDataType):
+        return pa.decimal128(dtype.precision, dtype.scale)
+    if isinstance(dtype, TimestampDataType):
+        return pa.timestamp(dtype.unit, dtype.timezone)
+    return pa.duration(dtype.unit)

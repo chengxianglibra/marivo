@@ -13,6 +13,11 @@ v0.10 落定完整元组谓词、分阶段准入和浮点优化边界，同步�
 Artifact 保存输出数据、必要描述与实际 Finding/Evidence；不携带语义对象、图或内部组件，不进入后继 DSL。
 新产物与重开产物统一引用已提交的 Parquet 和输出记录；发布前 pandas 数据不成为 Artifact 的另一种存储形态。
 
+实施进度：R2.4 已接通私有数值路线及计算字段、单值路径、精确版本锚点、
+解析/民用日期/naive 时间、编码 Duration 的准备；不同 datasource 根先分别规约后组合。
+普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
+公开 Query.execute 仍在业务读取前报告 R2.5 发布缺口，不构成终端保存/冷读或完整 Runtime 验收声明。
+
 ## 1. 架构结论与文档边界
 
 Analysis 应实现为一个**消费统一定义图的、有明确观察绑定和终端产出边界的执行系统**。

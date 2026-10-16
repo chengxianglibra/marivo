@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,7 +14,7 @@ from marivo._definition.expressions import MetricConstant, MetricMultiply, PerRe
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import InstantAnchor
 from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.errors import AnalysisError, AnalysisStageUnavailableError
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.expressions import Dimension, Entity, Metric
@@ -128,9 +128,10 @@ def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_firs
     anchored = region.at(session.instant("2026-01-01")) == "APAC"
     condition = anchored & direct if anchored_first else direct & anchored
     query = session.observe({"count": entity.count()}, where=condition)
-    # bound_catalog forbids opening a datasource, even for schema inspection.
-    with pytest.raises(AnalysisStageUnavailableError, match="attribute anchor"):
-        query.execute()
+    observation = query._graph.signature.observation
+    assert observation is not None
+    reads = observation.contributions[0].reads
+    assert {read.at for read in reads} == {None, session.instant("2026-01-01")}
     assert session.runs().items == ()
 
 
@@ -157,7 +158,11 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert len(binding.contributions) == 4
     assert len({c.occurrence for c in binding.contributions}) == 4
     assert {c.root.ref.path for c in binding.contributions} == {"sales.orders", "sales.refunds"}
-    assert all(c.common_condition == (region == "APAC").node for c in binding.contributions)
+    assert all(
+        c.common_condition is not None
+        and replace(c.common_condition, read=None) == (region == "APAC").node
+        for c in binding.contributions
+    )
     assert [len(c.intrinsic_conditions) for c in binding.contributions] == [0, 0, 1, 1]
     assert (
         binding.contributions[2].intrinsic_conditions
@@ -171,11 +176,6 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert session.runs().items == ()
     query.contract().show()
     assert "sales.refunds" in capsys.readouterr().out
-    # Path reads are rejected at execute preparation before any datasource opens.
-    with pytest.raises(AnalysisStageUnavailableError, match=r"R2\.4") as caught:
-        query.execute()
-    assert caught.value.run_ref is None
-    assert session.runs().items == ()
     with pytest.raises(FrozenInstanceError):
         binding.period = None
 

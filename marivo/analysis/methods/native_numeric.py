@@ -6,30 +6,12 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
-from ibis.common.exceptions import IbisTypeError
 
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, ValueType
+from marivo.semantic.metric_graph_lowering import add_numeric, multiply_numeric
 
-
-def multiply(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Use native multiplication with necessary Decimal/float and scale adaptation."""
-    a, b = left.type(), right.type()
-    if a.is_floating() and isinstance(b, dt.Decimal):
-        right = right.cast(a)
-    elif b.is_floating() and isinstance(a, dt.Decimal):
-        left = left.cast(b)
-    try:
-        return left * right
-    except IbisTypeError:
-        a, b = left.type(), right.type()
-        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
-            raise
-        scale = max(a.scale or 0, b.scale or 0)
-        precision = (
-            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
-        )
-        common = dt.Decimal(min(38, precision), scale)
-        return left.cast(common) * right.cast(common)
+add = add_numeric
+multiply = multiply_numeric
 
 
 def weighted_state_types(amount: str, weight: str) -> tuple[tuple[str, str], ...]:
@@ -68,26 +50,6 @@ def adapt_measure(value: ir.Value, declared: str) -> ir.Value:
     ):
         return value.cast(declared)
     return value
-
-
-def add(left: ir.Value, right: ir.Value) -> ir.Value:
-    """Add numeric components with the minimal Ibis Decimal adaptation."""
-    a, b = left.type(), right.type()
-    if a.is_floating() and isinstance(b, dt.Decimal):
-        right = right.cast(a)
-    elif b.is_floating() and isinstance(a, dt.Decimal):
-        left = left.cast(b)
-    try:
-        return left + right
-    except IbisTypeError:
-        if not isinstance(a, dt.Decimal) or not isinstance(b, dt.Decimal):
-            raise
-        scale = max(a.scale or 0, b.scale or 0)
-        precision = (
-            max((a.precision or 38) - (a.scale or 0), (b.precision or 38) - (b.scale or 0)) + scale
-        )
-        common = dt.Decimal(min(38, precision), scale)
-        return left.cast(common) + right.cast(common)
 
 
 def linear_type(types: tuple[ValueType, ...]) -> ValueType:

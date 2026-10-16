@@ -24,7 +24,7 @@ class Query:
     """A lazy named Metric definition owned by one Session.
 
     Acquire through session.observe(metrics). This surface captures definitions and ordinary observation bindings;
-    execute() prepares schema and plans stages, while numeric routes (R2.4) and publication (R2.5) are pending.
+    execute() prepares schema and numeric stages; terminal publication (R2.5) is pending.
     """
 
     _graph: BoundGraph
@@ -122,7 +122,7 @@ class Query:
             _facts=(
                 ("definition", self._graph.fingerprint),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
-                ("pending", "R2.4 numeric routes and R2.5 publication"),
+                ("pending", "R2.5 terminal publication"),
                 (
                     "period",
                     repr(self._graph.signature.observation.period)

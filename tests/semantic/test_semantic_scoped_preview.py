@@ -21,7 +21,7 @@ from marivo.semantic.catalog import (
     TemporalSetEntry,
     WorkScheduleEntry,
 )
-from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.errors import SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
 
 
@@ -100,21 +100,13 @@ def test_preview_value_and_ref_have_equivalent_current_results(scoped_catalog) -
     assert by_value.coverage.scopes == (("sales.orders", default_scope()),)
 
 
-def test_published_metric_preview_is_rejected_before_connection(
-    scoped_catalog, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_published_metric_preview_uses_bounded_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    monkeypatch.setattr(
-        catalog._project,
-        "_connection_service",
-        lambda: pytest.fail("connection opened"),
-    )
-
     for value in (catalog.metrics.get("sales.revenue"), ms.ref.metric("sales.revenue")):
-        with pytest.raises(SemanticRuntimeError) as exc_info:
-            catalog.preview(value, scope=default_scope())
-        assert exc_info.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
-        assert exc_info.value.semantic_refs == ("metric:sales.revenue",)
+        preview = catalog.preview(value, scope=default_scope())
+        assert preview.kind == "semantic_metric"
+        assert preview.coverage.scopes == (("sales.orders", default_scope()),)
+        assert preview.sample_policy.method == "pre_aggregate_limit"
 
 
 def test_ordinary_preview_ignores_history_and_writes_no_check(scoped_catalog) -> None:

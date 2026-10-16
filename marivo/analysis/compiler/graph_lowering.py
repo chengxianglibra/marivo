@@ -119,6 +119,7 @@ from marivo.semantic.ir import (
     TargetSnapshotVersion,
     TargetValidityVersion,
 )
+from marivo.semantic.metric_graph_lowering import NumericCheck
 
 
 def _fail(expected: str, received: str) -> NoReturn:
@@ -4682,6 +4683,7 @@ class LoweredRead:
 
     stage: SourceRead
     expression: ir.Table
+    numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -4752,18 +4754,51 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
     for stage in plan.stages:
         if not isinstance(stage, SourceRead):
             continue
-        table = relations.get(stage.source_id)
+        table = relations.get(stage.stage_id)
+        if table is None:
+            table = relations.get(stage.source_id)
         if table is None:
             raise compilation_error(f"a bound relation for {stage.source_id}", "unbound source")
         columns = dict(stage.field_columns)
-        conditions = [_query_predicate(p, table, columns) for p in stage.predicates]
+        conditions: list[ir.BooleanValue] = []
         if stage.period is not None:
+            from marivo.analysis.compiler.observation import temporal_bound
+
             time = table[stage.period.column]
-            conditions.append(time >= ibis.literal(stage.period.start))
-            conditions.append(time < ibis.literal(stage.period.end))
+            conditions.append(
+                time >= temporal_bound(time, stage.period.start, stage.period.timezone)
+            )
+            conditions.append(time < temporal_bound(time, stage.period.end, stage.period.timezone))
         filtered = table.filter(*conditions) if conditions else table
-        expression = filtered.select(
-            **{slot: filtered[column] for slot, column in stage.projections}
-        )
-        lowered.append(LoweredRead(stage, expression))
+        if stage.reduction is not None:
+            from marivo.analysis.compiler.observation import lower_observation
+
+            expression, checks = lower_observation(
+                stage.reduction, filtered, columns, stage.predicates
+            )
+            if stage.preparation_checks:
+                summary = table.aggregate(
+                    **{
+                        name: table[name].any().fill_null(False)
+                        for name, _, _ in stage.preparation_checks
+                    }
+                )
+                if "__numeric_present" not in expression.columns:
+                    expression = expression.mutate(__numeric_present=ibis.literal(True))
+                expression = summary.left_join(expression, ibis.literal(True))
+                checks = (
+                    *checks,
+                    *(
+                        (name, NumericCheck(summary[name], expected, received))
+                        for name, expected, received in stage.preparation_checks
+                    ),
+                )
+            lowered.append(LoweredRead(stage, expression, checks))
+        else:
+            conditions = [_query_predicate(p, filtered, columns) for p in stage.predicates]
+            filtered = filtered.filter(*conditions) if conditions else filtered
+            expression = filtered.select(
+                **{slot: filtered[column] for slot, column in stage.projections}
+            )
+            lowered.append(LoweredRead(stage, expression))
     return LoweredQuery(plan, tuple(lowered))

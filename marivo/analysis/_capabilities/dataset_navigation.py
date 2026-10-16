@@ -61,7 +61,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Metric-first Query capture: session.observe(named_metrics); numeric execution is pending R2.4-R2.5.",
+            "Metric-first Query capture: session.observe(named_metrics); ordinary numeric routes are internal; terminal publication is pending R2.5.",
             "Entity-member questions: start with session.members(Entity Ref).",
             "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
             "Existing work: resume the Session; recovery does not replay sources.",

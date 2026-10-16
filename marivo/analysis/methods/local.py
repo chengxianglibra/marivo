@@ -11,7 +11,8 @@ from fractions import Fraction
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.compiler.graph_plan import LocalMethodStage
+from marivo.analysis.compiler.graph_plan import LocalCompute, LocalMethodStage
+from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.core.model import Cell, Defined, Null, Undefined, Unknown, reject
 from marivo.analysis.core.rules import AssociationScore, RowState
 from marivo.analysis.methods.association_numeric import score
@@ -314,3 +315,139 @@ def count_defined(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResu
         )
     value = sum(isinstance(cell, Defined) for cell in cells)
     return CountResult(Defined(value), value)
+
+
+def query_combine(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd.DataFrame:
+    """Combine reduced inputs on their complete nullable coordinate keys."""
+    from marivo._definition.expressions import (
+        ContributionFilter,
+        DeclaredMetricRef,
+        MetricAdd,
+        MetricConstant,
+        MetricDivide,
+        MetricMultiply,
+        MetricNegate,
+        MetricNode,
+        MetricSubtract,
+    )
+    from marivo.analysis.compiler.observation import duration_type
+    from marivo.analysis.core.data_types import DurationDataType
+    from marivo.analysis.methods.numeric_state import nullable_arithmetic
+    from marivo.analysis.methods.physical import stage_arrow_type
+    from marivo.semantic.metric_graph_lowering import numeric_failure
+
+    program = stage.program
+    assert program is not None
+    keys = list(stage.keys)
+    if keys:
+        domain = (
+            pd.concat([frame.loc[:, keys] for frame in inputs], ignore_index=True).drop_duplicates()
+            if inputs
+            else pd.DataFrame(columns=keys)
+        )
+        if program.calendar is not None:
+            buckets = pd.DataFrame(
+                {"key.0": pd.Series(range(len(program.calendar.cells)), dtype="int64[pyarrow]")}
+            )
+            field_keys = keys[1:]
+            domain = (
+                domain.loc[:, field_keys].drop_duplicates().merge(buckets, how="cross")
+                if field_keys
+                else buckets
+            )
+            domain = domain.loc[:, keys]
+        domain = domain.reset_index(drop=True)
+    else:
+        domain = pd.DataFrame(index=pd.RangeIndex(1))
+    values: dict[tuple[int, ...], pd.Series] = {}
+    for binding, frame in zip(program.values, inputs, strict=True):
+        slot = binding.column.slot_id
+        if isinstance(binding.column.dtype, DurationDataType):
+            frame = frame.copy()
+            frame[slot] = pd.Series(
+                pd.arrays.ArrowExtensionArray(pa.array(frame[slot]).cast(pa.int64()))
+            )
+        if keys:
+            marked = frame.assign(**{"__present": True})
+            merged = domain.merge(marked, on=keys, how="left", validate="one_to_one", sort=False)
+            value = merged[slot].astype(object)
+            if binding.empty_zero:
+                value = value.mask(
+                    merged["__present"].isna(),
+                    pd.Series(
+                        [Decimal(0) if isinstance(binding.column.dtype, DecimalDataType) else 0]
+                        * len(value),
+                        dtype=object,
+                    ),
+                )
+        else:
+            value = frame[slot].astype(object).reset_index(drop=True)
+        values[binding.occurrence] = value
+    declarations = dict(program.declared)
+
+    def evaluate(node: MetricNode, occurrence: tuple[int, ...]) -> pd.Series:
+        duration = duration_type(
+            node,
+            {},
+            values={v.occurrence: v.column.dtype for v in program.values},
+            declared=declarations,
+            occurrence=occurrence,
+        )
+        if occurrence in values:
+            return values[occurrence]
+        if isinstance(node, DeclaredMetricRef):
+            return evaluate(declarations[node.ref], (*occurrence, 0))
+        if isinstance(node, ContributionFilter):
+            return evaluate(node.operand, (*occurrence, 0))
+        if isinstance(node, MetricConstant):
+            return pd.Series([node.value] * len(domain), dtype=object)
+        if isinstance(node, MetricNegate):
+            return nullable_arithmetic(
+                "multiply",
+                evaluate(node.operand, (*occurrence, 0)),
+                pd.Series([-1] * len(domain), dtype=object),
+            )
+        if isinstance(node, MetricDivide):
+            return nullable_arithmetic(
+                "divide",
+                evaluate(node.numerator, (*occurrence, 0)),
+                evaluate(node.denominator, (*occurrence, 1)),
+                zero_denominator=node.zero_denominator,
+                exact_duration=duration is not None,
+            )
+        if isinstance(node, (MetricAdd, MetricSubtract, MetricMultiply)):
+            operation = (
+                "add"
+                if isinstance(node, MetricAdd)
+                else "subtract"
+                if isinstance(node, MetricSubtract)
+                else "multiply"
+            )
+            return nullable_arithmetic(
+                operation,
+                evaluate(node.left, (*occurrence, 0)),
+                evaluate(node.right, (*occurrence, 1)),
+                exact_duration=duration is not None,
+            )
+        numeric_failure("ordinary Metric arithmetic", type(node).__name__)
+
+    result = domain.copy()
+    for i, (_, node) in enumerate(program.outputs):
+        column = stage.columns[len(keys) + i]
+        series = evaluate(node, (i,))
+        # Match native Ibis's numeric result type, including integer true division.
+        if isinstance(column.dtype, DurationDataType):
+            series = pd.Series(
+                [round(value) if pd.notna(value) else None for value in series], dtype=object
+            )
+        if isinstance(column.dtype, ScalarDataType) and column.dtype.name == "float64":
+            series = series.map(lambda value: float(value) if pd.notna(value) else None)
+        try:
+            result[column.slot_id] = pd.Series(
+                pd.arrays.ArrowExtensionArray(
+                    pa.array(series, type=stage_arrow_type(column.dtype), from_pandas=True)
+                )
+            )
+        except (pa.ArrowException, OverflowError, ValueError, TypeError) as error:
+            numeric_failure(f"{column.name}: {column.dtype}", f"numeric output conversion: {error}")
+    return result.loc[:, [column.slot_id for column in stage.columns]]

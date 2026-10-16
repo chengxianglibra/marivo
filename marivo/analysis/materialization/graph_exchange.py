@@ -51,6 +51,7 @@ from marivo.analysis.materialization.cell_arrow import validate as validate_cell
 from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.storage import _open_payload, _realized_schema
+from marivo.analysis.methods.physical import stage_arrow_type
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.analysis.methods.state_validation import (
@@ -1587,23 +1588,6 @@ def _stage_error(expected: str, received: str) -> MaterializationError:
     )
 
 
-def stage_arrow_type(dtype: DataType) -> pa.DataType:
-    """Return the exact Arrow carrier for one stage slot type."""
-    if isinstance(dtype, ScalarDataType):
-        return {
-            "boolean": pa.bool_(),
-            "string": pa.string(),
-            "int64": pa.int64(),
-            "float64": pa.float64(),
-            "date": pa.date32(),
-        }[dtype.name]
-    if isinstance(dtype, DecimalDataType):
-        return pa.decimal128(dtype.precision, dtype.scale)
-    if isinstance(dtype, TimestampDataType):
-        return pa.timestamp(dtype.unit, dtype.timezone)
-    return pa.duration(dtype.unit)
-
-
 def _type_name(dtype: DataType) -> str:
     if isinstance(dtype, ScalarDataType):
         return dtype.name
@@ -1683,8 +1667,11 @@ def normalize_stage_frame(
         raise _stage_error(
             f"stage column order {expected!r}", repr(tuple(str(c) for c in frame.columns))
         )
+    nonnullable_keys = [
+        column.slot_id for column in columns if column.slot_id in keys and not column.nullable
+    ]
     if keys and (
-        frame.loc[:, list(keys)].isna().to_numpy().any() or frame.duplicated(list(keys)).any()
+        frame.duplicated(list(keys)).any() or frame.loc[:, nonnullable_keys].isna().to_numpy().any()
     ):
         raise _stage_error(f"a complete unique stage key {keys!r}", "null or duplicate key values")
     return pd.DataFrame(

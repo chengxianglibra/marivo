@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 
 from marivo._definition.expressions import FieldPredicate
-from marivo.analysis.core.data_types import DataColumn, DataType
+from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import (
     BoundGraph,
     FixedLeaf,
@@ -53,6 +53,7 @@ from marivo.analysis.core.rules import (
     TimeRuns,
 )
 from marivo.analysis.methods.physical import (
+    QUERY_COMBINE_KERNEL,
     FixedShape,
     Implementation,
     NoTime,
@@ -62,6 +63,9 @@ from marivo.analysis.methods.physical import (
     ValueType,
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
+
+if TYPE_CHECKING:
+    from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -613,6 +617,8 @@ class SourceSchema:
     source_id: str
     keys: tuple[SourceField, ...]
     fields: tuple[SourceField, ...]
+    occurrence: tuple[int, ...] | None = None
+    preparation_checks: tuple[tuple[str, str, str], ...] = ()
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -633,6 +639,7 @@ class PeriodFilter:
     column: str
     start: datetime
     end: datetime
+    timezone: str = "UTC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -648,6 +655,8 @@ class SourceRead:
     field_columns: tuple[tuple[str, str], ...]
     predicates: tuple[FieldPredicate, ...]
     period: PeriodFilter | None
+    reduction: ReductionInput | None = None
+    preparation_checks: tuple[tuple[str, str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -659,6 +668,7 @@ class LocalCompute:
     kernel: str
     columns: tuple[DataColumn, ...]
     keys: tuple[str, ...]
+    program: FormulaProgram | None = None
 
 
 QueryStage: TypeAlias = SourceRead | LocalCompute
@@ -701,14 +711,11 @@ class QueryPlan:
         return dict(self.consumers).get(stage_id, ())
 
 
-QUERY_COMBINE_KERNEL = "query.combine@v1"
-
-
 def _stage_id(occurrence: tuple[int, ...]) -> str:
     return "read:" + ".".join(str(index) for index in occurrence)
 
 
-def plan_query(
+def _plan_source_reads(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
     *,
@@ -734,10 +741,19 @@ def plan_query(
             target="Query.execute",
         )
     by_source = {schema.source_id: schema for schema in schemas}
+    from marivo._definition.types import FieldRead, field_read_key
+
     reads: list[SourceRead] = []
     for contribution in contributions:
         source_id = contribution.root.ref.path
-        schema = by_source.get(source_id)
+        schema = next(
+            (
+                s
+                for s in schemas
+                if s.source_id == source_id and s.occurrence == contribution.occurrence
+            ),
+            by_source.get(source_id),
+        )
         if schema is None:
             reject(
                 f"prepared schema facts for {source_id}",
@@ -749,8 +765,8 @@ def plan_query(
         paths = list(
             dict.fromkeys(
                 (
-                    *(read.field.ref.path for read in contribution.reads),
-                    *(read.field.ref.path for read in contribution.coordinates),
+                    *(field_read_key(read) for read in contribution.reads),
+                    *(field_read_key(read) for read in contribution.coordinates),
                 )
             )
         )
@@ -776,9 +792,19 @@ def plan_query(
         period = None
         if contribution.period is not None and contribution.time is not None:
             period = PeriodFilter(
-                schema.field(contribution.time.field.ref.path).column,
+                schema.field(
+                    field_read_key(
+                        FieldRead(
+                            contribution.time.field,
+                            contribution.root,
+                            contribution.time.path,
+                            contribution.time.at,
+                        )
+                    )
+                ).column,
                 contribution.period.start,
                 contribution.period.end,
+                contribution.period.timezone,
             )
         reads.append(
             SourceRead(
@@ -798,6 +824,7 @@ def plan_query(
                     ),
                 ),
                 period,
+                preparation_checks=schema.preparation_checks,
             )
         )
     stages: tuple[QueryStage, ...] = tuple(reads)
@@ -837,3 +864,163 @@ def plan_query(
             PlannedCheck(obligation, by_occurrence[route.occurrence].stage_id) for route in routes
         )
     return QueryPlan(stages, tuple(planned), consumers, publish)
+
+
+def plan_query(
+    graph: BoundGraph,
+    schemas: tuple[SourceSchema, ...],
+    *,
+    checks: tuple[SourceCheckRoute, ...] = (),
+) -> QueryPlan:
+    """Fix ordinary numeric source and local routes before any business read."""
+    import ibis
+
+    from marivo._definition.expressions import (
+        ContributionFilter,
+        DeclaredMetricRef,
+        EntityCount,
+        SourceAggregate,
+    )
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.compiler.observation import (
+        FormulaInput,
+        FormulaProgram,
+        data_type,
+        duration_type,
+        formula_columns,
+        ibis_type,
+        lower_observation,
+        reduction_input,
+    )
+
+    observation = graph.signature.observation
+    contributions = () if observation is None else observation.contributions
+    base = (
+        _plan_source_reads(graph, schemas, checks=checks)
+        if contributions
+        else QueryPlan((), (), (), "")
+    )
+    calendar = next(
+        (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)), None
+    )
+    reads: list[SourceRead] = []
+    values: list[FormulaInput] = []
+    keys: tuple[DataColumn, ...] = (
+        (DataColumn("key.0", f"calendar:{calendar.grain}", ScalarDataType("int64"), False),)
+        if calendar is not None
+        else ()
+    )
+    source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
+    for stage, contribution in zip(source_stages, contributions, strict=True):
+        reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
+        schema = next(
+            item
+            for item in schemas
+            if item.source_id == stage.source_id
+            and (item.occurrence is None or item.occurrence == stage.occurrence)
+        )
+        reduction = replace(
+            reduction,
+            duration=duration_type(
+                contribution.definition, {item.field: item.dtype for item in schema.fields}
+            ),
+        )
+        table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
+        expression, _ = lower_observation(
+            reduction, table, dict(stage.field_columns), stage.predicates
+        )
+        stage_keys = tuple(
+            DataColumn(
+                slot,
+                f"calendar:{calendar.grain}"
+                if slot == "key.0" and calendar is not None
+                else next(path for key, path in reduction.axes if key == slot),
+                next(
+                    (
+                        field.dtype
+                        for field in schema.fields
+                        if field.field
+                        == next((path for key, path in reduction.axes if key == slot), "")
+                        and isinstance(field.dtype, DurationDataType)
+                    ),
+                    data_type(expression[slot].type()),
+                ),
+                True,
+            )
+            for slot in expression.columns
+            if slot.startswith("key.")
+        )
+        if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in stage_keys):
+            _refuse(
+                "identical physical coordinate types across contributions",
+                repr(stage_keys),
+                "Choose fields with a common lossless coordinate type.",
+            )
+        keys = stage_keys
+        column = DataColumn(
+            reduction.value_slot,
+            reduction.value_slot,
+            reduction.duration or data_type(expression[reduction.value_slot].type()),
+            True,
+        )
+        reads.append(
+            replace(
+                stage,
+                columns=(*keys, column),
+                keys=tuple(c.slot_id for c in keys),
+                reduction=reduction,
+            )
+        )
+        node = contribution.definition
+        values.append(
+            FormulaInput(
+                contribution.occurrence,
+                stage.stage_id,
+                column,
+                isinstance(node, EntityCount)
+                or (
+                    isinstance(node, SourceAggregate)
+                    and node.reducer in ("sum", "count", "count_distinct")
+                ),
+            )
+        )
+    program = FormulaProgram(
+        graph.root.metrics, graph.signature.declared_metrics, tuple(values), calendar
+    )
+    columns = tuple(
+        replace(column, unit=quantity.unit)
+        for column, quantity in zip(
+            formula_columns(program), graph.signature.quantities, strict=True
+        )
+    )
+    # A single bare reduction already is the requested final table. No empty
+    # local stage is inserted into a pure source route.
+    direct = graph.root.metrics[0][1] if len(graph.root.metrics) == 1 else None
+    declarations = dict(program.declared)
+    while isinstance(direct, (DeclaredMetricRef, ContributionFilter)):
+        direct = (
+            declarations[direct.ref] if isinstance(direct, DeclaredMetricRef) else direct.operand
+        )
+    if len(reads) == 1 and direct == contributions[0].definition and calendar is None:
+        stage = reads[0]
+        assert stage.reduction is not None
+        stage = replace(
+            stage,
+            columns=(*keys, columns[0]),
+            reduction=replace(stage.reduction, value_slot=columns[0].slot_id),
+        )
+        return replace(base, stages=(stage,), consumers=(), publish=stage.stage_id)
+    combine = LocalCompute(
+        "local:combine",
+        tuple(stage.stage_id for stage in reads),
+        QUERY_COMBINE_KERNEL,
+        (*keys, *columns),
+        tuple(c.slot_id for c in keys),
+        program,
+    )
+    return QueryPlan(
+        (*reads, combine),
+        base.checks,
+        tuple((stage.stage_id, (combine.stage_id,)) for stage in reads),
+        combine.stage_id,
+    )

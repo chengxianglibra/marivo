@@ -60,16 +60,30 @@ Population, members and observation windows are not new observe parameters in
 R2.2. `contract()` reports bound context and explicitly unresolved physical dtype
 without schema/business reads or Run admission. `execute()` performs R2.3
 schema-only preparation (lossless type admission) and pure stage planning, then
-raises AnalysisStageUnavailableError before any business read or Run: R2.4 owns
-numerical execution and R2.5 publication. Path/anchored, parsed-time and computed
-field reads report their R2.4 gap before a datasource opens. There is no old-executor
-fallback.
+raises AnalysisStageUnavailableError before any business read or Run because
+terminal publication is pending R2.5. R2.4 implements ordinary numeric execution internally: source reductions return nullable pandas values,
+then local formulas combine complete coordinate keys. Sum/count use zero for
+empty contributions; weighted means use common non-NA pairs. Division masks
+zero denominators before calculation; explicit error and strict NA policies
+produce temporary checks, and invalid arithmetic fails. Null field coordinates
+are valid keys. Preparation resolves computed physical fields, single-valued paths,
+exact snapshot/validity anchors, parsed/civil/naive business time and encoded
+Duration ticks. Separate datasource roots reduce independently before pandas
+combination. There is no old-executor fallback.
+The shared semantic kernel takes physical Row/Metric inputs without Signature,
+Session or Cell carriers. Bounded ordinary semantic Metric previews reuse it;
+Population/sample and path/anchored previews reject before opening a source;
+qualified native previews do not inherit analysis preparation capabilities.
 
 Preparation validates each field occurrence before sharing a physical column, so
 an earlier native read cannot hide a later path or attribute anchor. Original
 datasource Duration and Timestamp metadata remains authoritative across Entity
-projections: encoded Duration and precision-losing timestamp carriers reject
-before business reads. Internal check routes bind the complete obligation to an
+projections: Duration keeps its exact tick unit; precision-losing timestamp
+carriers reject before business reads. Per-occurrence physical slots retain
+path and anchor identity. Scalar joins validate encountered missing/duplicate
+matches before consuming reduced values; native period filters exclude unrelated
+rows before those joins. Weighted means check both reduced components for
+nonfinite values, and source-free calendars retain every declared bucket. Internal check routes bind the complete obligation to an
 exact source contribution occurrence. The scheduler checks that output as soon
 as it is ready, before consumption or release, for both consume and publish
 deadlines; an unbound check route rejects during planning.

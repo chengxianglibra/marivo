@@ -212,9 +212,11 @@ global, ref-only lookup and returns the same value or entry.
 ``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
 exact ref, an entry owned by the current compiled catalog, or a catalog value.
 Inputs normalize immediately to refs; readiness results, preview evidence,
-persistence, and recovery remain ref-based. Published expression Metrics and
-Measures have no physical preview, certification or source check yet and are
-rejected with a structured repair. One ``ms.load()`` is the project-level static validation event for a
+persistence, and recovery remain ref-based. Published Metrics support bounded DuckDB ordinary source reductions and arithmetic
+previews through the shared nullable Row/Metric kernel. Population/sample
+and path/attribute-anchor preview preparation is unavailable and fails before opening a source. Published
+Measures still have no physical preview; published expression certification
+and source checks remain unavailable. One ``ms.load()`` is the project-level static validation event for a
 dependency-coherent authored slice; there is no separate per-object verify step.
 
 For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the

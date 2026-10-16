@@ -15,7 +15,8 @@ immutable ``Query`` without schema/business reads or Run admission. Each source
 reduction occurrence retains its intrinsic conditions and receives common
 conditions independently. Scalar paths must be directed, single-valued and
 unambiguous. ``query.contract().show()`` describes the frozen context and unresolved
-physical types. Execution and publication remain pending R2.3–R2.5;
+physical types. Ordinary numeric source/local routes are implemented internally;
+publication remains pending R2.5;
 ``query.execute()`` raises ``AnalysisStageUnavailableError`` before admission.
 
 Construct exact time with ``session.instant(value, timezone=None)`` and

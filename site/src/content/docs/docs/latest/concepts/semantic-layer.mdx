@@ -66,3 +66,20 @@ Physical constructors return typed capture Refs. After the complete scope is fin
 Physical authoring captures typed Refs. Capture every dependency, then use `ms.finalize()` and `finalized.resolve(ref)` before composing row/Metric expressions. Finalization closes capture and does not publish Catalog Metrics or enable new execution.
 
 Semantic objects need not remain bound to their original definition versions. A same-path definition change alone does not reject an input; the agent/user accepts the consequences of semantic changes during analysis. Resolving consumers use their completed scope. Immutable expressions keep their stored definitions and facts without live refresh. Kind, root, grain, unit, time-role, null and permission checks still apply. Fingerprints and cache keys describe actual consumed definitions; persisted provenance and records retain their own contracts.
+
+Ordinary published Metrics on DuckDB support bounded preview through the shared nullable
+Row/Metric kernel. Population/sample and path/attribute-anchor preview preparation is unavailable;
+these inputs fail before opening a source.
+
+```python
+import marivo.datasource as md
+
+revenue = catalog.metrics.get("sales.revenue")
+preview = catalog.preview(
+    revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30)
+)
+preview.show()
+```
+
+The preview aggregates at most 10,000 scoped Entity output rows and is approximate.
+It does not publish an analysis Artifact or qualify analysis execution.

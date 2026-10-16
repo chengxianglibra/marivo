@@ -34,7 +34,12 @@ no time filter to ordinary reductions, while sampling dependencies still require
 an explicit period. Common conditions bind separately to every source occurrence.
 
 `query.execute()` currently prepares source schemas and plans stages without reading
-business rows, then reports that numeric execution and publication await R2.4–R2.5.
+business rows, then reports that terminal publication awaits R2.5. Ordinary
+numeric source reductions and pandas formulas are implemented internally,
+including zero/NA policies and complete coordinate keys. Preparation supports
+single-valued paths, exact version anchors, computed physical fields, parsed and
+civil time, and encoded Duration units. Independent datasource roots reduce
+separately before combination; source-free calendars retain their buckets.
 Population and window inputs are delivered by their later stages. `Artifact`
 remains terminal, with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
 and `evidence_digest()`, and no DSL methods or `contract()`.

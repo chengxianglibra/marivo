@@ -3311,9 +3311,15 @@ LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.D
 
 
 def run_local(
-    stage: LocalCompute, inputs: tuple[StageOutput, ...], kernel: LocalKernel
+    stage: LocalCompute, inputs: tuple[StageOutput, ...], kernel: LocalKernel | None = None
 ) -> StageOutput:
     """Run one registered pandas kernel without mutating its shared inputs."""
+    if kernel is None:
+        from marivo.analysis.methods.local import query_combine
+        from marivo.analysis.methods.registry import require_query_kernel
+
+        require_query_kernel(stage.kernel)
+        kernel = query_combine
     with pd.option_context("mode.copy_on_write", True):
         views = tuple(item.table.copy(deep=False) for item in inputs)
         frame = kernel(stage, views)

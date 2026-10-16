@@ -58,3 +58,19 @@ Source 的能力约束仍然适用。Analysis 从 `session.members(entity)` 进�
 物理作者阶段先捕获类型化 Ref。依赖完整后调用 `ms.finalize()`，再用 `finalized.resolve(ref)` 取得不可变值用于行/Metric 组合。finalize 关闭捕获阶段，不发布 Catalog Metric，也不启用新执行路线。
 
 语义对象不必始终绑定构造时的原定义版本，不因同路径定义已改变而单独拒绝输入；分析期间语义定义更新的后果由 agent 或用户承担。进行引用解析的消费者使用其完整作用域。不可变表达式保留存储的定义与事实，不做 live refresh。kind、贡献根、粒度、单位、时间角色、空值和权限检查仍然有效。指纹与缓存键描述实际消费的定义，持久化来源记录及其它记录仍遵循各自合同。
+
+DuckDB 上已发布的普通 Metric 可以通过共享 nullable Row/Metric 内核做有界预览；
+Population/内部样本及路径/属性锚点的预览准备路线尚未提供。
+
+```python
+import marivo.datasource as md
+
+revenue = catalog.metrics.get("sales.revenue")
+preview = catalog.preview(
+    revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30)
+)
+preview.show()
+```
+
+预览最多规约 10,000 条经过范围过滤的 Entity 输出行，结果按近似处理。
+这不会发布分析 Artifact，也不构成分析执行路线的资格证明。

@@ -11,6 +11,11 @@ v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence �
 当前实现仍由 [Python Analysis Design](python-analysis-design.md) 和
 [Session State and Runtime](session-state-and-runtime.md) 约束。
 
+实施进度：R2.4 已接通私有数值路线及计算字段、单值路径、精确版本锚点、
+解析/民用日期/naive 时间、编码 Duration 的准备；不同 datasource 根先分别规约后组合。
+普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
+公开 Query.execute 仍在业务读取前报告 R2.5 发布缺口，不构成终端保存/冷读或完整 Runtime 验收声明。
+
 ## 1. 执行、保留与恢复
 
 ### 1.1 图与来源分类

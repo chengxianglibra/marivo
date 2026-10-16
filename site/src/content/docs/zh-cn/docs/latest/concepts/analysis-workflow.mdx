@@ -33,7 +33,9 @@ query.contract().show()
 共同条件分别绑定到每个来源规约出现。
 
 当前 `query.execute()` 会准备来源 schema 并规划阶段，不读取业务行，
-随后指出数值执行和发布仍待 R2.4–R2.5。
+随后指出终端发布仍待 R2.5。内部已实现来源数值规约和 pandas 公式组合，
+包括零分母、NA 政策与完整坐标键；准备支持单值路径、精确版本锚点、计算物理字段、
+解析/民用日期时间及编码 Duration 单位。不同 datasource 根分别规约后组合，无来源日历保留完整桶。
 Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读，只提供
 `id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
 `evidence_digest()`，没有 DSL 方法或 `contract()`。

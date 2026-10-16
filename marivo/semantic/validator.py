@@ -199,7 +199,9 @@ def _snapshot_target_source(source: EntitySourceIR) -> EntitySourceIR:
     return replace(source, columns=tuple(source.columns))
 
 
-def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetDimensionContract:
+def normalize_target_dimension(
+    registry: Registry, dimension_id: str, *, prepared_column: str | None = None
+) -> TargetDimensionContract:
     """Normalize a declared column Dimension without compiling or reading its source."""
     dimension = registry.dimensions.get(dimension_id)
     if dimension is None:
@@ -210,7 +212,8 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
             action="Use a Dimension from the current Registry.",
         )
     entity = registry.entities.get(dimension.entity)
-    if entity is None or dimension.source_column is None:
+    source_column = prepared_column or dimension.source_column
+    if entity is None or source_column is None:
         _target_error(
             ref=dimension_id,
             expected="a declared direct source column on a loaded Entity",
@@ -219,7 +222,7 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
         )
     columns = dict(_target_columns(entity))
     projected_names = set(columns)
-    if projected_names and dimension.source_column not in projected_names:
+    if prepared_column is None and projected_names and source_column not in projected_names:
         _target_error(
             ref=dimension_id,
             expected="a logical source column exposed by the projection",
@@ -243,7 +246,7 @@ def normalize_target_dimension(registry: Registry, dimension_id: str) -> TargetD
     return TargetDimensionContract(
         ref=RefPayloadV1.from_ref(dimension_ref),
         entity_ref=RefPayloadV1.from_ref(_create_ref(SemanticKind.ENTITY, entity.semantic_id)),
-        source_column=dimension.source_column,
+        source_column=source_column,
         logical_type=logical_type,
         nullable=True,
         is_time_dimension=dimension.is_time_dimension,
