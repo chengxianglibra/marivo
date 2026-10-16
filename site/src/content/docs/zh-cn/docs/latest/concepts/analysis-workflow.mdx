@@ -40,8 +40,9 @@ Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读�
 `id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
 `evidence_digest()`，没有 DSL 方法或 `contract()`。
 `session.artifact(id)` 只接受精确字符串 ID，保留文件并拒绝旧图产物。
-R2.5 返回已提交身份和 manifest；元数据打开、预览、导出以及公开 Finding/Evidence
-阅读仍报告 R2.6 缺口。writer 保存完整键、nullable 值、独立 presence、必要输出附件及
+打开与 repr 只读已提交元数据；预览有界解码，完整 pandas 导出保留精确类型与纯数据 attrs。
+Finding 保留分页；evidence_digest() 无参返回全部已保存事实（.items）。
+新产物和重开产物使用同一阅读路径，不依赖当前来源或 Catalog。writer 保存完整键、nullable 值、独立 presence、必要输出附件及
 实际读取/检查 Evidence；普通观察的 Finding 为空。不保存图、语义定义、隐藏组件或 continuation。
 以下示例描述等待替换的旧执行路径；旧图发布器在 Store 10 中不可用。
 

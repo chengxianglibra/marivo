@@ -10,6 +10,7 @@ from types import UnionType
 from typing import Literal, TypeAlias, Union, get_args, get_origin, get_type_hints
 
 from marivo.analysis._pages import _BoundedPage
+from marivo.analysis.core.model import reject
 from marivo.analysis.datasets.descriptors import DatasetFieldId, DatasetFieldIdentity
 from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.refs import ArtifactRef
@@ -47,7 +48,15 @@ def _matches(value: object, annotation: object) -> bool:
         return (
             type(value) is tuple
             and len(value) <= 4096
-            and all(_matches(item, arguments[0]) for item in value)
+            and (
+                all(_matches(item, arguments[0]) for item in value)
+                if len(arguments) == 2 and arguments[1] is Ellipsis
+                else len(value) == len(arguments)
+                and all(
+                    _matches(item, annotation)
+                    for item, annotation in zip(value, arguments, strict=True)
+                )
+            )
         )
     if annotation is type(None):
         return value is None
@@ -111,7 +120,7 @@ class ArtifactEvidenceSummary(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class ArtifactDigest(ArtifactEvidenceSummary):
+class GraphArtifactDigest(ArtifactEvidenceSummary):
     artifact_ref: ArtifactRef
     extractor_contract_versions: tuple[str, ...]
     digest_version: Literal["v3"] = "v3"
@@ -303,7 +312,7 @@ FindingValueV1: TypeAlias = AssociationFindingValueV1 | ForecastPointFindingValu
 
 
 @dataclass(frozen=True, slots=True, repr=False, kw_only=True)
-class Finding(_Value):
+class GraphFinding(_Value):
     finding_id: str
     artifact_ref: ArtifactRef
     session_id: str
@@ -336,7 +345,7 @@ class Finding(_Value):
 
 
 @dataclass(frozen=True, slots=True, repr=False)
-class FindingPage(_BoundedPage[Finding]):
+class GraphFindingPage(_BoundedPage[GraphFinding]):
     """Exact Artifact-scoped bounded Finding page."""
 
     def __post_init__(self) -> None:
@@ -347,5 +356,187 @@ class FindingPage(_BoundedPage[Finding]):
             or type(self.items) is not tuple
         ):
             raise invalid("invalid Finding page type")
-        if any(type(item) is not Finding for item in self.items):
+        if any(type(item) is not GraphFinding for item in self.items):
             raise invalid("invalid Finding page item")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class OutputCoordinate(_Value):
+    slot_id: str
+    value: Scalar
+
+    def __post_init__(self) -> None:
+        _output_text(self.slot_id, "output.coordinate")
+        _scalar(self.value)
+
+    def _repr_identity(self) -> str:
+        return f"OutputCoordinate slot={self.slot_id[:100]}"
+
+
+def _output_text(value: str, location: str) -> None:
+    if type(value) is not str or not value or any(c in value for c in "\n\r\t"):
+        reject(
+            "nonempty single-line data text", repr(value), "Use exact output metadata.", location
+        )
+
+
+def _scalar(value: Scalar) -> None:
+    if (
+        type(value) not in (str, int, float, bool, Decimal, date, datetime, type(None))
+        or (isinstance(value, float) and not math.isfinite(value))
+        or (isinstance(value, Decimal) and not value.is_finite())
+    ):
+        reject(
+            "a finite output scalar without semantic identity",
+            type(value).__name__,
+            "Save an explicit output value, not a semantic object or graph.",
+            "output.value",
+        )
+
+
+def _coordinates(coordinates: tuple[OutputCoordinate, ...]) -> None:
+    if type(coordinates) is not tuple or any(type(c) is not OutputCoordinate for c in coordinates):
+        reject(
+            "immutable data coordinates",
+            type(coordinates).__name__,
+            "Reference output slots and scalar values only.",
+            "output.coordinates",
+        )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class OutputEvidence(_Value):
+    """A declared, read or checked output fact, not an executable proof chain."""
+
+    kind: Literal["declaration", "read", "check"]
+    summary: str
+    values: tuple[tuple[str, Scalar], ...] = ()
+    coordinates: tuple[OutputCoordinate, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind not in ("declaration", "read", "check"):
+            reject(
+                "a declaration/read/check output fact",
+                str(self.kind),
+                "Report only actual declarations, reads or checks.",
+                "output.evidence",
+            )
+        _output_text(self.summary, "output.evidence.summary")
+        if type(self.values) is not tuple:
+            reject(
+                "immutable named scalar facts",
+                type(self.values).__name__,
+                "Save explicit output facts only.",
+                "output.evidence",
+            )
+        for name, value in self.values:
+            _output_text(name, "output.evidence.value")
+            _scalar(value)
+        _coordinates(self.coordinates)
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class Finding(_Value):
+    """A committed method output, readable without semantic subjects or derivations."""
+
+    finding_id: str
+    artifact_ref: ArtifactRef
+    session_id: str
+    value: FindingValueV1
+    coordinates: tuple[OutputCoordinate, ...]
+    committed_at: datetime
+
+    def __post_init__(self) -> None:
+        _Value.__post_init__(self)
+        _aware(self.committed_at)
+        _coordinates(self.coordinates)
+
+    @property
+    def finding_type(self) -> FindingType:
+        return self.value.kind
+
+    def _card(self) -> Card:
+        card = (
+            Card(identity=self._repr_identity(), available=(".value", ".coordinates", ".show()"))
+            .field("artifact", str(self.artifact_ref))
+            .field("session", self.session_id)
+            .field("committed_at", self.committed_at.isoformat())
+        )
+        for field in fields(self.value):
+            card.field(field.name, repr(getattr(self.value, field.name))[:256])
+        for coordinate in self.coordinates:
+            card.field(coordinate.slot_id, repr(coordinate.value)[:256])
+        return card
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FindingPage(_BoundedPage[Finding]):
+    """Exact Artifact-scoped bounded page of self-contained output Findings."""
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.limit) is not int
+            or type(self.items) is not tuple
+            or type(self.has_more) is not bool
+            or (self.next_cursor is not None and type(self.next_cursor) is not str)
+        ):
+            raise invalid("invalid output Finding page type")
+        _BoundedPage.__post_init__(self)
+        if any(type(item) is not Finding for item in self.items):
+            raise invalid("invalid output Finding page item")
+
+
+@dataclass(frozen=True, slots=True, repr=False, kw_only=True)
+class ArtifactDigest(ArtifactEvidenceSummary):
+    """Committed collection digests and all actual output Evidence facts."""
+
+    artifact_ref: ArtifactRef
+    items: tuple[OutputEvidence, ...]
+    digest_version: Literal["terminal-output-v1"] = "terminal-output-v1"
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.quality_summary_digest,
+            self.typed_issue_digest,
+            self.evidence_digest,
+            self.finding_set_digest,
+        ):
+            _text(value)
+        _count(self.finding_count)
+        if (
+            type(self.artifact_ref) is not ArtifactRef
+            or type(self.items) is not tuple
+            or any(type(item) is not OutputEvidence for item in self.items)
+            or self.digest_version != "terminal-output-v1"
+        ):
+            raise invalid("invalid complete output Evidence digest")
+
+    @property
+    def evidence_count(self) -> int:
+        return len(self.items)
+
+    def _card(self) -> Card:
+        card = (
+            Card(identity=self._repr_identity(), available=(".items", ".show()"))
+            .field("evidence_count", str(self.evidence_count))
+            .field("finding_count", str(self.finding_count))
+            .field("evidence_digest", self.evidence_digest)
+        )
+        for index, item in enumerate(self.items[:20]):
+            card.field(f"fact.{index}", f"{item.kind}: {item.summary}"[:512])
+            card.field(f"values.{index}", repr(item.values)[:1024])
+            if item.coordinates:
+                card.field(
+                    f"coordinates.{index}",
+                    repr(
+                        tuple(
+                            (coordinate.slot_id, coordinate.value)
+                            for coordinate in item.coordinates
+                        )
+                    )[:1024],
+                )
+        if len(self.items) > 20:
+            card.field(
+                "remaining_facts", f"{len(self.items) - 20}; read .items for all saved facts"
+            )
+        return card

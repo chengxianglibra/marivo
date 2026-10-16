@@ -1,6 +1,6 @@
 # Python Analysis Design
 
-Status: R2.2 ordinary observation binding, 2026-10-16; legacy execution sections remain
+Status: R2.6 terminal output reading, 2026-10-16; legacy execution sections remain
 until their owning R2 work packages replace them. This document owns the implemented
 Analysis DSL's public model and the path from algebraic definition to execution.
 Method equations and numerical contracts belong to
@@ -62,7 +62,7 @@ without schema/business reads or Run admission. `execute()` performs R2.3
 schema-only preparation (lossless type admission) and pure stage planning before
 admitting a Run. R2.5 connects ordinary numeric execution to atomic Store 10
 publication. Every execute reevaluates its inputs and returns a committed terminal
-identity; public reading remains the R2.6 stage gap. R2.4 supplies the numeric routes: source reductions return nullable pandas values,
+identity with metadata opening, bounded preview, complete pandas export and saved output records. R2.4 supplies the numeric routes: source reductions return nullable pandas values,
 then local formulas combine complete coordinate keys. Sum/count use zero for
 empty contributions; weighted means use common non-NA pairs. Division masks
 zero denominators before calculation; explicit error and strict NA policies
@@ -97,8 +97,13 @@ changing files. R2.5 publishes a wide nullable primary, explicit attachments and
 self-contained Finding/Evidence records in Store 10. Ordinary observations have
 empty Findings and actual read/check Evidence. The new manifest contains no
 semantic objects, graph, definition fingerprints, hidden components or continuation;
-Run records retain only invocation identity and lifecycle. Public metadata opening,
-preview, export and output-record reading report the R2.6 gap. Earlier Stores are
+Run records retain only invocation identity and lifecycle. Metadata opening and repr
+read no Parquet. New and reopened Artifacts use the same committed-output reader.
+Preview decodes bounded rows, although receipt hashing may read a full consumed part.
+Export returns a complete isolated DataFrame with RangeIndex, kind/name columns and
+data-only attrs. Findings are paged; evidence_digest() takes no arguments and returns
+all actual saved facts in .items, with bounded .show(). Output summaries in Session
+graphs contain no definition fingerprint or semantic derivation. Earlier Stores are
 preserved and rejected without migration or Session-name bypass. Session identity,
 timezone and same-generation `get_or_create`/`resume` contracts remain in force.
 

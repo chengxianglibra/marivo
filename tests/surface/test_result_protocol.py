@@ -443,7 +443,7 @@ def _artifact_digest() -> ArtifactDigest:
         evidence_digest="c" * 64,
         finding_count=0,
         finding_set_digest="d" * 64,
-        extractor_contract_versions=("zero_findings@v1",),
+        items=(),
     )
 
 

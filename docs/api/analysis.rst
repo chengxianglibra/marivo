@@ -6,8 +6,8 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-R2.5 Query execution and terminal publication
----------------------------------------------
+R2.6 Query execution and terminal reading
+--------------------------------------------
 
 ``session.observe({"revenue": revenue, "aov": aov}, during=scope,
 by=(region,), where=region == "APAC")`` binds ordinary observation context in an
@@ -18,7 +18,7 @@ unambiguous. ``query.contract().show()`` describes the frozen context and unreso
 physical types. ``query.execute()`` now evaluates ordinary numeric source/local
 routes and atomically publishes terminal output in Store 10. Each invocation
 creates a new Run and reevaluates its inputs; preparation failures create no Run.
-Only the committed identity and manifest are returned in this stage.
+The returned terminal Artifact reads the same saved output as a reopened handle.
 
 Construct exact time with ``session.instant(value, timezone=None)`` and
 ``session.time_scope(start=..., end=..., timezone=None)``. Omitted timezone uses
@@ -35,8 +35,14 @@ service. It offers ``show(n=20)``, ``to_pandas()``, ``findings()`` and
 ``evidence_digest()``; it has no ``contract()`` or DSL continuation.
 ``session.artifact(artifact_id)`` accepts an exact string ID, rejects old graph
 descriptors unchanged and does not load current semantics or Parquet rows.
-The writer is implemented in R2.5. Metadata opening, preview, export and public
-Finding/Evidence reading report the R2.6 stage gap. Store 10 saves a wide nullable
+Metadata opening and repr read no Parquet. ``show(n=20)`` decodes bounded rows;
+receipt hashing can still read an entire consumed part. ``to_pandas()`` returns
+a complete isolated DataFrame with RangeIndex, kind/name columns and data-only
+``attrs["marivo"]``. ``findings(limit=20, cursor=None)`` reads a bounded page;
+``evidence_digest()`` takes no arguments and returns all saved Evidence in
+``.items`` with collection digests. Saved facts and coordinates have nested Help
+contracts: ``marivo.help(fact)`` and ``marivo.help(coordinate)``. Truncated
+Artifact cards route to ``to_pandas()`` and ``evidence_digest()``. Record reads require no result tables. Store 10 saves a wide nullable
 primary and explicit output attachments, with data-only schema, receipts and
 self-contained output records. Calendar schemas preserve the selected timezone
 alongside UTC boundary instants; read-scope summaries preserve Boolean grouping.

@@ -50,7 +50,7 @@ def test_corrupt_finding_body_discards_native_exception_context(damage: str) -> 
     assert caught.value.__cause__ is None and caught.value.__context__ is None
 
 
-def _finding(value: t.FindingValueV1) -> t.Finding:
+def _finding(value: t.FindingValueV1) -> t.GraphFinding:
     quantity = t.ObservedGraphQuantityV1(
         quantity_identity="revenue",
         definition_fingerprint="test-revenue",
@@ -68,7 +68,7 @@ def _finding(value: t.FindingValueV1) -> t.Finding:
     subject: t.FindingSubjectV1 = t.ForecastFindingSubjectV2(quantity=quantity)
     if isinstance(value, t.AssociationFindingValueV1):
         subject = t.AssociationFindingSubjectV2(quantity_a=quantity, quantity_b=quantity)
-    item = t.Finding(
+    item = t.GraphFinding(
         finding_id="pending",
         artifact_ref=ArtifactRef(ref="artifact"),
         session_id="session",
@@ -238,11 +238,11 @@ def test_typed_values_reject_unknown_kind_nonfinite_counts_masks_and_mixed_numer
     with pytest.raises(IntegrityError):
         replace(_finding(_forecast_exact()), committed_at=datetime(2026, 9, 8))
     with pytest.raises(IntegrityError):
-        t.FindingPage(items=(), limit=True, has_more=False, next_cursor=None)
+        t.GraphFindingPage(items=(), limit=True, has_more=False, next_cursor=None)
 
 
 def test_digest_and_three_axis_results_have_exact_private_shape() -> None:
-    result = t.ArtifactDigest(
+    result = t.GraphArtifactDigest(
         artifact_ref=ArtifactRef(ref="artifact"),
         quality_summary_digest="a" * 64,
         typed_issue_digest="b" * 64,

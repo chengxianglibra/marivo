@@ -7,10 +7,6 @@ receipts; neither representation retains execution state or an Arrow table.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
-from decimal import Decimal
-from math import isfinite
-from typing import Literal
 
 import pandas as pd
 
@@ -25,7 +21,13 @@ from marivo.analysis.evidence._dataset_types import (
     AssociationFindingValueV1,
     FindingValueV1,
     ForecastPointFindingValueV1,
-    Scalar,
+    _coordinates,
+)
+from marivo.analysis.evidence._dataset_types import (
+    OutputCoordinate as OutputCoordinate,
+)
+from marivo.analysis.evidence._dataset_types import (
+    OutputEvidence as OutputEvidence,
 )
 from marivo.analysis.materialization.contracts import LocalReceipt
 
@@ -125,40 +127,6 @@ class DataSchema:
 
 
 @dataclass(frozen=True, slots=True)
-class OutputCoordinate:
-    slot_id: str
-    value: Scalar
-
-    def __post_init__(self) -> None:
-        _text(self.slot_id, "output.coordinate")
-        _scalar(self.value)
-
-
-def _scalar(value: Scalar) -> None:
-    if (
-        type(value) not in (str, int, float, bool, Decimal, date, datetime, type(None))
-        or (isinstance(value, float) and not isfinite(value))
-        or (isinstance(value, Decimal) and not value.is_finite())
-    ):
-        reject(
-            "a finite output scalar without semantic identity",
-            type(value).__name__,
-            "Save an explicit output value, not a semantic object or graph.",
-            "output.value",
-        )
-
-
-def _coordinates(coordinates: tuple[OutputCoordinate, ...]) -> None:
-    if type(coordinates) is not tuple or any(type(c) is not OutputCoordinate for c in coordinates):
-        reject(
-            "immutable data coordinates",
-            type(coordinates).__name__,
-            "Reference output slots and scalar values only.",
-            "output.coordinates",
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class OutputFinding:
     """An explicit method output, without a graph derivation or semantic subject."""
 
@@ -175,37 +143,6 @@ class OutputFinding:
                 "Publish the method's output value without a graph derivation.",
                 "output.finding",
             )
-        _coordinates(self.coordinates)
-
-
-@dataclass(frozen=True, slots=True)
-class OutputEvidence:
-    """A declared, read or checked output fact, not an executable proof chain."""
-
-    kind: Literal["declaration", "read", "check"]
-    summary: str
-    values: tuple[tuple[str, Scalar], ...] = ()
-    coordinates: tuple[OutputCoordinate, ...] = ()
-
-    def __post_init__(self) -> None:
-        if self.kind not in ("declaration", "read", "check"):
-            reject(
-                "a declaration/read/check output fact",
-                str(self.kind),
-                "Report only actual declarations, reads or checks.",
-                "output.evidence",
-            )
-        _text(self.summary, "output.evidence.summary")
-        if type(self.values) is not tuple:
-            reject(
-                "immutable named scalar facts",
-                type(self.values).__name__,
-                "Save explicit output facts only.",
-                "output.evidence",
-            )
-        for name, value in self.values:
-            _text(name, "output.evidence.value")
-            _scalar(value)
         _coordinates(self.coordinates)
 
 

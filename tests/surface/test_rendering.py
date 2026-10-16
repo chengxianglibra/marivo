@@ -22,6 +22,38 @@ def test_format_bounded_card_identity_only_card() -> None:
     assert not result.endswith("\n")
 
 
+@pytest.mark.parametrize("budget", (180, 400, 8192))
+def test_card_owner_recovery_survives_byte_marker_fitting(budget: int) -> None:
+    card = Card(
+        identity="Artifact id=saved",
+        available=(".to_pandas()",),
+        omission_recovery="use .to_pandas()",
+    )
+    card.field("long_section_" + "x" * 300, "y" * 10000)
+    text = card.render(max_output_bytes=budget)
+    assert len(text.encode()) <= budget
+    assert "output truncated" in text
+    assert "use .to_pandas()" in text
+    assert "max_output_bytes=None" not in text
+    with pytest.raises(ValueError, match=r"use \.to_pandas\(\)"):
+        card.render(max_output_bytes=1)
+
+
+def test_card_owner_recovery_survives_row_limit() -> None:
+    text = (
+        Card(
+            identity="Artifact id=saved",
+            available=(".to_pandas()",),
+            omission_recovery="use .to_pandas()",
+        )
+        .table(("value",), (("one",), ("two",)), row_count=2, bounded_row_limit=1)
+        .render()
+    )
+    assert "preview limited to 1 rows" in text
+    assert "use .to_pandas()" in text
+    assert "max_output_bytes=None" not in text
+
+
 def test_format_bounded_card_status_line_included_when_provided() -> None:
     result = format_bounded_card(
         identity="X",

@@ -176,7 +176,6 @@ class ArtifactSummary(RenderableResult):
     run_finished_at: datetime
     family_id: str
     shape_id: str
-    definition_fingerprint: str
     committed_at: datetime
     producing_run_ref: str
     realized_row_count: int
@@ -192,7 +191,6 @@ class ArtifactSummary(RenderableResult):
             self.artifact_session_ref,
             self.family_id,
             self.shape_id,
-            self.definition_fingerprint,
             self.producing_run_ref,
             self.storage_kind_id,
             self.content_authority_digest,

@@ -486,7 +486,7 @@ class GraphDataset:
         | None
     ) = None
 
-    def evidence_digest(self) -> t.ArtifactDigest:
+    def evidence_digest(self) -> t.GraphArtifactDigest:
         with self.runtime.store._read() as connection:
             current = graph_store.artifact_metadata(
                 self.runtime.store, connection, self.artifact.artifact_ref
@@ -503,7 +503,7 @@ class GraphDataset:
                 _validated=current.validated,
             )[1]
 
-    def findings(self, limit: int = 20, cursor: str | None = None) -> t.FindingPage:
+    def findings(self, limit: int = 20, cursor: str | None = None) -> t.GraphFindingPage:
         from marivo.analysis.materialization.graph_findings import collection, page
 
         with self.runtime.store._read() as connection:
@@ -521,7 +521,7 @@ class GraphDataset:
             )
             return page(findings, current.artifact_ref, limit, cursor)
 
-    def finding(self, finding_id: str) -> t.Finding:
+    def finding(self, finding_id: str) -> t.GraphFinding:
         from marivo.analysis.materialization.graph_findings import collection
 
         with self.runtime.store._read() as connection:

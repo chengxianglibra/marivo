@@ -113,7 +113,7 @@ def extract(
     committed_at: datetime,
     *,
     _validated: ValidatedDescriptor | None = None,
-) -> tuple[t.Finding, ...]:
+) -> tuple[t.GraphFinding, ...]:
     if not any(p.role == "finding_policy" for p in result.parts):
         return ()
     policy = _policy(result.parts)
@@ -141,7 +141,7 @@ def collection(
     artifact_ref: str,
     *,
     _validated: ValidatedDescriptor | None = None,
-) -> tuple[tuple[t.Finding, ...], t.ArtifactDigest]:
+) -> tuple[tuple[t.GraphFinding, ...], t.GraphArtifactDigest]:
     artifact = conn.execute(
         "SELECT committed_at FROM dataset_artifacts WHERE artifact_ref=?", (artifact_ref,)
     ).fetchone()
@@ -182,7 +182,7 @@ def collection(
         or (version == ("graph.no_findings@v1",) and findings)
     ):
         raise invalid("Finding collection count or frozen extractor authority differs")
-    return findings, t.ArtifactDigest(
+    return findings, t.GraphArtifactDigest(
         artifact_ref=ArtifactRef(ref=artifact_ref),
         quality_summary_digest=digest(encode(descriptor, DESCRIPTOR)),
         typed_issue_digest=digest("[]"),
@@ -200,8 +200,8 @@ def encode_versions(value: tuple[str, ...]) -> str:
 
 
 def page(
-    findings: tuple[t.Finding, ...], artifact: str, limit: int, cursor: str | None
-) -> t.FindingPage:
+    findings: tuple[t.GraphFinding, ...], artifact: str, limit: int, cursor: str | None
+) -> t.GraphFindingPage:
     if type(limit) is not int or not 1 <= limit <= 100:
         raise invalid("Finding page limit must be an exact integer in 1..100")
     start = 0
@@ -215,6 +215,6 @@ def page(
         start = position + 1
     items = findings[start : start + limit]
     more = start + limit < len(findings)
-    return t.FindingPage(
+    return t.GraphFindingPage(
         items, limit, more, encode_keyset_cursor(start + limit - 1, artifact) if more else None
     )

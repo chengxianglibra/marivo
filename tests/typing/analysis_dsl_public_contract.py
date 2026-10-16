@@ -23,6 +23,18 @@ if TYPE_CHECKING:
             {"value": metric}, during=scope, by=(region,), where=region == "APAC"
         )
 
+    def terminal_reads(artifact: mv.Artifact) -> mv.ArtifactDigest:
+        from pandas import DataFrame
+
+        assert_type(session.artifact(artifact.id), mv.Artifact)
+        assert_type(artifact.show(n=20), None)
+        assert_type(artifact.to_pandas(), DataFrame)
+        assert_type(artifact.findings(limit=20, cursor=None), mv.FindingPage)
+        digest = artifact.evidence_digest()
+        assert_type(digest, mv.ArtifactDigest)
+        assert_type(digest.evidence_count, int)
+        return digest
+
     members = session.members(ms.ref.entity("sales.customer"))
     assert_type(members, mv.LogicalAnalysisDomain)
     approximate_count = mv.runtime_metric.aggregate(

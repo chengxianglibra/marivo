@@ -32,10 +32,14 @@ frozen schema, version 2.6, zstd level 3 and at most 128 Ki rows per group; the
 shared reader batch profile is at most 64 Ki rows. These parameters do not bound
 upstream eager pandas memory.
 
-R2.5 returns Artifact identity and repr. Public metadata opening, preview, export
-and Finding/Evidence reading report the R2.6 stage gap. Session graphs containing
-terminal Artifact summaries share that reading boundary. Private storage round trips
-are R2.5 evidence only, not public cold-reader or full Runtime acceptance.
+R2.6 opens exact Session-owned output IDs using manifest and receipt metadata only.
+New and reopened Artifacts share committed Parquet reads: show decodes bounded rows,
+while to_pandas exports complete typed output and independent data-only attrs. Only
+consumed parts are verified; their initial digest may read all file bytes. Findings
+use bounded Store pages. evidence_digest() takes no arguments and returns every saved
+Evidence fact in .items plus collection digests; its .show() stays bounded. Record
+reads and Session Run/output topology require no Parquet, Catalog or semantic graph.
+These local reading contracts do not qualify remote Runtime execution.
 
 Store 10 is a single incompatible switch. Earlier Stores, graph descriptors and
 continuations are rejected without migration or modification; changing a Session

@@ -14,7 +14,7 @@ from marivo.render import result_repr
 
 
 class ArtifactReader(Protocol):
-    """Read committed output only; public implementations arrive in R2.6."""
+    """Read committed output only, without retaining data or execution state."""
 
     def show(self, manifest: ArtifactManifest, *, n: int) -> None: ...
 
@@ -32,7 +32,7 @@ class Artifact:
     """Read-only committed output; acquire through Query.execute or Session.artifact.
 
     Artifact never owns a Query, definition graph, execution context or in-memory
-    table. R2.5 returns the committed identity; opening and data reading arrive in R2.6.
+    table. New and reopened handles read the same committed output.
     """
 
     _manifest: ArtifactManifest
@@ -74,7 +74,7 @@ class Artifact:
         Args: n: Maximum rows to decode for the preview.
         Returns: None; prints the output card.
         Example: ``artifact.show(n=20)``.
-        Constraints: Public preview is unavailable until R2.6; no computation or source lookup.
+        Constraints: Bounded decoding; receipt hashing can read a complete consumed part. No source lookup.
         """
         if type(n) is not int or n < 0:
             reject(
@@ -91,7 +91,7 @@ class Artifact:
         Args: None.
         Returns: A complete isolated DataFrame in the saved output layout.
         Example: ``frame = artifact.to_pandas()``.
-        Constraints: Never samples rows or recreates a Query; reader implementation is delivered in R2.6.
+        Constraints: Never samples rows or recreates a Query; complete export must fit in memory.
         """
         return self._reader.to_pandas(self._manifest)
 
@@ -101,7 +101,7 @@ class Artifact:
         Args: limit: Page size from 1 through 100. cursor: Previous page cursor or None.
         Returns: The Artifact-scoped FindingPage.
         Example: ``page = artifact.findings(limit=20)``.
-        Constraints: Public Finding reading is unavailable until R2.6; no definition graph is loaded.
+        Constraints: Reads exact output records without loading result tables or a definition graph.
         """
         if (
             type(limit) is not int
@@ -117,11 +117,11 @@ class Artifact:
         return self._reader.findings(self._manifest, limit=limit, cursor=cursor)
 
     def evidence_digest(self) -> ArtifactDigest:
-        """Read the committed output Evidence summary.
+        """Read all committed Evidence facts and their collection digests.
 
         Args: None.
-        Returns: The saved ArtifactDigest.
+        Returns: ArtifactDigest containing every saved Evidence fact in output order.
         Example: ``digest = artifact.evidence_digest()``.
-        Constraints: Public Evidence reading is unavailable until R2.6; no current semantic or source-freshness check.
+        Constraints: No result-table reads, current semantic checks or source-freshness claims.
         """
         return self._reader.evidence_digest(self._manifest)

@@ -1,6 +1,6 @@
 ---
 title: 证据与恢复
-description: Store 10 终端发布与 R2.6 阅读边界。
+description: 不依赖当前来源的产物阅读与已保存 Evidence。
 ---
 
 Store 10 将最终输出保存在 `.marivo/analysis/generations/v10/`。
@@ -32,9 +32,27 @@ for run in session.runs(limit=5).items:
 保存的 schema 描述完整键、命名 nullable 值、独立 presence、类型和单位；
 必要输出附件保存 UTC 日历边界，主表及附件的 schema 同时保留所选日历时区；读取范围摘要保留布尔条件的嵌套分组。不保存语义定义、图、公式、隐藏规约组件、计算指纹或 continuation。
 
-R2.5 返回已提交 Artifact 身份。`session.artifact(id)`、`show()`、`to_pandas()`、
-`findings()` 和 `evidence_digest()` 仍报告 R2.6 阅读缺口。
-公开跨进程打开与有界阅读尚未交付；请保留确切 ID。
+新产物和重开产物使用同一已提交输出 reader。打开与 repr 只读元数据；
+预览最多解码请求行数，但 receipt 摘要仍可能读取整个已消费 part。
+导出返回完整隔离 DataFrame，采用 RangeIndex、kind/name 两层列及纯数据 `attrs["marivo"]`。
+日历坐标来自已保存的真实桶起点，同时保留时区与实际边界。
+
+```python
+import marivo
+
+saved = session.artifact(artifact.id)
+saved.show(n=20)
+frame = saved.to_pandas()
+page = saved.findings(limit=20)
+digest = saved.evidence_digest()
+print(digest.items)  # all actual saved Evidence; no limit or cursor
+if digest.items:
+    marivo.help(digest.items[0])  # nested saved-fact contract
+```
+
+Finding 分页与完整 Evidence 摘要不依赖 Parquet 或当前模型。
+`digest.show()` 保持有界，`.items` 包含全部已保存事实。
+当前模型的改名、删除或变化不影响历史值。Session 图只展示 Run/输出关系和已保存摘要，不包含定义指纹。
 
 旧 Store 及图/continuation 格式明确拒绝，不改写或迁移。更换 Session 名称不能绕过代际限制；
 请在新项目创建新格式 Store 并重新运行分析脚本。同代际 Session resume 保留身份和 Run 历史。

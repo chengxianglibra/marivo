@@ -253,7 +253,7 @@ class Session:
             where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 10. Public Artifact reading arrives in R2.6. Artifact objects and IDs are not Metric inputs.
+        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 10. Artifact reads committed output without current-source or Catalog access. Artifact objects and IDs are not Metric inputs.
         """
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
@@ -288,13 +288,11 @@ class Session:
         """Open terminal output by exact ID without restoring a computation graph.
 
         Args: artifact_id: Exact committed Artifact ID string from this Session.
-        Returns: A read-only Artifact once the R2.6 reader is delivered.
+        Returns: The read-only Artifact for this exact committed output.
         Example: ``saved = session.artifact('artifact_0123456789abcdef')``.
-        Constraints: Missing IDs fail without source or Parquet reads. Existing IDs report the R2.6 reading gap without decoding rows or graph metadata. Store 10 publishes terminal output; older Stores cannot be resumed or migrated.
+        Constraints: Opens metadata without source, Catalog, graph or Parquet reads. IDs belong to this Session; old Stores cannot be resumed or migrated.
         """
         from marivo.analysis.core.model import reject
-        from marivo.analysis.errors import ArtifactNotFoundError
-        from marivo.analysis.materialization.store import _one
 
         if (
             type(artifact_id) is not str
@@ -307,17 +305,9 @@ class Session:
                 "Pass the exact committed output ID, not an Artifact object or Ref.",
                 "session.artifact",
             )
-        with self._runtime.store._read() as connection:
-            record = _one(
-                connection,
-                "SELECT artifact_ref FROM dataset_artifacts WHERE artifact_ref=? AND session_ref=?",
-                (artifact_id, self.id),
-            )
-        if record is None:
-            raise ArtifactNotFoundError.for_ref(artifact_id)
-        from marivo.analysis.materialization.terminal_publication import reading_pending
+        from marivo.analysis.materialization.graph_reading import open_artifact
 
-        reading_pending("session.artifact")
+        return open_artifact(self._runtime.store, self.id, artifact_id)
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
@@ -359,7 +349,7 @@ class Session:
             max_nodes: Positive bounded graph size.
         Returns: The typed committed SessionGraph.
         Example: ``session.graph(artifact_ref=ref).show()``.
-        Constraints: Graph reads never execute or infer origin lineage. Terminal Artifact summaries report the R2.6 reading gap.
+        Constraints: Graph reads never execute or infer origin lineage. Terminal Artifact summaries use committed metadata without reading Parquet or semantic graphs.
         """
         return self._runtime.graph(
             artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes

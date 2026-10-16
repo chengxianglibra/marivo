@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Literal
 
 from marivo.analysis._pages import decode_keyset_cursor, encode_keyset_cursor
+from marivo.analysis.core.artifact_data import ArtifactManifest
 from marivo.analysis.datasets.descriptors import _exact_byte_count
 from marivo.analysis.errors import (
     AnalysisError,
@@ -18,13 +19,15 @@ from marivo.analysis.errors import (
     SessionStateError,
 )
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
-from marivo.analysis.materialization import graph_store, terminal_store
+from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import (
     SessionRecord,
+    digest,
     invalid,
     parse_timestamp,
 )
 from marivo.analysis.materialization.store import SessionStore, _one, _rows, _text
+from marivo.analysis.materialization.terminal_protocol import encode
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session._lazy_read_model import (
     ArtifactSummary,
@@ -324,48 +327,34 @@ def get_run(store: SessionStore, session_ref: str, run_id: str) -> RunRecord:
 
 
 def summary_in_snapshot(
-    store: SessionStore, conn: sqlite3.Connection, record: graph_store.GraphArtifact
+    store: SessionStore, conn: sqlite3.Connection, record: ArtifactManifest
 ) -> ArtifactSummary:
-    from marivo.analysis.materialization.graph_protocol import DESCRIPTOR, digest, encode
-
-    producer = graph_store.run(store, conn, record.producing_run_ref)
-    row = _one(
-        conn,
-        "SELECT committed_at FROM dataset_artifacts WHERE artifact_ref=?",
-        (record.artifact_ref,),
-    )
-    if (
-        producer is None
-        or producer.terminal_at is None
-        or producer.lifecycle != "succeeded"
-        or row is None
-    ):
+    producer = terminal_store.run(store, conn, record.run_id)
+    if producer is None or producer.terminal_at is None or producer.lifecycle != "succeeded":
         raise invalid("Artifact summary has no succeeded producer")
-    descriptor = record.descriptor
-    authority = digest(encode(descriptor, DESCRIPTOR))
-    from marivo.analysis.materialization.graph_findings import collection
-
-    _, finding_authority = collection(store, conn, descriptor, record.artifact_ref)
+    saved = terminal_store.collection(conn, record.artifact_id)
+    handles = (record.data.rows, *(part.rows for part in record.data.attachments))
     return ArtifactSummary(
-        artifact_ref=ArtifactRef(ref=record.artifact_ref),
-        artifact_session_ref=record.session_ref,
+        artifact_ref=ArtifactRef(ref=record.artifact_id),
+        artifact_session_ref=record.session_id,
         run_admitted_at=aware_datetime(producer.admitted_at),
         run_finished_at=aware_datetime(producer.terminal_at),
-        family_id="graph",
-        shape_id=descriptor.signature.domain.kind,
-        definition_fingerprint=descriptor.definition_fingerprint,
-        committed_at=aware_datetime(_text(row, "committed_at")),
-        producing_run_ref=record.producing_run_ref,
-        realized_row_count=descriptor.primary_receipt.local.realized_row_count,
-        realized_byte_count=_exact_byte_count(descriptor.primary_receipt.local.realized_byte_count),
+        family_id="terminal_output",
+        shape_id="scalar" if not record.data.schema.axes else "table",
+        committed_at=aware_datetime(producer.terminal_at),
+        producing_run_ref=record.run_id,
+        realized_row_count=record.data.rows.receipt.realized_row_count,
+        realized_byte_count=_exact_byte_count(
+            sum(part.receipt.realized_byte_count for part in handles)
+        ),
         storage_kind_id="parquet",
-        content_authority_digest=authority,
+        content_authority_digest=digest(encode(record)),
         evidence=ArtifactEvidenceSummary(
-            quality_summary_digest=authority,
-            typed_issue_digest=digest("[]"),
-            evidence_digest=authority,
-            finding_count=finding_authority.finding_count,
-            finding_set_digest=finding_authority.finding_set_digest,
+            quality_summary_digest=saved.evidence_digest,
+            typed_issue_digest=digest(()),
+            evidence_digest=saved.evidence_digest,
+            finding_count=saved.finding_count,
+            finding_set_digest=saved.finding_set_digest,
         ),
         issue_counts=ArtifactIssueCounts(warning=0, blocking=0),
     )
@@ -387,7 +376,7 @@ def missing_artifact(artifact_ref: str) -> ArtifactNotFoundError:
 
 def artifact_summary(store: SessionStore, artifact_ref: str) -> ArtifactSummary:
     with store._read() as conn:
-        record = graph_store.artifact(store, conn, artifact_ref)
+        record = terminal_store.manifest(store, conn, artifact_ref)
         if record is None:
             raise missing_artifact(artifact_ref)
         return summary_in_snapshot(store, conn, record)

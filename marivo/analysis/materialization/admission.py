@@ -271,19 +271,6 @@ class DatasetRuntime:
         max_nodes: int = 100,
     ) -> SessionGraph:
         """Read bounded local topology and exact consumed foreign boundaries."""
-        from marivo.analysis.materialization.store import _one
-        from marivo.analysis.materialization.terminal_publication import reading_pending
-
-        with self.store._read() as conn:
-            if (
-                _one(
-                    conn,
-                    "SELECT 1 FROM dataset_artifacts WHERE session_ref=? LIMIT 1",
-                    (self.session_ref,),
-                )
-                is not None
-            ):
-                reading_pending("session.graph")
         ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
         return _lazy_graph.graph(
             self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes

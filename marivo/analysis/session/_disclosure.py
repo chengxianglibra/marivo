@@ -67,13 +67,13 @@ def provider() -> DisclosureProvider:
 
     acquisitions = {
         "ArtifactDigest": (
-            "Read materialized.evidence_digest.",
-            ("actions.show",),
-            ("runtime.values.render", "runtime.values.show"),
+            "Call artifact.evidence_digest(); .items contains all saved output facts.",
+            ("Artifact.evidence_digest",),
+            ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
         ),
         "ArtifactRef": (
-            "Read materialized.state.artifact_ref or a returned ArtifactSummary.artifact_ref.",
-            ("datasets.materialized_state", "ArtifactSummary"),
+            "Read a SucceededRun.output_artifact_ref or ArtifactSummary.artifact_ref; pass its .ref string to session.artifact.",
+            ("SucceededRun", "ArtifactSummary"),
             ("session.artifact", "session.graph"),
         ),
         "ArtifactSummary": (
@@ -107,14 +107,14 @@ def provider() -> DisclosureProvider:
             ("runtime.values.render", "runtime.values.show"),
         ),
         "Finding": (
-            "Select an exact item from materialized.findings() or materialized.finding(id).",
-            ("artifact.findings", "artifact.finding"),
-            ("runtime.values.render", "runtime.values.show"),
+            "Select an exact self-contained output item from artifact.findings().",
+            ("Artifact.findings",),
+            ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
         ),
         "FindingPage": (
-            "Call materialized.findings(); retain next_cursor for this Artifact.",
-            ("artifact.findings",),
-            ("artifact.findings", "artifact.finding"),
+            "Call artifact.findings(); retain next_cursor for this Artifact.",
+            ("Artifact.findings",),
+            ("Artifact.findings",),
         ),
     }
     for value in READ_TYPES:
@@ -207,14 +207,14 @@ def provider() -> DisclosureProvider:
             "observe",
             "Query",
             "result = session.observe(metrics)",
-            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 10; public reading arrives in R2.6.",
+            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 10; committed output reading requires no current source or Catalog.",
         ),
         (
             Session,
             "artifact",
             "Artifact",
             "result = session.artifact(artifact_id)",
-            "Exact terminal output ID only. Store 10 publication is implemented; opening and public reading report the R2.6 gap without reading data or restoring graphs.",
+            "Open an exact terminal output ID in this Session using metadata only, without reading Parquet or restoring graphs.",
         ),
         (
             Session,
@@ -235,7 +235,7 @@ def provider() -> DisclosureProvider:
             "graph",
             "SessionGraph",
             "result = session.graph(artifact_ref=artifact_ref)",
-            "Read bounded Run topology; terminal Artifact summaries report the R2.6 reading gap.",
+            "Read bounded Run-to-output topology and committed terminal Artifact summaries without reading Parquet or semantic graphs.",
         ),
         (
             Session,
@@ -382,6 +382,18 @@ def provider() -> DisclosureProvider:
     # These are retained nested return values, not additional public exports.
     nested_reads = (
         (
+            e.OutputEvidence,
+            "Read artifact.evidence_digest().items; each item is a saved declaration, read or check fact.",
+            ("ArtifactDigest",),
+            ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
+        ),
+        (
+            e.OutputCoordinate,
+            "Read a saved Evidence or Finding .coordinates item; slot_id locates its output column and value is the saved scalar.",
+            ("runtime.OutputEvidence", "Finding"),
+            ("runtime.values.render", "runtime.values.show"),
+        ),
+        (
             r.SessionSummaryPage,
             "Call mv.session.recent(); select an exact item from items.",
             ("session.recent",),
@@ -409,7 +421,7 @@ def provider() -> DisclosureProvider:
             e.ArtifactEvidenceSummary,
             "Read the committed Evidence summary attached to an ArtifactSummary.",
             ("ArtifactSummary",),
-            ("artifact.findings",),
+            ("Artifact.findings",),
         ),
     )
     for value, acquisition_text, producers, consumers in nested_reads:
@@ -433,6 +445,8 @@ def provider() -> DisclosureProvider:
                 r.SessionSummary,
                 r.SessionGraphEdge,
                 e.ArtifactEvidenceSummary,
+                e.OutputEvidence,
+                e.OutputCoordinate,
             )
             if hasattr(value, method_name)
         )

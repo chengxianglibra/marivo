@@ -120,11 +120,18 @@ class RenderableResult:
 class Card:
     """Builder for bounded plain-text terminal result cards."""
 
-    def __init__(self, *, identity: str, available: Sequence[str]) -> None:
+    def __init__(
+        self,
+        *,
+        identity: str,
+        available: Sequence[str],
+        omission_recovery: str = _OMISSION_RECOVERY,
+    ) -> None:
         self._identity = identity
         self._status: str | None = None
         self._sections: list[Section] = []
         self._available = tuple(available)
+        self._omission_recovery = omission_recovery
 
     def status(self, value: str) -> Card:
         self._status = value
@@ -236,7 +243,7 @@ class Card:
             minimum = _encoded_len(rendered)
             raise ValueError(
                 "max_output_bytes is too small to preserve identity and available output; "
-                f"minimum is {minimum} bytes; {_OMISSION_RECOVERY}"
+                f"minimum is {minimum} bytes; {self._omission_recovery}"
             )
 
         body: list[_Line] = []
@@ -267,12 +274,14 @@ class Card:
                 marker_kind="row_limit",
             )
 
-        min_marker = _truncation_marker(max_output_bytes=max_output_bytes, tokens=())
+        min_marker = _truncation_marker(
+            max_output_bytes=max_output_bytes, tokens=(), fallback_recovery=self._omission_recovery
+        )
         minimum = _encoded_len(_join_lines([*head, min_marker, *tail]))
         if max_output_bytes < minimum:
             raise ValueError(
                 "max_output_bytes is too small to preserve identity, truncation marker, "
-                f"and available output; minimum is {minimum} bytes; {_OMISSION_RECOVERY}"
+                f"and available output; minimum is {minimum} bytes; {self._omission_recovery}"
             )
 
         return self._render_with_marker(
@@ -309,6 +318,7 @@ class Card:
                     limit=self._row_limit_from(truncated_at=truncated_at),
                     omitted_tokens=omitted_tokens,
                     recoveries=recoveries,
+                    fallback_recovery=self._omission_recovery,
                 )
             else:
                 marker = _best_fit_marker(
@@ -318,6 +328,7 @@ class Card:
                     tail=tail,
                     omitted_tokens=omitted_tokens,
                     recoveries=recoveries,
+                    fallback_recovery=self._omission_recovery,
                     require_all_tokens=any(
                         isinstance(section, TableSection) and section.show_omission_counts
                         for section in self._sections[truncated_at:]
@@ -330,7 +341,7 @@ class Card:
                 minimum = _encoded_len(_join_lines([*head, marker, *tail]))
                 raise ValueError(
                     "max_output_bytes is too small to preserve identity, truncation detail, "
-                    f"and available output; minimum is {minimum} bytes; {_OMISSION_RECOVERY}"
+                    f"and available output; minimum is {minimum} bytes; {self._omission_recovery}"
                 )
             removed = body.pop()
             truncated_at = min(truncated_at, removed.section_index)
@@ -523,11 +534,11 @@ def _bounded_table_row_count(section: TableSection) -> int | None:
     return section.row_count
 
 
-def _recovery_text(recoveries: Sequence[str]) -> str:
+def _recovery_text(recoveries: Sequence[str], fallback_recovery: str) -> str:
     unique = tuple(dict.fromkeys(recoveries))
     if not unique:
-        return _OMISSION_RECOVERY
-    return f"recover: {'; '.join(unique)}; {_OMISSION_RECOVERY}"
+        return fallback_recovery
+    return f"recover: {'; '.join(unique)}; {fallback_recovery}"
 
 
 def _truncation_marker(
@@ -535,19 +546,20 @@ def _truncation_marker(
     max_output_bytes: int,
     tokens: Sequence[str],
     recoveries: Sequence[str] = (),
+    fallback_recovery: str = _OMISSION_RECOVERY,
 ) -> str:
     omitted = ", ".join(tokens) if tokens else "output"
     return (
         f"output truncated at {max_output_bytes} bytes; omitted: {omitted}; "
-        f"{_recovery_text(recoveries)}"
+        f"{_recovery_text(recoveries, fallback_recovery)}"
     )
 
 
 def _row_limit_marker(
-    *, limit: int, omitted_tokens: Sequence[str], recoveries: Sequence[str]
+    *, limit: int, omitted_tokens: Sequence[str], recoveries: Sequence[str], fallback_recovery: str
 ) -> str:
     omitted = ", ".join(omitted_tokens) if omitted_tokens else "preview rows"
-    return f"preview limited to {limit} rows; omitted: {omitted}; {_recovery_text(recoveries)}"
+    return f"preview limited to {limit} rows; omitted: {omitted}; {_recovery_text(recoveries, fallback_recovery)}"
 
 
 def _best_fit_marker(
@@ -559,12 +571,14 @@ def _best_fit_marker(
     omitted_tokens: Sequence[str],
     recoveries: Sequence[str],
     require_all_tokens: bool,
+    fallback_recovery: str,
 ) -> str:
     if require_all_tokens:
         return _truncation_marker(
             max_output_bytes=max_output_bytes,
             tokens=omitted_tokens,
             recoveries=recoveries,
+            fallback_recovery=fallback_recovery,
         )
     accepted_tokens: list[str] = []
     for token in omitted_tokens:
@@ -573,6 +587,7 @@ def _best_fit_marker(
             max_output_bytes=max_output_bytes,
             tokens=candidate_tokens,
             recoveries=recoveries,
+            fallback_recovery=fallback_recovery,
         )
         if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
             accepted_tokens.append(token)
@@ -582,10 +597,13 @@ def _best_fit_marker(
         max_output_bytes=max_output_bytes,
         tokens=accepted_tokens,
         recoveries=recoveries,
+        fallback_recovery=fallback_recovery,
     )
     if _encoded_len(_join_lines([*head, *body, marker, *tail])) <= max_output_bytes:
         return marker
-    return _truncation_marker(max_output_bytes=max_output_bytes, tokens=())
+    return _truncation_marker(
+        max_output_bytes=max_output_bytes, tokens=(), fallback_recovery=fallback_recovery
+    )
 
 
 def _join_lines(lines: Sequence[str]) -> str:

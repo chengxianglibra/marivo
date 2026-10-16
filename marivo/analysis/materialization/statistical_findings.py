@@ -92,7 +92,7 @@ def extract(
     artifact_ref: str,
     committed_at: datetime,
     policy: Policy,
-) -> tuple[t.Finding, ...]:
+) -> tuple[t.GraphFinding, ...]:
     """Rebind the original capped bodies, including after current-output selection."""
     from marivo.analysis.materialization.graph_findings import CAP
 
@@ -137,7 +137,7 @@ def extract(
         definition_fingerprint=descriptor.definition_fingerprint,
         scope_id=scope,
     )
-    findings: list[t.Finding] = []
+    findings: list[t.GraphFinding] = []
     if association:
         for candidate in candidates[:CAP]:
             assert candidate.score.coefficient is not None
@@ -167,7 +167,7 @@ def extract(
                 complete_pair_count=candidate.complete_pairs,
                 lag=lag,
             )
-            finding = t.Finding(
+            finding = t.GraphFinding(
                 finding_id="finding_pending",
                 artifact_ref=ArtifactRef(ref=artifact_ref),
                 session_id=descriptor.signature.domain.binding.session_id,
@@ -211,7 +211,7 @@ def extract(
                 training_row_count=training.n,
             )
             key = digest(repr(tuple(row[k] for k in result.contract.key_fields)))
-            finding = t.Finding(
+            finding = t.GraphFinding(
                 finding_id="finding_pending",
                 artifact_ref=ArtifactRef(ref=artifact_ref),
                 session_id=descriptor.signature.domain.binding.session_id,

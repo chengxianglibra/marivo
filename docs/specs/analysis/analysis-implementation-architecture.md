@@ -837,14 +837,15 @@ reader 不创建 Ibis 表或 DuckDB 查询，解码对象仅服务当前读取�
 
 1. 打开句柄只读 SQLite manifest、归属和 receipt，不扫描 Parquet。
 2. PreviewRead、ExportRead 使用相同轴/列定位与 ReadLayout；只有 PreviewRead 可截断。
-3. Finding/Evidence 经现有 Store 的精确 ID、有界分页读取，不要求加载主表或语义图。
+3. Finding 经现有 Store 的精确 ID、有界分页读取；无参 evidence_digest() 返回全部 Evidence，
+   内部可分批读取，结果 .show() 保持有界。两者都不要求加载主表或语义图。
 
 | 请求 | 消费内容 | 边界 |
 | --- | --- | --- |
 | repr / 重开句柄 | 数据 schema、ID、输出摘要 | 不读业务来源或结果行 |
 | show(n) | 展示列、完整键、必要次序/投影及有界事实摘要 | 预览足够即停，不加载无关附件 |
 | to_pandas() | 全部公开坐标/量/presence 与数据 attrs | 完整隔离副本，不抽样 |
-| findings / evidence_digest | 已提交输出记录 | 精确产物、有界读取，不执行分析 |
+| findings / evidence_digest | 已提交输出记录 | 精确产物；Finding 分页，Evidence 完整返回；不执行分析 |
 
 删除 ComputeRead、FixedRead 和 compiler 对持久产物 reader 的依赖；执行内消费直接引用 StageOutput。
 ReadLayout 只描述实际读取列，不将预览宣称为全文件重验。保留 receipt 校验边界，成本见 §12.7。

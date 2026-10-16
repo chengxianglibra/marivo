@@ -6,7 +6,7 @@ import os
 from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import datetime
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pandas as pd
@@ -40,12 +40,12 @@ from marivo.analysis.core.artifact_data import (
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.artifact import Artifact
-from marivo.analysis.errors import AnalysisError, AnalysisRepair, AnalysisStageUnavailableError
-from marivo.analysis.evidence._dataset_types import ArtifactDigest, FindingPage
+from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.graph_exchange import StageOutput
+from marivo.analysis.materialization.graph_reading import TerminalReader
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     execute_numeric_query,
@@ -66,32 +66,6 @@ from marivo.introspection.live.model import LiveHelpTarget
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.semantic._compiled_state import CompiledSemanticState
-
-
-def reading_pending(target: str) -> NoReturn:
-    raise AnalysisStageUnavailableError(
-        stage="artifact_reading",
-        expected="the R2.6 terminal output reader",
-        received="committed R2.5 output; public reading is not delivered",
-        repair="Keep the exact Artifact ID. R2.6 will provide metadata opening, preview, export and output record reading.",
-        target=target,
-    )
-
-
-class _PendingReader:
-    def show(self, manifest: ArtifactManifest, *, n: int) -> None:
-        reading_pending("Artifact.show")
-
-    def to_pandas(self, manifest: ArtifactManifest) -> pd.DataFrame:
-        reading_pending("Artifact.to_pandas")
-
-    def findings(
-        self, manifest: ArtifactManifest, *, limit: int, cursor: str | None
-    ) -> FindingPage:
-        reading_pending("Artifact.findings")
-
-    def evidence_digest(self, manifest: ArtifactManifest) -> ArtifactDigest:
-        reading_pending("Artifact.evidence_digest")
 
 
 def _failure(phase: RunFailurePhase) -> RunFailure:
@@ -404,7 +378,7 @@ def execute(
             terminal_store.publish(
                 store, value, publication.findings, publication.evidence, resources, event
             )
-            return Artifact._from_manifest(value, _PendingReader())
+            return Artifact._from_manifest(value, TerminalReader(store))
         except BaseException as failure:
             if committing:
                 try:
@@ -421,7 +395,7 @@ def execute(
                             terminal_store.confirm_records(
                                 conn, saved.artifact_id, publication.findings, publication.evidence
                             )
-                            return Artifact._from_manifest(saved, _PendingReader())
+                            return Artifact._from_manifest(saved, TerminalReader(store))
                         if (
                             value is not None
                             and _one(

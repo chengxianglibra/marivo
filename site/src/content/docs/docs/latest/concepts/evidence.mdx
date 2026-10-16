@@ -1,6 +1,6 @@
 ---
 title: Evidence and recovery
-description: Store 10 terminal publication and the R2.6 reading boundary.
+description: Read committed output and saved Evidence without current sources.
 ---
 
 Store 10 saves final output under `.marivo/analysis/generations/v10/`.
@@ -26,7 +26,7 @@ Each execute reevaluates the Query and creates a new Run and Artifact. The
 Artifact contains only committed identity and metadata; it has no `contract()`
 or DSL continuation. Source-independent constants also use this publication path.
 
-## Saved facts and reading boundary
+## Read committed output and facts
 
 Ordinary observations produce no Findings. Evidence records only actual source
 reads and checks, including the read scope; an omitted period explicitly means
@@ -40,9 +40,29 @@ nested Boolean grouping. The Store
 saves no semantic definitions, graph, formulas, hidden aggregation components,
 calculation fingerprints or continuation.
 
-R2.5 returns a committed Artifact identity. `session.artifact(id)`, `show()`,
-`to_pandas()`, `findings()` and `evidence_digest()` report the R2.6 reading gap.
-Public cold opening and bounded reading are not yet delivered. Retain the exact ID.
+New and reopened Artifacts share the same committed-output reader. Opening and
+repr use metadata only. Preview decodes at most the requested rows; receipt hashing
+can still read an entire consumed part. Export returns every row as an isolated
+DataFrame with RangeIndex, kind/name columns and data-only `attrs["marivo"]`.
+Calendar coordinates use saved real bucket starts, timezone and actual bounds.
+
+```python
+import marivo
+
+saved = session.artifact(artifact.id)
+saved.show(n=20)
+frame = saved.to_pandas()
+page = saved.findings(limit=20)
+digest = saved.evidence_digest()
+print(digest.items)  # all actual saved Evidence; no limit or cursor
+if digest.items:
+    marivo.help(digest.items[0])  # nested saved-fact contract
+```
+
+Finding pages and the complete Evidence digest need no Parquet or current model.
+`digest.show()` stays bounded; `.items` contains every saved fact. Deleting or
+changing current models does not change historical values. Session graphs show
+Run/output topology and saved summaries without definition fingerprints.
 
 Earlier Stores and graph/continuation formats are rejected without rewriting or
 migration. Changing a Session name cannot bypass the generation restriction;

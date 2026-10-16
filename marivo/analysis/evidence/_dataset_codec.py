@@ -172,9 +172,9 @@ def _decode(value: object, annotation: object) -> object:
     raise invalid("unsupported Finding codec annotation")
 
 
-def encode_finding_body(finding: t.Finding) -> str:
+def encode_finding_body(finding: t.GraphFinding) -> str:
     """Encode exactly the typed body, excluding Store identity, ownership and time."""
-    if type(finding) is not t.Finding:
+    if type(finding) is not t.GraphFinding:
         raise invalid("unsupported Finding type")
     return canonical_json({name: _encode(getattr(finding, name)) for name in _BODY_FIELDS.split()})
 
@@ -186,13 +186,13 @@ def decode_finding_body(
     artifact_ref: str,
     session_id: str,
     committed_at: datetime,
-) -> t.Finding:
+) -> t.GraphFinding:
     """Attach the authoritative selected Store envelope to one closed Finding body."""
     obj = _obj(parse_json(payload), _BODY_FIELDS)
-    hints = get_type_hints(t.Finding)
+    hints = get_type_hints(t.GraphFinding)
     decoded = {name: _decode(item, hints[name]) for name, item in obj.items()}
     return _construct(
-        t.Finding,
+        t.GraphFinding,
         {
             **decoded,
             "finding_id": finding_id,
@@ -203,11 +203,11 @@ def decode_finding_body(
     )
 
 
-def finding_identity(finding: t.Finding) -> str:
+def finding_identity(finding: t.GraphFinding) -> str:
     return digest([finding.session_id, finding.artifact_ref.ref, encode_finding_body(finding)])
 
 
-def finding_set_member(finding: t.Finding, ordinal: int) -> dict[str, object]:
+def finding_set_member(finding: t.GraphFinding, ordinal: int) -> dict[str, object]:
     return {
         "finding_ref": finding.finding_id,
         "finding_ordinal": ordinal,
@@ -216,7 +216,7 @@ def finding_set_member(finding: t.Finding, ordinal: int) -> dict[str, object]:
     }
 
 
-def finding_set_digest(findings: tuple[t.Finding, ...]) -> str:
+def finding_set_digest(findings: tuple[t.GraphFinding, ...]) -> str:
     hasher = hashlib.sha256()
     hasher.update(b"[")
     for ordinal, finding in enumerate(findings):

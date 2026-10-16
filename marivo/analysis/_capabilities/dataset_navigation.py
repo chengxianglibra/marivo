@@ -61,7 +61,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 10 output; public Artifact reading arrives in R2.6.",
+            "Metric-first Query: session.observe(named_metrics).execute() atomically publishes Store 10 output; Artifact opens metadata, previews bounded rows, exports complete pandas output and reads saved facts.",
             "Entity-member construction: session.members(Entity Ref); execution awaits the R3 replacement in Store 10.",
             "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
             "Existing work: resume the Session; recovery does not replay sources.",
@@ -96,10 +96,15 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
-            "Start with materialized.show() and materialized.evidence_digest; read selected Findings when the question needs detail.",
+            "Start with artifact.show() and artifact.evidence_digest(); .items contains all saved Evidence. Use artifact.findings() for paged method outputs.",
             "Recovery trusts committed local Evidence; it does not establish current semantic authority or source freshness.",
         ),
-        related=("ArtifactDigest", "runtime.values", "actions.show"),
+        related=(
+            "ArtifactDigest",
+            "Artifact.show",
+            "Artifact.evidence_digest",
+            "Artifact.findings",
+        ),
     ),
     NavigationInput(
         "runtime",

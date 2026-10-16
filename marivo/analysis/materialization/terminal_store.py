@@ -284,6 +284,56 @@ def records_page(
         ) > limit else None
 
 
+@dataclass(frozen=True, slots=True)
+class OutputCollection:
+    evidence_digest: str
+    finding_set_digest: str
+    finding_count: int
+    evidence_count: int
+
+
+def collection(conn: sqlite3.Connection, ref: str) -> OutputCollection:
+    row = _one(conn, "SELECT * FROM dataset_evidence WHERE artifact_ref=?", (ref,))
+    if row is None or _text(row, "evidence_format") != "terminal-output-v1":
+        raise invalid("terminal output collection is absent or obsolete")
+    evidence_count, finding_count = row["evidence_count"], row["finding_count"]
+    if (
+        type(evidence_count) is not int
+        or evidence_count < 0
+        or type(finding_count) is not int
+        or finding_count < 0
+    ):
+        raise invalid("invalid terminal output collection counts")
+    digests = (_text(row, "evidence_digest"), _text(row, "finding_set_digest"))
+    if any(
+        len(value) != 64 or any(c not in "0123456789abcdef" for c in value) for value in digests
+    ):
+        raise invalid("invalid terminal output collection digest")
+    return OutputCollection(*digests, finding_count, evidence_count)
+
+
+def evidence(store: SessionStore, ref: str) -> tuple[OutputCollection, tuple[OutputEvidence, ...]]:
+    """Read the complete saved Evidence collection in one SQLite snapshot."""
+    with store._read() as conn:
+        saved = collection(conn, ref)
+        rows = _rows(
+            conn,
+            "SELECT * FROM output_evidence WHERE artifact_ref=? ORDER BY evidence_ordinal",
+            (ref,),
+        )
+        payloads = tuple(_text(row, "body_payload") for row in rows)
+        if (
+            len(rows) != saved.evidence_count
+            or any(
+                row["evidence_ordinal"] != index or digest(body) != _text(row, "body_digest")
+                for index, (row, body) in enumerate(zip(rows, payloads, strict=True))
+            )
+            or digest(payloads) != saved.evidence_digest
+        ):
+            raise invalid("terminal Evidence collection count, order or digest differs")
+        return saved, tuple(decode(body, OutputEvidence) for body in payloads)
+
+
 def confirm_records(
     conn: sqlite3.Connection,
     ref: str,

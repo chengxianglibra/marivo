@@ -45,8 +45,10 @@ Population and window inputs are delivered by their later stages. `Artifact`
 remains terminal, with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
 and `evidence_digest()`, and no DSL methods or `contract()`.
 `session.artifact(id)` accepts only an exact string ID and rejects old graph
-outputs unchanged. R2.5 returns the committed identity and manifest; metadata
-opening, preview, export and public Finding/Evidence reading report the R2.6 gap.
+outputs unchanged. Opening and repr read only committed metadata. Preview decodes bounded rows;
+complete pandas export preserves exact types and data-only attrs. Findings are
+paged; evidence_digest() takes no arguments and returns all saved facts in .items.
+New and reopened outputs share these reads without current sources or Catalog.
 The writer saves complete keys, nullable values, explicit presence, necessary output
 attachments and actual read/check Evidence; ordinary observations have no Findings.
 No graph, semantic definitions, hidden components or continuation are saved.

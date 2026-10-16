@@ -32,8 +32,9 @@ from marivo.analysis.core.artifact_data import (
 from marivo.analysis.core.graph import FixedLeaf
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.artifact import Artifact, ArtifactReader
-from marivo.analysis.errors import AnalysisStageUnavailableError, ArtifactNotFoundError
+from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
+from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.core import Session
@@ -287,9 +288,9 @@ def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
             ),
         )
     before = session._runtime.store.db_path.read_bytes()
-    with pytest.raises(AnalysisStageUnavailableError) as caught:
+    with pytest.raises(IntegrityError) as caught:
         session.artifact("artifact_old")
-    assert caught.value.stage == "artifact_reading"
+    assert caught.value.stage in {"publication", "terminal_output"}
     assert session._runtime.store.db_path.read_bytes() == before
     with pytest.raises(ArtifactNotFoundError):
         session.artifact("missing")
@@ -302,8 +303,6 @@ def test_old_graph_metadata_is_rejected_without_decoding_or_mutation(
 def test_old_store_is_rejected_without_rewriting_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.errors import IntegrityError
-
     monkeypatch.chdir(tmp_path)
     path = tmp_path / ".marivo/analysis/generations/v9/session_store.db"
     path.parent.mkdir(parents=True)
@@ -336,7 +335,7 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(capsys) -> None:
     marivo.help(mv.Artifact)
     rendered = capsys.readouterr().out
     assert "without DSL or contract" in rendered
-    assert "R2.6" in rendered
+    assert "committed" in rendered
 
 
 def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -> None:
@@ -345,13 +344,46 @@ def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -
         text = capsys.readouterr().out
         assert "new Run" in text and "reads sources" in text
         assert "atomically publishes" in text and "Store 10" in text
-        assert "R2.6" in text
+        assert "committed" in text or "output" in text
         assert "fails before data reads" not in text
 
 
 @pytest.mark.parametrize("name", ("show", "to_pandas", "findings", "evidence_digest"))
-def test_artifact_read_help_discloses_r26_gap_for_string_and_callable(capsys, name) -> None:
+def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
+    capsys, name
+) -> None:
     for target in (f"analysis.Artifact.{name}", getattr(mv.Artifact, name)):
         marivo.help(target)
         text = capsys.readouterr().out
-        assert "R2.6" in text and "unavailable" in text
+        assert "committed" in text or "output" in text
+        assert "unavailable until" not in text
+
+
+@pytest.mark.parametrize(
+    ("value", "target", "fields"),
+    (
+        (
+            OutputEvidence("check", "Output checked.", (("rows", 1),)),
+            "runtime.OutputEvidence",
+            ("kind:", "summary:", "values:", "coordinates:"),
+        ),
+        (
+            OutputCoordinate("key.0", 1),
+            "runtime.OutputCoordinate",
+            ("slot_id:", "value:"),
+        ),
+    ),
+)
+def test_terminal_record_help_resolves_nested_types_and_methods(value, target, fields, capsys):
+    rendered = []
+    for form in (f"analysis.{target}", type(value), value):
+        marivo.help(form)
+        text = capsys.readouterr().out
+        assert f"analysis.{target}" in text
+        assert all(field in text for field in fields)
+        rendered.append(text)
+    assert rendered[0] == rendered[1]
+    for method in (value.show, value.render):
+        marivo.help(method)
+        assert "analysis.runtime.values." in capsys.readouterr().out
+    assert type(value).__name__ not in mv.__all__

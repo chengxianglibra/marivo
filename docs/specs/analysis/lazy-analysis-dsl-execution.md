@@ -15,7 +15,9 @@ v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence �
 解析/民用日期/naive 时间、编码 Duration 的准备；不同 datasource 根先分别规约后组合。
 普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
 R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
-公开打开、预览、导出与 Finding/Evidence 阅读仍报告 R2.6 缺口；不构成完整 R2 或远端 Runtime 验收声明。
+R2.6 接通公开元数据打开、有界预览、完整 pandas 导出和无图记录阅读。Finding 保留分页；
+evidence_digest() 不接受参数，直接返回全部 Evidence（.items）及集合摘要，.show() 保持有界。
+这些本地能力不构成后续阶段或远端 Runtime 验收声明。
 
 ## 1. 执行、保留与恢复
 
@@ -94,7 +96,8 @@ Finding 是方法明确产出的结构化发现；Evidence 是支持产出的实
 没有来源读取或未执行某项检查就不生成相应记录；必要检查失败仍阻止整个产物发布。
 新产物与冷恢复保存、读取相同摘要；本节唯一拥有普通观察的保存要求，
 不新增分析方法、LLM 总结流程或通用证据推理系统。
-复用现有有界 findings/evidence_digest 读取家族，记录必须自包含，只引用当前产物的输出位置/记录身份。
+复用现有 FindingPage/ArtifactDigest 家族；Finding 有界分页，evidence_digest() 无参返回全部已保存 Evidence，
+结果 .show() 保持有界。记录必须自包含，只引用当前产物的输出位置/记录身份。
 不保存需解释计算图才能读取的 derivation，不把执行中的 Fact/obligation/证明依赖链直接序列化。
 必要数值若被明确选为 Evidence 输出，就按输出保存；不能以 evidence 名义默认保留全部隐藏 sum/count。
 
@@ -205,7 +208,10 @@ Query.contract 披露主输入、参照/域依赖、版本、必要检查和声�
 动态范围尚未求出时保留依赖，实际读取及检查结果只由成功执行后的 §1.2 Evidence 披露。
 drill 指向有来源的观察端点，compare 不显示自动 drill，share 披露所选量和分母范围而不计算分母。
 Artifact.show 从已提交输出读取数据预览及事实摘要，不加载 Catalog，不重算或推断新 Finding。
-细节用现有有界 findings/evidence_digest 读取；只为实际存在的输出提供阅读提示。
+细节通过 Finding 分页与完整 evidence_digest() 读取；只为实际存在的输出提供阅读提示。
+展示被字节预算截断时，提示通过 to_pandas() 和 evidence_digest() 读取完整数据与事实，
+不提示 Artifact.show 未接受的参数。Evidence/Coordinate 作为嵌套结果接入 native Help，
+支持实例、类型及其阅读方法查询，不增加顶层导出。
 
 ### 2.2 域测试的未绑定与已绑定披露
 

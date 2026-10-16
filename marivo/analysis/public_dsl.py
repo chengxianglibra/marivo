@@ -85,7 +85,15 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.evidence._dataset_types import ArtifactDigest, Finding, FindingPage
+from marivo.analysis.evidence._dataset_types import (
+    GraphArtifactDigest as ArtifactDigest,
+)
+from marivo.analysis.evidence._dataset_types import (
+    GraphFinding as Finding,
+)
+from marivo.analysis.evidence._dataset_types import (
+    GraphFindingPage as FindingPage,
+)
 from marivo.analysis.forecast_models import ForecastHorizon, ForecastModel, naive
 from marivo.analysis.materialization.graph_dataset import (
     GraphDataset,

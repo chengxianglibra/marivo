@@ -19,7 +19,6 @@ from marivo.analysis.materialization.storage import (
     _checked_path,
     _fsync_directory,
     _manifest_bytes,
-    _open_payload,
 )
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.methods.physical import stage_arrow_type
@@ -142,33 +141,7 @@ def write_output(
 
 
 def read_output(root: Path, schema: DataSchema, handle: ParquetHandle) -> pd.DataFrame:
-    """Private complete storage round trip; public reading belongs to R2.6."""
-    receipt = handle.receipt
-    directory = _checked_path(root, Path(receipt.project_relative_path))
-    if payload_digest(root, directory, receipt) != handle.payload_digest:
-        raise invalid("terminal payload digest differs from its committed receipt")
-    manifest = _manifest_bytes(receipt.file_manifest)
-    if (directory / "manifest.json").read_bytes() != manifest:
-        raise invalid("terminal file manifest differs from its receipt")
-    parquet, path = _open_payload(root, receipt)
-    with parquet:
-        if (
-            not parquet.schema_arrow.equals(physical_schema(schema), check_metadata=True)
-            or parquet.metadata.num_rows != receipt.realized_row_count
-            or path.stat().st_size != receipt.file_manifest[0].size_bytes
-            or receipt.realized_byte_count != path.stat().st_size + len(manifest)
-        ):
-            raise invalid("terminal payload schema, rows or bytes differ from its receipt")
-        table = pa.Table.from_batches(
-            list(parquet.iter_batches(batch_size=POLICY.batch_rows)), schema=physical_schema(schema)
-        )
-    table = table.cast(arrow_schema(schema), safe=True)
-    if not schema.columns:
-        if table.num_rows > 1 or any(value != 1 for value in table["__unit"].to_pylist()):
-            raise invalid("invalid zero-axis unit output")
-        return pd.DataFrame(index=pd.RangeIndex(table.num_rows))
-    frame = table.to_pandas(types_mapper=pd.ArrowDtype)
-    normalized = canonical_frame(schema, frame)
-    if not normalized.equals(frame.reset_index(drop=True)):
-        raise invalid("terminal rows are not in canonical complete-key order")
-    return normalized
+    """Read the complete physical output through the shared terminal data reader."""
+    from marivo.analysis.materialization.graph_reading import ExportRead, OutputRead, ReadLayout
+
+    return OutputRead(root).read(ReadLayout(schema, handle), ExportRead())

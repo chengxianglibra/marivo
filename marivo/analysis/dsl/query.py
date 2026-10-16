@@ -24,7 +24,7 @@ class Query:
     """A lazy named Metric definition owned by one Session.
 
     Acquire through session.observe(metrics). This surface captures definitions and ordinary observation bindings;
-    execute() evaluates ordinary numeric stages and atomically publishes terminal output in Store 10; public reading arrives in R2.6.
+    execute() evaluates ordinary numeric stages and atomically publishes terminal output in Store 10; committed output reads require no current source or Catalog.
     """
 
     _graph: BoundGraph
@@ -123,7 +123,7 @@ class Query:
                 ("definition", self._graph.fingerprint),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
                 ("execution", "Query.execute() atomically publishes terminal output"),
-                ("pending", "R2.6 public Artifact reading"),
+                ("output", "terminal Artifact; preview, complete pandas export and saved facts"),
                 (
                     "period",
                     repr(self._graph.signature.observation.period)
@@ -187,7 +187,7 @@ class Query:
         Args: None.
         Returns: A terminal Artifact after checked execution and atomic publication.
         Example: ``artifact = query.execute()``.
-        Constraints: Preparation failures create no Run. Each admitted call is a new evaluation; only committed Parquet and output records survive publication. Public Artifact reading arrives in R2.6.
+        Constraints: Preparation failures create no Run. Each admitted call is a new evaluation; only committed Parquet and output records survive publication. The returned Artifact reads committed output without current-source or Catalog access.
         """
         return self._execute(self._graph)
 

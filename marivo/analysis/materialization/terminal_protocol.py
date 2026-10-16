@@ -180,10 +180,17 @@ def encode(value: ArtifactManifest | OutputFinding | OutputEvidence | Invocation
 
 
 def decode(text: str, expected: type[T]) -> T:
-    envelope = _obj(parse_json(text), "format value")
-    if envelope["format"] != FORMAT:
-        raise invalid("expected terminal output v1; obsolete graph/continuation format received")
-    value = _decode(envelope["value"])
-    if not isinstance(value, expected) or type(value) is not expected:
-        raise invalid("terminal envelope has the wrong output record type")
-    return value
+    try:
+        envelope = _obj(parse_json(text), "format value")
+        if envelope["format"] != FORMAT:
+            raise invalid(
+                "expected terminal output v1; obsolete graph/continuation format received"
+            )
+        value = _decode(envelope["value"])
+        if not isinstance(value, expected) or type(value) is not expected:
+            raise invalid("terminal envelope has the wrong output record type")
+        return value
+    except IntegrityError as error:
+        if error.stage == "terminal_output":
+            raise
+        raise invalid(str(error.received)) from None
