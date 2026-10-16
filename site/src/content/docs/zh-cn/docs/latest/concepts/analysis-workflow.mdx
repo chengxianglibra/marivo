@@ -32,7 +32,8 @@ query.contract().show()
 普通规约省略 `during` 时不追加时间过滤；采样依赖仍须显式提供期间。
 共同条件分别绑定到每个来源规约出现。
 
-当前 `query.execute()` 会指出执行和发布仍待 R2.3–R2.5。
+当前 `query.execute()` 会准备来源 schema 并规划阶段，不读取业务行，
+随后指出数值执行和发布仍待 R2.4–R2.5。
 Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读，只提供
 `id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
 `evidence_digest()`，没有 DSL 方法或 `contract()`。

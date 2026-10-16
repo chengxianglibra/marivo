@@ -145,6 +145,12 @@ def _manifest() -> Manifest:
         ("source.execute",),
         governed,
     )
+    add(
+        "analysis/materialization/graph_source_execution",
+        ("read_stage",),
+        ("prepared.source.execute",),
+        governed,
+    )
     compile_owner = Owner(
         "ibis_compilation",
         "Ibis expression compilation is inventoried separately from driver submission.",
@@ -161,6 +167,12 @@ def _manifest() -> Manifest:
         "analysis/materialization/graph_source_execution",
         ("_issue",),
         ("source.compile",),
+        compile_owner,
+    )
+    add(
+        "analysis/materialization/graph_source_execution",
+        ("read_stage",),
+        ("prepared.source.compile",),
         compile_owner,
     )
     add(

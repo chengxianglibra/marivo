@@ -58,10 +58,21 @@ attribute anchors do not replace a sampling period. Missing/ambiguous paths,
 fanout and unbound versioned attributes fail with concrete typed repair.
 Population, members and observation windows are not new observe parameters in
 R2.2. `contract()` reports bound context and explicitly unresolved physical dtype
-without schema/business reads or Run admission. `execute()` still raises
-AnalysisStageUnavailableError before admission: R2.3 owns schema preparation and
-scheduling, R2.4 numerical execution, and R2.5 publication. There is no old-executor
+without schema/business reads or Run admission. `execute()` performs R2.3
+schema-only preparation (lossless type admission) and pure stage planning, then
+raises AnalysisStageUnavailableError before any business read or Run: R2.4 owns
+numerical execution and R2.5 publication. Path/anchored, parsed-time and computed
+field reads report their R2.4 gap before a datasource opens. There is no old-executor
 fallback.
+
+Preparation validates each field occurrence before sharing a physical column, so
+an earlier native read cannot hide a later path or attribute anchor. Original
+datasource Duration and Timestamp metadata remains authoritative across Entity
+projections: encoded Duration and precision-losing timestamp carriers reject
+before business reads. Internal check routes bind the complete obligation to an
+exact source contribution occurrence. The scheduler checks that output as soon
+as it is ready, before consumption or release, for both consume and publish
+deadlines; an unbound check route rejects during planning.
 
 `Artifact` is a distinct terminal wrapper: exact ID, manifest and read service.
 It exposes `show(n=20)`, `to_pandas()`, `findings()` and `evidence_digest()`;

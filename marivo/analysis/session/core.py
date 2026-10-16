@@ -253,7 +253,7 @@ class Session:
             where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. Execution/publication arrives in R2.3-R2.5. Artifact objects and IDs are not Metric inputs.
+        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares schema and plans stages; numeric routes and publication arrive in R2.4-R2.5. Artifact objects and IDs are not Metric inputs.
         """
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
@@ -278,13 +278,22 @@ class Session:
         )
 
     def _execute_query(self, graph: BoundGraph) -> Artifact:
+        from marivo.analysis.compiler.graph_lowering import lower_query
+        from marivo.analysis.compiler.graph_plan import plan_query
         from marivo.analysis.errors import AnalysisStageUnavailableError
+        from marivo.analysis.materialization.graph_source_execution import open_query_sources
 
+        observation = graph.signature.observation
+        if observation is not None and observation.contributions:
+            # Schema-only preparation, planning and lowering: no business read.
+            state = self.catalog._state
+            with open_query_sources(self._runtime.connection_service(), graph, state) as prepared:
+                lower_query(plan_query(graph, prepared.schemas), prepared.relations)
         raise AnalysisStageUnavailableError(
             stage="query_execution",
-            expected="qualified execution and terminal output publication",
-            received=f"R2.2 bound Query with {len(graph.signature.quantities)} named outputs",
-            repair="Keep the bound Query; execution and publication arrive in R2.3-R2.5. No Run was admitted.",
+            expected="numeric source/local routes and terminal output publication",
+            received=f"prepared R2.3 plan for {len(graph.signature.quantities)} named outputs",
+            repair="Keep the bound Query; numeric routes arrive in R2.4 and publication in R2.5. No business row was read and no Run was admitted.",
             target="Query.execute",
         )
 

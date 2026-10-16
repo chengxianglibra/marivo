@@ -4,23 +4,28 @@ from __future__ import annotations
 
 import hashlib
 import math
-from dataclasses import replace
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+from typing import NoReturn
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 
+from marivo._definition.types import FieldRead
 from marivo.analysis.compiler.cell_lowering import lower_cells
 from marivo.analysis.compiler.graph_lowering import (
     IntegrityCheck,
     LoweredLocal,
     LoweredPlan,
+    LoweredRead,
     LoweredRelation,
     SemanticCheck,
     TemporalCheck,
 )
-from marivo.analysis.compiler.graph_plan import CheckRequirement
+from marivo.analysis.compiler.graph_plan import CheckRequirement, SourceField, SourceSchema
 from marivo.analysis.core.cell_encoding import (
     CellBook,
     CellEncoding,
@@ -29,7 +34,14 @@ from marivo.analysis.core.cell_encoding import (
     KnownCell,
     ValidityCell,
 )
-from marivo.analysis.core.graph import MethodNode
+from marivo.analysis.core.data_types import (
+    DataType,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
+from marivo.analysis.core.graph import BoundGraph, MethodNode
 from marivo.analysis.core.model import Defined, DerivedQuantity, ReferenceStatePart
 from marivo.analysis.core.rules import (
     AssociationFit,
@@ -68,14 +80,30 @@ from marivo.analysis.materialization.graph_exchange import (
     ExchangePart,
     ExchangeResult,
     PartContract,
+    StageOutput,
     from_pandas,
 )
 from marivo.analysis.materialization.graph_execution import PreparedGraph
+from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
 from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import propagated_cell, propagated_error
 from marivo.analysis.methods.registry import REGISTRY
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.adapters import (
+    DURATION_UNIT_METADATA_KEY,
+    TIMESTAMP_UNIT_METADATA_KEY,
+    BoundSource,
+    CompiledRead,
+    PhysicalRequirement,
+    SourceSession,
+    provider_for,
+)
+from marivo.datasource.runtime import DatasourceConnectionService
+from marivo.refs import SemanticKind
+from marivo.refs import ref as semantic_ref
+from marivo.semantic._compiled_state import CompiledSemanticState
+from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic.validator import Registry, normalize_target_entity
 
 
 def _as_arrow(frame: pd.DataFrame, schema: pa.Schema) -> pa.Table:
@@ -1275,3 +1303,255 @@ def execute_source_graph(
         )
     finally:
         pass
+
+
+# R2.3 Query execute preparation and SourceRead execution. Preparation binds each
+# contribution root once and admits column types from the schema alone; it never
+# submits a business read. The legacy graph execution above is unchanged.
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class PreparedSources:
+    """Schema-only bindings for one Query invocation and its open source session."""
+
+    source: SourceSession
+    schemas: tuple[SourceSchema, ...]
+    relations: dict[str, ir.Table]
+    bound: dict[str, BoundSource]
+
+
+def _preparation_error(expected: str, received: str) -> MaterializationError:
+    return MaterializationError(
+        expected=expected,
+        received=received,
+        repair="Use a source column whose declared type converts losslessly; no business row was read.",
+        stage="execute_preparation",
+        help_target="Query.execute",
+    )
+
+
+def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+
+    raise AnalysisStageUnavailableError(
+        stage="query_execution",
+        expected=expected,
+        received=received,
+        repair=f"{repair} No business row was read and no Run was admitted.",
+        target="Query.execute",
+    )
+
+
+def admit_source_type(field: pa.Field, path: str) -> DataType:
+    """Map one bound source column to its lossless stage type, before any read."""
+    physical = field.type
+    if (field.metadata or {}).get(DURATION_UNIT_METADATA_KEY) is not None:
+        _route_gap(
+            f"a native Duration column for {path}",
+            "an int64 tick column with Duration metadata",
+            "Encoded Duration reads arrive with the R2.4 value routes.",
+        )
+    if pa.types.is_signed_integer(physical) or physical in (pa.uint8(), pa.uint16(), pa.uint32()):
+        return ScalarDataType("int64")
+    if pa.types.is_floating(physical):
+        return ScalarDataType("float64")
+    if pa.types.is_boolean(physical):
+        return ScalarDataType("boolean")
+    if pa.types.is_string(physical) or pa.types.is_large_string(physical):
+        return ScalarDataType("string")
+    if physical == pa.date32():
+        return ScalarDataType("date")
+    if pa.types.is_decimal128(physical):
+        return DecimalDataType(physical.precision, physical.scale)
+    if pa.types.is_timestamp(physical) and physical.tz is not None:
+        original_unit = (field.metadata or {}).get(TIMESTAMP_UNIT_METADATA_KEY)
+        units = (b"s", b"ms", b"us", b"ns")
+        if original_unit in units and units.index(original_unit) > units.index(
+            physical.unit.encode("ascii")
+        ):
+            raise _preparation_error(
+                f"{path}: a lossless timestamp[{original_unit.decode('ascii')}] source carrier",
+                f"{path}: {physical} loses source precision",
+            )
+        return TimestampDataType(physical.unit, physical.tz)
+    if pa.types.is_duration(physical):
+        return DurationDataType(physical.unit)
+    raise _preparation_error(
+        f"{path}: a column type with a lossless stage carrier",
+        f"{path}: {physical}",
+    )
+
+
+def _field_column(registry: Registry, sidecar: CompiledExpressionSidecar, read: FieldRead) -> str:
+    path = read.field.ref.path
+    if read.path or read.at is not None:
+        _route_gap(
+            f"a native field read for {path}",
+            "a relationship path or attribute anchor read",
+            "Path and anchored field reads are lowered by the R2.4 observation route.",
+        )
+    if read.field.ref.kind is SemanticKind.MEASURE:
+        body = sidecar.bodies.get(semantic_ref.measure(path))
+        column = None if body is None else body.source_column
+    else:
+        dimension = registry.dimensions[path]
+        if dimension.parse is not None:
+            _route_gap(
+                f"a native time column for {path}",
+                "a parsed time field",
+                "Parsed time fields are lowered by the R2.4 time route.",
+            )
+        column = dimension.source_column
+    if column is None:
+        _route_gap(
+            f"a direct source column for {path}",
+            "a computed field body",
+            "Computed fields are lowered by the R2.4 row kernel.",
+        )
+    return column
+
+
+def _admitted(schema: pa.Schema, path: str, column: str) -> SourceField:
+    index = schema.get_field_index(column)
+    if index < 0:
+        raise _preparation_error(
+            f"{path}: column {column!r} on the bound source", repr(schema.names)
+        )
+    item = schema.field(index)
+    return SourceField(path, column, admit_source_type(item, path), item.nullable)
+
+
+def _validate_source_metadata(
+    bound: BoundSource, relation: ir.Table, columns: tuple[str, ...]
+) -> None:
+    """Check original carriers before Entity projection can erase their metadata."""
+    source_node = bound.relation.op()
+    physical_columns = {
+        field.name
+        for field in relation.select(*columns).op().find(ops.Field)
+        if field.rel == source_node
+    }
+    for name in sorted(physical_columns):
+        field = bound.facts.schema.field(name)
+        metadata = field.metadata or {}
+        if DURATION_UNIT_METADATA_KEY in metadata or TIMESTAMP_UNIT_METADATA_KEY in metadata:
+            admit_source_type(field, f"{bound.facts.source_identity}.{name}")
+
+
+@dataclass(frozen=True, slots=True)
+class _RootReads:
+    """Registry-resolved columns for one contribution root, before any connection."""
+
+    root: str
+    columns: tuple[tuple[str, str], ...]
+    period_fields: tuple[str, ...]
+
+
+def _query_reads(graph: BoundGraph, state: CompiledSemanticState) -> tuple[_RootReads, ...]:
+    """Resolve every read to a direct column, rejecting later-stage routes without I/O."""
+    observation = graph.signature.observation
+    contributions = () if observation is None else observation.contributions
+    registry, sidecar = state.registry, state.sidecar
+    columns: dict[str, dict[str, str]] = {}
+    times: dict[str, dict[str, None]] = {}
+    for contribution in contributions:
+        root = contribution.root.ref.path
+        resolved = columns.setdefault(root, {})
+        for read in (*contribution.reads, *contribution.coordinates):
+            column = _field_column(registry, sidecar, read)
+            resolved.setdefault(read.field.ref.path, column)
+        if contribution.period is not None and contribution.time is not None:
+            times.setdefault(root, {})[contribution.time.field.ref.path] = None
+    return tuple(
+        _RootReads(root, tuple(resolved.items()), tuple(times.get(root, {})))
+        for root, resolved in columns.items()
+    )
+
+
+def prepare_query_sources(
+    graph: BoundGraph, state: CompiledSemanticState, source: SourceSession
+) -> PreparedSources:
+    """Bind every contribution root and admit its read types without business reads."""
+    if source.provider.name != "duckdb":
+        _route_gap(
+            "a lossless qualified source read route",
+            f"{source.provider.name} datasource",
+            "Remote lossless read routes are qualified with Runtime tests after R2.3.",
+        )
+    registry, sidecar = state.registry, state.sidecar
+    schemas: list[SourceSchema] = []
+    relations: dict[str, ir.Table] = {}
+    bound_sources: dict[str, BoundSource] = {}
+    for item in _query_reads(graph, state):
+        root = item.root
+        contract = normalize_target_entity(registry, root)
+        if contract.datasource_ref.path != source.datasource.semantic_id:
+            _route_gap(
+                f"contributions on datasource {source.datasource.semantic_id}",
+                f"{root} on {contract.datasource_ref.path}",
+                "Cross-datasource combination is not delivered in R2.3.",
+            )
+        bound = source.bind(contract.source, source_identity=root)
+        relation = bind_entity_output(
+            registry, sidecar, root, source, bound, contract.dependency_fingerprint
+        )
+        schema = relation.schema().to_pyarrow()
+        keys = tuple(_admitted(schema, column, column) for column in contract.primary_key)
+        fields = tuple(_admitted(schema, path, column) for path, column in item.columns)
+        _validate_source_metadata(
+            bound,
+            relation,
+            tuple(dict.fromkeys((*contract.primary_key, *(column for _, column in item.columns)))),
+        )
+        for path in item.period_fields:
+            dtype = next(item.dtype for item in fields if item.field == path)
+            if not isinstance(dtype, TimestampDataType) or dtype.timezone is None:
+                _route_gap(
+                    f"a timezone-aware instant column for the {path} period filter",
+                    f"{path}: {dtype}",
+                    "Civil-date and naive time periods are lowered by the R2.4 time route.",
+                )
+        schemas.append(SourceSchema(root, keys, fields))
+        relations[root] = relation
+        bound_sources[root] = bound
+    return PreparedSources(source, tuple(schemas), relations, bound_sources)
+
+
+@contextmanager
+def open_query_sources(
+    service: DatasourceConnectionService, graph: BoundGraph, state: CompiledSemanticState
+) -> Iterator[PreparedSources]:
+    """Open the one datasource read by ``graph`` and yield its prepared bindings."""
+    roots = _query_reads(graph, state)
+    datasources = {state.registry.entities[item.root].datasource for item in roots}
+    if len(datasources) != 1:
+        _route_gap(
+            "contributions on one datasource",
+            repr(sorted(datasources)),
+            "Cross-datasource combination is not delivered in R2.3.",
+        )
+    datasource = state.registry.datasources[next(iter(datasources))]
+    with (
+        service.use_backend(datasource.name, read_only=True) as backend,
+        SourceSession(
+            provider_for(datasource.backend_type), datasource, backend, owns_backend=False
+        ) as source,
+    ):
+        yield prepare_query_sources(graph, state, source)
+
+
+def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
+    """Submit one lowered SourceRead and normalize its pandas result."""
+    stage = lowered.stage
+    expression = lowered.expression
+    qualified = prepared.source.qualify(
+        prepared.bound[stage.source_id],
+        PhysicalRequirement("query.source_read", 1, relation_operations(expression)),
+    )
+    issued = prepared.source.compile(
+        qualified,
+        expression,
+        purpose=f"query.{stage.stage_id}",
+        expected_schema=expression.schema().to_pyarrow(),
+    )
+    return StageOutput.from_frame(prepared.source.execute(issued), stage.columns, stage.keys)

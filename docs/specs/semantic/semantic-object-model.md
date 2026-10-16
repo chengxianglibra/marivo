@@ -19,8 +19,8 @@ constructs a half-open condition; it does not replace the observation period
 required by sampling. Source reductions, sample axes and sum-permission declarations
 continue to require native fields; bound scalar reads do not expand row arithmetic.
 Focused Help routes are `semantic.Field.via`,
-`semantic.Field.at` and `semantic.TimeField.within`. New Query execution is still
-pending R2.3–R2.5; no numerical qualification is implied.
+`semantic.Field.at` and `semantic.TimeField.within`. Numeric Query execution is still
+pending R2.4–R2.5; no numerical qualification is implied.
 
 ## Definition changes during analysis
 

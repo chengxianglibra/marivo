@@ -23,8 +23,8 @@ from marivo.semantic.expressions import Field, Metric, Predicate
 class Query:
     """A lazy named Metric definition owned by one Session.
 
-    Acquire through session.observe(metrics). This R2.2 surface captures definitions and ordinary observation bindings;
-    execution and publication are delivered by R2.3 through R2.5.
+    Acquire through session.observe(metrics). This surface captures definitions and ordinary observation bindings;
+    execute() prepares schema and plans stages, while numeric routes (R2.4) and publication (R2.5) are pending.
     """
 
     _graph: BoundGraph
@@ -122,7 +122,7 @@ class Query:
             _facts=(
                 ("definition", self._graph.fingerprint),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
-                ("pending", "R2.3/R2.4 execution and R2.5 publication"),
+                ("pending", "R2.4 numeric routes and R2.5 publication"),
                 (
                     "period",
                     repr(self._graph.signature.observation.period)
@@ -186,7 +186,7 @@ class Query:
         Args: None.
         Returns: A terminal Artifact after execution and atomic publication are available.
         Example: ``artifact = query.execute()``.
-        Constraints: R2.2 raises a structured unavailable-stage error before reading data or admitting a Run; never falls back to the old graph executor.
+        Constraints: Runs schema-only preparation and stage planning, then raises a structured unavailable-stage error before any business read or Run; never falls back to the old graph executor.
         """
         return self._execute(self._graph)
 

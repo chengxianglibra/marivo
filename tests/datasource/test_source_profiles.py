@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from math import isnan
 from pathlib import Path
 
 import ibis
+import pandas as pd
 import pytest
 
 from marivo.datasource.adapters import PhysicalRequirement
@@ -80,7 +80,7 @@ def test_source_profile(
         assert actual[1]["id"] == ROWS[1]["id"]
         assert actual[1]["tenant"] == ROWS[1]["tenant"]
         assert actual[1]["revision"] == ROWS[1]["revision"]
-        assert isnan(actual[1]["amount"])
+        assert pd.isna(actual[1]["amount"])
         assert actual[2] == ROWS[2]
         assert session.submissions[-1].sql == read.sql
         assert asdict(session.submissions[-1])["state"] == "succeeded"

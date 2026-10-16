@@ -17,7 +17,7 @@ from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError, AnalysisStageUnavailableError
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import SemanticError
-from marivo.semantic.expressions import Metric
+from marivo.semantic.expressions import Dimension, Entity, Metric
 
 
 def _model(
@@ -118,6 +118,22 @@ def bound_catalog(semantic_project_factory, tmp_path: Path, monkeypatch: pytest.
     return build
 
 
+@pytest.mark.parametrize("anchored_first", (False, True))
+def test_execute_checks_every_repeated_field_anchor(bound_catalog, anchored_first: bool) -> None:
+    session = bound_catalog(versioned=True)
+    entity = session.catalog.entities.get("sales.customers")
+    region = session.catalog.fields.get("sales.customers.region")
+    assert isinstance(entity, Entity) and isinstance(region, Dimension)
+    direct = region == "APAC"
+    anchored = region.at(session.instant("2026-01-01")) == "APAC"
+    condition = anchored & direct if anchored_first else direct & anchored
+    query = session.observe({"count": entity.count()}, where=condition)
+    # bound_catalog forbids opening a datasource, even for schema inspection.
+    with pytest.raises(AnalysisStageUnavailableError, match="attribute anchor"):
+        query.execute()
+    assert session.runs().items == ()
+
+
 def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     bound_catalog, capsys
 ):
@@ -155,8 +171,10 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert session.runs().items == ()
     query.contract().show()
     assert "sales.refunds" in capsys.readouterr().out
-    with pytest.raises(AnalysisStageUnavailableError, match=r"R2\.3"):
+    # Path reads are rejected at execute preparation before any datasource opens.
+    with pytest.raises(AnalysisStageUnavailableError, match=r"R2\.4") as caught:
         query.execute()
+    assert caught.value.run_ref is None
     assert session.runs().items == ()
     with pytest.raises(FrozenInstanceError):
         binding.period = None

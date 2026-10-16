@@ -14,6 +14,13 @@ import pyarrow.compute as pc
 
 from marivo.analysis.compiler.graph_plan import CheckRequirement
 from marivo.analysis.core.cell_encoding import KnownCell, ValidityCell
+from marivo.analysis.core.data_types import (
+    DataColumn,
+    DataType,
+    DecimalDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.core.model import (
     AttributionPart,
     ConditionCellsPart,
@@ -1561,3 +1568,164 @@ def _verify_reference_parts(
     actual_by_key = {tuple(row[key] for key in names): row for row in actual_rows}
     if expected_by_key != actual_by_key:
         raise _invalid("reference primary differs from its immutable inputs")
+
+
+# R2.3 Query stage handoff. StageOutput is the only invocation-local value passed
+# between SourceRead and LocalCompute stages; it is never serialized or reused as
+# a computation input. The legacy ExchangeResult above keeps serving the graph DSL.
+
+_NORMALIZED = object()
+
+
+def _stage_error(expected: str, received: str) -> MaterializationError:
+    return MaterializationError(
+        expected=expected,
+        received=received,
+        repair="Correct the source field type or stage layout; Marivo does not cast lossy values back.",
+        stage="stage_output",
+        help_target="Query.execute",
+    )
+
+
+def stage_arrow_type(dtype: DataType) -> pa.DataType:
+    """Return the exact Arrow carrier for one stage slot type."""
+    if isinstance(dtype, ScalarDataType):
+        return {
+            "boolean": pa.bool_(),
+            "string": pa.string(),
+            "int64": pa.int64(),
+            "float64": pa.float64(),
+            "date": pa.date32(),
+        }[dtype.name]
+    if isinstance(dtype, DecimalDataType):
+        return pa.decimal128(dtype.precision, dtype.scale)
+    if isinstance(dtype, TimestampDataType):
+        return pa.timestamp(dtype.unit, dtype.timezone)
+    return pa.duration(dtype.unit)
+
+
+def _type_name(dtype: DataType) -> str:
+    if isinstance(dtype, ScalarDataType):
+        return dtype.name
+    if isinstance(dtype, DecimalDataType):
+        return f"decimal({dtype.precision},{dtype.scale})"
+    if isinstance(dtype, TimestampDataType):
+        return f"timestamp({dtype.unit},{dtype.timezone})"
+    return f"duration({dtype.unit})"
+
+
+def _admits(source: pa.DataType, target: DataType) -> bool:
+    if pa.types.is_null(source):
+        return True
+    if isinstance(target, ScalarDataType):
+        if target.name == "boolean":
+            return bool(pa.types.is_boolean(source))
+        if target.name == "string":
+            return bool(pa.types.is_string(source) or pa.types.is_large_string(source))
+        if target.name == "int64":
+            return bool(pa.types.is_integer(source))
+        if target.name == "float64":
+            return bool(pa.types.is_floating(source))
+        return bool(pa.types.is_date(source))
+    if isinstance(target, DecimalDataType):
+        return bool(pa.types.is_decimal(source))
+    if isinstance(target, TimestampDataType):
+        return bool(pa.types.is_timestamp(source))
+    return bool(pa.types.is_duration(source))
+
+
+def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
+    try:
+        values = pa.array(series, from_pandas=True)
+    except (pa.ArrowInvalid, pa.ArrowTypeError) as error:
+        raise _stage_error(
+            f"{column.slot_id}: one typed {_type_name(column.dtype)} column",
+            f"{series.dtype}: {error}",
+        ) from None
+    if not _admits(values.type, column.dtype):
+        raise _stage_error(
+            f"{column.slot_id}: a lossless {_type_name(column.dtype)} carrier",
+            f"{column.slot_id}: {series.dtype} delivered for {_type_name(column.dtype)}",
+        )
+    if (
+        isinstance(column.dtype, TimestampDataType)
+        and pa.types.is_timestamp(values.type)
+        and values.type.tz != column.dtype.timezone
+    ):
+        raise _stage_error(
+            f"{column.slot_id}: timezone {column.dtype.timezone}",
+            f"{column.slot_id}: timezone {values.type.tz} delivered",
+        )
+    if not column.nullable and values.null_count:
+        raise _stage_error(
+            f"{column.slot_id}: a nonnullable column without NA",
+            f"{values.null_count} NA values",
+        )
+    try:
+        exact = values.cast(stage_arrow_type(column.dtype), safe=True)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as error:
+        raise _stage_error(
+            f"{column.slot_id}: a lossless {_type_name(column.dtype)} conversion", str(error)
+        ) from None
+    return pd.Series(pd.arrays.ArrowExtensionArray(exact), name=column.slot_id)
+
+
+def normalize_stage_frame(
+    frame: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+) -> pd.DataFrame:
+    """Return a new exact-typed stage frame; source and local outputs share this entry.
+
+    Column order, complete keys, dtype, timezone and NA are checked against the
+    planned slots. Lossy conversions fail instead of being cast back afterward.
+    """
+    expected = tuple(column.slot_id for column in columns)
+    if tuple(frame.columns) != expected:
+        raise _stage_error(
+            f"stage column order {expected!r}", repr(tuple(str(c) for c in frame.columns))
+        )
+    if keys and (
+        frame.loc[:, list(keys)].isna().to_numpy().any() or frame.duplicated(list(keys)).any()
+    ):
+        raise _stage_error(f"a complete unique stage key {keys!r}", "null or duplicate key values")
+    return pd.DataFrame(
+        {column.slot_id: _stage_column(frame[column.slot_id], column) for column in columns},
+        columns=list(expected),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class CheckReceipt:
+    """One completed planned check for this exact stage output instance."""
+
+    check_id: str
+    stage_id: str
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class StageOutput:
+    """Invocation-local typed pandas stage data; build only through ``from_frame``."""
+
+    columns: tuple[DataColumn, ...]
+    keys: tuple[str, ...]
+    table: pd.DataFrame
+    receipts: tuple[CheckReceipt, ...] = ()
+    _token: object = None
+
+    def __post_init__(self) -> None:
+        if self._token is not _NORMALIZED:
+            raise _stage_error(
+                "a normalized stage frame from StageOutput.from_frame",
+                "an unnormalized stage table",
+            )
+
+    @classmethod
+    def from_frame(
+        cls,
+        frame: pd.DataFrame,
+        columns: tuple[DataColumn, ...],
+        keys: tuple[str, ...],
+        receipts: tuple[CheckReceipt, ...] = (),
+    ) -> StageOutput:
+        return cls(
+            columns, keys, normalize_stage_frame(frame, columns, keys), receipts, _NORMALIZED
+        )

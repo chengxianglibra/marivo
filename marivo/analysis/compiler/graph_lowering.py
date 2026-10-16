@@ -12,13 +12,25 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
+from marivo._definition.expressions import (
+    FieldIn,
+    FieldIsNull,
+    FieldPredicate,
+    PredAnd,
+    PredNot,
+    PredOr,
+    RowCompare,
+)
+from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
     ArtifactReadStage,
     CheckRequirement,
     GraphPlan,
     LocalMethodStage,
+    QueryPlan,
     SourceInputStage,
     SourceMethodStage,
+    SourceRead,
     admitted_capture,
 )
 from marivo.analysis.compiler.member_version import select_version, version_predicate
@@ -4658,3 +4670,100 @@ def endpoint_fields(signature: Signature, side: str, table: ir.Table) -> dict[st
             else "coordinate_state__present"
         ]
     return fields
+
+
+# R2.3 Query lowering. Each SourceRead becomes one Ibis table over its exact
+# bound relation; lowering reads only Ibis schemas and never executes.
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class LoweredRead:
+    """One SourceRead and the exact Ibis table for its source ID."""
+
+    stage: SourceRead
+    expression: ir.Table
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class LoweredQuery:
+    plan: QueryPlan
+    reads: tuple[LoweredRead, ...]
+
+    def read(self, stage_id: str) -> LoweredRead:
+        for item in self.reads:
+            if item.stage.stage_id == stage_id:
+                return item
+        raise compilation_error(f"a lowered read for {stage_id}", "missing lowered stage")
+
+
+def _query_gap(expected: str, received: str) -> NoReturn:
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+
+    raise AnalysisStageUnavailableError(
+        stage="query_execution",
+        expected=expected,
+        received=received,
+        repair="Row-expression conditions are lowered by the R2.4 row kernel; no business row was read.",
+        target="Query.execute",
+    )
+
+
+def _query_predicate(
+    node: FieldPredicate, table: ir.Table, columns: dict[str, str]
+) -> ir.BooleanValue:
+    if isinstance(node, PredAnd):
+        return reduce(and_, (_query_predicate(c, table, columns) for c in node.operands))
+    if isinstance(node, PredOr):
+        return reduce(or_, (_query_predicate(c, table, columns) for c in node.operands))
+    if isinstance(node, PredNot):
+        return ~_query_predicate(node.operand, table, columns)
+    if isinstance(node, RowCompare):
+        _query_gap("an ordinary field condition", "a row-expression comparison")
+    column = columns.get(node.field.ref.path)
+    if column is None:
+        raise compilation_error(f"a planned column for {node.field.ref.path}", repr(tuple(columns)))
+    value = table[column]
+    if isinstance(node, FieldIsNull):
+        return value.isnull()
+    if isinstance(node, FieldIn):
+        present = tuple(item for item in node.values if item is not None)
+        result = value.isin(present) if present else ibis.literal(False)
+        return result | value.isnull() if len(present) != len(node.values) else result
+    if node.value is None:
+        if node.op == "eq":
+            return value.isnull()
+        if node.op == "ne":
+            return value.notnull()
+        raise compilation_error("an ordered comparison with a non-null literal", node.op)
+    literal = ibis.literal(node.value)
+    return {
+        "eq": value == literal,
+        "ne": value != literal,
+        "lt": value < literal,
+        "le": value <= literal,
+        "gt": value > literal,
+        "ge": value >= literal,
+    }[node.op]
+
+
+def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery:
+    """Lower every SourceRead over its bound relation, keeping its exact source ID."""
+    lowered: list[LoweredRead] = []
+    for stage in plan.stages:
+        if not isinstance(stage, SourceRead):
+            continue
+        table = relations.get(stage.source_id)
+        if table is None:
+            raise compilation_error(f"a bound relation for {stage.source_id}", "unbound source")
+        columns = dict(stage.field_columns)
+        conditions = [_query_predicate(p, table, columns) for p in stage.predicates]
+        if stage.period is not None:
+            time = table[stage.period.column]
+            conditions.append(time >= ibis.literal(stage.period.start))
+            conditions.append(time < ibis.literal(stage.period.end))
+        filtered = table.filter(*conditions) if conditions else table
+        expression = filtered.select(
+            **{slot: filtered[column] for slot, column in stage.projections}
+        )
+        lowered.append(LoweredRead(stage, expression))
+    return LoweredQuery(plan, tuple(lowered))

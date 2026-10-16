@@ -2,8 +2,9 @@
 
 Status: implemented current contract.
 
-R2.2 exact observation bindings were added on 2026-10-16; new Query execution
-remains pending R2.3–R2.5. Legacy execution sections remain until their owning cutover.
+R2.2 exact observation bindings were added on 2026-10-16; R2.3 adds schema-only
+execute preparation and stage planning, while numeric routes and publication remain
+pending R2.4–R2.5. Legacy execution sections remain until their owning cutover.
 
 Temporal meaning is governed semantic authority. A civil date, absolute instant,
 localizable wall clock, period-calendar partition, temporal occurrence and working
@@ -33,7 +34,7 @@ reductions in the full Metric closure still require explicit `during`; a field
 `within(scope)` filter, attribute `at(anchor)`, or multiplication by zero does not
 supply it. Attribute version selection keeps the exact endpoint instant, including
 a change at the exclusive scope end; it never subtracts a tick. These are binding
-contracts; new Query execution remains pending R2.3–R2.5.
+contracts; numeric Query execution remains pending R2.4–R2.5.
 
 ## Ownership and invariants
 

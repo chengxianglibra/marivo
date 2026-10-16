@@ -329,6 +329,32 @@ def preflight_entities(
         return tuple(results)
 
 
+PhysicalOperation = Literal[
+    "scan", "filter", "project", "group", "count", "join", "union", "window", "sort"
+]
+
+
+def relation_operations(relation: ir.Table) -> frozenset[PhysicalOperation]:
+    """Return the basic physical operations one bound relation requires."""
+    operations: set[PhysicalOperation] = {"scan"}
+    for node in relation.op().find(ops.Node):
+        if isinstance(node, ops.Filter):
+            operations.add("filter")
+        elif isinstance(node, ops.Project):
+            operations.add("project")
+        elif isinstance(node, ops.Aggregate):
+            operations.add("group")
+        elif isinstance(node, (ops.JoinChain, ops.JoinLink)):
+            operations.add("join")
+        elif isinstance(node, ops.Union):
+            operations.add("union")
+        elif isinstance(node, ops.WindowFunction):
+            operations.add("window")
+        elif isinstance(node, ops.Sort):
+            operations.add("sort")
+    return frozenset(operations)
+
+
 def bind_entity_output(
     registry: Registry,
     sidecar: CompiledExpressionSidecar | None,
@@ -349,28 +375,8 @@ def bind_entity_output(
     if sidecar is not None and sidecar.bodies.get(ref.entity(entity_id)) is not None:
         from marivo.datasource.adapters import PhysicalRequirement
 
-        operations: set[
-            Literal[
-                "scan", "filter", "project", "group", "count", "join", "union", "window", "sort"
-            ]
-        ] = {"scan"}
-        for node in relation.op().find(ops.Node):
-            if isinstance(node, ops.Filter):
-                operations.add("filter")
-            elif isinstance(node, ops.Project):
-                operations.add("project")
-            elif isinstance(node, ops.Aggregate):
-                operations.add("group")
-            elif isinstance(node, (ops.JoinChain, ops.JoinLink)):
-                operations.add("join")
-            elif isinstance(node, ops.Union):
-                operations.add("union")
-            elif isinstance(node, ops.WindowFunction):
-                operations.add("window")
-            elif isinstance(node, ops.Sort):
-                operations.add("sort")
         qualified = source.qualify(
-            bound, PhysicalRequirement("semantic.entity_output", 1, frozenset(operations))
+            bound, PhysicalRequirement("semantic.entity_output", 1, relation_operations(relation))
         )
         source.compile(
             qualified,

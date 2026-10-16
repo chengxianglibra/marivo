@@ -77,30 +77,15 @@ def provider_names() -> tuple[str, ...]:
 def _execute_duckdb(backend: BaseBackend, expression: ir.Table, sql: str) -> pd.DataFrame:
     """Run issued Ibis SQL on DuckDB without compiling the expression again.
 
-    Mirrors ibis 12 ``duckdb.Backend.execute`` after its own compile step, so the
-    submitted text is exactly the SQL recorded on the issued read.
+    The submitted text is exactly the SQL recorded on the issued read. Columns
+    keep their exact Arrow types through ``pd.ArrowDtype``, so nullable int64,
+    Decimal and timezone-aware values are never widened to float or object.
     """
-    import pyarrow.types as pat
-    from ibis.backends.duckdb.converter import DuckDBPandasData
-
     backend._run_pre_execute_hooks(expression)
-    schema = expression.schema()
-    if schema.geospatial:
+    if expression.schema().geospatial:
         backend._load_extensions(["spatial"])
     table = backend.con.sql(sql).to_arrow_table()
-    frame = pd.DataFrame(
-        {
-            name: (
-                column.to_pylist()
-                if pat.is_nested(column.type) or pat.is_dictionary(column.type) or column.null_count
-                else column.to_pandas()
-            )
-            for name, column in zip(table.column_names, table.columns, strict=True)
-        }
-    )
-    result: pd.DataFrame = expression.__pandas_result__(
-        DuckDBPandasData.convert_table(frame, schema)
-    )
+    result: pd.DataFrame = table.to_pandas(types_mapper=pd.ArrowDtype)
     return result
 
 

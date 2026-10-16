@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import math
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
+from typing import TypeAlias
 
 import pandas as pd
 import pyarrow as pa
 
 from marivo.analysis.compiler.graph_lowering import LoweredLocal, LoweredPlan, LoweredRelation
-from marivo.analysis.compiler.graph_plan import ArtifactReadStage, CheckRequirement
+from marivo.analysis.compiler.graph_plan import ArtifactReadStage, CheckRequirement, LocalCompute
 from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.local_laws import original_reduction_fusion_issue, selection_fusion_issue
 from marivo.analysis.core.model import (
@@ -76,6 +78,7 @@ from marivo.analysis.materialization.graph_exchange import (
     ExchangeResult,
     FixedInput,
     PartContract,
+    StageOutput,
     VerifiedFixedInput,
     from_arrow,
     from_pandas,
@@ -3299,3 +3302,31 @@ def _duration_mean(
         completed_checks=proofs,
         validate=False,
     )
+
+
+# R2.3 Query LocalCompute. Kernels receive copy-on-write views of completed
+# stage tables and return a new frame; normalization owns the output layout.
+
+LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.DataFrame]
+
+
+def run_local(
+    stage: LocalCompute, inputs: tuple[StageOutput, ...], kernel: LocalKernel
+) -> StageOutput:
+    """Run one registered pandas kernel without mutating its shared inputs."""
+    with pd.option_context("mode.copy_on_write", True):
+        views = tuple(item.table.copy(deep=False) for item in inputs)
+        frame = kernel(stage, views)
+    if not isinstance(frame, pd.DataFrame) or any(
+        frame is item.table or frame is view for item, view in zip(inputs, views, strict=True)
+    ):
+        raise MaterializationError(
+            expected=f"{stage.kernel}: a new pandas DataFrame",
+            received=type(frame).__name__
+            if not isinstance(frame, pd.DataFrame)
+            else "an input table",
+            repair="Return a new frame from the registered kernel; inputs are shared stage data.",
+            stage="local_compute",
+            help_target="Query.execute",
+        )
+    return StageOutput.from_frame(frame, stage.columns, stage.keys)
