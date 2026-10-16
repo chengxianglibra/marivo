@@ -654,6 +654,16 @@ def execute(
     source_factory: SourceFactory | None = None,
     source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
+    if runtime.store.layout.generation == 10:
+        from marivo.analysis.errors import AnalysisStageUnavailableError
+
+        raise AnalysisStageUnavailableError(
+            stage="query_execution",
+            expected="terminal Query output publication",
+            received="a retired graph/Cell publication request",
+            repair="Construct a new Query through session.observe(metrics). Legacy graph artifacts cannot be written in Store 10.",
+            target="Query.execute",
+        )
     entered = time.monotonic()
     invocation = _InvocationRun()
 

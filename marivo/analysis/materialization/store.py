@@ -30,6 +30,7 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_store import GraphRun
+    from marivo.analysis.materialization.terminal_store import TerminalRun
 
 
 _SCHEMA = """
@@ -48,7 +49,7 @@ CREATE TABLE runtime_state (
 CREATE TABLE analysis_action_runs (
  run_ref TEXT PRIMARY KEY NOT NULL CHECK(length(run_ref)>0),
  session_ref TEXT NOT NULL REFERENCES sessions(session_ref) ON DELETE RESTRICT,
- execution_key_digest TEXT NOT NULL CHECK(length(execution_key_digest)>0),
+ invocation_id TEXT NOT NULL CHECK(length(invocation_id)>0),
  admitted_at TEXT NOT NULL CHECK(length(admitted_at)>0),
  dataset_input_payload TEXT NOT NULL CHECK(length(dataset_input_payload)>0),
  UNIQUE(session_ref,run_ref)
@@ -56,10 +57,10 @@ CREATE TABLE analysis_action_runs (
 CREATE TABLE dataset_artifacts (
  artifact_ref TEXT PRIMARY KEY NOT NULL CHECK(length(artifact_ref)>0),
  session_ref TEXT NOT NULL REFERENCES sessions(session_ref) ON DELETE RESTRICT,
- execution_key_digest TEXT NOT NULL CHECK(length(execution_key_digest)>0),
+ invocation_id TEXT NOT NULL CHECK(length(invocation_id)>0),
  descriptor_payload TEXT NOT NULL CHECK(length(descriptor_payload)>0),
  committed_at TEXT NOT NULL CHECK(length(committed_at)>0),
- UNIQUE(session_ref,artifact_ref), UNIQUE(session_ref,execution_key_digest)
+ UNIQUE(session_ref,artifact_ref), UNIQUE(session_ref,invocation_id)
 ) STRICT;
 CREATE TABLE analysis_action_run_terminals (
  run_ref TEXT PRIMARY KEY NOT NULL CHECK(length(run_ref)>0),
@@ -84,17 +85,25 @@ CREATE TABLE analysis_action_run_inputs (
 CREATE TABLE dataset_evidence (
  artifact_ref TEXT PRIMARY KEY NOT NULL REFERENCES dataset_artifacts(artifact_ref) ON DELETE RESTRICT,
  evidence_digest TEXT NOT NULL CHECK(length(evidence_digest)>0),
+ evidence_count INTEGER NOT NULL CHECK(evidence_count>=0),
  finding_count INTEGER NOT NULL CHECK(finding_count>=0),
  finding_set_digest TEXT NOT NULL CHECK(length(finding_set_digest)>0),
- extractor_contract_versions_payload TEXT NOT NULL CHECK(length(extractor_contract_versions_payload)>0)
+ evidence_format TEXT NOT NULL CHECK(evidence_format='terminal-output-v1')
+) STRICT;
+CREATE TABLE output_evidence (
+ artifact_ref TEXT NOT NULL REFERENCES dataset_evidence(artifact_ref) ON DELETE RESTRICT,
+ evidence_ordinal INTEGER NOT NULL CHECK(evidence_ordinal>=0),
+ body_payload TEXT NOT NULL CHECK(length(body_payload)>0),
+ body_digest TEXT NOT NULL CHECK(length(body_digest)>0),
+ PRIMARY KEY(artifact_ref,evidence_ordinal)
 ) STRICT;
 CREATE TABLE findings (
- finding_ref TEXT PRIMARY KEY NOT NULL CHECK(length(finding_ref)>0),
+ finding_ref TEXT NOT NULL CHECK(length(finding_ref)>0),
  artifact_ref TEXT NOT NULL REFERENCES dataset_evidence(artifact_ref) ON DELETE RESTRICT,
  finding_ordinal INTEGER NOT NULL CHECK(finding_ordinal>=0),
  finding_identity_digest TEXT NOT NULL CHECK(length(finding_identity_digest)>0),
  finding_body_payload TEXT NOT NULL CHECK(length(finding_body_payload)>0),
- UNIQUE(artifact_ref,finding_ordinal), UNIQUE(artifact_ref,finding_identity_digest)
+ PRIMARY KEY(artifact_ref,finding_ref), UNIQUE(artifact_ref,finding_ordinal), UNIQUE(artifact_ref,finding_identity_digest)
 ) STRICT;
 CREATE TABLE action_resource_journal (
  run_ref TEXT NOT NULL REFERENCES analysis_action_runs(run_ref) ON DELETE RESTRICT,
@@ -113,7 +122,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object, expected: int = 9) -> IntegrityError:
+def _generation_error(version: object, expected: int = 10) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
@@ -146,7 +155,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("Store 9 requires WAL durability")
+                raise invalid("Store 10 requires WAL durability")
             return
 
 
@@ -200,11 +209,11 @@ class SessionStore:
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open an existing complete Store 9 without initializing state."""
+        """Open an existing complete Store 10 without initializing state."""
         try:
             return cls(project_root, existing_only=True)
         except (sqlite3.Error, OSError):
-            raise invalid("selected Store 9 is unavailable") from None
+            raise invalid("selected Store 10 is unavailable") from None
 
     @property
     def project_root(self) -> Path:
@@ -267,6 +276,7 @@ class SessionStore:
                         "analysis_action_run_inputs",
                         "dataset_artifacts",
                         "dataset_evidence",
+                        "output_evidence",
                         "findings",
                         "action_resource_journal",
                     }
@@ -281,15 +291,33 @@ class SessionStore:
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("Store 9 requires WAL durability")
+                            raise invalid("Store 10 requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("Store 9 requires WAL durability")
+                            raise invalid("Store 10 requires WAL durability")
             finally:
                 read.close()
             if version == self.layout.generation:
                 return
+        generations = self.db_path.parent.parent
+        if generations.exists():
+            older = sorted(
+                path
+                for filename in ("session_store.db", "store.sqlite3")
+                for path in generations.glob(f"v*/{filename}")
+                if path != self.db_path
+            )
+            if older:
+                uri = older[-1].as_uri() + "?mode=ro&immutable=1"
+                try:
+                    with sqlite3.connect(uri, uri=True) as previous:
+                        actual: object = previous.execute("PRAGMA user_version").fetchone()[0]
+                except sqlite3.Error:
+                    raise _generation_error(
+                        "unreadable prior Store", self.layout.generation
+                    ) from None
+                raise _generation_error(actual, self.layout.generation)
         if existing_only:
             raise invalid(f"selected v{self.layout.generation} Store is absent")
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -464,14 +492,17 @@ class SessionStore:
         with self._read() as conn:
             return run(self, conn, run_ref)
 
-    def _resource_run(self, run_ref: str) -> GraphRun | None:
-        return self._graph_run(run_ref)
+    def _resource_run(self, run_ref: str) -> TerminalRun | None:
+        from marivo.analysis.materialization.terminal_store import run
+
+        with self._read() as conn:
+            return run(self, conn, run_ref)
 
     def reserve(self, resource: ResourceRecord) -> None:
         with self._write() as conn:
-            from marivo.analysis.materialization.graph_store import run as graph_run
+            from marivo.analysis.materialization.terminal_store import run as terminal_run
 
-            run = graph_run(self, conn, resource.run_ref)
+            run = terminal_run(self, conn, resource.run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("resource reservation requires incomplete admission")
             conn.execute(
@@ -562,9 +593,9 @@ class SessionStore:
         payload = canonical_json(failure_payload(failure))
         decode_failure(payload)
         with self._write() as conn:
-            from marivo.analysis.materialization.graph_store import run as graph_run
+            from marivo.analysis.materialization.terminal_store import run as terminal_run
 
-            run = graph_run(self, conn, run_ref)
+            run = terminal_run(self, conn, run_ref)
             if run is None or run.lifecycle != "incomplete":
                 raise invalid("terminal history cannot be rewritten")
             conn.execute(

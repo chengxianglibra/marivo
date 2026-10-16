@@ -15,7 +15,6 @@ from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
 )
-from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.reconciliation import reconcile_session
 from marivo.analysis.materialization.storage import (
     ReadPolicy,
@@ -48,11 +47,13 @@ from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_plan import RouteChoice
-    from marivo.analysis.core.graph import Node
+    from marivo.analysis.core.graph import BoundGraph, Node
+    from marivo.analysis.dsl.artifact import Artifact
     from marivo.analysis.materialization.execution_key import SourceKeyBinding
     from marivo.analysis.materialization.graph_execution import PreparedGraph
     from marivo.analysis.materialization.graph_publication import SourceFactory
     from marivo.analysis.materialization.graph_store import GraphArtifact
+    from marivo.semantic._compiled_state import CompiledSemanticState
 
 _PREVIEW_MAX_OUTPUT_BYTES = 8192
 _READ_POLICY = ReadPolicy()
@@ -208,8 +209,6 @@ class DatasetRuntime:
         *,
         event: Callable[[str], None] | None = None,
     ) -> DatasetRuntime:
-        if not MaterializationLayout(project_root).store_db.is_file():
-            raise _error("authority_resolution")
         return cls(
             SessionStore.open_existing(project_root),
             session_ref,
@@ -272,6 +271,19 @@ class DatasetRuntime:
         max_nodes: int = 100,
     ) -> SessionGraph:
         """Read bounded local topology and exact consumed foreign boundaries."""
+        from marivo.analysis.materialization.store import _one
+        from marivo.analysis.materialization.terminal_publication import reading_pending
+
+        with self.store._read() as conn:
+            if (
+                _one(
+                    conn,
+                    "SELECT 1 FROM dataset_artifacts WHERE session_ref=? LIMIT 1",
+                    (self.session_ref,),
+                )
+                is not None
+            ):
+                reading_pending("session.graph")
         ref = ArtifactRef(ref=artifact_ref) if isinstance(artifact_ref, str) else artifact_ref
         return _lazy_graph.graph(
             self.store, self.session_ref, artifact_ref=ref, direction=direction, max_nodes=max_nodes
@@ -280,6 +292,12 @@ class DatasetRuntime:
     def show_session(self) -> None:
         """Render the bounded Session recap from one read-only snapshot."""
         _lazy_runtime_reads.recap(self.store, self.session_ref).show()
+
+    def _execute_query(self, graph: BoundGraph, state: CompiledSemanticState | None) -> Artifact:
+        """Execute a bound Query and publish through this Runtime's Store."""
+        from marivo.analysis.materialization.terminal_publication import execute
+
+        return execute(self, graph, state)
 
     def _execute_graph(
         self,

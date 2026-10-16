@@ -112,8 +112,28 @@ def test_public_sql_owner_audit(
 
             monkeypatch.setattr(SourceSession, "execute", observe)
             session = mv.session.get_or_create("sql_ownership-sql-owner", report_timezone="UTC")
-            result = session.members(ms.ref.entity("sales.facts")).execute()
-            assert len(result.to_pandas()) == len(ROWS)
+            if backend == "duckdb":
+                from marivo.analysis.materialization.terminal_storage import read_output
+
+                facts = session.catalog.entities.get("sales.facts")
+                result = session.observe({"rows": facts.count()}).execute()
+                manifest = result._manifest
+                frame = read_output(tmp_path.resolve(), manifest.data.schema, manifest.data.rows)
+                assert frame["value.0"].tolist() == [len(ROWS)]
+            else:
+                # Remote Query qualification belongs to later acceptance; retain
+                # the SQL-owner witness through its governed datasource owner.
+                bound = case.session.bind(case.source, source_identity="sql_ownership.facts")
+                qualified = case.session.qualify(
+                    bound, PhysicalRequirement("sql_ownership.facts", 1, frozenset({"scan"}))
+                )
+                read = case.session.compile(
+                    qualified,
+                    bound.relation,
+                    purpose="sql_ownership.facts",
+                    expected_schema=bound.relation.schema().to_pyarrow(),
+                )
+                assert len(case.session.execute(read)) == len(ROWS)
             assert session._runtime.store.resources(session._runtime.session_ref) == ()
             statement = "SELECT 7 AS marker"
             terminal = md.raw_sql(
@@ -142,7 +162,7 @@ def test_public_sql_owner_audit(
             assert Counter(governed) == Counter(
                 (str(r["purpose"]), str(r["sql"]))
                 for r in logged
-                if str(r.get("purpose", "")).startswith("analysis.")
+                if str(r.get("purpose", "")).startswith(("analysis.", "query.", "sql_ownership."))
             )
             completed = [r for r in execution_records(tmp_path) if r["event"] == "query.completed"]
             assert {r["query_id"] for r in logged} == {r["query_id"] for r in completed}
@@ -153,7 +173,7 @@ def test_public_sql_owner_audit(
             {
                 "public_probe": True,
                 "public_metadata": True,
-                "public_members": len(ROWS),
+                "governed_row_count": len(ROWS),
                 "terminal_original_text": statement,
                 "store_connection_identity": True,
                 "resources_released": True,

@@ -59,9 +59,10 @@ fanout and unbound versioned attributes fail with concrete typed repair.
 Population, members and observation windows are not new observe parameters in
 R2.2. `contract()` reports bound context and explicitly unresolved physical dtype
 without schema/business reads or Run admission. `execute()` performs R2.3
-schema-only preparation (lossless type admission) and pure stage planning, then
-raises AnalysisStageUnavailableError before any business read or Run because
-terminal publication is pending R2.5. R2.4 implements ordinary numeric execution internally: source reductions return nullable pandas values,
+schema-only preparation (lossless type admission) and pure stage planning before
+admitting a Run. R2.5 connects ordinary numeric execution to atomic Store 10
+publication. Every execute reevaluates its inputs and returns a committed terminal
+identity; public reading remains the R2.6 stage gap. R2.4 supplies the numeric routes: source reductions return nullable pandas values,
 then local formulas combine complete coordinate keys. Sum/count use zero for
 empty contributions; weighted means use common non-NA pairs. Division masks
 zero denominators before calculation; explicit error and strict NA policies
@@ -92,8 +93,13 @@ deadlines; an unbound check route rejects during planning.
 It exposes `show(n=20)`, `to_pandas()`, `findings()` and `evidence_digest()`;
 it has no `contract()`, DSL methods or conversion to Query. `Session.artifact(id)`
 accepts an exact string and rejects old graph output without decoding it or
-changing files. New output publication/reading arrive in R2.5/R2.6. Store remains
-generation 9 until R2.5 activates the terminal format once. Session identity,
+changing files. R2.5 publishes a wide nullable primary, explicit attachments and
+self-contained Finding/Evidence records in Store 10. Ordinary observations have
+empty Findings and actual read/check Evidence. The new manifest contains no
+semantic objects, graph, definition fingerprints, hidden components or continuation;
+Run records retain only invocation identity and lifecycle. Public metadata opening,
+preview, export and output-record reading report the R2.6 gap. Earlier Stores are
+preserved and rejected without migration or Session-name bypass. Session identity,
 timezone and same-generation `get_or_create`/`resume` contracts remain in force.
 
 A Session owns one investigation and project-local Run/Artifact history.

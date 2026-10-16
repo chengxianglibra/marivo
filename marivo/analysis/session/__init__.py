@@ -86,7 +86,7 @@ def get_or_create(
 
     Returns: The activated Session, with authored semantics loaded only on demand.
     Example: ``session = mv.session.get_or_create('revenue-review')``.
-    Constraints: Earlier Store generations remain untouched and can coexist in this project; no Session is migrated.
+    Constraints: Earlier Stores remain untouched and cannot be resumed or bypassed with another name. Use a fresh project for a new-format Store; no Session is migrated.
     """
     from marivo.analysis.materialization.admission import DatasetRuntime
 

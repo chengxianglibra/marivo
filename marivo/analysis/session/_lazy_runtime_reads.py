@@ -18,7 +18,7 @@ from marivo.analysis.errors import (
     SessionStateError,
 )
 from marivo.analysis.evidence._dataset_types import ArtifactEvidenceSummary, ArtifactIssueCounts
-from marivo.analysis.materialization import graph_store
+from marivo.analysis.materialization import graph_store, terminal_store
 from marivo.analysis.materialization.contracts import (
     SessionRecord,
     invalid,
@@ -186,7 +186,7 @@ def run_in_snapshot(
     )
     if row is None:
         raise RunNotFoundError.for_id(run_id)
-    value = graph_store.run(store, conn, run_id)
+    value = terminal_store.run(store, conn, run_id)
     if value is None or value.session_ref != session_ref:
         raise invalid("selected Run identity mismatch")
     admitted_at = aware_datetime(value.admitted_at)
@@ -217,13 +217,13 @@ def run_in_snapshot(
             raise invalid("succeeded Run has no output Artifact")
         artifact = _one(
             conn,
-            "SELECT session_ref,execution_key_digest,committed_at FROM dataset_artifacts WHERE artifact_ref=?",
+            "SELECT session_ref,invocation_id,committed_at FROM dataset_artifacts WHERE artifact_ref=?",
             (value.output_artifact_ref,),
         )
         if (
             artifact is None
             or _text(artifact, "session_ref") != session_ref
-            or _text(artifact, "execution_key_digest") != value.execution_key_digest
+            or _text(artifact, "invocation_id") != value.invocation_id
             or aware_datetime(_text(artifact, "committed_at")) != terminal_at
         ):
             raise invalid("succeeded Run output identity or publication time mismatch")

@@ -89,7 +89,7 @@ _DISCOVERY_FAMILIES = {
 
 def _effects(name: str) -> str:
     if name == "execute":
-        return "Execute one qualified graph in Store 8; publish atomically or reuse an exact fixed key."
+        return "Legacy graph execution is unavailable in Store 10; ordinary Metrics use session.observe(metrics).execute()."
     if name in ("show", "to_pandas"):
         return "Read the exact committed Artifact under bounded or isolated-read guards."
     if name in ("read", "group_by", "observe"):

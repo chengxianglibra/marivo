@@ -1,82 +1,52 @@
 ---
 title: Evidence and recovery
-description: Inspect committed facts and recover exact Store 9 results.
+description: Store 10 terminal publication and the R2.6 reading boundary.
 ---
 
-Artifacts own saved rows, retained parts and execution evidence. Runs record
-execution identity and success or failure. The agent owns cross-result synthesis,
-business judgment and causal interpretation.
+Store 10 saves final output under `.marivo/analysis/generations/v10/`.
+A single SQLite transaction publishes the output manifest, receipts, Findings,
+Evidence and Run success after the Parquet files are durable. Failed invocations
+publish no partial Artifact. Recovery reconciles the original Run and its exact
+resource journal without replaying computation.
 
-## Read the producing Run
+## Execute and inspect the Run
 
-`current` and `baseline` are compatible logical numeric observations in the same Session.
-
-{/* example: evidence-producing-run */}
-
-```python
-artifact = current.compare(baseline).execute()
-artifact.show()
-artifact.contract().show()
-run = session.get_run(artifact.state.producing_run_ref)
-run.show()
-```
-
-`contract()` describes retained state and admitted continuations; it does not certify unchanged file bytes. Logical values have no committed Evidence before execution.
-
-## Read bounded Findings
-
-`artifact` is a committed result from the preceding example.
-
-{/* example: evidence-findings */}
+Given a resolved `revenue` Metric and a Session:
 
 ```python
-digest = artifact.evidence_digest()
-print(digest.finding_count)
-findings = artifact.findings(limit=20)
-for finding in findings.items:
-    finding.show()
-run = session.get_run(artifact.state.producing_run_ref)
-run.show()
+query = session.observe({"revenue": revenue})
+artifact = query.execute()
+print(artifact.id)
+print(artifact)
+for run in session.runs(limit=5).items:
+    run.show()
 ```
 
-Evidence/Findings publish with the result. A finding cursor belongs to its exact
-owning Artifact; use `has_more` and `next_cursor` for pagination. Empty Findings
-mean an empty committed set. Findings report deterministic computation facts,
-not a generated narrative or causal explanation.
+Each execute reevaluates the Query and creates a new Run and Artifact. The
+Artifact contains only committed identity and metadata; it has no `contract()`
+or DSL continuation. Source-independent constants also use this publication path.
 
-## Recover an exact successful result
+## Saved facts and reading boundary
 
-`session`, `mv` and a recorded `run_id` are available. Check the Run variant before reading success-only fields.
+Ordinary observations produce no Findings. Evidence records only actual source
+reads and checks, including the read scope; an omitted period explicitly means
+no additional time constraint. These records do not certify source completeness,
+cross-source snapshots, freshness or causal conclusions.
 
-{/* example: evidence-recovery */}
+The saved schema describes complete keys, named nullable values, explicit presence,
+types and units. Necessary output attachments retain calendar bounds in UTC, with
+the selected calendar timezone saved in both schemas. Read-scope summaries retain
+nested Boolean grouping. The Store
+saves no semantic definitions, graph, formulas, hidden aggregation components,
+calculation fingerprints or continuation.
 
-```python
-run = session.get_run(run_id)
-if isinstance(run, mv.SucceededRun):
-    artifact = session.artifact(run.output_artifact_ref)
-    artifact.show()
-```
+R2.5 returns a committed Artifact identity. `session.artifact(id)`, `show()`,
+`to_pandas()`, `findings()` and `evidence_digest()` report the R2.6 reading gap.
+Public cold opening and bounded reading are not yet delivered. Retain the exact ID.
 
-Store 9 keeps project-local Parquet and SQLite metadata under
-`.marivo/analysis/generations/v9/`. Committed local results, Evidence and Findings
-are trusted: reads decode required typed data without content-hash comparison,
-producer replay or re-extracting Findings. Missing/unreadable parts, incompatible
-formats and foreign Session/cursor ownership still fail explicitly.
+Earlier Stores and graph/continuation formats are rejected without rewriting or
+migration. Changing a Session name cannot bypass the generation restriction;
+create a new-format Store in a fresh project and rerun the analysis script.
+Same-generation Session resume preserves identity and Run history.
 
-Store 8 and earlier cannot be resumed or migrated. Their directories remain
-untouched when a new Session creates Store 9 in the same project. There is no
-revalidation or automatic reconstruction path. A new live execution creates a
-new result; recovery preserves the prior result’s exact scope and time authority.
-
-## Interpret evidence within its scope
-
-Observation describes its retained scope. Comparison/attribution are algebraic;
-association is descriptive; a forecast is a model output. Screening retains fit scope and coverage limits. None
-establishes business authority, freshness or causal conclusions by itself.
-
-Follow `marivo.help("analysis.evidence")`, or run [the local recovery tutorial](/docs/latest/guides/python-quick-start/).
-
-Saved Artifacts use compact Cell bindings internally; `show()` and `to_pandas()`
-keep their existing value, tag and reason fields. Older Artifact formats cannot
-be recovered or continued. Preserve the history and files, then re-execute the
-producing source analysis to save a current Artifact. Earlier Store generations are preserved without migration.
+Start discovery with `marivo.help("analysis")`.

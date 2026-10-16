@@ -77,13 +77,10 @@ def test_named_metrics_capture_without_catalog_schema_rows_or_run(
     rendered = capsys.readouterr().out
     assert "revenue" in rendered and "aov" in rendered and "unresolved" in rendered
     assert session.runs().items == ()
-    for _ in range(2):
-        with pytest.raises(AnalysisStageUnavailableError) as caught:
-            query.execute()
-        assert caught.value.stage == "query_execution"
-        assert caught.value.run_ref is None
-        assert caught.value.expected and caught.value.received and caught.value.repair
-    assert session.runs().items == ()
+    artifacts = [query.execute() for _ in range(2)]
+    assert len({artifact.id for artifact in artifacts}) == 2
+    assert len(session.runs().items) == 2
+    assert all(run.lifecycle == "succeeded" for run in session.runs().items)
     assert session._sources_value is None and session._catalog_value is None
     with pytest.raises(FrozenInstanceError):
         query._graph = query._graph
@@ -269,7 +266,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id, by="id")
     named = mv.session.get_or_create("same-generation")
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 9
+    assert MaterializationLayout(tmp_path).generation == 10
     assert resumed.runs().items == ()
 
 
@@ -308,7 +305,7 @@ def test_old_store_is_rejected_without_rewriting_files(
     from marivo.analysis.materialization.errors import IntegrityError
 
     monkeypatch.chdir(tmp_path)
-    path = MaterializationLayout(tmp_path).store_db
+    path = tmp_path / ".marivo/analysis/generations/v9/session_store.db"
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as connection:
         connection.execute("PRAGMA user_version=8")
@@ -339,4 +336,22 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(capsys) -> None:
     marivo.help(mv.Artifact)
     rendered = capsys.readouterr().out
     assert "without DSL or contract" in rendered
-    assert "R2.5/R2.6" in rendered
+    assert "R2.6" in rendered
+
+
+def test_execute_help_discloses_actual_effects_for_string_and_callable(capsys) -> None:
+    for target in ("analysis.Query.execute", mv.Query.execute):
+        marivo.help(target)
+        text = capsys.readouterr().out
+        assert "new Run" in text and "reads sources" in text
+        assert "atomically publishes" in text and "Store 10" in text
+        assert "R2.6" in text
+        assert "fails before data reads" not in text
+
+
+@pytest.mark.parametrize("name", ("show", "to_pandas", "findings", "evidence_digest"))
+def test_artifact_read_help_discloses_r26_gap_for_string_and_callable(capsys, name) -> None:
+    for target in (f"analysis.Artifact.{name}", getattr(mv.Artifact, name)):
+        marivo.help(target)
+        text = capsys.readouterr().out
+        assert "R2.6" in text and "unavailable" in text

@@ -12,6 +12,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import SessionStateError
+from marivo.analysis.materialization.errors import IntegrityError
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -73,9 +74,9 @@ def test_new_generation_preserves_old_store_bytes(
     old.parent.mkdir(parents=True)
     old.write_bytes(b"existing-generation-bytes")
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("new")
-    assert session.domains is None
-    assert session._runtime.store.layout.generation == 9
+    with pytest.raises(IntegrityError):
+        mv.session.get_or_create("new")
+    assert not (old.parent.parent / "v10").exists()
     assert old.read_bytes() == b"existing-generation-bytes"
 
 

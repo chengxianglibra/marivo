@@ -69,6 +69,12 @@ def test_session_creation_and_history_preserve_foreign_entries(
         mv.session.get_or_create("first", report_timezone="UTC") if existing_session else None
     )
     foreign = [_foreign_entry(tmp_path, entry) for entry in ("v5", "v8", "README")]
+    if original is None:
+        before = _project_state(tmp_path)
+        with pytest.raises(IntegrityError):
+            mv.session.get_or_create("first", report_timezone="UTC")
+        assert _project_state(tmp_path) == before
+        return
     first = mv.session.get_or_create("first", report_timezone="UTC")
     if original is not None:
         assert first.id == original.id
@@ -89,7 +95,7 @@ def test_session_creation_and_history_preserve_foreign_entries(
     assert mv.session.resume("second", by="name").id == second.id
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("legacy-session", by="id")
-    assert first._runtime.store.layout.generation == 9
+    assert first._runtime.store.layout.generation == 10
     assert all(
         path is not None and path.read_bytes() == b"preserve-unreadable-legacy-bytes"
         for path in foreign
@@ -99,8 +105,7 @@ def test_session_creation_and_history_preserve_foreign_entries(
 def test_history_cursor_is_decoded_once_per_public_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.graph_protocol import SourceRunInput
-    from marivo.analysis.materialization.graph_store import admit
+    from marivo.analysis.materialization.terminal_store import admit
     from marivo.analysis.session import _lazy_runtime_reads
 
     monkeypatch.chdir(tmp_path)
@@ -110,8 +115,6 @@ def test_history_cursor_is_decoded_once_per_public_read(
         admit(
             session._runtime.store,
             session.id,
-            run_id,
-            SourceRunInput("marivo.analysis.run_input/v1", "source", "definition", "plan", ()),
             run_id,
         )
         mv.session.abandon_run(session_id=session.id, run_id=run_id)
@@ -176,7 +179,7 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         path.write_bytes(b"invalid-sqlite")
     elif state == "incomplete_schema":
         with sqlite3.connect(path) as connection:
-            connection.execute("PRAGMA user_version=9")
+            connection.execute("PRAGMA user_version=10")
     else:
         from marivo.analysis.materialization.store import SessionStore
 
@@ -208,7 +211,7 @@ def test_session_discovery_reports_store_access_failure(
         for read in (mv.session.current, mv.session.recent):
             with pytest.raises(IntegrityError) as caught:
                 read()
-            assert caught.value.received == "selected Store 9 is unavailable"
+            assert caught.value.received == "selected Store 10 is unavailable"
     assert _project_state(tmp_path) == before
 
 

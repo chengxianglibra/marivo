@@ -905,8 +905,8 @@ def test_existing_generation_rejection_preserves_project_bytes(
     with pytest.raises(IntegrityError):
         SessionStore.open_existing(tmp_path)
     assert tuple(sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))) == files
-    current = SessionStore(tmp_path)
-    assert current.layout.generation == 9
+    with pytest.raises(IntegrityError):
+        SessionStore(tmp_path)
     assert old_path.read_bytes() == before
 
 

@@ -200,21 +200,21 @@ def provider() -> DisclosureProvider:
             "members",
             "LogicalAnalysisDomain",
             "result = session.members(entity_ref)",
-            "Schema-only member construction; no business rows or Run.",
+            "Schema-only member construction; no business rows or Run. Legacy execution is unavailable in Store 10; the replacement arrives in R3.",
         ),
         (
             Session,
             "observe",
             "Query",
             "result = session.observe(metrics)",
-            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute prepares schema and plans stages; ordinary numeric routes are implemented internally; terminal publication is pending R2.5.",
+            "Bind named Metrics, fields, conditions and a frozen period without schema reads or a Run; execute evaluates ordinary numeric routes and atomically publishes terminal output in Store 10; public reading arrives in R2.6.",
         ),
         (
             Session,
             "artifact",
             "Artifact",
             "result = session.artifact(artifact_id)",
-            "Open terminal output by exact ID. R2.1 rejects existing graph descriptors unchanged; terminal storage/readers arrive in R2.5/R2.6.",
+            "Exact terminal output ID only. Store 10 publication is implemented; opening and public reading report the R2.6 gap without reading data or restoring graphs.",
         ),
         (
             Session,
@@ -235,7 +235,7 @@ def provider() -> DisclosureProvider:
             "graph",
             "SessionGraph",
             "result = session.graph(artifact_ref=artifact_ref)",
-            "Read bounded committed edges and exact consumed foreign boundaries.",
+            "Read bounded Run topology; terminal Artifact summaries report the R2.6 reading gap.",
         ),
         (
             Session,

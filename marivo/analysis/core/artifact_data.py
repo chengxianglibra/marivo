@@ -60,15 +60,26 @@ class DataAxis:
 
 
 @dataclass(frozen=True, slots=True)
+class CalendarDataAxis(DataAxis):
+    """Saved calendar coordinates retain their timezone without calendar logic."""
+
+    timezone: str
+
+    def __post_init__(self) -> None:
+        DataAxis.__post_init__(self)
+        _text(self.timezone, "data.calendar.timezone")
+
+
+@dataclass(frozen=True, slots=True)
 class DataSchema:
-    axes: tuple[DataAxis, ...]
+    axes: tuple[DataAxis | CalendarDataAxis, ...]
     values: tuple[DataColumn, ...]
     presence: tuple[DataColumn, ...] = ()
 
     def __post_init__(self) -> None:
         if (
             type(self.axes) is not tuple
-            or any(type(a) is not DataAxis for a in self.axes)
+            or any(type(a) not in (DataAxis, CalendarDataAxis) for a in self.axes)
             or any(
                 type(columns) is not tuple or any(type(c) is not DataColumn for c in columns)
                 for columns in (self.values, self.presence)
@@ -214,6 +225,7 @@ class ParquetHandle:
     """Receipt for committed data; opening the handle never reads its rows."""
 
     receipt: LocalReceipt
+    payload_digest: str = ""
 
     def __post_init__(self) -> None:
         if type(self.receipt) is not LocalReceipt:
@@ -226,12 +238,48 @@ class ParquetHandle:
 
 
 @dataclass(frozen=True, slots=True)
+class SavedAttachment:
+    """An explicit output table, encoded under the same Artifact transaction."""
+
+    name: str
+    schema: DataSchema
+    rows: ParquetHandle
+
+    def __post_init__(self) -> None:
+        _text(self.name, "artifact.attachment")
+        if type(self.schema) is not DataSchema or type(self.rows) is not ParquetHandle:
+            reject(
+                "saved output schema and receipt",
+                self.name,
+                "Publish the attachment.",
+                "artifact.attachment",
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactData:
     schema: DataSchema
     rows: ParquetHandle
     coordinate_projections: tuple[DataProjection, ...] = ()
+    attachments: tuple[SavedAttachment, ...] = ()
 
     def __post_init__(self) -> None:
+        if type(self.attachments) is not tuple or any(
+            type(item) is not SavedAttachment for item in self.attachments
+        ):
+            reject(
+                "immutable saved output attachments",
+                type(self.attachments).__name__,
+                "Publish output attachments only.",
+                "artifact.attachments",
+            )
+        if len({item.name for item in self.attachments}) != len(self.attachments):
+            reject(
+                "distinct attachment names",
+                repr(tuple(item.name for item in self.attachments)),
+                "Name each output attachment once.",
+                "artifact.attachments",
+            )
         if type(self.schema) is not DataSchema or type(self.rows) is not ParquetHandle:
             reject(
                 "a data schema and committed Parquet handle",

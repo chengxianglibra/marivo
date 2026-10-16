@@ -55,7 +55,9 @@ def test_analysis_session_creates_state_without_manifest_or_models(
     session = mv.session.get_or_create(name="zero_init")
 
     assert session.project_root == tmp_path
-    assert (tmp_path / ".marivo" / "analysis" / "generations" / "v9" / "session_store.db").is_file()
+    assert (
+        tmp_path / ".marivo" / "analysis" / "generations" / "v10" / "session_store.db"
+    ).is_file()
     assert not (tmp_path / "marivo.toml").exists()
     assert not (tmp_path / "models").exists()
 

@@ -33,9 +33,10 @@ Python datetimes and ambiguous/nonexistent clocks reject. Omitted `during` adds
 no time filter to ordinary reductions, while sampling dependencies still require
 an explicit period. Common conditions bind separately to every source occurrence.
 
-`query.execute()` currently prepares source schemas and plans stages without reading
-business rows, then reports that terminal publication awaits R2.5. Ordinary
-numeric source reductions and pandas formulas are implemented internally,
+`query.execute()` prepares source schemas and plans stages, then admits a Run,
+evaluates ordinary numeric source reductions and pandas formulas, and atomically
+publishes Store 10 output. Each invocation reevaluates its inputs. Preparation
+failures create no Run. Numeric execution supports
 including zero/NA policies and complete coordinate keys. Preparation supports
 single-valued paths, exact version anchors, computed physical fields, parsed and
 civil time, and encoded Duration units. Independent datasource roots reduce
@@ -44,9 +45,13 @@ Population and window inputs are delivered by their later stages. `Artifact`
 remains terminal, with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
 and `evidence_digest()`, and no DSL methods or `contract()`.
 `session.artifact(id)` accepts only an exact string ID and rejects old graph
-outputs unchanged. Terminal storage and reading arrive in R2.5/R2.6; Store
-generation remains 9 until R2.5. The examples below describe the legacy execution
-surface awaiting replacement.
+outputs unchanged. R2.5 returns the committed identity and manifest; metadata
+opening, preview, export and public Finding/Evidence reading report the R2.6 gap.
+The writer saves complete keys, nullable values, explicit presence, necessary output
+attachments and actual read/check Evidence; ordinary observations have no Findings.
+No graph, semantic definitions, hidden components or continuation are saved.
+The examples below describe the retired execution surface awaiting replacement;
+its old graph publisher is unavailable in Store 10.
 
 Start with an approved Metric, a member Entity and a question-scoped Session.
 Use [the Python tutorial](/docs/latest/guides/python-quick-start/) for a complete local project.
@@ -286,6 +291,7 @@ session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
 `mv.session.get_or_create("sales-review", domains="sales")` captures an exact
 semantic domain selection. A nonempty sequence is also accepted. Omission
 retains an existing scope; conflicting explicit selections fail. Read it through
-`session.domains`. Fixed results use saved state independently of current models.
-Session metadata uses Store generation 9; existing generation directories remain
-untouched and are not migrated.
+`session.domains`. Store 10 saves output independently of current models.
+Earlier Store generations remain untouched and cannot be resumed or migrated;
+choosing a different Session name cannot bypass this restriction. Use a fresh
+project for a new-format Store, then rerun the analysis script.

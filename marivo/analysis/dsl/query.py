@@ -24,7 +24,7 @@ class Query:
     """A lazy named Metric definition owned by one Session.
 
     Acquire through session.observe(metrics). This surface captures definitions and ordinary observation bindings;
-    execute() prepares schema and numeric stages; terminal publication (R2.5) is pending.
+    execute() evaluates ordinary numeric stages and atomically publishes terminal output in Store 10; public reading arrives in R2.6.
     """
 
     _graph: BoundGraph
@@ -122,7 +122,8 @@ class Query:
             _facts=(
                 ("definition", self._graph.fingerprint),
                 ("physical_dtype", "unresolved; schema-only preparation belongs to execution"),
-                ("pending", "R2.5 terminal publication"),
+                ("execution", "Query.execute() atomically publishes terminal output"),
+                ("pending", "R2.6 public Artifact reading"),
                 (
                     "period",
                     repr(self._graph.signature.observation.period)
@@ -184,9 +185,9 @@ class Query:
         """Explicitly request evaluation and committed terminal output.
 
         Args: None.
-        Returns: A terminal Artifact after execution and atomic publication are available.
+        Returns: A terminal Artifact after checked execution and atomic publication.
         Example: ``artifact = query.execute()``.
-        Constraints: Runs schema-only preparation and stage planning, then raises a structured unavailable-stage error before any business read or Run; never falls back to the old graph executor.
+        Constraints: Preparation failures create no Run. Each admitted call is a new evaluation; only committed Parquet and output records survive publication. Public Artifact reading arrives in R2.6.
         """
         return self._execute(self._graph)
 

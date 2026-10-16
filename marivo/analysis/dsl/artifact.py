@@ -14,7 +14,7 @@ from marivo.render import result_repr
 
 
 class ArtifactReader(Protocol):
-    """Read committed output only; implementations arrive with the R2 reader."""
+    """Read committed output only; public implementations arrive in R2.6."""
 
     def show(self, manifest: ArtifactManifest, *, n: int) -> None: ...
 
@@ -32,7 +32,7 @@ class Artifact:
     """Read-only committed output; acquire through Query.execute or Session.artifact.
 
     Artifact never owns a Query, definition graph, execution context or in-memory
-    table. New publication and reopening will use the same reader in R2.5/2.6.
+    table. R2.5 returns the committed identity; opening and data reading arrive in R2.6.
     """
 
     _manifest: ArtifactManifest
@@ -74,7 +74,7 @@ class Artifact:
         Args: n: Maximum rows to decode for the preview.
         Returns: None; prints the output card.
         Example: ``artifact.show(n=20)``.
-        Constraints: Reads committed data only; no computation or source lookup.
+        Constraints: Public preview is unavailable until R2.6; no computation or source lookup.
         """
         if type(n) is not int or n < 0:
             reject(
@@ -101,7 +101,7 @@ class Artifact:
         Args: limit: Page size from 1 through 100. cursor: Previous page cursor or None.
         Returns: The Artifact-scoped FindingPage.
         Example: ``page = artifact.findings(limit=20)``.
-        Constraints: Reads saved records without loading a definition graph.
+        Constraints: Public Finding reading is unavailable until R2.6; no definition graph is loaded.
         """
         if (
             type(limit) is not int
@@ -122,6 +122,6 @@ class Artifact:
         Args: None.
         Returns: The saved ArtifactDigest.
         Example: ``digest = artifact.evidence_digest()``.
-        Constraints: Does not check current semantic definitions or source freshness.
+        Constraints: Public Evidence reading is unavailable until R2.6; no current semantic or source-freshness check.
         """
         return self._reader.evidence_digest(self._manifest)

@@ -253,7 +253,7 @@ class Session:
             where: Field condition appended separately to each contribution occurrence.
         Returns: An immutable Query owned by this Session.
         Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
-        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares schema and plans stages; ordinary numeric routes are implemented internally; terminal publication arrives in R2.5. Artifact objects and IDs are not Metric inputs.
+        Constraints: Binds ordinary fields, conditions and time without schema/business reads or a Run. execute() prepares, evaluates and atomically publishes ordinary numeric output to Store 10. Public Artifact reading arrives in R2.6. Artifact objects and IDs are not Metric inputs.
         """
         from marivo._definition.types import Owner
         from marivo.analysis.dsl.query import Query
@@ -278,37 +278,22 @@ class Session:
         )
 
     def _execute_query(self, graph: BoundGraph) -> Artifact:
-        from marivo.analysis.compiler.graph_lowering import lower_query
-        from marivo.analysis.compiler.graph_plan import plan_query
-        from marivo.analysis.errors import AnalysisStageUnavailableError
-        from marivo.analysis.materialization.graph_source_execution import open_query_sources
-
         observation = graph.signature.observation
-        if observation is not None and observation.contributions:
-            # Schema-only preparation, planning and lowering: no business read.
-            state = self.catalog._state
-            with open_query_sources(self._runtime.connection_service(), graph, state) as prepared:
-                lower_query(plan_query(graph, prepared.schemas), prepared.relations)
-        else:
-            plan_query(graph, ())
-        raise AnalysisStageUnavailableError(
-            stage="query_execution",
-            expected="terminal output publication",
-            received=f"prepared R2.4 numeric plan for {len(graph.signature.quantities)} named outputs",
-            repair="Keep the bound Query; terminal publication arrives in R2.5. No business row was read and no Run was admitted.",
-            target="Query.execute",
+        state = (
+            self.catalog._state if observation is not None and observation.contributions else None
         )
+        return self._runtime._execute_query(graph, state)
 
     def artifact(self, artifact_id: str) -> Artifact:
         """Open terminal output by exact ID without restoring a computation graph.
 
         Args: artifact_id: Exact committed Artifact ID string from this Session.
-        Returns: A read-only Artifact when terminal output storage/readers are delivered.
+        Returns: A read-only Artifact once the R2.6 reader is delivered.
         Example: ``saved = session.artifact('artifact_0123456789abcdef')``.
-        Constraints: R2.1 rejects existing graph descriptors without decoding them; files remain unchanged. Missing IDs fail without source or Parquet reads. The new terminal format and reader arrive in R2.5/R2.6; Store generation remains unchanged until R2.5.
+        Constraints: Missing IDs fail without source or Parquet reads. Existing IDs report the R2.6 reading gap without decoding rows or graph metadata. Store 10 publishes terminal output; older Stores cannot be resumed or migrated.
         """
         from marivo.analysis.core.model import reject
-        from marivo.analysis.errors import AnalysisStageUnavailableError, ArtifactNotFoundError
+        from marivo.analysis.errors import ArtifactNotFoundError
         from marivo.analysis.materialization.store import _one
 
         if (
@@ -330,13 +315,9 @@ class Session:
             )
         if record is None:
             raise ArtifactNotFoundError.for_ref(artifact_id)
-        raise AnalysisStageUnavailableError(
-            stage="artifact_reading",
-            expected="a committed terminal output manifest without graph or continuation metadata",
-            received="an Artifact in the current graph-based Store generation",
-            repair="Preserve the existing Store and files. Terminal output publication and reading arrive in R2.5/R2.6; re-run the analysis in the new-format Store when available.",
-            target="session.artifact",
-        )
+        from marivo.analysis.materialization.terminal_publication import reading_pending
+
+        reading_pending("session.artifact")
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None
@@ -378,7 +359,7 @@ class Session:
             max_nodes: Positive bounded graph size.
         Returns: The typed committed SessionGraph.
         Example: ``session.graph(artifact_ref=ref).show()``.
-        Constraints: Graph reads never execute or infer origin lineage.
+        Constraints: Graph reads never execute or infer origin lineage. Terminal Artifact summaries report the R2.6 reading gap.
         """
         return self._runtime.graph(
             artifact_ref=artifact_ref, direction=direction, max_nodes=max_nodes

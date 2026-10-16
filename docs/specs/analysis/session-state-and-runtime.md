@@ -1,29 +1,48 @@
 # Session State and Runtime
 
-Status: current Runtime and Store 9 contract, 2026-10-09.
+Status: R2.5 terminal publication and Store 10 contract, 2026-10-16; later sections retain historical graph implementation detail.
 [Analysis Design](python-analysis-design.md) owns construction and compilation;
 [Operators and Frames](operators-and-frames.md) owns method meaning and sufficient
 state. This document owns execution identity, publication, storage and recovery.
 
-## R2.1 terminal boundary (2026-10-16)
+## R2.5 terminal publication (2026-10-16)
 
-Session identity and same-generation recovery remain available through the existing
-coordinator. The new `session.observe(named_metrics)` only captures a Query;
-`execute()` fails with a structured unavailable-stage error before Run admission.
-`session.artifact(artifact_id: str)` now owns terminal output only: missing IDs
-raise `ArtifactNotFoundError`, and graph-based outputs are rejected without graph
-decoding, Parquet reads or file changes. The remaining graph Runtime sections
-describe the execution implementation awaiting its R2 replacements, not a fallback
-for the new Query/Artifact path.
+The existing Session/Runtime coordinator now executes ordinary numeric Queries and
+publishes terminal output in Store 10. Preparation and planning precede Run admission;
+each admitted execute is a fresh evaluation with a unique invocation identity.
+Runs persist an invocation marker and lifecycle, not definitions or graph inputs.
 
-`ArtifactPublication` holds final pandas output and explicit output Findings/Evidence;
-`ArtifactData` refers only to committed Parquet. Neither data schema nor manifest
-stores semantic Refs, definitions, formulas, fingerprints or continuations.
-Artifact owns no invocation, Query or in-memory Arrow table. Terminal publication
-and the single new/reopened-output reader are delivered in R2.5/R2.6, including
-the graph-free persisted Finding/Evidence format. The Store generation remains 9
-in R2.1; R2.5 performs the single incompatible format switch. No migration or
-dual-read path is introduced; rejected old Stores and files remain unchanged.
+`ArtifactPublication` supplies final pandas tables and explicit output records.
+The writer freezes a wide nullable primary, necessary output attachments and their
+receipts. File staging, close/fsync, receipt checks and final placement precede the
+SQLite transaction committing manifest, Finding/Evidence, success and resource ownership.
+Only that transaction makes the Artifact visible. Lost commit acknowledgement is
+resolved against the original transaction without replay; unknown outcomes preserve
+the journal. Reconciliation cleans exactly owned uncommitted files and retains success.
+
+Calendar axes retain the selected timezone as data-only metadata in the primary
+and bounds attachment schemas; the boundary instants remain UTC. This includes
+source-free calendars and fixed offsets without reconstructing calendar rules.
+
+`ArtifactData` and its manifest contain no semantic Refs, definitions, formulas,
+fingerprints, hidden components or continuation. Ordinary observations have empty
+Findings and self-contained Evidence of actual reads and checks. Read-scope summaries
+preserve nested Boolean grouping as text without executable predicates. Parquet uses a
+frozen schema, version 2.6, zstd level 3 and at most 128 Ki rows per group; the
+shared reader batch profile is at most 64 Ki rows. These parameters do not bound
+upstream eager pandas memory.
+
+R2.5 returns Artifact identity and repr. Public metadata opening, preview, export
+and Finding/Evidence reading report the R2.6 stage gap. Session graphs containing
+terminal Artifact summaries share that reading boundary. Private storage round trips
+are R2.5 evidence only, not public cold-reader or full Runtime acceptance.
+
+Store 10 is a single incompatible switch. Earlier Stores, graph descriptors and
+continuations are rejected without migration or modification; changing a Session
+name cannot bypass the generation requirement. Use a fresh project for a new-format
+Store and rerun the script. Same-generation Session identity and resume remain available.
+The old graph publisher rejects before Run admission in Store 10; the historical
+sections below do not grant a fallback or describe the new result format.
 
 ## Session and invocation ownership
 
@@ -165,7 +184,7 @@ publish successful evidence.
 
 Store, graph, descriptor, continuation and method-state versions are distinct:
 
-| Current protocol | Authority |
+| Historical graph protocol (retired in Store 10) | Former authority |
 | --- | --- |
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
 | graph_dag/v10, `graph-dag-v10:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |

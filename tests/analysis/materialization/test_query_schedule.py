@@ -254,27 +254,16 @@ def test_lossy_source_type_rejects_before_any_business_read(
     assert "sales.orders.code: uint64" in str(caught.value)
 
 
-def test_execute_prepares_and_plans_then_reports_the_remaining_stage_gap(
-    warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_execute_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:
     session = warehouse_session
     segment = _dimension(session, "sales.customers.segment")
     revenue = session.catalog.metrics.get("sales.revenue")
     assert isinstance(revenue, Metric)
-
-    def forbidden(self: SourceSession, read: object) -> None:
-        raise AssertionError("execute submitted a business read")
-
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    query = session.observe({"revenue": revenue})
-    with pytest.raises(AnalysisStageUnavailableError, match=r"R2\.5") as caught:
-        query.execute()
-    assert caught.value.stage == "query_execution" and caught.value.run_ref is None
-    assert "prepared R2.4 numeric plan" in str(caught.value)
-    with pytest.raises(AnalysisStageUnavailableError, match=r"R2\.5") as path_gap:
-        session.observe({"revenue": revenue}, by=(segment,)).execute()
-    assert path_gap.value.run_ref is None
-    assert session.runs().items == ()
+    first = session.observe({"revenue": revenue}).execute()
+    second = session.observe({"revenue": revenue}, by=(segment,)).execute()
+    assert first.id != second.id
+    assert len(session.runs().items) == 2
+    assert all(run.lifecycle == "succeeded" for run in session.runs().items)
 
 
 def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session) -> None:

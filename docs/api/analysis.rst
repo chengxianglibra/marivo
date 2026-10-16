@@ -6,8 +6,8 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
-R2.2 ordinary Query binding
-----------------------------------------
+R2.5 Query execution and terminal publication
+---------------------------------------------
 
 ``session.observe({"revenue": revenue, "aov": aov}, during=scope,
 by=(region,), where=region == "APAC")`` binds ordinary observation context in an
@@ -15,9 +15,10 @@ immutable ``Query`` without schema/business reads or Run admission. Each source
 reduction occurrence retains its intrinsic conditions and receives common
 conditions independently. Scalar paths must be directed, single-valued and
 unambiguous. ``query.contract().show()`` describes the frozen context and unresolved
-physical types. Ordinary numeric source/local routes are implemented internally;
-publication remains pending R2.5;
-``query.execute()`` raises ``AnalysisStageUnavailableError`` before admission.
+physical types. ``query.execute()`` now evaluates ordinary numeric source/local
+routes and atomically publishes terminal output in Store 10. Each invocation
+creates a new Run and reevaluates its inputs; preparation failures create no Run.
+Only the committed identity and manifest are returned in this stage.
 
 Construct exact time with ``session.instant(value, timezone=None)`` and
 ``session.time_scope(start=..., end=..., timezone=None)``. Omitted timezone uses
@@ -34,8 +35,15 @@ service. It offers ``show(n=20)``, ``to_pandas()``, ``findings()`` and
 ``evidence_digest()``; it has no ``contract()`` or DSL continuation.
 ``session.artifact(artifact_id)`` accepts an exact string ID, rejects old graph
 descriptors unchanged and does not load current semantics or Parquet rows.
-The new writer and complete reader arrive in R2.5/R2.6. Store generation remains
-9 until R2.5; same-generation Session recovery is unchanged.
+The writer is implemented in R2.5. Metadata opening, preview, export and public
+Finding/Evidence reading report the R2.6 stage gap. Store 10 saves a wide nullable
+primary and explicit output attachments, with data-only schema, receipts and
+self-contained output records. Calendar schemas preserve the selected timezone
+alongside UTC boundary instants; read-scope summaries preserve Boolean grouping.
+It saves no graph, definition fingerprint,
+continuation or internal aggregation components. Ordinary observe has no Findings;
+actual reads and checks produce Evidence. Earlier Stores remain unchanged and
+cannot be resumed, migrated or bypassed by choosing another Session name.
 
 .. autoclass:: InstantAnchor
    :members: show
@@ -49,7 +57,7 @@ The new writer and complete reader arrive in R2.5/R2.6. Store generation remains
 .. autoclass:: Artifact
    :members:
 
-The following sections describe the legacy execution surface pending replacement.
+The following sections describe the retired execution surface pending replacement; its graph publisher is unavailable in Store 10.
 
 Construct typed algebra through ``session.members(entity_ref)`` and its owned
 read/observe operations. The former Population, Metric Dataset and generic Dataset APIs have been retired.
@@ -84,7 +92,7 @@ Identical terminal-column facts are printed once with all applicable column
 labels; different units and keys remain separate.
 
 Execution retains results as project-local Parquet. There is no analysis result
-storage setting or database result storage. Session recovery reads Store 9;
+storage setting or database result storage. Session recovery reads Store 10;
 older generation files are not migrated or rewritten.
 
 Execution errors carry an optional ``run_ref`` after the invocation's Run is
@@ -440,7 +448,7 @@ R6 recovery and retired consumers
 ---------------------------------
 
 Comparison, selection/cohort, fixed references, ranking, attribution and terminal
-tables still use the legacy typed graph, Runtime and Store 9 internally.
+tables describe the retired typed graph path; its publisher rejects before Run admission in Store 10.
 ``session.artifact(id)`` rejects this graph format at the R2.1 terminal boundary.
 Missing parts revoke the affected legacy operations. Tables remain
 terminal. Original reductions with group keys publish

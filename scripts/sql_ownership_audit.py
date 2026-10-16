@@ -98,6 +98,24 @@ def _manifest() -> Manifest:
         ("conn.execute", "conn.executemany"),
         store,
     )
+    add(
+        "analysis/materialization/store",
+        ("SessionStore._initialize",),
+        ("previous.execute",),
+        store,
+    )
+    add(
+        "analysis/materialization/terminal_store",
+        ("admit", "records_page"),
+        ("conn.execute",),
+        store,
+    )
+    add(
+        "analysis/materialization/terminal_store",
+        ("publish",),
+        ("conn.execute", "conn.executemany"),
+        store,
+    )
     add("analysis/materialization/graph_findings", ("collection",), ("conn.execute",), store)
     add(
         "doctor",
@@ -239,6 +257,12 @@ def _manifest() -> Manifest:
         "analysis/materialization/graph_local_execution",
         ("run_kernel",),
         tuple(f"marivo.analysis.materialization.{module}.execute" for module in local_executors),
+        typed,
+    )
+    add(
+        "analysis/materialization/admission",
+        ("DatasetRuntime._execute_query",),
+        ("marivo.analysis.materialization.terminal_publication.execute",),
         typed,
     )
     add(

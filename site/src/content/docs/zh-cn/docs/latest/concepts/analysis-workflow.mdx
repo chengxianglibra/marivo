@@ -32,16 +32,18 @@ query.contract().show()
 普通规约省略 `during` 时不追加时间过滤；采样依赖仍须显式提供期间。
 共同条件分别绑定到每个来源规约出现。
 
-当前 `query.execute()` 会准备来源 schema 并规划阶段，不读取业务行，
-随后指出终端发布仍待 R2.5。内部已实现来源数值规约和 pandas 公式组合，
-包括零分母、NA 政策与完整坐标键；准备支持单值路径、精确版本锚点、计算物理字段、
+`query.execute()` 准备来源 schema 并规划阶段，随后创建 Run、执行来源数值规约和
+pandas 公式组合，最后原子发布 Store 10 产物。每次调用重新求值；准备失败不创建 Run。
+数值执行支持零分母、NA 政策与完整坐标键；准备支持单值路径、精确版本锚点、计算物理字段、
 解析/民用日期时间及编码 Duration 单位。不同 datasource 根分别规约后组合，无来源日历保留完整桶。
 Population 和窗口输入随所属阶段交付。`Artifact` 保持终端只读，只提供
 `id`、`session_id`、`show(n=20)`、`to_pandas()`、`findings()` 和
 `evidence_digest()`，没有 DSL 方法或 `contract()`。
 `session.artifact(id)` 只接受精确字符串 ID，保留文件并拒绝旧图产物。
-终端存储和读取由 R2.5/R2.6 交付；Store 在 R2.5 前保持第 9 代。
-以下示例描述等待替换的旧执行路径。
+R2.5 返回已提交身份和 manifest；元数据打开、预览、导出以及公开 Finding/Evidence
+阅读仍报告 R2.6 缺口。writer 保存完整键、nullable 值、独立 presence、必要输出附件及
+实际读取/检查 Evidence；普通观察的 Finding 为空。不保存图、语义定义、隐藏组件或 continuation。
+以下示例描述等待替换的旧执行路径；旧图发布器在 Store 10 中不可用。
 
 从已确认口径的 Metric、成员 Entity 和针对当前问题的 Session 开始。
 [Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)提供完整本地项目。
@@ -255,4 +257,4 @@ session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
 `mv.session.get_or_create("sales-review", domains="sales")` 保存准确的语义 domain
 选择，也可传入非空序列。再次获取时省略参数会保留原范围，显式传入冲突范围会失败。
 用 `session.domains` 读取它；固定结果依据保存的状态继续计算，无需当前模型。
-Session 元数据使用 Store 第 9 代；旧代目录保持原样，不自动迁移。
+Session 元数据使用 Store 第 10 代；旧代目录保持原样，不自动迁移。

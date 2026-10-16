@@ -13,6 +13,6 @@ def reconcile_session(
     run_ref: str | None = None,
 ) -> None:
     """Resolve the selected Session obligations under its owning writer guard."""
-    from marivo.analysis.materialization.graph_publication import _reconcile_graph
+    from marivo.analysis.materialization.terminal_publication import reconcile
 
-    _reconcile_graph(store, session_ref, event, run_ref=run_ref)
+    reconcile(store, session_ref, event, run_ref=run_ref)

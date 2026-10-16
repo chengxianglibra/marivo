@@ -466,8 +466,7 @@ def test_recent_is_bounded_newest_first(tmp_path: Path, monkeypatch: pytest.Monk
 
 def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, monkeypatch) -> None:
     import marivo.semantic.catalog as catalog_module
-    from marivo.analysis.materialization.graph_protocol import SourceRunInput
-    from marivo.analysis.materialization.graph_store import admit
+    from marivo.analysis.materialization.terminal_store import admit
 
     monkeypatch.chdir(tmp_path)
     historical = mv.session.get_or_create("historical", question="Why did revenue drop?")
@@ -475,8 +474,6 @@ def test_inspect_returns_bounded_snapshot_without_touching_session(tmp_path, mon
     admit(
         store,
         historical.id,
-        "pending-key",
-        SourceRunInput("marivo.analysis.run_input/v1", "source", "definition", "plan", ()),
         "run_1",
     )
     active = mv.session.get_or_create("active")

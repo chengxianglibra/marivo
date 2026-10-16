@@ -14,7 +14,8 @@ v0.34 明确来源类型准入、多 datasource 路线、普通观察 Evidence �
 实施进度：R2.4 已接通私有数值路线及计算字段、单值路径、精确版本锚点、
 解析/民用日期/naive 时间、编码 Duration 的准备；不同 datasource 根先分别规约后组合。
 普通原生字段 semantic Metric preview 复用数值内核；路径/锚点和 Population preview 在连接前拒绝。
-公开 Query.execute 仍在业务读取前报告 R2.5 发布缺口，不构成终端保存/冷读或完整 Runtime 验收声明。
+R2.5 已接通公开 Query.execute、Store 10 原子终端发布与无图输出记录；返回已提交身份。
+公开打开、预览、导出与 Finding/Evidence 阅读仍报告 R2.6 缺口；不构成完整 R2 或远端 Runtime 验收声明。
 
 ## 1. 执行、保留与恢复
 

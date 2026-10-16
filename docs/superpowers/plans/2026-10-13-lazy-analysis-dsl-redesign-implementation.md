@@ -2,7 +2,7 @@
 
 Date: 2026-10-14
 
-Status: in progress，基于工作树 v0.35 与架构 v0.10；R1 与 R2.1 已提交至 `871d26ee468a9fef21117e5aedaa18fa95a175dc`，R2.2 普通观察绑定已提交至 `3231c8fa93`；R2.3 基本计划与调度已提交至 `884395a14d`；R2.4 数值路线与准备路线已实施并修复审查问题（2026-10-16，未提交）；R2.5/R2.6 尚未贯通。各阶段证据见下文。
+Status: in progress，基于工作树 v0.35 与架构 v0.10；R1 与 R2.1 已提交至 `871d26ee468a9fef21117e5aedaa18fa95a175dc`，R2.2 普通观察绑定已提交至 `3231c8fa93`；R2.3 基本计划与调度已提交至 `884395a14d`；R2.4 数值路线与准备路线已提交至 `6b4c25add7`；R2.5 原子终端发布已实施（2026-10-16，未提交），公开读取仍待 R2.6。各阶段证据见下文。
 当前优先修订（2026-10-15，Slack `1792053438.175219` / `1792053465.849969`）：取消语义对象必须匹配构造时原定义版本及同路径改版拒绝；agent/用户承担分析期间语义定义变更的后果。实际计算/依赖身份、缓存正确性、持久化记录和其它语义检查保留。capture/finalize为默认时间/坐标/Ibis前向闭包保留。完整supersession、下一阶段清理与证据边界见下文user-priority checkpoint；历史评审/验收不回写成新合同通过。
 v0.32 统一 Query.execute → 终端 Artifact；所有 DSL 组合在执行前完成，产物不承载图、内部组件或续算。
 执行分工与架构 v0.10 同步：Ibis 负责源端计算，pandas 统一本地执行，PyArrow 只负责存储和读取。
@@ -120,7 +120,7 @@ ArtifactPublication 只含最终 pandas 输出和记录；writer 编码后由发
 | Milestone | 可交付结果 | 必需的上游产物 | 状态 |
 | --- | --- | --- | --- |
 | R1 统一计算定义 | 模型和分析代码可构造、声明、收录同一表达式 | 现有语义 Ref/时间原语；本阶段无 Runtime 前置 | 进行中：R1.1、R1.2 已完成（`8bbab54b81`、`c0ac430447`），R1.3 进行中，R1.4 未开始 |
-| R2 最小观察闭环 | 多量观察 → pandas stage → 终端发布 → 按需读取 | R1 定义、政策、loader；先分开 BoundGraph 与 ArtifactData，再接 lowering/执行/存储 | 进行中：R2.1、R2.2 已实施，执行/发布/读取待 R2.3–R2.6 |
+| R2 最小观察闭环 | 多量观察 → pandas stage → 终端发布 → 按需读取 | R1 定义、政策、loader；先分开 BoundGraph 与 ArtifactData，再接 lowering/执行/存储 | 进行中：R2.1–R2.5 已实施，公开打开与阅读待 R2.6 |
 | R3 Population 与内部样本 | 字面量/逻辑名单与 (k,j) 求值可实际执行 | R1 域依赖记录；R2 观察绑定、stage、nullable 输出和 reader | 未开始 |
 | R4 Query 组合与交接 | Column、筛选/Top-N/reduce/values、需求裁剪与完整导出 | R2 多量/检查/终端格式；R3 Population 绑定、LiteralInput 和依赖键交接 | 未开始 |
 | R5 对齐、比较与参照 | 多端点组合，presence、投影与广播 | R2 端点输出；R3 完整键/关系绑定；R4 Column/values 与 ReadLayout | 未开始 |
@@ -193,8 +193,8 @@ Help 与当前文档随对应公开行为更新，R8 只做全局切换和遗漏
 | R2.1 分开 Query 与终端 Artifact | 已实施（2026-10-16，按确认的合同/接线范围）：P1 组合 Metric 闭包已修复，152 项相关测试通过；lint/import contracts、307 文件 typing 通过，先前 API docs 通过；broad 基线失败仍在，未提交 | `analysis/dsl/{query,artifact}.py`、`analysis/session/core.py`、`analysis/core/{model,artifact_data,graph}.py` | 多量 BoundGraph/BoundSignature 与 DataSchema/ArtifactData/ArtifactManifest 分开；ArtifactPublication 接最终 pandas 输出和无图记录，ArtifactData 只引用已提交 Parquet receipt。Query 捕获 R1 定义闭包，Artifact 只持 ID/manifest/reader；新路径拒绝 Artifact/ID/FixedLeaf 计算输入，无 Result 别名。Session.observe 返回 Query；execute 在 Run/读取前报结构化阶段缺口，Session.artifact 仅收精确字符串并在解码前拒绝旧图产物；get_or_create/resume 沿用同代际 Store 9。按明确确认，新代际启用推迟至 R2.5，未以升版本号继续写旧图。 |
 | R2.2 绑定普通观察上下文 | 已实施（2026-10-16）：普通 during/by/Field where、单值字段路径/属性锚点与基础日历；178 项主定向及 132 项补充表达式检查通过（含重叠）；工程基线失败见交接 | `analysis/binding/{observe,coordinates}.py`、`analysis/core/{model,graph}.py`、`analysis/dsl/temporal.py` 与共享时间/semantic 表达式 owner | 建立 ObservationBinding/ContributionBinding/CoordinateBinding；共同条件分别绑定每个来源出现。实现 Field 谓词、单值 via/at、基础时间/Grain/日历输出；冻结时区与边界。构造不读业务行、不建 Run，repr/contract 不读 schema；未知 dtype 保留明确状态，execute 准备时解析。during=None 不追加时间过滤；采样/时间样本规约/日历的必需期间检查完整闭包。 |
 | R2.3 基本计划与统一调度 | 已实施（2026-10-16，未提交）：schema-only 准备、纯 QueryPlan、pandas StageOutput 与拓扑调度；真实 DuckDB 投影/过滤读取通过；数值路线待 R2.4 | `analysis/compiler/{graph_plan,graph_lowering}.py`、`analysis/materialization/graph_{execution,exchange,source_execution,local_execution}.py` | 调用入口准备 schema/来源连接后交纯 compiler；固定来源 ID、需求 slots、stage 输入/输出、消费者与 consume/publish 检查截止点。ExchangeResult 演化为统一 pandas StageOutput，来源/本地消费同一规范化入口，消费者不原地改共享表。Runtime 按拓扑执行，不打开历史 Artifact 或重新选路；纯来源计划直接发布，不插空本地阶段。按执行 §2.4 在信息足够的最早边界检查，后端缺口在所依赖的业务读取前报出，实际值检查在发布前完成。 |
-| R2.4 完成来源与本地数值路线 | 已实施并修复（2026-10-16，未提交）：数值内核、pandas 组合、有界 preview 与完整普通观察准备路线；验收见修复交接 | `semantic/metric_graph_lowering.py`、`analysis/compiler/observation.py`、`analysis/methods/{registry,physical,numeric_state,local}.py` | observation 将绑定转成纯 Row/Metric 内核的物理输入，内核不接 Signature/Session。接通 sum/count/count_distinct/mean/min/max/median/quantile、共同配对 weighted_mean 与公式；多根先分别规约再按完整键组合。源端 Ibis 返回 pandas，本地用准入内核；sum 空/全 NA 为 0，除法先 mask 再计算；默认零分母为 NA，显式 error 才生成除零检查，其它非法计算失败。删除新路径的 Cell carrier lowering；合格 semantic preview 复用同一内核，缺 Population 准备路线时明确拒绝。 |
-| R2.5 原子终端存储 | 待开始 | `analysis/materialization/graph_{protocol,storage,store,publication,snapshot,value_tables}.py`、`analysis/materialization/store.py` | writer 只接 ArtifactPublication 的最终 pandas 输出和记录，不要求预先构造 Arrow 句柄；宽 primary 与必要输出附件按冻结 schema 编码，稳定 slot ID 映射命名量，规范完整键序和零轴物理占位见 §6.3。Finding/Evidence 改为自包含输出并复用分页。沿 journal/staging/文件就位/SQLite 提交发布，成功后才返回 Artifact；旧 graph/continuation 格式拒绝，无状态书表、隐藏组件或可恢复 derivation。 |
+| R2.4 完成来源与本地数值路线 | 已实施并修复，已提交 `6b4c25add7`（2026-10-16）：数值内核、pandas 组合、有界 preview 与完整普通观察准备路线；验收见修复交接 | `semantic/metric_graph_lowering.py`、`analysis/compiler/observation.py`、`analysis/methods/{registry,physical,numeric_state,local}.py` | observation 将绑定转成纯 Row/Metric 内核的物理输入，内核不接 Signature/Session。接通 sum/count/count_distinct/mean/min/max/median/quantile、共同配对 weighted_mean 与公式；多根先分别规约再按完整键组合。源端 Ibis 返回 pandas，本地用准入内核；sum 空/全 NA 为 0，除法先 mask 再计算；默认零分母为 NA，显式 error 才生成除零检查，其它非法计算失败。删除新路径的 Cell carrier lowering；合格 semantic preview 复用同一内核，缺 Population 准备路线时明确拒绝。 |
+| R2.5 原子终端存储 | 已实施（2026-10-16，未提交）：Store 10、公开 execute、宽表/附件、无图输出记录及原子发布；200 项定向通过，验收边界见下文 | `analysis/materialization/terminal_{protocol,storage,store,publication}.py`、现有 Store/Runtime/journal 与数值调度 owner | writer 只接 ArtifactPublication 的最终 pandas 输出和记录，不要求预先构造 Arrow 句柄；宽 primary 与必要输出附件按冻结 schema 编码，稳定 slot ID 映射命名量，规范完整键序和零轴物理占位见 §6.3。Finding/Evidence 改为自包含输出并复用分页。沿 journal/staging/文件就位/SQLite 提交发布，成功后才返回 Artifact；旧 graph/continuation 格式拒绝，无状态书表、隐藏组件或可恢复 derivation。 |
 | R2.6 元数据打开与按需阅读 | 待开始 | `analysis/materialization/{graph_reading,graph_dataset,pandas_export}.py`、`analysis/dsl/artifact.py` | Session.artifact/repr 只读 manifest/receipt，禁扫 Parquet；新/重开共用已提交 Parquet 的 PreviewRead/ExportRead 和基础 ReadLayout。show 有界解码、完整导出不截断；只验证消费的 parts，保留首次 digest 可能读完整 part 的事实。Finding/Evidence 独立分页，无需主表/Catalog/图；Artifact 无内存 Arrow 句柄、contract 或 DSL 方法；不保存 Ref/指纹或判定当前模型/来源新鲜度。 |
 
 **R2.1 本轮交接（2026-10-16）：** 当前只提供 `Session.observe(metrics)` 的命名 Metric 捕获；during/by/where/members 的完整上下文留给 R2.2，不铺未来方法占位。新 BoundSignature 和共同定义图是新 Query 的唯一计算合同；旧单量 Signature/FixedLeaf 仍服务未替换的旧执行消费者，不进入新路径，全局退役按 R8 收尾。ArtifactReader 已定义协议，但尚无生产 reader 或 writer；ArtifactPublication 的表布局检查不是数值或持久化验收。R2.5 实现写入/无图 Finding 与 Evidence codec、一次新代际启用，R2.6 完成实际 metadata open、PreviewRead/ExportRead 与分页；既有公开 FindingPage/ArtifactDigest 家族的最终无图记录适配在这两个 owner 完成。新/重开实际产物和跨进程读取尚未验收。
@@ -268,6 +268,28 @@ Help 与当前文档随对应公开行为更新，R8 只做全局切换和遗漏
 **修复后验证与复审：** 最终定向 **205 passed**，覆盖四项原问题、全部上述准备路线、Duration 大整数 ticks、来源/本地/preview 的整型中间值溢出，以及 SQL 提交 owner。最终 lint/import contracts、**317 文件 typing**、API 文档、**381 个站点内容文件**与 `git diff --check` 通过。默认测试 **24 failed / 849 passed / 2 errors**；所有失败项及两项旧声明导入错误均在精确基线归档复现，未将默认测试记作通过。按 `marivo-review` 对工作区完整 R2.4 diff 复审，原四项关闭，额外整型中间值溢出已修复，当前范围 **No findings**；该结论不扩展到未运行的远端 Runtime、R2.5/2.6 或终端恢复。
 
 验证日志：`/tmp/r24-final-focused.log`、`/tmp/r24-final-lint.log`、`/tmp/r24-final-types.log`、`/tmp/r24-fix-docs-final.log`、`/tmp/r24-fix-site-final.log`、`/tmp/r24-final-default.log`。精确基线证据：`/tmp/marivo-r24-base.log`、`/tmp/marivo-r24-base-extra.log`、`/tmp/r24-fix-baseverify.log`、`/tmp/r24-fix-baseverify-final.log`。所有改动保持未暂存、未提交。
+
+
+**R2.5 实施交接（2026-10-16）：** 基于精确 HEAD `6b4c25add7`，按确认范围只交付 R2.5；R2.6 公开阅读保持未完成。
+
+- `Query.execute()` 经现有 Runtime 做准备/规划/lowering，成功准备后准入 Run，复用 `execute_numeric_query` 与统一拓扑调度；来源关闭成功后发布。纯来源、pandas 组合与无来源常量共用终端路径，每次调用新求值，不复用历史答案。
+- Store 10 使用 `marivo.terminal_output/v1` 的闭合数据记录。manifest 保存 DataSchema、primary/附件 receipt 与 payload digest，Run 只保存 invocation marker/身份/生命周期；无定义、Signature、图、Ref、计算指纹、内部组件或 continuation。旧图发布器在 Run/写入前拒绝；旧代际及旧文件名明确拒绝并保留字节，换 Session 名称不能绕过。
+- 一个规范完整键序的宽 primary 保存多量 nullable 值与独立 presence；零轴无量以内部 `__unit: uint8` 保存 0/1 行。日历的 nominal/actual bounds 作为明确输出附件保存。Parquet 使用冻结 schema、2.6、zstd level 3、最大 128 Ki 行组；共享扫描 batch 上限为 64 Ki 行。整型、Decimal、时区时间和 Duration 无损转换，不能表达则失败。
+- Finding/Evidence 使用既有 OutputFinding/OutputEvidence 的无图 codec；复用分页基础设施，通过精确 Artifact/集合游标读取私有记录。普通观察 Finding 为空，只保存实际读取范围及实际检查事实。SQL ownership 审计登记新 Store/协调调用；DuckDB native 提交验收改用公开 Query 路线，不再进入旧成员发布器。
+- 沿原 writer guard/journal 完成 staging、关闭/fsync、receipt 检查、文件就位，再在一个 SQLite 事务提交 manifest、记录、Run 成功和资源归属。丢失确认核对原 manifest 与完整输出记录；状态未知保留原资源并报告 recovery pending。崩溃回收只处理原 Run 的未提交输出，不重算、不损坏已提交产物。
+- 返回的 Artifact 仅持已提交 manifest 与无数据缓存的 reader；repr/身份可用，`Session.artifact()`、show、导出、公开 Finding/Evidence 阅读及包含 Artifact 摘要的 Session.graph 均明确指向 R2.6 缺口。私有完整读取用于存储验收，不作为公开 reader 或完整 R2 资格。
+
+**R2.5 验证：** 最终定向 **200 passed / 4 deselected**，覆盖真实 DuckDB 纯来源/多量与本地组合、重复执行重读、NA/零分母失败、准备无 Run、来源关闭失败、宽表/空表/完整 Null 键、四种时间精度与 Duration、Decimal/大整数、零轴 0/1 行、分页/codec、独立进程私有读取、六个进程退出边界、writer 争用、提交确认丢失/未知及旧 Store 保留。4 项远端服务用例按默认标记排除，不计入通过。lint/import contracts、**321 文件 typing**、API 文档、**381 个站点内容文件**和 `git diff --check` 通过。
+
+最终 `make check-agent` 在默认测试阶段为 **23 failed / 737 passed / 2 errors**，未记为通过。全部 25 个失败/错误节点已在精确基线 `6b4c25add7` 的临时归档中复现；额外 surface 扩展为 **476 passed / 6 failed**，6 项亦已在同一基线复现，均属旧语义声明/夹具。基线归档：`/tmp/marivo-r25-base-6b4c25add7`；日志：`/tmp/marivo-r25-core-final.log`、`/tmp/marivo-r25-check-final.log`、`/tmp/marivo-r25-base.log`、`/tmp/marivo-r25-extra-base.log`、`/tmp/marivo-r25-surface-base.log`、`/tmp/marivo-r25-docs.log`、`/tmp/marivo-r25-site.log`。
+
+**R2.5 三项 P2 修复（2026-10-16）：** 日历主表及边界附件的 schema 使用闭合的 `CalendarDataAxis` 输出记录保存所选时区，边界值仍以 UTC 保存；该描述不包含日历规则或执行逻辑。这样同时保留 IANA/DST 与固定偏移语义，不依赖 Arrow 解析 `UTC+05:30` 等时区名称。读取范围摘要为嵌套 AND/OR 保留括号，并覆盖 NOT 组合，避免不同读取范围保存成相同文本。精确 `Query.execute` Help 明确新 Run、按需来源读取及原子发布；Artifact 四个阅读方法的 Help/docstring 明确 R2.6 不可用边界。
+
+新增回归通过真实临时 DuckDB 项目与独立进程私有读取验证有来源/无来源日历、DST 的 23 小时桶、非默认固定偏移及三种嵌套过滤结果；字符串/callable Help 入口均验证实际执行效果与阅读缺口。修复后定向 **161 passed**，完整 lint/import contracts、**321 文件 typing**、API 文档及 **381 个站点内容文件**通过。Help 扩展 **56 passed / 3 failed**；3 项旧声明夹具失败均匹配精确基线复现记录。最终 `make check-agent` 默认测试 **23 failed / 734 passed / 2 errors**，没有记作通过；此前未记录的 4 个失败节点已在精确基线归档补充复现，其余 21 个失败/错误节点与既有基线记录匹配。
+
+**修复后 marivo-review 复审：** 基于 `6b4c25add7` 对本轮完整 R2.5 工作区差异和新增文件复核，三项原 P2 均关闭，当前范围 **No findings**。原反例探针确认日历时区已保存，结果 20/35 的两种范围保留不同分组摘要；codec/私有冷读、发布失败/恢复与独立 Help 入口回归通过。该结论不扩展到 R2.6 公开读取或远端 Runtime。日志：`/tmp/marivo-r25-p2-targeted.log`、`/tmp/marivo-r25-p2-check.log`、`/tmp/marivo-r25-p2-help.log`、`/tmp/marivo-r25-p2-base.log`、`/tmp/marivo-r25-p2-probe.log`、`/tmp/marivo-r25-p2-docs.log`。
+
+未编辑既有 AGENTS.md diff 或 packaged skills，未提交/推送，未启动远端服务或运行 Runtime/release。R2.6 的元数据打开、PreviewRead/ExportRead、公开结果家族适配和完整断源公开读取不在本轮完成声明中。
 
 R2.2–R2.4 同时落实[来源类型准入](../../specs/analysis/lazy-analysis-dsl-execution.md#151-来源类型准入与无损交接)：
 schema-only 只检查声明类型及后端/转换路线资格，不能证明具体值未丢精度；已知有损或无法保证必需精度的路线拒绝。
@@ -559,9 +581,9 @@ nullable 专项验收与 [架构方案](../../specs/analysis/analysis-implementa
 
 | 协议 | 已核对现状 | 目标处理 |
 | --- | --- | --- |
-| Session Store | 9 | 一次终端产物及无图输出记录格式切换，实施时选择未占用版本 |
+| Session Store | 10（R2.5 已启用） | 一次终端产物及无图输出记录格式切换；旧代际拒绝并保留 |
 | graph DAG | v10 | 不进入新结果格式；停止结果图写入/解码，不发布 v11 图快照 |
-| descriptor | v6 | 改为 DataSchema + 输出 receipt/附件，Finding/Evidence 无图；不包含语义 Signature |
+| descriptor | terminal_output/v1（R2.5 已启用） | DataSchema + 输出 receipt/附件，Finding/Evidence 无图；旧 descriptor v6 不进入新格式 |
 | continuation | v5 | 从结果协议移除，不发布 v6 或旁路恢复闭包 |
 
 R2 首次贯通，后续在同一未发布代际补齐输出数据字段。实施时刷新实际版本，不按文档修订连续升代。
@@ -633,8 +655,8 @@ AGENTS 及两个 packaged skills 的编辑受仓库明确授权规则保护：
 - 当前 API、类型、Help、错误、英中文档及获授权的工作流文件同步；make check-agent 通过，实际需要的额外检查单独报告。
 - 最后记录通过、失败、未运行与待授权事项，所引用证据只说明它实际验证的范围。
 
-当前状态：**R1–R8 已按架构 v0.10 对齐目标模块、前置产物、阶段出口与架构验收；R1.1 已完成（评审 2 无发现，提交 `8bbab54b81`）；R1.2 已完成（评审 3 无发现，提交 `c0ac430447`）；均未推送。R1.3 状态沿原记录，R1.4 见任务行；R2.1–R2.3 已提交，R2.4 数值与普通观察准备路线已补齐并修复审查问题，默认 broad gate 仍受已复现基线失败阻断；R2.5 发布/R2.6 读取尚未交付。**
+当前状态：**R1–R8 已按架构 v0.10 对齐目标模块、前置产物、阶段出口与架构验收；R1.1 已完成（评审 2 无发现，提交 `8bbab54b81`）；R1.2 已完成（评审 3 无发现，提交 `c0ac430447`）；均未推送。R1.3 状态沿原记录，R1.4 见任务行；R2.1–R2.4 已提交，R2.5 原子终端发布已实施并完成上述定向验收，默认 broad gate 仍受已复现基线失败阻断；R2.6 公开打开与阅读尚未交付。**
 本轮文档完成条件：模块映射可回到架构 owner，阶段无循环/后移出口，场景 1–80 无遗漏或重复归属，
 架构 §15 的条件都有收齐阶段，文件链接/锚点/围栏有效，既有工作树修改不被覆盖。
 计划检查不运行目标 DSL，不将旧 oracle 计数或历史文档检查沿用为实现验收；不据此声称默认测试、Runtime 或性能通过。
-本文件位于仓库忽略的 `docs/superpowers/plans/`，应按路径直接读取，不以 git status 是否出现判断是否保存。
+本文件为实施台账，按路径核对当前任务和证据；历史阶段记录不代表当前验收状态。

@@ -1,74 +1,42 @@
 ---
 title: 证据与恢复
-description: 检查已提交事实并恢复确切 Store 9 结果。
+description: Store 10 终端发布与 R2.6 阅读边界。
 ---
 
-Artifact 管理保存的行、保留状态与执行证据；Run 记录执行身份及成功或失败。
-跨结果综合、业务判断与因果解释由 Agent 负责。
+Store 10 将最终输出保存在 `.marivo/analysis/generations/v10/`。
+Parquet 文件持久化后，通过一个 SQLite 事务共同发布 manifest、receipt、Finding、
+Evidence 和 Run 成功状态。失败调用不会发布部分 Artifact；恢复只协调原 Run 及其确切
+资源 journal，不重放计算。
 
-## 读取产生结果的 Run
+## 执行并检查 Run
 
-`current`与 `baseline`是同一 Session 中兼容的 Logical 数值观察。
-
-{/* example: evidence-producing-run */}
-
-```python
-artifact = current.compare(baseline).execute()
-artifact.show()
-artifact.contract().show()
-run = session.get_run(artifact.state.producing_run_ref)
-run.show()
-```
-
-`contract()`描述保留状态与准入后续操作，不认证文件字节未改变。Logical 值在执行之前没有已提交 Evidence。
-
-## 读取有界 Findings
-
-`artifact`是前述示例的已提交结果。
-
-{/* example: evidence-findings */}
+已有解析完成的 `revenue` Metric 和 Session：
 
 ```python
-digest = artifact.evidence_digest()
-print(digest.finding_count)
-findings = artifact.findings(limit=20)
-for finding in findings.items:
-    finding.show()
-run = session.get_run(artifact.state.producing_run_ref)
-run.show()
+query = session.observe({"revenue": revenue})
+artifact = query.execute()
+print(artifact.id)
+print(artifact)
+for run in session.runs(limit=5).items:
+    run.show()
 ```
 
-Evidence/Findings 与结果共同发布。Finding cursor 属于确切 owning Artifact，
-通过 `has_more`、`next_cursor`分页。空 Findings 表示空的已提交集合。
-Findings 报告确定性计算事实，不是生成叙事或因果解释。
+每次 execute 重新求值，创建新的 Run 和 Artifact。Artifact 只持已提交身份与元数据，
+没有 `contract()` 或 DSL 续算能力。无来源常量也使用同一发布路径。
 
-## 恢复确切成功结果
+## 保存事实与阅读边界
 
-已有 `session`、`mv`与记录的 `run_id`。读取成功专属字段前先检查 Run variant。
+普通观察不产生 Finding。Evidence 只记录实际来源读取与实际检查，包括读取范围；
+省略期间明确表示未追加时间约束。这些记录不认证来源完整性、跨来源快照、新鲜度或因果结论。
 
-{/* example: evidence-recovery */}
+保存的 schema 描述完整键、命名 nullable 值、独立 presence、类型和单位；
+必要输出附件保存 UTC 日历边界，主表及附件的 schema 同时保留所选日历时区；读取范围摘要保留布尔条件的嵌套分组。不保存语义定义、图、公式、隐藏规约组件、计算指纹或 continuation。
 
-```python
-run = session.get_run(run_id)
-if isinstance(run, mv.SucceededRun):
-    artifact = session.artifact(run.output_artifact_ref)
-    artifact.show()
-```
+R2.5 返回已提交 Artifact 身份。`session.artifact(id)`、`show()`、`to_pandas()`、
+`findings()` 和 `evidence_digest()` 仍报告 R2.6 阅读缺口。
+公开跨进程打开与有界阅读尚未交付；请保留确切 ID。
 
-Store 9 将项目本地 Parquet 和 SQLite 元数据保存在
-`.marivo/analysis/generations/v9/`。信任本地已提交结果、Evidence 和 Findings；
-读取解码所需 typed data，不比较内容哈希、不重放 producer、不重新提取 Findings。
-缺失或不可读 part、格式不兼容和跨 Session/cursor ownership 仍明确失败。
+旧 Store 及图/continuation 格式明确拒绝，不改写或迁移。更换 Session 名称不能绕过代际限制；
+请在新项目创建新格式 Store 并重新运行分析脚本。同代际 Session resume 保留身份和 Run 历史。
 
-Store 8 及更早代不能恢复或迁移。在同一项目创建新的 Session 时，Store 9 使用独立目录，旧目录保持不变。
-没有 revalidation 或自动重建入口。新的 live 执行创建新结果；恢复保留原结果的确切范围与时间依据。
-
-## 在证据范围内解释
-
-观察描述保留范围。比较与归因是代数的，关联是描述性的，预测是模型输出。
-筛选保留拟合范围与覆盖限制。
-它们本身都不建立业务依据、新鲜度或因果结论。
-
-跟随 `marivo.help("analysis.evidence")`，或运行[本地恢复教程](/zh-cn/docs/latest/guides/python-quick-start/)。
-
-已保存的 Artifact 内部使用紧凑 Cell 绑定；`show()` 与 `to_pandas()` 仍保留原有的值、标签和原因字段。旧格式 Artifact 不能恢复或继续执行。请保留历史记录与文件，重新执行来源分析，保存当前格式的 Artifact。旧 Store 代际保留原文件，不执行迁移。
+从 `marivo.help("analysis")` 开始发现。

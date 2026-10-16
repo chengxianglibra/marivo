@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
 from typing import NoReturn
@@ -27,8 +27,10 @@ from marivo.analysis.compiler.graph_lowering import (
 )
 from marivo.analysis.compiler.graph_plan import (
     CheckRequirement,
+    LocalCompute,
     PlannedCheck,
     SourceField,
+    SourceRead,
     SourceSchema,
 )
 from marivo.analysis.core.cell_encoding import (
@@ -1646,7 +1648,13 @@ def read_stage(prepared: PreparedSources, lowered: LoweredRead) -> StageOutput:
     )
 
 
-def execute_numeric_query(prepared: PreparedSources, lowered: LoweredQuery) -> StageOutput:
+def execute_numeric_query(
+    prepared: PreparedSources | None,
+    lowered: LoweredQuery,
+    *,
+    observe_read: Callable[[LoweredRead, StageOutput], None] | None = None,
+    observe_local: Callable[[LocalCompute, StageOutput], None] | None = None,
+) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
     from marivo.analysis.materialization.graph_execution import run_query_plan
@@ -1667,9 +1675,25 @@ def execute_numeric_query(prepared: PreparedSources, lowered: LoweredQuery) -> S
             "Use the qualified numeric checks emitted by lowering; no business row was read.",
             "analysis.query_check",
         )
-    return run_query_plan(
-        lowered.plan,
-        lambda stage: read_stage(prepared, lowered.read(stage.stage_id)),
-        lambda stage, inputs: run_local(stage, inputs),
-        check,
-    )
+
+    def read(stage: SourceRead) -> StageOutput:
+        if prepared is None:
+            reject(
+                "prepared source connections",
+                stage.stage_id,
+                "Prepare the source before execution.",
+                "analysis.query_source",
+            )
+        request = lowered.read(stage.stage_id)
+        output = read_stage(prepared, request)
+        if observe_read is not None:
+            observe_read(request, output)
+        return output
+
+    def local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> StageOutput:
+        output = run_local(stage, inputs)
+        if observe_local is not None:
+            observe_local(stage, output)
+        return output
+
+    return run_query_plan(lowered.plan, read, local, check)
