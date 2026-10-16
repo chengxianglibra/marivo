@@ -106,7 +106,7 @@ used everywhere downstream.
 | `md.duckdb(...)` | `DuckDBSpec` | `duckdb` | Local file / in-memory. Also the engine that reads parquet/csv/json file sources. |
 | `md.sqlite(...)` | `SQLiteSpec` | `sqlite` | Local file / in-memory SQLite tables and views; optional query-only mode and declared-type mapping. |
 | `md.trino(...)` | `TrinoSpec` | `trino` | `catalog` is the connection target; `schema` is an optional default. |
-| `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. |
+| `md.mysql(...)` | `MySQLSpec` | `mysql` | `host` + `database` required. Also serves MariaDB servers; the query timeout uses `MAX_EXECUTION_TIME` (ms) on MySQL and `max_statement_time` (s) on MariaDB, selected from `VERSION()`. |
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 

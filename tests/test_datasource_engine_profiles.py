@@ -124,6 +124,8 @@ class _RawBackend:
             raise RuntimeError("setup failed")
         if sql.startswith("SHOW SESSION"):
             return _Cursor(("query_max_run_time", "5m"))
+        if sql == "SELECT VERSION()":
+            return _Cursor(("8.0.36",))
         if "@@SESSION.MAX_EXECUTION_TIME" in sql:
             return _Cursor((2500,))
         return _Cursor()
@@ -208,6 +210,7 @@ def test_authoring_timeout_orders_setup_execute_cleanup_on_error(
     elif backend_type == "mysql":
         assert isinstance(backend_object, _RawBackend)
         assert backend_object.calls == [
+            "SELECT VERSION()",
             "SELECT @@SESSION.MAX_EXECUTION_TIME",
             "START TRANSACTION READ ONLY",
             "SET SESSION MAX_EXECUTION_TIME = 2000",

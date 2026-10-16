@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -251,31 +251,49 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
     return None
 
 
+def _fetch_first(raw_sql: Callable[[str], object], sql: str) -> object | None:
+    cursor = raw_sql(sql)
+    fetchone = getattr(cursor, "fetchone", None)
+    row = fetchone() if callable(fetchone) else None
+    return row[0] if row else None
+
+
 @contextmanager
 def authoring_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     raw_sql = getattr(backend, "raw_sql", None)
     if not callable(raw_sql):
         raise RuntimeError("mysql backend does not expose raw_sql()")
-    cursor = raw_sql("SELECT @@SESSION.MAX_EXECUTION_TIME")
-    fetchone = getattr(cursor, "fetchone", None)
-    row = fetchone() if callable(fetchone) else None
-    if not row:
-        raise RuntimeError("mysql did not expose @@SESSION.MAX_EXECUTION_TIME")
-    previous = int(row[0])
+    version = _fetch_first(raw_sql, "SELECT VERSION()")
+    if version is None:
+        raise RuntimeError("mysql did not expose VERSION()")
+    # MariaDB has no MAX_EXECUTION_TIME; its equivalent is max_statement_time in seconds.
+    if "mariadb" in str(version).lower():
+        variable = "max_statement_time"
+        target = str(timeout_seconds)
+    else:
+        variable = "MAX_EXECUTION_TIME"
+        target = str(timeout_seconds * 1000)
+    current = _fetch_first(raw_sql, f"SELECT @@SESSION.{variable}")
+    if current is None:
+        raise RuntimeError(f"mysql did not expose @@SESSION.{variable}")
+    raw_previous = str(current)
+    previous = (
+        repr(float(raw_previous)) if variable == "max_statement_time" else str(int(raw_previous))
+    )
     raw_sql("START TRANSACTION READ ONLY")
     try:
-        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {timeout_seconds * 1000}")
+        raw_sql(f"SET SESSION {variable} = {target}")
     except BaseException:
         with suppress(Exception):
             raw_sql("ROLLBACK")
-        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
+        raw_sql(f"SET SESSION {variable} = {previous}")
         raise
     try:
         yield
     finally:
         with suppress(Exception):
             raw_sql("ROLLBACK")
-        raw_sql(f"SET SESSION MAX_EXECUTION_TIME = {previous}")
+        raw_sql(f"SET SESSION {variable} = {previous}")
 
 
 PROFILE = EngineProfile(
