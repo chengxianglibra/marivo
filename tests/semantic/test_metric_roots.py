@@ -1,12 +1,87 @@
-"""Metric computation roots and explicit entity identity boundaries."""
+"""Metric computation roots, unit facts, and explicit entity identity boundaries."""
 
 from __future__ import annotations
 
-import pytest
-
 import marivo.semantic as ms
-from marivo.semantic.catalog import EntityDetails, MetricDetails, SemanticCatalog
-from marivo.semantic.errors import SemanticLoadFailed
+from marivo._definition.expressions import DeclaredMetricRef
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.expressions import Metric, resolve
+
+_DOMAIN_PY = """\
+import marivo.semantic as ms
+ms.domain(name="sales", owner="Analytics", default=True)
+"""
+
+_OBJECTS_PY = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+
+orders_ref = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+users_ref = ms.entity(
+    name="users",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("users"),
+    primary_key=["user_id"],
+)
+paid_at_ref = ms.time_dimension_column(
+    name="paid_at",
+    entity=orders_ref,
+    column="paid_at",
+    granularity="day",
+    parse=ms.timestamp(timezone="UTC"),
+    is_default=True,
+)
+amount_ref = ms.measure_column(
+    name="amount",
+    entity=orders_ref,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+
+finalized = ms.finalize()
+orders = finalized.resolve(orders_ref)
+users = finalized.resolve(users_ref)
+paid_at = finalized.resolve(paid_at_ref)
+amount = finalized.resolve(amount_ref)
+
+
+@ms.metric()
+def revenue():
+    return amount.sum(time=paid_at)
+
+
+@ms.metric()
+def order_count():
+    return orders.count(time=paid_at)
+
+
+@ms.metric()
+def user_count():
+    return users.count()
+
+
+@ms.metric()
+def revenue_per_user():
+    return revenue / user_count
+
+
+@ms.metric()
+def user_revenue_share():
+    return user_count / revenue
+"""
+
+
+def _catalog(semantic_project_factory) -> SemanticCatalog:
+    project = semantic_project_factory(
+        {"sales/_domain.py": _DOMAIN_PY, "sales/objects.py": _OBJECTS_PY}
+    )
+    return SemanticCatalog(project)
 
 
 def test_versioned_entity_load_rejects_identity_version_overlap_without_source_access(
@@ -39,149 +114,71 @@ def test_versioned_entity_load_rejects_identity_version_overlap_without_source_a
     assert "dt" in (identity_errors[0].received or "")
 
 
-def test_base_metric_requires_additivity(semantic_project_factory):
+def test_single_entity_metric_roots_follow_its_source_reductions(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    revenue = catalog.metrics.get("sales.revenue")
+    order_count = resolve(catalog, ms.ref.metric("sales.order_count"))
+    orders = resolve(catalog, ms.ref.entity("sales.orders"))
+
+    assert type(revenue) is Metric
+    assert isinstance(revenue.node, DeclaredMetricRef)
+    assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
+    assert revenue.node.ref.version.startswith("sha256:")
+    assert revenue.roots == (orders.ref,)
+    assert revenue.unit == "CNY"
+    assert resolve(catalog, ms.ref.metric("sales.revenue")) == revenue
+    assert order_count.roots == (orders.ref,)
+    assert order_count.unit == "1"
+
+
+def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
+    semantic_project_factory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    orders = resolve(catalog, ms.ref.entity("sales.orders"))
+    users = resolve(catalog, ms.ref.entity("sales.users"))
+
+    per_user = catalog.metrics.get("sales.revenue_per_user")
+    share = catalog.metrics.get("sales.user_revenue_share")
+
+    assert per_user.roots == (orders.ref, users.ref)
+    assert share.roots == (users.ref, orders.ref)
+    assert per_user.unit == "CNY"
+    assert share.unit == "1/CNY"
+
+
+def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
+    semantic_project_factory, capsys
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    revenue = catalog.metrics.get("sales.revenue")
+    rendered = repr(revenue)
+
+    assert rendered.startswith("Metric DeclaredMetricRef on sales.orders ")
+    assert "use .show()" in rendered
+    assert "\n" not in rendered and len(rendered) < 120
+    assert capsys.readouterr().out == ""
+
+    revenue.show()
+
+    shown = capsys.readouterr().out
+    assert "stage: published_metric" in shown
+    assert "ref: metric:sales.revenue@sha256:" in shown
+    assert "unit: CNY" in shown
+    assert capsys.readouterr().out == ""
+
+
+def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
+    semantic_project_factory,
+) -> None:
     project = semantic_project_factory(
         {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
+            "sales/_domain.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "@ms.metric(entities=[orders], name='revenue', )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
+                "ms.domain(name='sales', owner='Mina Zhang')\n"
             ),
-        },
-    )
-
-    with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.metric("sales.revenue"))
-
-    error = exc_info.value.errors[0]
-    assert error.kind == "organization_error"
-
-
-def test_single_entity_metric_defaults_root_entity(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "@ms.metric(\n"
-                "    entities=[orders],\n"
-                "    additivity=ms.additive_all(),\n"
-                "    name='revenue',\n"
-                "    )\n"
-                "def revenue(orders):\n"
-                "    return orders.amount.sum()\n"
-            ),
-        }
-    )
-
-    metric = SemanticCatalog(project).require(ms.ref.metric("sales.revenue")).details()
-    assert isinstance(metric, MetricDetails)
-    assert metric.additivity == "additive"
-    assert metric.root_entity is not None
-    assert metric.root_entity.path == "sales.orders"
-
-
-def test_multi_entity_metric_requires_explicit_root_entity(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
-                "@ms.metric(\n"
-                "    entities=[orders, users],\n"
-                "    additivity=ms.additive_all(),\n"
-                "    name='revenue',\n"
-                "    )\n"
-                "def revenue(orders, users):\n"
-                "    return orders.amount.sum()\n"
-            ),
-        },
-    )
-
-    with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.metric("sales.revenue"))
-
-    error = exc_info.value.errors[0]
-    assert error.kind == "missing_metric_root_entity"
-    assert error.constraint_id == "metric_root_entity_required"
-
-
-def test_multi_entity_metric_accepts_root_entity_ref(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
-                "@ms.metric(\n"
-                "    entities=[orders, users],\n"
-                "    root_entity=orders,\n"
-                "    additivity=ms.additive_all(),\n"
-                "    name='revenue',\n"
-                "    )\n"
-                "def revenue(orders, users):\n"
-                "    return orders.amount.sum()\n"
-            ),
-        }
-    )
-
-    metric = SemanticCatalog(project).require(ms.ref.metric("sales.revenue")).details()
-    assert isinstance(metric, MetricDetails)
-    assert metric.root_entity is not None
-    assert metric.root_entity.path == "sales.orders"
-
-
-@pytest.mark.parametrize(
-    "receiver_body",
-    [
-        "    return users.score.sum()\n",
-        "    score = users.score\n    value = score * 2\n    return value.sum()\n",
-    ],
-)
-def test_multi_entity_metric_rejects_non_root_aggregate_receiver(
-    semantic_project_factory, receiver_body: str
-):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), primary_key=['order_id'], source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), primary_key=['user_id'], source=md.table('users'))\n"
-                "@ms.metric(\n"
-                "    entities=[orders, users],\n"
-                "    root_entity=orders,\n"
-                "    additivity=ms.additive_all(),\n"
-                "    name='bad_user_sum',\n"
-                "    )\n"
-                "def bad_user_sum(orders, users):\n" + receiver_body
-            ),
-        },
-        load=False,
-    )
-    project.load()
-
-    with pytest.raises(SemanticLoadFailed) as exc_info:
-        SemanticCatalog(project).require(ms.ref.metric("sales.bad_user_sum"))
-
-    error = exc_info.value.errors[0]
-    assert error.kind == "non_root_metric_aggregate"
-    assert error.details["metric"] == "sales.bad_user_sum"
-    assert error.details["root_entity"] == "sales.orders"
-    assert error.details["offending_entity"] == "sales.users"
-
-
-def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n",
             "sales/datasets.py": (
                 "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 "user_profile_daily = ms.entity(\n"
@@ -200,12 +197,17 @@ def test_snapshot_versioning_is_stored_on_dataset(semantic_project_factory):
             ),
         }
     )
+    catalog = SemanticCatalog(project)
 
-    dataset = SemanticCatalog(project).require(ms.ref.entity("sales.user_profile_daily")).details()
-    assert isinstance(dataset, EntityDetails)
-    assert dataset.versioning is not None
-    assert dataset.versioning.kind == "snapshot"
-    assert dataset.versioning.partition_field == "sales.user_profile_daily.dt"
-    assert dataset.versioning.grain == "day"
-    assert dataset.versioning.timezone == "Asia/Shanghai"
-    assert dataset.versioning.format == "%Y%m%d"
+    entity = catalog.entities.get("sales.user_profile_daily")
+    stored = catalog._state.registry.entities["sales.user_profile_daily"]
+    versioning = stored.versioning
+
+    assert entity.primary_key == ("user_id",)
+    assert versioning is not None
+    assert versioning.kind == "snapshot"
+    assert versioning.partition_field == "sales.user_profile_daily.dt"
+    assert versioning.grain == "day"
+    assert versioning.timezone == "Asia/Shanghai"
+    assert versioning.format == "%Y%m%d"
+    assert ("versioning", repr(versioning)) in entity.contract().facts

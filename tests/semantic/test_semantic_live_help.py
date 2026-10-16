@@ -240,7 +240,8 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 
     catalog = ms.load()
-    entry = catalog.require(ms.ref.metric("sales.revenue"))
+    entry = catalog.require(ms.ref.domain("sales"))
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
 
     def fail(*args: object, **kwargs: object) -> object:
         raise AssertionError("reference help must not load or query")
@@ -250,8 +251,13 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
 
     resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
     assert resolved.kind == "reference_briefing"
-    assert resolved.reference_id == "sales.revenue"
+    assert resolved.reference_id == "sales"
     assert marivo.help(entry) is None
+    # Catalog values share their type's contract with finalized values.
+    value_help = resolve_live_target(revenue, SEMANTIC_LIVE_SURFACE)
+    assert value_help.kind == "type_contract"
+    assert value_help.type_name == "Metric"
+    assert marivo.help(revenue) is None
 
 
 def test_error_help_preserves_instances_with_and_without_repair() -> None:

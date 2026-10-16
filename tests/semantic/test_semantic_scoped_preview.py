@@ -15,13 +15,13 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.preview import PreviewLimitError
 from marivo.semantic.catalog import (
-    MetricEntry,
+    DomainEntry,
     PeriodCalendarEntry,
     SemanticCatalog,
     TemporalSetEntry,
     WorkScheduleEntry,
 )
-from marivo.semantic.errors import SemanticRuntimeError
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.semantic.preview_helpers import certified_project, default_scope
 
 
@@ -59,21 +59,21 @@ def scoped_catalog(
                 import marivo.datasource as md
                 import marivo.semantic as ms
 
-                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-                refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
+                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["order_id"])
+                refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"), primary_key=["refund_id"])
                 region = ms.dimension_column(name="region", entity=orders, column="region")
                 order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
                 refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
                 occurred_at = ms.time_dimension_column(name="occurred_at", entity=orders, column="ts", granularity="hour")
-                @ms.measure(entity=orders, additivity=ms.additive_all(), unit="USD")
-                def amount(orders):
-                    return orders.amount
-                @ms.metric(entities=[orders], additivity=ms.additive_all())
-                def revenue(orders):
-                    return orders.amount.sum()
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
-                def net_revenue(orders, refunds):
-                    return orders.amount.sum()
+                amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
+                ms.relationship(name="order_refund", from_entity=orders, to_entity=refunds, keys=[ms.join_on(order_id, refund_id)])
+
+                finalized = ms.finalize()
+                amount = finalized.resolve(amount_ref)
+
+                @ms.metric()
+                def revenue():
+                    return amount.sum()
                 """
             ),
         }
@@ -85,19 +85,36 @@ def scoped_catalog(
 def test_preview_requires_explicit_scope(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     with pytest.raises(TypeError):
-        catalog.preview(ms.ref.metric("sales.revenue"))  # type: ignore[call-arg]
+        catalog.preview(ms.ref.measure("sales.orders.amount"))  # type: ignore[call-arg]
 
 
-def test_preview_entry_and_ref_have_equivalent_current_results(scoped_catalog) -> None:
+def test_preview_value_and_ref_have_equivalent_current_results(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    revenue = catalog.metrics.get("sales.revenue")
+    amount = catalog.fields.get("sales.orders.amount")
 
-    by_entry = catalog.preview(revenue, scope=default_scope())
-    by_ref = catalog.preview(revenue.ref, scope=default_scope())
+    by_value = catalog.preview(amount, scope=default_scope())
+    by_ref = catalog.preview(ms.ref.measure("sales.orders.amount"), scope=default_scope())
 
-    assert by_entry.rows == by_ref.rows == ({"value": 60.0},)
-    assert by_entry.coverage.scopes == (("sales.orders", default_scope()),)
-    assert by_entry.coverage.scope_exactness == "sample_only"
+    assert by_value.rows == by_ref.rows
+    assert sorted(row["amount"] for row in by_value.rows) == [10.0, 20.0, 30.0]
+    assert by_value.coverage.scopes == (("sales.orders", default_scope()),)
+
+
+def test_published_metric_preview_is_rejected_before_connection(
+    scoped_catalog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog, _root = scoped_catalog
+    monkeypatch.setattr(
+        catalog._project,
+        "_connection_service",
+        lambda: pytest.fail("connection opened"),
+    )
+
+    for value in (catalog.metrics.get("sales.revenue"), ms.ref.metric("sales.revenue")):
+        with pytest.raises(SemanticRuntimeError) as exc_info:
+            catalog.preview(value, scope=default_scope())
+        assert exc_info.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
+        assert exc_info.value.semantic_refs == ("metric:sales.revenue",)
 
 
 def test_ordinary_preview_ignores_history_and_writes_no_check(scoped_catalog) -> None:
@@ -107,9 +124,10 @@ def test_ordinary_preview_ignores_history_and_writes_no_check(scoped_catalog) ->
     historical = check_dir / "historical.json"
     historical.write_text('{"old": true}', encoding="utf-8")
 
-    before = catalog.readiness(refs=[ms.ref.metric("sales.revenue")]).to_dict()
-    result = catalog.preview(ms.ref.metric("sales.revenue"), scope=default_scope(max_rows=2))
-    after = catalog.readiness(refs=[ms.ref.metric("sales.revenue")]).to_dict()
+    amount = ms.ref.measure("sales.orders.amount")
+    before = catalog.readiness(refs=[amount]).to_dict()
+    result = catalog.preview(amount, scope=default_scope(max_rows=3))
+    after = catalog.readiness(refs=[amount]).to_dict()
 
     assert result.status == "passed"
     assert historical.read_text(encoding="utf-8") == '{"old": true}'
@@ -173,7 +191,7 @@ def test_time_dimension_reports_native_naive_parse_risk(scoped_catalog) -> None:
 
 def test_multi_entity_preview_requires_exact_complete_scope_mapping(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
-    net_revenue = ms.ref.metric("sales.net_revenue")
+    net_revenue = ms.ref.relationship("sales.order_refund")
     orders = ms.ref.entity("sales.orders")
     refunds = ms.ref.entity("sales.refunds")
 
@@ -199,7 +217,7 @@ def test_multi_entity_preview_requires_exact_complete_scope_mapping(scoped_catal
         net_revenue,
         scope={orders: orders_scope, refunds: refunds_scope},
     )
-    assert result.rows == ({"value": 40.0},)
+    assert result.status == "passed"
     assert result.coverage.scopes == (
         ("sales.orders", orders_scope),
         ("sales.refunds", refunds_scope),
@@ -212,30 +230,31 @@ def test_batch_uses_complete_union_mapping_and_shared_entity_scope(scoped_catalo
     refunds = ms.ref.entity("sales.refunds")
 
     shared = catalog.preview_many(
-        [ms.ref.dimension("sales.orders.region"), ms.ref.metric("sales.revenue")],
+        [ms.ref.dimension("sales.orders.region"), ms.ref.measure("sales.orders.amount")],
         scope=default_scope(),
     )
     mixed = catalog.preview_many(
-        [ms.ref.metric("sales.revenue"), ms.ref.metric("sales.net_revenue")],
+        [ms.ref.measure("sales.orders.amount"), ms.ref.relationship("sales.order_refund")],
         scope={orders: default_scope(), refunds: default_scope()},
     )
 
-    assert shared.refs == ("sales.orders.region", "sales.revenue")
-    assert mixed.refs == ("sales.revenue", "sales.net_revenue")
+    assert shared.refs == ("sales.orders.region", "sales.orders.amount")
+    assert mixed.refs == ("sales.orders.amount", "sales.order_refund")
 
 
 def test_complete_batch_is_validated_before_connection(
     scoped_catalog, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     catalog, _root = scoped_catalog
-    revenue = catalog.metrics.get("sales.revenue")
+    amount = catalog.fields.get("sales.orders.amount")
+    sales = catalog.domains.get("sales")
 
-    class UnregisteredMetricEntry(MetricEntry):
+    class UnregisteredDomainEntry(DomainEntry):
         pass
 
-    forged = UnregisteredMetricEntry(
-        ref=revenue.ref,
-        _details=revenue.details(),
+    forged = UnregisteredDomainEntry(
+        ref=sales.ref,
+        _details=sales.details(),
         _catalog=catalog,
     )
     monkeypatch.setattr(
@@ -245,9 +264,9 @@ def test_complete_batch_is_validated_before_connection(
     )
 
     with pytest.raises(SemanticRuntimeError, match="not a registered concrete"):
-        catalog.preview_many([revenue, forged], scope=default_scope())
+        catalog.preview_many([amount, forged], scope=default_scope())
     with pytest.raises(SemanticRuntimeError, match="duplicate"):
-        catalog.preview_many([revenue, revenue.ref], scope=default_scope())
+        catalog.preview_many([amount, ms.ref.measure("sales.orders.amount")], scope=default_scope())
 
 
 def test_cross_datasource_preview_fails_before_connection(
@@ -273,11 +292,11 @@ def test_cross_datasource_preview_fails_before_connection(
                 """\
                 import marivo.datasource as md
                 import marivo.semantic as ms
-                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-                refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"))
-                @ms.metric(entities=[orders, refunds], root_entity=orders, additivity=ms.additive_all())
-                def net_revenue(orders, refunds):
-                    return orders.amount.sum()
+                orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["order_id"])
+                refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("finance"), source=md.table("refunds"), primary_key=["refund_id"])
+                order_id = ms.dimension_column(name="order_id", entity=orders, column="order_id")
+                refund_id = ms.dimension_column(name="refund_id", entity=refunds, column="refund_id")
+                ms.relationship(name="order_refund", from_entity=orders, to_entity=refunds, keys=[ms.join_on(order_id, refund_id)])
                 """
             ),
         }
@@ -291,7 +310,7 @@ def test_cross_datasource_preview_fails_before_connection(
 
     with pytest.raises(SemanticRuntimeError, match="share one datasource"):
         catalog.preview(
-            ms.ref.metric("sales.net_revenue"),
+            ms.ref.relationship("sales.order_refund"),
             scope={
                 ms.ref.entity("sales.orders"): default_scope(),
                 ms.ref.entity("sales.refunds"): default_scope(),

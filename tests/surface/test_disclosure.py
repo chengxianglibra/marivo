@@ -34,23 +34,36 @@ _DOMAIN_PY = textwrap.dedent("""\
 _OBJECTS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+    orders_ref = ms.entity(
+        name="orders",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
+        primary_key=["order_id"],
+    )
+    amount_ref = ms.measure_column(
+        name="amount",
+        entity=orders_ref,
+        column="amount",
+        additivity=ms.additive_all(),
+        unit="USD",
+    )
+    created_at_ref = ms.time_dimension_column(
+        name="created_at",
+        entity=orders_ref,
+        column="created_at",
+        granularity="day",
+        parse=ms.timestamp(timezone="UTC"),
+        is_default=True,
+    )
 
-    @ms.dimension(entity=orders)
-    def amount(table):
-        return table.amount
+    finalized = ms.finalize()
+    orders = finalized.resolve(orders_ref)
+    amount = finalized.resolve(amount_ref)
+    created_at = finalized.resolve(created_at_ref)
 
-    @ms.dimension(entity=orders)
-    def region(table):
-        return table.region
-
-    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
-    def created_at(table):
-        return table.created_at
-
-    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-    def total_revenue(table):
-        return table.amount.sum()
+    @ms.metric()
+    def total_revenue():
+        return amount.sum(time=created_at)
 """)
 
 
@@ -169,7 +182,7 @@ def test_catalog_collection_render_contains_refs_affordance(semantic_project_fac
     rendered = result.render()
     assert "available:" in rendered
     assert "- .refs" in rendered
-    assert "selection: catalog.metrics.get(<displayed ref>) -> MetricEntry" in rendered
+    assert "selection: catalog.metrics.get(<displayed ref>) -> Metric" in rendered
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(

@@ -54,10 +54,6 @@ def test_projected_source_does_not_infer_expression_decorator_columns() -> None:
 @ms.dimension(entity=events)
 def raw_event_id(table):
     return table["payload.id"]
-
-@ms.measure(entity=events, additivity=ms.non_additive())
-def raw_score(table):
-    return table["generated.score"]
 """
     )
 

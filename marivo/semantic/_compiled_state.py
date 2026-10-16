@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import cast
+from typing import Literal, cast
 
+from marivo._definition.expressions import MetricNode, RowNode
+from marivo._definition.graph import computation_fingerprint, direct_refs
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
@@ -61,6 +63,29 @@ class CompiledSemanticState:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class PublishedDeclaration:
+    """Definition row of one published pure declaration.
+
+    Its identity is the computation it consumes; names and sites stay on the
+    original declaration, which is never rewritten.
+    """
+
+    stage: Literal["measure", "metric"]
+    name: str
+    computation: str
+    unit: str | None
+
+
+def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNode | RowNode]:
+    nodes: dict[Ref[SemanticKindTag], MetricNode | RowNode] = {}
+    for key, measure in registry.declared_measures.items():
+        nodes[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = measure.node
+    for key, metric in registry.declared_metrics.items():
+        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = metric.node
+    return nodes
+
+
 def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
     rows: dict[Ref[SemanticKindTag], object] = {}
     rows.update(
@@ -108,6 +133,14 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
             for key, value in registry.work_schedules.items()
         }
     )
+    for key, measure in registry.declared_measures.items():
+        rows[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = PublishedDeclaration(
+            "measure", measure.declaration.name, computation_fingerprint(measure.node), measure.unit
+        )
+    for key, metric in registry.declared_metrics.items():
+        rows[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = PublishedDeclaration(
+            "metric", metric.declaration.name, computation_fingerprint(metric.node), metric.unit
+        )
     return rows
 
 
@@ -232,6 +265,15 @@ def definition_graph(
         ref: _dependencies_for(ref, definition, registry=registry, sidecar=sidecar)
         for ref, definition in definitions.items()
     }
+    for ref, node in _published_nodes(registry).items():
+        # Collection admits a declaration only when every consumed ref is
+        # defined here, so no edge is filtered out.
+        dependencies[ref] = tuple(
+            sorted(
+                {exact.ref for exact in direct_refs(node)} - {ref},
+                key=lambda item: item.key,
+            )
+        )
     return definitions, dependencies
 
 

@@ -52,9 +52,11 @@ from marivo.semantic._capabilities.model import (
 OUTPUT_FAMILIES = frozenset(
     {
         "FinalizedDeclarations",
+        "ExpressionContract",
         "Entity | Dimension | TimeField | Measure | Relationship",
         "SemanticCatalog",
         "CatalogEntry",
+        "CatalogEntry | Entity | Field | Metric | Relationship",
         "CatalogCollection",
         "PreviewBatchResult",
         "PreviewResult",
@@ -351,7 +353,7 @@ def _capability(
 
 
 def _authoring_source_contract(kind: SemanticKind) -> AuthoringSourceContract:
-    member = next(member for member in CATALOG_MEMBER_CONTRACTS if member.kind is kind)
+    member = next(member for member in CATALOG_MEMBER_CONTRACTS if kind in member.kinds)
     placement_kind: Literal["domain_entrypoint", "domain_module"]
     if kind is SemanticKind.DOMAIN:
         placement_kind = "domain_entrypoint"
@@ -1707,7 +1709,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         raise ValueError("semantic object-kind contracts must cover every non-datasource kind")
 
     catalog_collection_by_kind = {
-        member.kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS
+        kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS for kind in member.kinds
     }
     for contract in object_contracts:
         kind = contract.semantic_kind
@@ -2135,6 +2137,18 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             effects=_NONE,
             example="amount.show()",
             public_entrypoint="amount.show",
+            see_also=(_target("expressions"),),
+        ),
+        _capability(
+            "Measure.contract",
+            "marivo.semantic.expressions._ExpressionDisplay.contract",
+            "Return the bounded definition contract of an immutable expression: stage, identity, contribution roots, unit, sum permission, default time, computation fingerprint, refs read, declared metadata and the operations valid at this stage. Shared by Entity, fields, row expressions, Metrics, samples, predicates and Relationships. Never reads a source, executes a query or enumerates a domain.",
+            kind="method",
+            output="ExpressionContract",
+            inputs=(AuthoringInputRequirement(role="receiver", family="Expression"),),
+            effects=_NONE,
+            example="amount.contract().show()",
+            public_entrypoint="amount.contract",
             see_also=(_target("expressions"),),
         ),
         _capability(
@@ -2942,39 +2956,25 @@ def _build_registry() -> SemanticCapabilityRegistry:
         # SemanticCatalog methods
         # ------------------------------------------------------------------
         _capability(
-            "SemanticCatalog.items",
-            "marivo.semantic.catalog.SemanticCatalog.items",
-            "Return the typed collection for a SemanticKind (kind-keyed traversal).",
-            kind="method",
-            output="CatalogCollection",
-            inputs=(
-                AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
-                _parameter_input("subject", "SemanticKind", "kind"),
-            ),
-            effects=_LOCAL,
-            example="catalog.items(ms.SemanticKind.METRIC).refs",
-            public_entrypoint="catalog.items",
-        ),
-        _capability(
             "SemanticCatalog.require",
             "marivo.semantic.catalog.SemanticCatalog.require",
-            "Require exact membership of one ref in the compiled catalog.",
+            "Resolve one exact ref into its catalog value or entry.",
             kind="method",
-            output="CatalogEntry",
+            output="CatalogEntry | Entity | Field | Metric | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 _parameter_input("subject", "Ref", "ref"),
             ),
             effects=_LOCAL,
-            example="catalog.require(ms.ref.metric('sales.revenue'))",
+            example="amount = catalog.require(ms.ref.measure('sales.orders.amount'))",
             public_entrypoint="catalog.require",
         ),
         _capability(
             "CatalogCollection.get",
             "marivo.semantic.catalog.CatalogCollection.get",
-            "Select one current entry from a typed catalog collection.",
+            "Select one current value or entry from a catalog collection.",
             kind="method",
-            output="CatalogEntry",
+            output="CatalogEntry | Entity | Field | Metric | Relationship",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="CatalogCollection"),
                 _parameter_input("subject", "CatalogLookupKey | Ref", "key"),
@@ -3073,31 +3073,17 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         CatalogEntry,
         DatasourceDetails,
         DatasourceEntry,
-        DerivedMetricDetails,
-        DimensionDetails,
-        DimensionEntry,
         DomainDetails,
         DomainEntry,
-        EntityDetails,
-        EntityEntry,
-        MeasureDetails,
-        MeasureEntry,
-        MetricEntry,
         PeriodCalendarDetails,
         PeriodCalendarEntry,
-        RelationshipDetails,
-        RelationshipEntry,
         SemanticCatalog,
-        SimpleMetricDetails,
         TemporalOccurrencePage,
         TemporalSetDetails,
         TemporalSetEntry,
-        TimeDimensionDetails,
-        TimeDimensionEntry,
         WorkScheduleDetails,
         WorkScheduleEntry,
     )
-    from marivo.semantic.definition import SemanticDefinition
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import JoinKey
     from marivo.semantic.readiness import (
@@ -3151,33 +3137,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         )
 
     add(
-        SemanticDefinition,
-        "SemanticDefinition",
-        (),
-        properties=("ref", "catalog_definition_fingerprint", "node", "source_location", "temporal"),
-        methods=("show", "render", "to_dict"),
-        notes=(
-            "Read entry.details().definition on a loaded metric, measure, dimension or time dimension; no data access, source read, or expression execution.",
-            "node.kind selects aggregate (operation, target, filter), weighted_mean (value, weight, filter), ratio (numerator, denominator), linear (ordered signed terms), cumulative (base, over, anchor), or expression (status).",
-            "to_dict() returns marivo.semantic_definition/v2 with exact RefPayloadV1 references; follow each direct Ref through the same catalog.require(ref). It does not export a closure.",
-            "Cumulative over is explicit or default/context_required in the payload; default is preserved even when loading resolves an axis. Anchors retain all_history, grain_to_date (builtin or semantic calendar/level), or trailing count/unit.",
-            "Expression status is supported or unsupported with a reason and source_location. Supported syntax: column, field binding, cast, overloaded operator tokens, comparisons, and ifelse. Maximum 256 nodes and depth 32.",
-            "Expression payloads can include display independently of structural support: normalized Ibis Python text, alias-to-Ref bindings, and authored literal values. Consumers display this text directly; it is not original source or standalone executable code.",
-            "Expression literals preserve their authored values and scalar types. Unsupported syntax is never a guessed formula; TimeDimension parse remains on Details.",
-            "temporal separates declared rules, metric override, and resolved effective rules with source and exact axis/fold. Ordinary aggregates and recursively additive linear inputs without folds use not_applicable; ratios, cumulative nodes, and other linear compositions use component_defined: follow node/component rules, with no inferred top-level fold or missing-context claim. Neither status licenses arbitrary reaggregation.",
-            "Temporal classification reads loaded IR only, bounded by metric graph limits (10 levels, 256 occurrences); missing dependencies, cycles, unresolved status axes and inapplicable overrides fail closed. Cumulative default/context_required belongs to node.over, not the effective fold.",
-            "The fingerprint identifies the existing compiled definition snapshot, not data freshness, readiness, or author approval. Declaration-only display metadata does not change calculation identity.",
-        ),
-        example="catalog = ms.load()\ndefinition = catalog.metrics.get('sales.revenue').details().definition\npayload = definition.to_dict()",
-    )
-
-    add(
         SemanticCatalog,
         "SemanticCatalog",
         ("load",),
         properties=CATALOG_COLLECTION_PROPERTIES,
         methods=(
-            "items",
             "require",
             "preview",
             "preview_many",
@@ -3210,70 +3174,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     add(
         DomainDetails,
         "DomainDetails",
-        (),
-        methods=show_render,
-    )
-    add(
-        EntityEntry,
-        "EntityEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    add(
-        EntityDetails,
-        "EntityDetails",
-        (),
-        properties=("definition_form", "expression_display"),
-        methods=show_render,
-        notes=(
-            "definition_form is direct or expression; expression_display carries the "
-            "captured normalized body text with alias-to-Ref bindings and authored "
-            "literals, or None when the captured syntax has no display.",
-            "Reading Details never executes the Entity body or queries the source; the "
-            "display is not original source or a standalone runnable program.",
-        ),
-    )
-    for entry_type, entry_name, details_type, details_name in (
-        (DimensionEntry, "DimensionEntry", DimensionDetails, "DimensionDetails"),
-        (TimeDimensionEntry, "TimeDimensionEntry", TimeDimensionDetails, "TimeDimensionDetails"),
-        (MeasureEntry, "MeasureEntry", MeasureDetails, "MeasureDetails"),
-    ):
-        add(entry_type, entry_name, (), methods=("details", "show", "render"))
-        add(
-            details_type,
-            details_name,
-            (),
-            properties=("definition",),
-            methods=show_render,
-            consumers=("SemanticDefinition",),
-        )
-    add(
-        MetricEntry,
-        "MetricEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    for metric_details_type, metric_details_name in (
-        (SimpleMetricDetails, "SimpleMetricDetails"),
-        (DerivedMetricDetails, "DerivedMetricDetails"),
-    ):
-        add(
-            metric_details_type,
-            metric_details_name,
-            (),
-            properties=("definition",),
-            methods=show_render,
-            consumers=("SemanticDefinition",),
-        )
-    add(
-        RelationshipEntry,
-        "RelationshipEntry",
-        (),
-        methods=("details", "show", "render"),
-    )
-    add(
-        RelationshipDetails,
-        "RelationshipDetails",
         (),
         methods=show_render,
     )
@@ -3525,18 +3425,18 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     )
 
     for expression_type, family, producers, methods in (
-        (Entity, "Entity", ("FinalizedDeclarations.resolve",), ("count", "show")),
+        (Entity, "Entity", ("FinalizedDeclarations.resolve",), ("count", "contract", "show")),
         (
             Dimension,
             "Dimension",
             ("FinalizedDeclarations.resolve",),
-            ("count", "count_distinct", "is_null", "show"),
+            ("count", "count_distinct", "is_null", "contract", "show"),
         ),
         (
             TimeField,
             "TimeField",
             ("FinalizedDeclarations.resolve",),
-            ("via", "count", "count_distinct", "is_null", "show"),
+            ("via", "count", "count_distinct", "is_null", "contract", "show"),
         ),
         (
             Measure,
@@ -3553,6 +3453,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                 "count",
                 "count_distinct",
                 "divide",
+                "contract",
                 "show",
             ),
         ),
@@ -3571,6 +3472,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                 "count",
                 "count_distinct",
                 "divide",
+                "contract",
                 "show",
             ),
         ),
@@ -3589,11 +3491,17 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                 "count",
                 "count_distinct",
                 "divide",
+                "contract",
                 "show",
             ),
         ),
-        (Metric, "Metric", (), ("where", "per", "divide", "show")),
-        (DeclaredMetric, "DeclaredMetric", ("metric",), ("where", "per", "divide", "show")),
+        (Metric, "Metric", (), ("where", "per", "divide", "contract", "show")),
+        (
+            DeclaredMetric,
+            "DeclaredMetric",
+            ("metric",),
+            ("where", "per", "divide", "contract", "show"),
+        ),
         (
             MetricSamples,
             "MetricSamples",
@@ -3608,11 +3516,12 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                 "weighted_mean",
                 "count",
                 "count_distinct",
+                "contract",
                 "show",
             ),
         ),
-        (Relationship, "Relationship", ("FinalizedDeclarations.resolve",), ("show",)),
-        (Predicate, "Predicate", (), ("show",)),
+        (Relationship, "Relationship", ("FinalizedDeclarations.resolve",), ("contract", "show")),
+        (Predicate, "Predicate", (), ("contract", "show")),
     ):
         add(
             expression_type,
@@ -3711,7 +3620,6 @@ def _error_types() -> Mapping[str, type]:
     from marivo.semantic.errors import (
         SemanticContractScopeError,
         SemanticDecoratorError,
-        SemanticDefinitionReadError,
         SemanticError,
         SemanticExpressionError,
         SemanticHelpTargetError,
@@ -3725,7 +3633,6 @@ def _error_types() -> Mapping[str, type]:
             "SemanticError": SemanticError,
             "SemanticExpressionError": SemanticExpressionError,
             "SemanticDecoratorError": SemanticDecoratorError,
-            "SemanticDefinitionReadError": SemanticDefinitionReadError,
             "SemanticLoadError": SemanticLoadError,
             "SemanticRuntimeError": SemanticRuntimeError,
             "SemanticHelpTargetError": SemanticHelpTargetError,

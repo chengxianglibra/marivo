@@ -27,16 +27,6 @@ Ibis Table. The output schema owns identity, versioning and downstream fields.
 Actual physical input types and capability qualification remain Source facts.
 Snapshot and validity coordinates stay outside ``primary_key``.
 
-Loaded definition reading
--------------------------
-
-.. autosummary::
-   :toctree: api/
-   :nosignatures:
-
-   SemanticDefinition
-   SemanticDefinitionReadError
-
 Typed expression authoring
 --------------------------
 
@@ -45,13 +35,12 @@ Capture every physical dependency, then call ``finalized = ms.finalize()`` and
 ``amount = finalized.resolve(amount_ref)``. Finalization validates and closes
 capture before immutable values are created, preserving defaults,
 coordinates and supported Ibis forward references without replaying imports. Measure and Metric
-functions are pure zero-argument declarations over constructed dependencies;
-they do not register or execute a Catalog Metric. Collection/publication and
-new execution remain separate R1.4/R2 work.
-
-The definition-update policy below is implemented in the uncommitted R1.3
-working tree. Independent review and full R1.3 completion remain pending; a
-documentation build does not qualify execution or backend behavior.
+functions are pure zero-argument declarations over constructed dependencies.
+``ms.load()`` publishes every Measure/Metric declaration bound at module level in
+a model's own files under its function name; aliases are collected once and
+unbound declarations stay private dependencies. Distinct declarations cannot
+share a full name, and a closure bound to an execution Session is not admitted.
+Executing published declarations is separate R2 work.
 
 Semantic objects need not remain bound to their original definition versions;
 a same-path definition change alone does not reject an input. The agent/user
@@ -63,8 +52,11 @@ cache keys describe actual consumed definitions; persisted provenance and record
 retain their owning contracts.
 
 Use ``marivo.help("semantic.expressions")`` for receiver operations.
-``amount.show()`` inspects bounded expression metadata; ``marivo.help(amount.show)``
-and ``marivo.help("semantic.Measure.show")`` resolve the shared display contract.
+``amount.contract()`` returns the bounded definition contract (stage, identity,
+roots, unit, sum permission, default time, computation, refs read, declared
+metadata and valid operations); ``amount.show()`` prints it.
+``marivo.help("semantic.Measure.contract")`` and ``marivo.help("semantic.Measure.show")``
+resolve the shared contracts.
 ``finalized.show()`` has its own ``semantic.FinalizedDeclarations.show`` contract. Numeric
 rows reduce through ``sum/mean/min/max/median/quantile/weighted_mean``; completed
 Metrics combine through arithmetic and accept scope-checked ``where`` and
@@ -171,10 +163,11 @@ executes semantic operations and intentionally has no ``ms.help()`` alias.
 
 The packaged semantic skill owns task exits, reuse and business authority,
 evidence selection, and delivery. Help owns static usage and proof boundaries.
-``entry.show()`` displays key current facts, while ``entry.details()`` expands
-the definition. ``marivo.help(entry)`` adds identity, usage navigation, and
-kind-level analysis handoff without checking readiness or execution admission.
-Explaining an existing definition does not require readiness or preview.
+Catalog values show their definition through ``value.contract()``; domain,
+datasource and temporal entries keep ``entry.show()`` and ``entry.details()``.
+``marivo.help(entry)`` adds identity, usage navigation, and kind-level analysis
+handoff without checking readiness or execution admission. Explaining an
+existing definition does not require readiness or preview.
 
 Registered error instances retain concrete facts in Help even without a repair.
 Aggregate load failures preserve child order and disclose omitted errors with
@@ -194,16 +187,8 @@ Details types
    :toctree: api/
    :nosignatures:
 
-   EntityDetails
-   DimensionDetails
-   MeasureDetails
-   MetricDetails
-   RelationshipDetails
-   TimeDimensionDetails
    DomainDetails
    DatasourceDetails
-   DerivedMetricDetails
-   SimpleMetricDetails
    PeriodCalendarDetails
    CalendarLevelDetails
    TemporalSetDetails
@@ -212,25 +197,31 @@ Details types
 Catalog & objects
 -----------------
 
-Typed collections resolve a local name, a full semantic path, a displayed
-same-kind typed key such as ``metric:sales.revenue``, or an exact same-kind
-``Ref`` within the collection's current scope. Scoped collections do not widen
-to out-of-scope objects. ``catalog.require(ref)`` remains the strict, global,
-ref-only lookup for configured, persisted, or logged identity.
+``catalog.entities``, ``catalog.fields`` (Dimension, TimeField and Measure),
+``catalog.metrics`` and ``catalog.relationships`` hold composable expression
+values, so ``revenue = catalog.metrics.get("sales.revenue")`` and
+``revenue / catalog.entities.get("sales.orders").count()`` compose directly.
+Domains, datasources, period calendars, temporal sets and work schedules remain
+navigation entries. Collections resolve a local name, a full semantic path, a
+displayed typed key such as ``metric:sales.revenue``, or an exact ``Ref`` of a
+kind they hold, within the collection's current scope. Scoped collections do
+not widen to out-of-scope objects. ``catalog.require(ref)`` is the strict,
+global, ref-only lookup and returns the same value or entry.
 
-``catalog.require(...)``, ``catalog.preview(...)``,
-``catalog.preview_many(...)``, ``catalog.source_health(...)``, and
-``catalog.readiness(refs=[...])`` accept either an exact entry owned by the
-current compiled catalog or its exact ref. Entries normalize immediately to
-refs; readiness results, preview evidence, persistence, and recovery remain
-ref-based. One ``ms.load()`` is the project-level static validation event for a
+``catalog.preview(...)``, ``catalog.preview_many(...)``,
+``catalog.source_health(...)``, and ``catalog.readiness(refs=[...])`` accept an
+exact ref, an entry owned by the current compiled catalog, or a catalog value.
+Inputs normalize immediately to refs; readiness results, preview evidence,
+persistence, and recovery remain ref-based. Published expression Metrics and
+Measures have no physical preview, certification or source check yet and are
+rejected with a structured repair. One ``ms.load()`` is the project-level static validation event for a
 dependency-coherent authored slice; there is no separate per-object verify step.
 
 For analysis-agent discovery, use ``marivo.help("analysis.catalog")`` and the
 focused ``analysis.catalog.<family>`` pages for the bounded collection,
 exact lookup, entry-detail, and handoff contracts. ``CatalogCollection`` owns
-lookup grammar, ``CatalogEntry`` owns detail and continuation inspection, and
-``Ref`` owns exact identity. The packaged ``marivo-analysis`` skill provides
+lookup grammar, expression values own ``contract()``, ``CatalogEntry`` owns
+navigation-entry detail, and ``Ref`` owns exact identity. The packaged ``marivo-analysis`` skill provides
 routing and boundaries only; it does not duplicate these API recipes.
 
 .. autosummary::

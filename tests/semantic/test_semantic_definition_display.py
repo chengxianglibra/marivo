@@ -1,36 +1,43 @@
 """Normalized, non-executing expression display contract."""
 
 import ast
-import json
 
 import pytest
 
 from marivo import semantic as ms
+from marivo.semantic._definition_display import describe_display
 from marivo.semantic._definition_expression import describe_expression
-from marivo.semantic.definition import _expression, _expression_display
+from marivo.semantic._definition_expression_types import _ExpressionDisplay, _Literal
 
 
-def display(expression: str) -> dict[str, object]:
+def display(expression: str) -> _ExpressionDisplay:
     function = ast.parse("def value(rows):\n    return " + expression).body[0]
     assert isinstance(function, ast.FunctionDef)
     node = describe_expression(
         function, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
     )
     assert node.display is not None
-    return dict(_expression_display(node.display))
+    return node.display
 
 
 def test_cast_display_and_alias_identity() -> None:
     result = display('rows.spend_cny.cast("float64")')
-    assert result["text"] == "t1['spend_cny'].cast('float64')"
-    assert result["bindings"] == [
-        {
-            "alias": "t1",
-            "ref": {"schema": "marivo.semantic_ref/v1", "kind": "entity", "path": "sales.rows"},
-        }
-    ]
-    assert result["form"] == "normalized_ibis"
-    assert "redacted_literals" not in result
+    assert result.text == "t1['spend_cny'].cast('float64')"
+    assert result.bindings == (("t1", ms.ref.entity("sales.rows")),)
+
+
+def test_describe_display_matches_expression_display_without_mutation() -> None:
+    function = ast.parse("def value(rows):\n    return rows.amount * 2").body[0]
+    assert isinstance(function, ast.FunctionDef)
+    returned = function.body[0]
+    assert isinstance(returned, ast.Return) and returned.value is not None
+    original = ast.dump(function, include_attributes=True)
+    direct = describe_display(
+        returned.value, entities={"rows": ms.ref.entity("sales.rows")}, bindings={}
+    )
+    assert direct == display("rows.amount * 2")
+    assert direct.text == "t1['amount'] * 2"
+    assert ast.dump(function, include_attributes=True) == original
 
 
 @pytest.mark.parametrize(
@@ -53,18 +60,18 @@ def test_cast_display_and_alias_identity() -> None:
 )
 def test_precedence_and_valid_python_syntax(expression: str, expected: str) -> None:
     result = display(expression)
-    assert isinstance(result["text"], str)
-    actual_tree = ast.parse(result["text"], mode="eval")
+    actual_tree = ast.parse(result.text, mode="eval")
     expected_tree = ast.parse(expected, mode="eval")
     assert ast.dump(actual_tree) == ast.dump(expected_tree)
-    assert isinstance(result["bindings"], list)
-    assert len(result["bindings"]) == 1
+    assert result.bindings == (("t1", ms.ref.entity("sales.rows")),)
 
 
 def test_escaped_column_name_stays_a_string() -> None:
     result = display('rows["<script>bad</script>\\"quote"]')
-    assert isinstance(result["text"], str)
-    ast.parse(result["text"], mode="eval")
+    tree = ast.parse(result.text, mode="eval")
+    assert isinstance(tree.body, ast.Subscript)
+    assert isinstance(tree.body.slice, ast.Constant)
+    assert tree.body.slice.value == '<script>bad</script>"quote'
 
 
 @pytest.mark.parametrize(
@@ -126,12 +133,12 @@ def test_literal_values_preserve_scalar_types(literal: str) -> None:
     assert isinstance(function, ast.FunctionDef)
     node = describe_expression(function, entities={}, bindings={})
     assert node.status == "supported"
-    payload = _expression(node.expression)
+    value = node.expression
     expected = ast.literal_eval(literal)
-    assert payload["kind"] == "literal"
-    assert payload["value"] == expected
-    assert type(payload["value"]) is type(expected)
-    assert payload["value_type"] == ("none" if expected is None else type(expected).__name__)
-    assert json.loads(json.dumps(payload, allow_nan=False)) == payload
+    assert isinstance(value, _Literal)
+    assert value.kind == "literal"
+    assert value.value == expected
+    assert type(value.value) is type(expected)
+    assert value.value_type == ("none" if expected is None else type(expected).__name__)
     assert node.display is not None
     assert ast.literal_eval(node.display.text) == expected

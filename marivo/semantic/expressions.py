@@ -10,16 +10,19 @@ Resolution reads compiled Catalog state only; it never touches a datasource.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field, is_dataclass
+from dataclasses import fields as dataclass_fields
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from decimal import Decimal
 from itertools import pairwise
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
+from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, TypeVar, cast, overload
 
 from marivo._definition.expressions import (
     CompareOp,
     ContributionFilter,
+    DeclaredMetricRef,
     EntityCount,
     FieldCompare,
     FieldIsNull,
@@ -53,7 +56,15 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
     TimeBinding,
 )
-from marivo._definition.graph import _encode, computation_fingerprint, fingerprint, walk
+from marivo._definition.graph import (
+    DefinitionClosure,
+    DefinitionNode,
+    _encode,
+    computation_fingerprint,
+    direct_refs,
+    fingerprint,
+    walk,
+)
 from marivo._definition.types import (
     Authorization,
     AxisBinding,
@@ -75,6 +86,7 @@ from marivo.refs import (
     DimensionKind,
     EntityKind,
     MeasureKind,
+    MetricKind,
     Ref,
     RelationshipKind,
     SemanticKind,
@@ -82,6 +94,7 @@ from marivo.refs import (
     TimeDimensionKind,
 )
 from marivo.refs import ref as ref_factory
+from marivo.render import Card, RenderableResult
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._dsl_authoring import (
     AdditiveAllV1,
@@ -89,9 +102,15 @@ from marivo.semantic._dsl_authoring import (
     AdditivityPolicy,
     NonAdditiveV1,
 )
-from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-from marivo.semantic.ir import SemiAdditive, SourceLocation, TargetRelationshipContract
+from marivo.semantic.ir import (
+    DimensionIR,
+    EntityIR,
+    RelationshipIR,
+    SemiAdditive,
+    SourceLocation,
+    TargetRelationshipContract,
+)
 from marivo.semantic.typing import AiContextValue
 from marivo.semantic.unit_algebra import (
     divide_unit_states,
@@ -104,7 +123,8 @@ from marivo.semantic.unit_algebra import (
 from marivo.semantic.validator import Registry, normalize_target_relationship
 
 if TYPE_CHECKING:
-    from marivo.datasource.ir import DatasourceIR
+    from marivo.datasource.ir import AiContextIR, DatasourceIR
+    from marivo.semantic.catalog import SemanticCatalog
     from marivo.semantic.loader import LoaderContext
 
 Cardinality: TypeAlias = Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
@@ -125,19 +145,137 @@ def _received(value: object) -> str:
     return f"{type(value).__name__} {repr(value)[:60]}"
 
 
+@dataclass(frozen=True, slots=True)
+class DefinitionFacts:
+    """Declared metadata of one resolved definition; it never enters a computation."""
+
+    name: str
+    ai_context: AiContextIR | AiContextValue | None
+    location: str
+    reads: tuple[Ref[SemanticKindTag], ...]
+    details: tuple[tuple[str, str], ...] = ()
+
+
+ExpressionStage: TypeAlias = Literal[
+    "entity",
+    "dimension",
+    "time_field",
+    "measure",
+    "row_expression",
+    "declared_measure",
+    "metric",
+    "declared_metric",
+    "published_metric",
+    "metric_samples",
+    "predicate",
+    "relationship",
+]
+
+
+@dataclass(frozen=True, repr=False)
+class ExpressionContract(RenderableResult):
+    """Bounded definition contract of one expression value.
+
+    It discloses the stage, identity, contribution roots, unit, sum permission,
+    default time, computation fingerprint, the semantic refs it reads, declared
+    metadata and the operations valid at this stage. Reading it never touches
+    a source, executes a query, or enumerates a domain.
+    """
+
+    stage: ExpressionStage
+    ref: ExactRef | None
+    roots: tuple[ExactRef, ...]
+    unit: str | None
+    sum_permission: SumPermission | None
+    default_time: ExactRef | None
+    computation: str | None
+    reads: tuple[Ref[SemanticKindTag], ...]
+    name: str | None
+    business_definition: str | None
+    guardrails: tuple[str, ...]
+    location: str | None
+    facts: tuple[tuple[str, str], ...]
+    operations: tuple[str, ...]
+
+    def _repr_identity(self) -> str:
+        identity = self.ref.ref.key if self.ref is not None else (self.name or "anonymous")
+        return f"ExpressionContract {self.stage} {identity}"
+
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".contract()", ".show()"))
+        card = card.field("stage", self.stage)
+        if self.ref is not None:
+            card = card.field("ref", f"{self.ref.ref.key}@{self.ref.version[:19]}")
+        if self.name is not None:
+            card = card.field("name", self.name)
+        if self.roots:
+            card = card.field("roots", _bounded_refs(root.ref for root in self.roots))
+        if self.unit is not None:
+            card = card.field("unit", self.unit)
+        if self.sum_permission is not None:
+            card = card.field("sum_permission", _permission_text(self.sum_permission))
+        if self.default_time is not None:
+            card = card.field("default_time", self.default_time.ref.key)
+        if self.computation is not None:
+            card = card.field("computation", self.computation[:26])
+        card = card.field("reads", _bounded_refs(self.reads) or "(none)")
+        for label, value in self.facts[:8]:
+            card = card.field(label, value[:160])
+        if self.business_definition is not None:
+            card = card.field("business_definition", self.business_definition[:200])
+        if self.guardrails:
+            card = card.field("guardrails", "; ".join(self.guardrails[:3])[:200])
+        if self.location is not None:
+            card = card.field("declared_at", self.location)
+        if self.operations:
+            card = card.field("operations", ", ".join(self.operations))
+        return card.field(
+            "boundary", "definition only; no source read, query, or domain enumeration"
+        )
+
+
+def _bounded_refs(refs: Iterable[Ref[SemanticKindTag]], *, limit: int = 6) -> str:
+    keys = [ref.key for ref in refs]
+    extra = f" (+{len(keys) - limit} more)" if len(keys) > limit else ""
+    return ", ".join(keys[:limit]) + extra
+
+
+def _permission_text(permission: SumPermission) -> str:
+    match permission:
+        case SumAll():
+            return "sum over every axis"
+        case SumNone():
+            return "no sum"
+        case SumAxes(axes):
+            return "sum over " + _bounded_refs(axis.ref for axis in axes)
+        case SumAllExcept(axes):
+            return "sum over every axis except " + _bounded_refs(axis.ref for axis in axes)
+
+
 class _ExpressionDisplay:
     """Bounded metadata-only inspection shared by constructed expression values."""
 
     __slots__ = ()
 
+    def contract(self) -> ExpressionContract:
+        """Return this value's bounded definition contract.
+
+        Returns: An ExpressionContract with stage, identity, roots, unit, sum
+            permission, default time, computation fingerprint, refs read,
+            declared metadata and the operations valid at this stage.
+        Example: ``amount.contract().show()``.
+        Constraints: Definition facts only; never reads a source or executes.
+        """
+        return _expression_contract(self)
+
     def show(self) -> None:
-        """Print this expression's stage, roots and facts without reading source data.
+        """Print this value's bounded definition contract without reading source data.
 
         Returns: None.
         Example: ``amount.show()``.
-        Constraints: This is construction metadata, not publication or execution evidence.
+        Constraints: Definition facts only, not execution evidence.
         """
-        _show_expression(self)
+        self.contract().show()
 
 
 @dataclass(frozen=True, slots=True)
@@ -377,6 +515,7 @@ class Entity(_ExpressionDisplay):
     ref: ExactRef
     primary_key: tuple[str, ...]
     default_time: ExactRef | None
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def count(self, *, time: TimeField | None = None) -> Metric:
         """Count complete contribution rows of this Entity; the result unit is ``1``."""
@@ -394,6 +533,7 @@ class Dimension(_FieldComparisons, _Countable):
     ref: ExactRef
     root: ExactRef
     default_time: ExactRef | None
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def _source(self) -> _Source:
         return _Source(
@@ -417,6 +557,7 @@ class TimeField(_FieldComparisons, _Countable):
     root: ExactRef
     default_time: ExactRef | None
     path: tuple[Relationship, ...] = ()
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def via(self, path: tuple[Relationship, ...]) -> TimeField:
         """Bind this time field through a declared single-valued relationship path.
@@ -478,7 +619,7 @@ class TimeField(_FieldComparisons, _Countable):
                 received=f"{path[-1].ref.ref.path} to {path[-1].to_entity.ref.path}",
                 action="End the path at the Entity that declares this time field.",
             )
-        return TimeField(self.ref, self.root, self.default_time, path)
+        return TimeField(self.ref, self.root, self.default_time, path, _facts=self._facts)
 
     def _require_native(self, *, operation: str) -> None:
         if self.path:
@@ -511,6 +652,7 @@ class Measure(_FieldComparisons, _RowArithmetic):
     permission: SumPermission
     default_time: ExactRef | None
     coordinates: tuple[ExactRef, ...] = ()
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def _as_row(self) -> NumericRowExpr:
         field = RowField(self.ref, self.root, self.unit, self.permission)
@@ -530,6 +672,7 @@ class Relationship(_ExpressionDisplay):
     from_entity: ExactRef
     to_entity: ExactRef
     cardinality: Cardinality
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     def __repr__(self) -> str:
         return f"Relationship {self.ref.ref.path}@{self.ref.version[:19]} (use .show())"
@@ -763,7 +906,6 @@ class Predicate(_ExpressionDisplay):
 
 Field: TypeAlias = Dimension | TimeField | Measure
 RowOperand: TypeAlias = Measure | NumericRowExpr
-ResolvedValue: TypeAlias = Entity | Field | Relationship
 
 
 @dataclass(frozen=True, slots=True)
@@ -980,6 +1122,12 @@ class Metric(_ExpressionDisplay):
     node: MetricNode
     roots: tuple[ExactRef, ...]
     unit: str | None
+    _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+    # Stored bodies of the published Metrics this node references, so a filter
+    # over a published single-source Metric can verify its source scope.
+    _declared: tuple[tuple[ExactRef, MetricNode], ...] = field(
+        default=(), compare=False, repr=False, kw_only=True
+    )
 
     def __add__(self, other: Metric | FiniteNumber) -> Metric:
         return _metric_combine("add", self, _metric_operand(other, operation="metric add"))
@@ -1046,7 +1194,7 @@ class Metric(_ExpressionDisplay):
                 received=_received(predicate),
                 action="Build the condition from resolved fields or numeric row expressions.",
             )
-        if not _is_source_scope(self.node):
+        if not _is_source_scope(self.node, dict(self._declared).get):
             _fail(
                 ErrorKind.INVALID_WHERE_SCOPE,
                 f"Metric.where cannot filter a composite {type(self.node).__name__}.",
@@ -1068,7 +1216,12 @@ class Metric(_ExpressionDisplay):
                     "Entity needs an explicit relationship path."
                 ),
             )
-        return Metric(ContributionFilter(self.node, predicate.node), self.roots, self.unit)
+        return Metric(
+            ContributionFilter(self.node, predicate.node),
+            self.roots,
+            self.unit,
+            _declared=self._declared,
+        )
 
     def per(self, samples: SampleAxis | tuple[SampleAxis, ...]) -> MetricSamples:
         """Complete this Metric once per internal sample of the given field axes.
@@ -1131,6 +1284,8 @@ class DeclaredMetric(Metric):
         return f"Metric {domain}{self.declaration.name} (local declaration; use .show())"
 
 
+CatalogField: TypeAlias = Dimension | TimeField | Measure | DeclaredMeasure
+ResolvedValue: TypeAlias = Entity | Field | DeclaredMeasure | Metric | Relationship
 SampleAxis: TypeAlias = Dimension | TimeField
 
 
@@ -1222,10 +1377,19 @@ class MetricSamples(_ExpressionDisplay):
         return f"MetricSamples {type(self.metric.node).__name__} per {axes} (use .show())"
 
 
-def _is_source_scope(node: MetricNode) -> bool:
-    """Whether ``node`` is one source reduction, possibly already filtered."""
+def _is_source_scope(
+    node: MetricNode, expand: Callable[[ExactRef], MetricNode | None] | None = None
+) -> bool:
+    """Whether ``node`` is one source reduction, possibly already filtered.
+
+    A published Metric reference qualifies when ``expand`` yields its stored
+    body and that body is itself one source reduction.
+    """
     if isinstance(node, ContributionFilter):
-        return _is_source_scope(node.operand)
+        return _is_source_scope(node.operand, expand)
+    if isinstance(node, DeclaredMetricRef):
+        body = expand(node.ref) if expand is not None else None
+        return body is not None and _is_source_scope(body, expand)
     return isinstance(node, (SourceAggregate, EntityCount, SourceWeightedMean))
 
 
@@ -1397,6 +1561,7 @@ _SUPPORTED_KINDS = (
     SemanticKind.DIMENSION,
     SemanticKind.TIME_DIMENSION,
     SemanticKind.MEASURE,
+    SemanticKind.METRIC,
     SemanticKind.RELATIONSHIP,
 )
 
@@ -1518,17 +1683,21 @@ class _Resolver:
     def __init__(self, state: CompiledSemanticState) -> None:
         self._state = state
         self._registry: Registry = state.registry
+        self._versions: dict[Ref[SemanticKindTag], ExactRef] = {}
 
     def exact(self, target: Ref[SemanticKindTag]) -> ExactRef:
         from marivo.semantic._definition_identity import scoped_definition_fingerprint
 
-        version = scoped_definition_fingerprint(
-            root=target,
-            definitions=self._state.definitions,
-            dependencies=self._state.dependencies,
-            sidecar=self._state.sidecar,
-        )
-        return ExactRef(target, version)
+        cached = self._versions.get(target)
+        if cached is None:
+            version = scoped_definition_fingerprint(
+                root=target,
+                definitions=self._state.definitions,
+                dependencies=self._state.dependencies,
+                sidecar=self._state.sidecar,
+            )
+            cached = self._versions[target] = ExactRef(target, version)
+        return cached
 
     def entity_ref(self, path: str) -> ExactRef:
         return self.exact(ref_factory.entity(path))
@@ -1557,11 +1726,47 @@ class _Resolver:
         )
         return self.coordinate(defaults[0]) if len(defaults) == 1 else None
 
+    def facts(self, target: Ref[SemanticKindTag]) -> DefinitionFacts:
+        """Declared metadata and physical binding facts; never part of a computation."""
+        definition = self._state.definitions[target]
+        details: list[tuple[str, str]] = []
+        body = self._state.sidecar.bodies.get(target)
+        if body is not None and body.source_column is not None:
+            details.append(("column", body.source_column))
+        elif body is not None and body.description.display is not None:
+            details.append(("expression", body.description.display.text))
+        if isinstance(definition, EntityIR):
+            details.append(("definition_form", "expression" if body is not None else "direct"))
+            details.append(("source", str(definition.source.to_dict())[:160]))
+            if definition.versioning is not None:
+                details.append(("versioning", repr(definition.versioning)))
+        elif isinstance(definition, DimensionIR):
+            if definition.granularity is not None:
+                details.append(("granularity", definition.granularity))
+            if definition.parse is not None:
+                details.append(("parse", repr(definition.parse)))
+            if definition.is_default:
+                details.append(("default_time", "true"))
+        elif isinstance(definition, RelationshipIR):
+            details.append(
+                ("join_keys", ", ".join(f"{key.from_key}={key.to_key}" for key in definition.keys))
+            )
+        location = getattr(definition, "location", None)
+        return DefinitionFacts(
+            name=getattr(definition, "name", target.name),
+            ai_context=getattr(definition, "ai_context", None),
+            location=f"{location.file}:{location.line}" if location is not None else "<unknown>",
+            reads=self._state.dependencies.get(target, ()),
+            details=tuple(details),
+        )
+
     def entity(self, path: str) -> Entity:
+        target = ref_factory.entity(path)
         return Entity(
             ref=self.entity_ref(path),
             primary_key=self._registry.entities[path].primary_key,
             default_time=self.default_time(path),
+            _facts=self.facts(target),
         )
 
     def permission(self, path: str) -> SumPermission:
@@ -1607,15 +1812,56 @@ class _Resolver:
                 for path, field in sorted(self._registry.dimensions.items())
                 if field.entity == measure.entity
             ),
+            _facts=self.facts(ref_factory.measure(path)),
         )
 
     def field(self, path: str) -> Dimension | TimeField:
         field = self._registry.dimensions[path]
         root = self.entity_ref(field.entity)
         default = self.default_time(field.entity)
+        ref = self.coordinate(path)
+        facts = self.facts(ref.ref)
         if field.is_time_dimension:
-            return TimeField(ref=self.coordinate(path), root=root, default_time=default)
-        return Dimension(ref=self.coordinate(path), root=root, default_time=default)
+            return TimeField(ref=ref, root=root, default_time=default, _facts=facts)
+        return Dimension(ref=ref, root=root, default_time=default, _facts=facts)
+
+    def metric(self, path: str) -> Metric:
+        """A published Metric as a dependency on its exact declaration version."""
+        declared = self._registry.declared_metrics[path]
+        target = ref_factory.metric(path)
+        exact = self.exact(target)
+        location = declared.declaration.location
+        domain = declared.declaration.domain
+        return Metric(
+            DeclaredMetricRef(exact),
+            declared.roots,
+            declared.unit,
+            _declared=((exact, declared.node),),
+            _facts=DefinitionFacts(
+                name=declared.declaration.name,
+                ai_context=declared.declaration.ai_context,
+                location=f"{location.path}:{location.line}" if location else "<unknown>",
+                reads=self._state.dependencies.get(target, ()),
+                details=(("domain", domain.path),) if domain is not None else (),
+            ),
+        )
+
+    def value(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
+        """The expression value of one defined ref, dispatched by kind."""
+        path = target.path
+        match target.kind:
+            case SemanticKind.ENTITY:
+                return self.entity(path)
+            case SemanticKind.RELATIONSHIP:
+                return self.relationship(path)
+            case SemanticKind.METRIC:
+                return self.metric(path)
+            case SemanticKind.MEASURE if path in self._registry.declared_measures:
+                return self._registry.declared_measures[path]
+            case SemanticKind.MEASURE:
+                return self.measure(path)
+            case _:
+                return self.field(path)
 
     def relationship(self, path: str) -> Relationship:
         contract: TargetRelationshipContract = normalize_target_relationship(self._registry, path)
@@ -1624,6 +1870,7 @@ class _Resolver:
             from_entity=self.entity_ref(contract.from_entity_ref.path),
             to_entity=self.entity_ref(contract.to_entity_ref.path),
             cardinality=contract.cardinality,
+            _facts=self.facts(ref_factory.relationship(path)),
         )
 
 
@@ -1642,7 +1889,11 @@ def resolve(
 @overload
 def resolve(
     catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[MeasureKind]
-) -> Measure: ...
+) -> Measure | DeclaredMeasure: ...
+@overload
+def resolve(
+    catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[MetricKind]
+) -> Metric: ...
 @overload
 def resolve(
     catalog: SemanticCatalog | FinalizedDeclarations, target: Ref[RelationshipKind]
@@ -1672,80 +1923,307 @@ def resolve(
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_EXPRESSION_STAGE,
             message=f"Ref {target.key!r} cannot be resolved into an expression value here.",
-            expected="entity, dimension, time_dimension, measure, or relationship ref",
+            expected="entity, dimension, time_dimension, measure, metric, or relationship ref",
             received=target.kind.value,
-            action=(
-                "Resolve a physical field, Entity or Relationship here. Local Metric "
-                "declarations are already constructed; Catalog Metric publication is separate."
-            ),
+            action="Resolve a field, Entity, Relationship or published Metric ref.",
             refs=(target.key,),
         )
-    catalog.require(target)
-    resolver = _Resolver(catalog._state)
-    path = target.path
-    match target.kind:
-        case SemanticKind.ENTITY:
-            return resolver.entity(path)
-        case SemanticKind.RELATIONSHIP:
-            return resolver.relationship(path)
-        case SemanticKind.MEASURE:
-            return resolver.measure(path)
-        case _:
-            return resolver.field(path)
+    state = catalog._state
+    if target.kind is SemanticKind.METRIC and target.path not in state.registry.declared_metrics:
+        raise SemanticExpressionError(
+            kind=ErrorKind.METRIC_NOT_FOUND,
+            message=f"Metric {target.key!r} is not published in this scope.",
+            expected="a Metric declared at module level in a loaded model",
+            received=target.key,
+            action="Choose one of: "
+            + (", ".join(sorted(state.registry.declared_metrics)[:8]) or "(no published Metrics)"),
+            refs=(target.key,),
+        )
+    if target not in state.definitions:
+        candidates = sorted(ref.key for ref in state.definitions if ref.kind is target.kind)[:8]
+        raise SemanticExpressionError(
+            kind=ErrorKind.NOT_FOUND,
+            message=f"Ref {target.key!r} is not defined in this scope.",
+            expected=f"a {target.kind.value} defined in this scope",
+            received=target.key,
+            action="Choose one of: " + (", ".join(candidates) or "(none of this kind)"),
+            refs=(target.key,),
+        )
+    return _Resolver(state).value(target)
 
 
-def _show_expression(value: object) -> None:
-    """Render a deterministic, bounded construction card, separate from Catalog discovery."""
-    lines = [repr(value)[:240]]
+class CatalogValues:
+    """Lazily resolved expression values of one compiled state.
+
+    ``refs`` lists every Entity, field, published Metric and Relationship in
+    key order. Values resolve on first access through one shared version cache;
+    no datasource is read.
+    """
+
+    def __init__(self, state: CompiledSemanticState) -> None:
+        self._resolver = _Resolver(state)
+        self._values: dict[Ref[SemanticKindTag], ResolvedValue] = {}
+        self.refs: tuple[Ref[SemanticKindTag], ...] = tuple(
+            sorted(
+                (
+                    ref
+                    for ref in state.definitions
+                    if ref.kind in _SUPPORTED_KINDS
+                    and (
+                        ref.kind is not SemanticKind.METRIC
+                        or ref.path in state.registry.declared_metrics
+                    )
+                ),
+                key=lambda item: item.key,
+            )
+        )
+
+    def get(self, target: Ref[SemanticKindTag]) -> ResolvedValue:
+        value = self._values.get(target)
+        if value is None:
+            value = self._values[target] = self._resolver.value(target)
+        return value
+
+
+def catalog_metric_definition(
+    catalog: SemanticCatalog | FinalizedDeclarations, target: ExactRef
+) -> MetricNode | None:
+    """The stored body of the published Metric at ``target``'s path; None when absent.
+
+    Lookup is by kind and path in this scope: a reference built against an
+    earlier same-path definition reaches the current one.
+    """
+    declared = catalog._state.registry.declared_metrics.get(target.ref.path)
+    if declared is None or target.ref.kind is not SemanticKind.METRIC:
+        return None
+    return declared.node
+
+
+_RebindT = TypeVar("_RebindT")
+
+
+def _rebind_declared(
+    value: _RebindT,
+    current: Callable[[DeclaredMetricRef], DeclaredMetricRef],
+    memo: dict[int, object],
+) -> _RebindT:
+    """Rebuild ``value`` with every declared Metric reference rebound by ``current``.
+
+    Unchanged subgraphs are returned as the same objects, so shared nodes stay
+    shared; the input graph is never mutated.
+    """
+    if id(value) in memo:
+        return cast("_RebindT", memo[id(value)])  # memo stores the rebuilt same-type value
+    result: object
+    if isinstance(value, DeclaredMetricRef):
+        result = current(value)
+    elif isinstance(value, tuple):
+        items = tuple(_rebind_declared(item, current, memo) for item in value)
+        result = items if any(a is not b for a, b in zip(items, value, strict=True)) else value
+    elif is_dataclass(value) and not isinstance(value, (type, ExactRef)):
+        changes = {
+            item.name: rebuilt
+            for item in dataclass_fields(value)
+            if (rebuilt := _rebind_declared(getattr(value, item.name), current, memo))
+            is not getattr(value, item.name)
+        }
+        result = dataclass_replace(value, **changes) if changes else value
+    else:
+        result = value
+    memo[id(value)] = result
+    return cast("_RebindT", result)  # rebinding preserves each value's type
+
+
+def catalog_closure(
+    catalog: SemanticCatalog | FinalizedDeclarations, value: Metric
+) -> DefinitionClosure:
+    """Expand ``value`` through the published Metrics of ``catalog`` into one graph.
+
+    Declared Metric references resolve by kind and path in this scope; a
+    reference built against an earlier same-path definition is rebound to the
+    current definition and version, so the closure describes what is actually
+    consumed. ``value`` itself is unchanged. Each ``where`` over a published
+    Metric is checked again against its current body. Cycles, unpublished
+    Metrics and filters over a now-composite Metric fail with a structured
+    error. No source is read.
+    """
+    state = catalog._state
+    resolver = _Resolver(state)
+
+    def current(node: DeclaredMetricRef) -> DeclaredMetricRef:
+        if node.ref.ref.path not in state.registry.declared_metrics:
+            return node
+        exact = resolver.exact(node.ref.ref)
+        return node if exact == node.ref else DeclaredMetricRef(exact)
+
+    def expand(target: ExactRef) -> MetricNode | None:
+        return catalog_metric_definition(catalog, target)
+
+    root = _rebind_declared(value.node, current, {})
+    try:
+        closure = walk((root,), resolve=expand)
+    except DefinitionGraphError as error:
+        raise SemanticExpressionError.from_definition(error, operation="Metric closure") from error
+    for node in closure.order:
+        if isinstance(node, ContributionFilter) and not _is_source_scope(node.operand, expand):
+            filtered = tuple(
+                sorted(
+                    exact.ref.key
+                    for exact in direct_refs(node.operand)
+                    if exact.ref.kind is SemanticKind.METRIC
+                )
+            )
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_WHERE_SCOPE,
+                message="A where filter now applies to a composite published Metric.",
+                expected="where over a single source reduction",
+                received=", ".join(filtered) or type(node.operand).__name__,
+                action=(
+                    "The published Metric's current definition is no longer one source "
+                    "reduction; filter its source children instead, or rebuild the "
+                    "expression from the current catalog."
+                ),
+                refs=filtered,
+            )
+    return closure
+
+
+_ROW_OPERATIONS = (
+    "sum",
+    "mean",
+    "min",
+    "max",
+    "median",
+    "quantile",
+    "weighted_mean",
+    "count",
+    "count_distinct",
+    "divide",
+    "+ - * /",
+    "comparisons",
+)
+_METRIC_OPERATIONS = ("where", "per", "divide", "+ - * /")
+
+
+def _node_reads(node: DefinitionNode | FieldPredicate) -> tuple[Ref[SemanticKindTag], ...]:
+    return tuple(sorted({exact.ref for exact in direct_refs(node)}, key=lambda ref: ref.key))
+
+
+def _declaration_location(location: DefinitionSourceLocation | None) -> str | None:
+    return f"{location.path}:{location.line}" if location is not None else None
+
+
+def _expression_contract(value: object) -> ExpressionContract:
+    """Build the bounded definition contract of one constructed expression value."""
+    facts = getattr(value, "_facts", None)
+    stage: ExpressionStage
+    ref: ExactRef | None = None
+    roots: tuple[ExactRef, ...] = ()
+    unit: str | None = None
+    permission: SumPermission | None = None
+    default_time: ExactRef | None = None
+    computation: str | None = None
+    reads: tuple[Ref[SemanticKindTag], ...] = ()
+    operations: tuple[str, ...] = ()
+    detail_rows: list[tuple[str, str]] = []
+    name: str | None = facts.name if facts is not None else None
+    ai_context: AiContextIR | AiContextValue | None = facts.ai_context if facts else None
+    location = facts.location if facts is not None else None
     if isinstance(value, Entity):
-        lines.extend(
-            ("  Stage: Entity contribution root", f"  Identity columns: {value.primary_key!r}")
-        )
+        stage, ref, default_time = "entity", value.ref, value.default_time
+        roots = (value.ref,)
+        detail_rows.append(("primary_key", ", ".join(value.primary_key)))
+        operations = ("count",)
     elif isinstance(value, (Dimension, TimeField)):
-        lines.extend((f"  Stage: {type(value).__name__} field", f"  Root: {value.root.ref.path}"))
+        stage = "time_field" if isinstance(value, TimeField) else "dimension"
+        ref, roots, default_time = value.ref, (value.root,), value.default_time
+        operations = ("==", "!=", "<", "<=", ">", ">=", "isin", "is_null", "count")
+        if isinstance(value, TimeField):
+            operations = (*operations, "via")
+            if value.path:
+                detail_rows.append(("via", " > ".join(step.ref.ref.path for step in value.path)))
     elif isinstance(value, (Measure, NumericRowExpr)):
-        lines.extend(
-            (
-                "  Stage: numeric row",
-                f"  Root: {value.root.ref.path}",
-                f"  Unit: {value.unit!r}",
-                f"  Sum permission: {value.permission!r}",
+        roots, unit, permission = (value.root,), value.unit, value.permission
+        default_time = value.default_time
+        operations = _ROW_OPERATIONS
+        if isinstance(value, Measure):
+            stage, ref = "measure", value.ref
+        else:
+            stage = "declared_measure" if isinstance(value, DeclaredMeasure) else "row_expression"
+            computation = computation_fingerprint(value.node)
+            reads = _node_reads(value.node)
+        if value.coordinates:
+            detail_rows.append(
+                ("coordinates", _bounded_refs(axis.ref for axis in value.coordinates))
             )
-        )
+        if isinstance(value, DeclaredMeasure):
+            name = value.declaration.name
+            ai_context = value.declaration.ai_context
+            location = _declaration_location(value.declaration.location)
     elif isinstance(value, Metric):
-        lines.extend(
-            (
-                "  Stage: completed Metric",
-                f"  Roots: {', '.join(root.ref.path for root in value.roots[:5])}",
-                f"  Unit: {value.unit!r}",
-                f"  Computation: {computation_fingerprint(value.node)}",
-            )
-        )
+        roots, unit = value.roots, value.unit
+        computation = computation_fingerprint(value.node)
+        reads = _node_reads(value.node)
+        operations = _METRIC_OPERATIONS
+        if isinstance(value.node, DeclaredMetricRef):
+            # The placeholder names only itself; the compiled edges carry what it consumes.
+            stage, ref, reads = "published_metric", value.node.ref, ()
+        elif isinstance(value, DeclaredMetric):
+            stage = "declared_metric"
+            name = value.declaration.name
+            ai_context = value.declaration.ai_context
+            location = _declaration_location(value.declaration.location)
+            if value.declaration.domain is not None:
+                detail_rows.append(("domain", value.declaration.domain.path))
+        else:
+            stage = "metric"
     elif isinstance(value, MetricSamples):
-        lines.append("  Stage: internal samples; choose a sample reducer to produce a Metric.")
+        stage = "metric_samples"
+        roots, unit = value.metric.roots, value.metric.unit
+        computation = computation_fingerprint(value.metric.node)
+        detail_rows.append(
+            (
+                "samples",
+                _bounded_refs(
+                    binding.field.ref if binding.field is not None else binding.entity.ref
+                    for binding in value.samples
+                ),
+            )
+        )
+        operations = ("sum", "mean", "min", "max", "median", "quantile", "count")
     elif isinstance(value, Predicate):
-        lines.append("  Stage: contribution predicate; use on a single source Metric.where(...).")
+        stage, roots = "predicate", value.roots
+        reads = _node_reads(value.node)
+        operations = ("&", "|", "~", "Metric.where")
     elif isinstance(value, Relationship):
-        lines.extend(
+        stage, ref = "relationship", value.ref
+        roots = (value.from_entity, value.to_entity)
+        detail_rows.extend(
             (
-                f"  From: {value.from_entity.ref.path}",
-                f"  To: {value.to_entity.ref.path}",
-                f"  Cardinality: {value.cardinality}",
+                ("from", value.from_entity.ref.key),
+                ("to", value.to_entity.ref.key),
+                ("cardinality", value.cardinality),
             )
         )
-    if isinstance(value, (DeclaredMeasure, DeclaredMetric)):
-        lines.extend(
-            (
-                f"  Local declaration: {value.declaration.name}",
-                f"  Site: {value.declaration.location!r}",
-                f"  Business context: {value.declaration.ai_context!r}",
-            )
-        )
-    lines.extend(
-        (
-            "  Evidence: definition construction only; no source read or execution.",
-            "  Catalog Metric publication is not part of local declaration construction.",
-            '  Help: marivo.help("semantic.expressions")',
-        )
+        operations = ("TimeField.via",)
+    else:
+        raise TypeError(f"no expression contract for {type(value).__name__}")
+    if facts is not None:
+        reads = reads or facts.reads
+        detail_rows.extend(facts.details)
+    return ExpressionContract(
+        stage=stage,
+        ref=ref,
+        roots=roots,
+        unit=unit,
+        sum_permission=permission,
+        default_time=default_time,
+        computation=computation,
+        reads=reads,
+        name=name,
+        business_definition=getattr(ai_context, "business_definition", None),
+        guardrails=tuple(getattr(ai_context, "guardrails", ()) or ()),
+        location=location,
+        facts=tuple(detail_rows),
+        operations=operations,
     )
-    print("\n".join(line[:300] for line in lines[:18]))

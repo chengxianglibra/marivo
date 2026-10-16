@@ -50,6 +50,7 @@ from marivo._definition.types import (
     SumAxes,
     SumNone,
 )
+from marivo.refs import MeasureKind
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import (
     ErrorKind,
@@ -183,6 +184,15 @@ ms.relationship(
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 
+def _physical(
+    scope: SemanticCatalog | FinalizedDeclarations, target: ms.Ref[MeasureKind]
+) -> Measure:
+    """Resolve a physical measure column; published pure Measures resolve separately."""
+    value = resolve(scope, target)
+    assert type(value) is Measure
+    return value
+
+
 @pytest.fixture
 def catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
@@ -192,7 +202,7 @@ def catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
 
 
 def test_fields_resolve_with_exact_versions_and_owning_root(catalog: SemanticCatalog) -> None:
-    amount = resolve(catalog, ms.ref.measure("sales.orders.amount"))
+    amount = _physical(catalog, ms.ref.measure("sales.orders.amount"))
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
@@ -207,7 +217,7 @@ def test_fields_resolve_with_exact_versions_and_owning_root(catalog: SemanticCat
     assert amount.unit == "CNY"
     assert orders.primary_key == ("order_id",)
     assert orders.default_time == paid_at.ref
-    again = resolve(catalog, ms.ref.measure("sales.orders.amount"))
+    again = _physical(catalog, ms.ref.measure("sales.orders.amount"))
     assert (again.ref, again.root, again.unit, again.permission) == (
         amount.ref,
         amount.root,
@@ -235,7 +245,7 @@ def test_versions_follow_definition_dependencies(
 
     amount_ref = ms.ref.measure("sales.orders.amount")
     status_ref = ms.ref.dimension("sales.orders.status")
-    assert resolve(first, amount_ref).ref.version != resolve(second, amount_ref).ref.version
+    assert _physical(first, amount_ref).ref.version != _physical(second, amount_ref).ref.version
     assert resolve(first, status_ref).ref.version == resolve(second, status_ref).ref.version
 
 
@@ -259,7 +269,7 @@ def test_declaration_state_resolves_same_exact_values_as_catalog(
     entity_ref = ms.ref.entity("sales.orders")
     measure_ref = ms.ref.measure("sales.orders.balance")
     declared_entity, loaded_entity = resolve(state, entity_ref), resolve(catalog, entity_ref)
-    declared, loaded = resolve(state, measure_ref), resolve(catalog, measure_ref)
+    declared, loaded = _physical(state, measure_ref), _physical(catalog, measure_ref)
 
     assert declared_entity == loaded_entity
     assert declared.ref == loaded.ref
@@ -305,7 +315,10 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
         captured = namespace[name]
         assert isinstance(captured, ms.Ref)
         value = finalized.resolve(captured)
-        assert value.ref == resolve(catalog, key).ref
+        loaded = resolve(catalog, key)
+        assert not isinstance(value, (Metric, NumericRowExpr))
+        assert not isinstance(loaded, (Metric, NumericRowExpr))
+        assert value.ref == loaded.ref
     amount = finalized.resolve(ms.ref.measure("sales.orders.amount"))
     paid_at = finalized.resolve(ms.ref.time_dimension("sales.orders.paid_at"))
     assert isinstance(amount, Measure) and isinstance(paid_at, TimeField)
@@ -364,7 +377,7 @@ def test_constructor_snapshots_keep_final_default_time(
         cost = state.resolve(cost_ref)
     errors, _ = assembly_validate(state._state.registry, state._state.sidecar)
     assert errors == []
-    finalized = resolve(state, ms.ref.measure("sales.orders.amount"))
+    finalized = _physical(state, ms.ref.measure("sales.orders.amount"))
     assert amount.ref == finalized.ref
     forward, reverse = (amount + cost).sum().node, (cost + amount).sum().node
     assert isinstance(forward, SourceAggregate) and isinstance(reverse, SourceAggregate)
@@ -565,7 +578,7 @@ def test_file_loader_resolves_owners_in_its_scope(
         {"sales/_domain.py": _DOMAIN_PY, "sales/objects.py": source}, workspace_dir=root
     )
     current = SemanticCatalog(project)
-    amount = resolve(current, ms.ref.measure("sales.orders.amount"))
+    amount = _physical(current, ms.ref.measure("sales.orders.amount"))
     assert (amount.root == old.ref) is (mode == "same")
     assert amount.root == resolve(current, ms.ref.entity("sales.orders")).ref
     assert current._state.registry.entities["sales.orders"].source == md.table(
@@ -1163,12 +1176,12 @@ def test_measure_permissions_map_declared_additivity(catalog: SemanticCatalog) -
     status = resolve(catalog, ms.ref.dimension("sales.orders.status"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
 
-    assert resolve(catalog, ms.ref.measure("sales.orders.amount")).permission == SumAll()
-    assert resolve(catalog, ms.ref.measure("sales.orders.unit_price")).permission == SumNone()
-    quantity = resolve(catalog, ms.ref.measure("sales.orders.quantity"))
+    assert _physical(catalog, ms.ref.measure("sales.orders.amount")).permission == SumAll()
+    assert _physical(catalog, ms.ref.measure("sales.orders.unit_price")).permission == SumNone()
+    quantity = _physical(catalog, ms.ref.measure("sales.orders.quantity"))
     assert quantity.permission == SumAxes((status.ref,))
     assert quantity.unit is None
-    balance = resolve(catalog, ms.ref.measure("sales.orders.balance"))
+    balance = _physical(catalog, ms.ref.measure("sales.orders.balance"))
     assert balance.permission == SumAllExcept((paid_at.ref,))
 
 
@@ -1186,7 +1199,7 @@ def test_relationship_resolves_endpoints_and_cardinality(catalog: SemanticCatalo
 
 
 def test_resolved_values_are_immutable_with_bounded_repr(catalog: SemanticCatalog) -> None:
-    amount = resolve(catalog, ms.ref.measure("sales.orders.amount"))
+    amount = _physical(catalog, ms.ref.measure("sales.orders.amount"))
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         amount.unit = "USD"  # type: ignore[misc]
@@ -1199,8 +1212,8 @@ def test_resolved_values_are_immutable_with_bounded_repr(catalog: SemanticCatalo
 def test_unsupported_and_absent_refs_fail_structurally(catalog: SemanticCatalog) -> None:
     with pytest.raises(SemanticExpressionError) as metric:
         resolve(catalog, ms.ref.metric("sales.revenue"))
-    assert metric.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
-    assert metric.value.received == "metric"
+    assert metric.value.kind == ErrorKind.METRIC_NOT_FOUND.value
+    assert metric.value.received == "metric:sales.revenue"
     assert metric.value.repair is not None
 
     with pytest.raises(SemanticExpressionError) as raw:
@@ -1209,12 +1222,12 @@ def test_unsupported_and_absent_refs_fail_structurally(catalog: SemanticCatalog)
     assert raw.value.received == "str"
 
     with pytest.raises(SemanticError) as absent:
-        resolve(catalog, ms.ref.measure("sales.orders.missing"))
+        _physical(catalog, ms.ref.measure("sales.orders.missing"))
     assert absent.value.kind == ErrorKind.NOT_FOUND.value
 
 
 def _measure(catalog: SemanticCatalog, name: str) -> Measure:
-    return resolve(catalog, ms.ref.measure(f"sales.orders.{name}"))
+    return _physical(catalog, ms.ref.measure(f"sales.orders.{name}"))
 
 
 def test_row_subtraction_builds_one_fingerprint_on_one_root(catalog: SemanticCatalog) -> None:
@@ -1273,7 +1286,7 @@ def test_sum_permission_is_kept_narrowed_or_lost(catalog: SemanticCatalog) -> No
 
 def test_incompatible_units_and_roots_are_rejected(catalog: SemanticCatalog) -> None:
     amount, amount_usd = _measure(catalog, "amount"), _measure(catalog, "amount_usd")
-    credit = resolve(catalog, ms.ref.measure("sales.customers.credit"))
+    credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
 
     with pytest.raises(SemanticExpressionError) as units:
         amount + amount_usd
@@ -1445,7 +1458,7 @@ def test_weighted_mean_pairs_one_root_and_rejects_foreign_time(
     catalog: SemanticCatalog,
 ) -> None:
     amount, quantity = _measure(catalog, "amount"), _measure(catalog, "quantity")
-    credit = resolve(catalog, ms.ref.measure("sales.customers.credit"))
+    credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
 
     weighted = amount.weighted_mean(weight=quantity)
@@ -1798,7 +1811,7 @@ def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCa
 def test_via_time_requires_root_start_and_stays_a_time_role(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     customers = resolve(catalog, ms.ref.entity("sales.customers"))
-    credit = resolve(catalog, ms.ref.measure("sales.customers.credit"))
+    credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
     buyer = _relationship(catalog, "orders_to_customers")
     region = _relationship(catalog, "customers_to_regions")
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
@@ -1870,7 +1883,7 @@ def test_measure_versions_follow_additivity_axis_definitions(
         assert before.permission != after.permission
         assert before.ref != after.ref, name
     amount_ref = ms.ref.measure("sales.orders.amount")
-    assert resolve(first, amount_ref).ref == resolve(second, amount_ref).ref
+    assert _physical(first, amount_ref).ref == _physical(second, amount_ref).ref
 
 
 def test_unary_positive_keeps_the_metric_unchanged(catalog: SemanticCatalog) -> None:

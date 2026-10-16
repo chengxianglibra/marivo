@@ -27,12 +27,17 @@ def _write_minimal_project(tmp_path) -> None:
     )
     (semantic / "datasets.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
+        "orders_ref = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), "
         "source=md.table('orders'))\n"
+        "amount_ref = ms.measure_column(name='amount', entity=orders_ref, column='amount', "
+        "additivity=ms.additive_all())\n"
         "\n"
-        "@ms.metric(entities=[orders], additivity=ms.additive_all())\n"
-        "def revenue(table):\n"
-        "    return table.amount.sum()\n"
+        "finalized = ms.finalize()\n"
+        "amount = finalized.resolve(amount_ref)\n"
+        "\n"
+        "@ms.metric()\n"
+        "def revenue():\n"
+        "    return amount.sum()\n"
     )
 
 

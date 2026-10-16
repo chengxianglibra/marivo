@@ -1,21 +1,30 @@
+"""Metric authoring surface: field/measure values, discovery, and preview boundaries."""
+
 from __future__ import annotations
+
+from collections.abc import Callable
+from typing import TypeAlias
 
 import ibis
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.datasets.errors import DatasetConstructionError
-from marivo.semantic.catalog import (
-    EntityDetails,
-    MeasureDetails,
-    MeasureEntry,
-    MetricDetails,
-    SemanticCatalog,
-    SemanticKind,
+from marivo._definition.expressions import DeclaredMetricRef
+from marivo._definition.types import SumAll
+from marivo.semantic.catalog import SemanticCatalog
+from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
+from marivo.semantic.expressions import (
+    DeclaredMeasure,
+    Dimension,
+    Measure,
+    Metric,
+    TimeField,
+    resolve,
 )
-from marivo.semantic.errors import SemanticRuntimeError
-from tests.support.refs import make_ref
+from marivo.semantic.reader import SemanticProject
+
+ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 _DOMAIN_PY = """\
 import marivo.datasource as md
@@ -27,31 +36,46 @@ _MODEL_PY = """\
 import marivo.datasource as md
 import marivo.semantic as ms
 
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+orders_ref = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+region_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")
+amount_ref = ms.measure_column(
+    name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all(), unit="USD"
+)
+order_date_ref = ms.time_dimension_column(
+    name="order_date",
+    entity=orders_ref,
+    column="order_date",
+    granularity="day",
+    parse=ms.timestamp(timezone="UTC"),
+    is_default=True,
+)
 
-@ms.dimension(entity=orders)
-def region(orders):
-    return orders.region
+finalized = ms.finalize()
+orders = finalized.resolve(orders_ref)
+region = finalized.resolve(region_ref)
+amount = finalized.resolve(amount_ref)
+order_date = finalized.resolve(order_date_ref)
 
-amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD")
 
-@ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
-def order_date(orders):
-    return orders.order_date
+@ms.measure()
+def margin():
+    return amount - 1
 
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
 
 @ms.metric(
-    entities=[orders],
-    additivity=ms.additive_all(),
-    ai_context=ms.ai_context(business_definition="Historical SQL: select sum(amount) from orders"),
+    ai_context=ms.ai_context(business_definition="Historical SQL: select sum(amount) from orders")
 )
-def native_revenue(orders):
-    return orders.amount.sum()
+def revenue():
+    return amount.sum(time=order_date)
 """
 
 
-def _catalog(semantic_project_factory) -> SemanticCatalog:
+def _catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -72,68 +96,83 @@ def _preview_backend(path: str):
     return backend
 
 
-def test_catalog_get_measure_returns_measure_details(semantic_project_factory) -> None:
+def test_catalog_get_measure_returns_the_resolved_measure_value(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _catalog(semantic_project_factory)
+    amount = catalog.fields.get("measure:sales.orders.amount")
+    orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
-    obj = catalog.require(ms.ref.measure("sales.orders.amount"))
-    details = obj.details()
-
-    assert type(obj) is MeasureEntry
-    assert obj.key == "measure:sales.orders.amount"
-    assert obj.ref.kind == SemanticKind.MEASURE
-    assert obj.ref == make_ref("sales.orders.amount", SemanticKind.MEASURE)
-    assert isinstance(details, MeasureDetails)
-    assert details.ref.kind == SemanticKind.MEASURE
-    assert details.entity == make_ref("sales.orders", SemanticKind.ENTITY)
-    assert details.additivity == "additive"
-    assert details.unit == "USD"
-    assert (
-        repr(details) == "<MeasureDetails ref=measure:sales.orders.amount; call .show() to inspect>"
-    )
+    assert type(amount) is Measure
+    assert amount.ref.ref == ms.ref.measure("sales.orders.amount")
+    assert amount.ref.version.startswith("sha256:")
+    assert amount.root == orders.ref
+    assert amount.unit == "USD"
+    assert amount.permission == SumAll()
+    assert repr(amount).startswith("Measure sales.orders.amount@sha256:")
+    assert "\n" not in repr(amount)
 
 
-def test_catalog_measures_collection_returns_measures(semantic_project_factory) -> None:
-    catalog = _catalog(semantic_project_factory)
-
-    assert [ref.key for ref in catalog.measures.refs] == ["measure:sales.orders.amount"]
-
-
-def test_entity_children_include_dimension_measure_time_dimension_metrics_and_relationships(
-    semantic_project_factory,
+def test_catalog_fields_collection_holds_dimension_measure_and_time_field(
+    semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
-    details = catalog.require(ms.ref.entity("sales.orders")).details()
+    assert [ref.key for ref in catalog.fields.refs] == [
+        "dimension:sales.orders.region",
+        "measure:sales.orders.amount",
+        "measure:sales.orders.margin",
+        "time_dimension:sales.orders.order_date",
+    ]
+    assert type(catalog.fields.get("sales.orders.region")) is Dimension
+    assert type(catalog.fields.get("sales.orders.amount")) is Measure
+    assert type(catalog.fields.get("sales.orders.order_date")) is TimeField
+    assert type(catalog.fields.get("sales.orders.margin")) is DeclaredMeasure
 
-    assert isinstance(details, EntityDetails)
-    child_refs = {(child.path, child.kind) for child in details.children}
-    assert ("sales.orders.region", SemanticKind.DIMENSION) in child_refs
-    assert ("sales.orders.amount", SemanticKind.MEASURE) in child_refs
-    assert ("sales.orders.order_date", SemanticKind.TIME_DIMENSION) in child_refs
-    assert ("sales.revenue", SemanticKind.METRIC) in child_refs
-    assert ("sales.native_revenue", SemanticKind.METRIC) in child_refs
+    with pytest.raises(SemanticRuntimeError) as exc_info:
+        catalog.fields.get(ms.ref.metric("sales.revenue"))
+    assert exc_info.value.kind == ErrorKind.INVALID_REF
+    assert "catalog.metrics" in str(exc_info.value)
 
 
-def test_metric_details_preserve_measure_ref_and_business_context(
-    semantic_project_factory,
+def test_domain_and_catalog_collections_agree_on_metric_membership(
+    semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
+    domain = catalog.require(ms.ref.domain("sales"))
 
-    aggregate_metric = catalog.require(ms.ref.metric("sales.revenue")).details()
-    native_metric = catalog.require(ms.ref.metric("sales.native_revenue")).details()
-
-    assert isinstance(aggregate_metric, MetricDetails)
-    assert aggregate_metric.measure == make_ref("sales.orders.amount", SemanticKind.MEASURE)
-
-    assert isinstance(native_metric, MetricDetails)
-    assert (
-        native_metric.context.business_definition
-        == "Historical SQL: select sum(amount) from orders"
+    assert [ref.key for ref in catalog.metrics.refs] == ["metric:sales.revenue"]
+    assert [ref.key for ref in domain.metrics.refs] == ["metric:sales.revenue"]
+    scoped = domain.fields.get("sales.orders.amount")
+    global_amount = catalog.fields.get("sales.orders.amount")
+    assert type(scoped) is Measure and type(global_amount) is Measure
+    assert (scoped.ref, scoped.root, scoped.unit) == (
+        global_amount.ref,
+        global_amount.root,
+        global_amount.unit,
     )
+    assert catalog.metrics.get("revenue") is catalog.metrics.get(ms.ref.metric("sales.revenue"))
+
+
+def test_metric_value_carries_roots_unit_and_business_context(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    catalog = _catalog(semantic_project_factory)
+    orders = resolve(catalog, ms.ref.entity("sales.orders"))
+    revenue = catalog.metrics.get("sales.revenue")
+    contract = revenue.contract()
+
+    assert type(revenue) is Metric
+    assert isinstance(revenue.node, DeclaredMetricRef)
+    assert revenue.roots == (orders.ref,)
+    assert revenue.unit == "USD"
+    assert contract.stage == "published_metric"
+    assert contract.business_definition == "Historical SQL: select sum(amount) from orders"
+    assert contract.roots == (orders.ref,)
 
 
 def test_measure_preview_uses_measure_expression_without_context_columns(
-    semantic_project_factory,
+    semantic_project_factory: ProjectFactory,
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -158,7 +197,7 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
     )
 
     preview = catalog.preview(
-        catalog.require(ms.ref.measure("sales.orders.amount")).ref,
+        catalog.fields.get("sales.orders.amount"),
         scope=snapshot.scope,
         limit=3,
     )
@@ -169,26 +208,45 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.preview(
-            catalog.require(ms.ref.measure("sales.orders.amount")).ref,
+            catalog.fields.get("sales.orders.amount"),
             scope=snapshot.scope,
             context_columns=("region",),
         )
 
+    assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "context_columns" in str(exc_info.value)
-    assert "dimension" in str(exc_info.value)
 
 
-def test_analysis_axis_inputs_reject_loaded_measure_objects(
-    semantic_project_factory, analysis_dsl_case_factory
+def test_published_metric_and_declared_measure_have_no_physical_preview(
+    semantic_project_factory: ProjectFactory,
+    tmp_path,
+    monkeypatch,
 ) -> None:
-    catalog = _catalog(semantic_project_factory)
+    database_path = tmp_path / "warehouse.duckdb"
+    backend = _preview_backend(str(database_path))
+    backend.disconnect()
+    project = semantic_project_factory(
+        {
+            "datasources/warehouse.py": (
+                "import marivo.datasource as md\n"
+                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            ),
+            "sales/_domain.py": _DOMAIN_PY,
+            "sales/models.py": _MODEL_PY,
+        }
+    )
+    monkeypatch.chdir(tmp_path)
+    catalog = SemanticCatalog(project)
+    snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("orders")).sample(
+        scope=md.unpruned(max_rows=2, timeout_seconds=30),
+        columns=("order_id", "amount", "region", "order_date"),
+    )
 
-    with pytest.raises(DatasetConstructionError) as exc_info:
-        analysis_dsl_case_factory("j2").session.members(ms.ref.entity("sales.customer")).observe(
-            ms.ref.metric("sales.revenue"),
-            by=(catalog.require(ms.ref.measure("sales.orders.amount")),),
-        )
-
-    message = str(exc_info.value)
-    assert "MeasureEntry" in message
-    assert "dimension" in message.lower()
+    for value in (
+        catalog.metrics.get("sales.revenue"),
+        catalog.fields.get("sales.orders.margin"),
+    ):
+        with pytest.raises(SemanticRuntimeError) as exc_info:
+            catalog.preview(value, scope=snapshot.scope, limit=1)
+        assert exc_info.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE
+        assert "no physical preview" in str(exc_info.value)

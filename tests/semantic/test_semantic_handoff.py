@@ -55,14 +55,14 @@ def test_project_handoff_separates_static_and_physical_evidence(
     _extend_authoring_project(authoring_evidence_project)
     catalog = ms.load(workspace_dir=authoring_evidence_project)
     revenue = ms.ref.metric("sales.revenue")
+    amount = ms.ref.measure("sales.orders.amount")
     calendar = ms.ref.period_calendar("sales.fiscal")
-    assert tuple(catalog.require(ref).ref for ref in (revenue, calendar)) == (
-        revenue,
-        calendar,
-    )
+    revenue_identity = catalog.require(revenue).contract().ref
+    assert revenue_identity is not None and revenue_identity.ref == revenue
+    assert catalog.require(calendar).ref == calendar
 
-    baseline = catalog.readiness(refs=[revenue])
-    assert baseline.analysis_ready_inputs == (revenue,)
+    baseline = catalog.readiness(refs=[amount])
+    assert baseline.analysis_ready_inputs == (amount,)
     calendar_report = catalog.readiness(refs=[calendar])
     assert calendar_report.analysis_ready_inputs == ()
     assert any(
@@ -73,13 +73,13 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert ontology.edge_count == 1
     assert ontology.semantic_catalog_fingerprint == catalog.definition_fingerprint
     assert "entity:sales.orders -> metric:sales.revenue" in ontology.render()
-    assert catalog.readiness(refs=[revenue]).analysis_ready_inputs == (revenue,)
+    assert catalog.readiness(refs=[amount]).analysis_ready_inputs == (amount,)
 
     scope = md.unpruned(max_rows=10, timeout_seconds=30)
-    preview = catalog.preview(revenue, scope=scope)
-    assert preview.rows == ({"value": 751.5},)
+    preview = catalog.preview(amount, scope=scope)
+    # The published revenue Metric sums these rows; its own execution arrives in R2.
+    assert sum(row["amount"] for row in preview.rows) == 751.5
     assert preview.coverage.scopes == (("sales.orders", scope),)
-    assert preview.coverage.scope_exactness == "sample_only"
 
     health = catalog.source_health(
         [ms.ref.entity("sales.orders")],
@@ -95,6 +95,6 @@ def test_project_handoff_separates_static_and_physical_evidence(
     assert value_check.status == "failed"
     assert value_check.user_data_queried is True
     assert value_check.scopes == ((ms.ref.entity("sales.orders"), scope),)
-    assert catalog.readiness(refs=[revenue]).to_dict() | {"checked_at": None} == (
+    assert catalog.readiness(refs=[amount]).to_dict() | {"checked_at": None} == (
         baseline.to_dict() | {"checked_at": None}
     )

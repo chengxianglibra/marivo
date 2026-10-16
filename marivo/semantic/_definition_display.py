@@ -7,7 +7,7 @@ import copy
 from collections.abc import Mapping
 
 from marivo.refs import EntityKind, FieldKind, Ref, SemanticKindTag
-from marivo.semantic.definition import _ExpressionDisplay
+from marivo.semantic._definition_expression_types import _ExpressionDisplay
 
 
 def describe_display(

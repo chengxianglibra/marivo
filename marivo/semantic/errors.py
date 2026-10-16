@@ -31,7 +31,6 @@ __all__ = [
     "ErrorKind",
     "SemanticContractScopeError",
     "SemanticDecoratorError",
-    "SemanticDefinitionReadError",
     "SemanticError",
     "SemanticHelpTargetError",
     "SemanticLoadError",
@@ -124,6 +123,7 @@ class ErrorKind(StrEnum):
     MISSING_DIMENSION_REF = "missing_dimension_ref"
     MISSING_METRIC_REF = "missing_metric_ref"
     CROSS_MODEL_CYCLE = "cross_model_cycle"
+    DEFINITION_CYCLE = "definition_cycle"
 
     INVALID_RELATIONSHIP_ENDPOINT = "invalid_relationship_endpoint"
     INVALID_RELATIONSHIP_MAPPING = "invalid_relationship_mapping"
@@ -349,45 +349,41 @@ class SemanticExpressionError(SemanticError):
     def from_definition(
         cls, error: DefinitionGraphError, *, operation: str
     ) -> SemanticExpressionError:
-        """Translate a private definition-layer failure raised while building ``operation``."""
+        """Translate a private definition-layer failure raised while building ``operation``.
+
+        Cycles and unresolved declared Metrics keep their own kinds; every other
+        definition failure is an invalid expression value.
+        """
         path = " > ".join(error.path) if error.path else None
+        details = {"definition_kind": error.kind, "definition_path": list(error.path)}
+        if error.kind == "cycle":
+            return cls(
+                kind=ErrorKind.DEFINITION_CYCLE,
+                message=f"{operation} found a definition dependency cycle.",
+                expected="an acyclic definition dependency graph",
+                received=str(error),
+                action="Remove one dependency along the reported path so no definition reads itself.",
+                details=details,
+                location_label=path,
+            )
+        if error.kind == "unresolved":
+            return cls(
+                kind=ErrorKind.MISSING_METRIC_REF,
+                message=f"{operation} references a Metric that is not published.",
+                expected="a Metric published by a loaded model",
+                received=str(error),
+                action="Publish the Metric at module level in a loaded model, or take it from catalog.metrics.",
+                details=details,
+                location_label=path,
+            )
         return cls(
             kind=ErrorKind.INVALID_EXPRESSION_VALUE,
             message=f"{operation} received a value the expression definition rejects.",
             expected=f"a valid {operation} input",
             received=str(error),
             action=f"Correct the {operation} input named above and rebuild the expression.",
-            details={"definition_kind": error.kind, "definition_path": list(error.path)},
+            details=details,
             location_label=path,
-        )
-
-
-class SemanticDefinitionReadError(SemanticError):
-    """A loaded definition cannot be faithfully projected to the public schema."""
-
-    def __init__(self, *, ref: str, location: SourceLocation, received: str) -> None:
-        """Report the owning ref, declaration location and safe failure category.
-
-        Returns an error carrying expected/received facts and a reauthor repair.
-        Example: ``raise SemanticDefinitionReadError(ref=key, location=loc,
-        received="unknown metric composition")``. Never pass raw source or secrets.
-        """
-        super().__init__(
-            kind=ErrorKind.DEFINITION_READ_FAILED,
-            message="The loaded semantic definition cannot be described safely.",
-            refs=(ref,),
-            location=location,
-            expected="a supported loaded declaration with JSON-safe parameters",
-            received=received,
-            hint="Inspect the named declaration and replace unsupported or non-JSON-safe parameters.",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="authoring",
-                action=(
-                    "Inspect the declaration at the reported location, replace unsupported or "
-                    "non-JSON-safe parameters, reload the Catalog, and retry definition reading."
-                ),
-            ),
         )
 
 

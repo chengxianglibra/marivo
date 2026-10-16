@@ -6,7 +6,6 @@ from typing_extensions import Never, assert_type
 from marivo.refs import (
     DatasourceKind,
     DimensionKind,
-    DomainKind,
     EntityKind,
     MeasureKind,
     MetricKind,
@@ -19,10 +18,10 @@ from marivo.refs import (
 from marivo.semantic import bind
 from marivo.semantic.catalog import (
     CatalogCollection,
-    DimensionEntry,
     DomainEntry,
     SemanticCatalog,
 )
+from marivo.semantic.expressions import CatalogField, Entity, Metric
 
 assert_type(ref_factory.datasource("warehouse"), Ref[DatasourceKind])
 assert_type(ref_factory.entity("sales.orders"), Ref[EntityKind])
@@ -48,7 +47,8 @@ def _field_call_contract(table: Table) -> None:
 
 
 def _catalog_collection_contract(catalog: SemanticCatalog) -> None:
-    assert_type(catalog.domains, CatalogCollection[DomainKind])
+    assert_type(catalog.domains, CatalogCollection[DomainEntry])
     assert_type(catalog.domains.get("sales"), DomainEntry)
-    assert_type(catalog.dimensions, CatalogCollection[DimensionKind])
-    assert_type(catalog.dimensions.get("region"), DimensionEntry)
+    assert_type(catalog.entities.get("sales.orders"), Entity)
+    assert_type(catalog.fields.get("sales.orders.region"), CatalogField)
+    assert_type(catalog.metrics.get("sales.revenue"), Metric)

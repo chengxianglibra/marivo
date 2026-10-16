@@ -162,6 +162,7 @@ def metric(
                     ai_context,
                     SourceLocation(location.file, location.line),
                 ),
+                _declared=value._declared,
             )
         except SemanticExpressionError as error:
             error.location = location

@@ -642,14 +642,17 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     metrics_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-
-        @ms.metric(
-            entities=[orders],
-            additivity=ms.additive_all(),
+        orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+        amount_ref = ms.measure_column(
+            name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
         )
-        def revenue(table):
-            return table.amount.sum()
+
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+
+        @ms.metric()
+        def revenue():
+            return amount.sum()
     """)
     project = semantic_project_factory(
         {

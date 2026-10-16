@@ -216,11 +216,17 @@ def _write_models_root(
             import marivo.semantic as ms
 
             source = ms.ref.datasource("{datasource_name}")
-            rows = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
+            rows_ref = ms.entity(name={entity!r}, datasource=source, source=md.table({entity!r}))
+            amount_ref = ms.measure_column(
+                name="amount", entity=rows_ref, column="amount", additivity=ms.additive_all()
+            )
 
-            @ms.metric(entities=[rows], additivity=ms.additive_all())
-            def {metric}(table):
-                return table.amount.sum()
+            finalized = ms.finalize()
+            amount = finalized.resolve(amount_ref)
+
+            @ms.metric()
+            def {metric}():
+                return amount.sum()
             """
         ),
         encoding="utf-8",
@@ -274,9 +280,10 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
         "local_warehouse",
         "external_warehouse",
     } <= top_level_refs
-    assert catalog.require(ms.ref.metric("sales.revenue")).ref.path == "sales.revenue"
+    assert catalog.require(ms.ref.metric("sales.revenue")).node.ref.ref.path == "sales.revenue"
     assert (
-        catalog.require(ms.ref.metric("finance.refunds_total")).ref.path == "finance.refunds_total"
+        catalog.require(ms.ref.metric("finance.refunds_total")).node.ref.ref.path
+        == "finance.refunds_total"
     )
 
 
@@ -291,7 +298,8 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs
     assert (
-        catalog.require(ms.ref.metric("finance.refunds_total")).ref.path == "finance.refunds_total"
+        catalog.require(ms.ref.metric("finance.refunds_total")).node.ref.ref.path
+        == "finance.refunds_total"
     )
 
 
@@ -311,9 +319,9 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
         + textwrap.dedent(
             """
 
-            @ms.metric(entities=[rows], additivity=ms.additive_all())
-            def net_refunds(table):
-                return table.net_amount.sum()
+            @ms.metric()
+            def net_refunds():
+                return amount.sum() * 2
             """
         ),
         encoding="utf-8",
@@ -321,7 +329,10 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
 
     catalog = ms.load(workspace_dir=project_root)
 
-    assert catalog.require(ms.ref.metric("finance.net_refunds")).ref.path == "finance.net_refunds"
+    assert (
+        catalog.require(ms.ref.metric("finance.net_refunds")).node.ref.ref.path
+        == "finance.net_refunds"
+    )
 
 
 def test_external_layer_datasource_supports_entity_verify_and_preview(
@@ -357,8 +368,8 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     )
 
     catalog = ms.load(workspace_dir=project_root)
-    entity_ref = catalog.require(ms.ref.entity("finance.refunds")).ref
-    metric_ref = catalog.require(ms.ref.metric("finance.refunds_total")).ref
+    entity_ref = catalog.require(ms.ref.entity("finance.refunds")).ref.ref
+    metric_ref = catalog.require(ms.ref.metric("finance.refunds_total")).node.ref.ref
     monkeypatch.chdir(project_root)
     snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),
@@ -368,7 +379,7 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
     verify = catalog.require(entity_ref)
     preview = catalog.preview(metric_ref, scope=snapshot.scope, limit=1)
 
-    assert verify.ref == entity_ref
+    assert verify.ref.ref == entity_ref
     assert preview.rows == ({"value": 150.0},)
 
 
@@ -474,6 +485,21 @@ def test_duplicate_semantic_id_across_roots_fails_with_paths(tmp_path: Path) -> 
         domain="finance",
         entity="orders",
         metric="orders",
+    )
+    # The local sales domain must still be open for capture when the external
+    # root contributes to it, so keep the local file physical-only.
+    local_objects = project_root / "models" / "semantic" / "sales" / "objects.py"
+    local_objects.write_text(
+        textwrap.dedent(
+            """
+            import marivo.datasource as md
+            import marivo.semantic as ms
+
+            source = ms.ref.datasource("local_warehouse")
+            rows = ms.entity(name="orders", datasource=source, source=md.table("orders"))
+            """
+        ),
+        encoding="utf-8",
     )
     external_objects = external_models / "semantic" / "finance" / "objects.py"
     external_objects.write_text(

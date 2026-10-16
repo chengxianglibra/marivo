@@ -1,36 +1,39 @@
-"""Tests for semantic layer discovery fixes.
+"""Tests for semantic catalog discovery on the value-based surface.
 
 Covers four related catalog discovery behaviors:
-1. catalog.metrics returns metrics at top level
-2. catalog.<collection> provides typed browsing
-3. DomainDetails and other *Details types have no render/show/repr
-4. Catalog objects expose typed children via details() only
+1. catalog.metrics and catalog.entities return expression values at top level
+2. catalog.relationships returns Relationship values
+3. catalog.fields holds Dimension, TimeField and Measure values
+4. domains/datasources collections and require() resolve only their own kinds
 """
 
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable
+from typing import TypeAlias
 
 import pytest
 
-import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.refs import Ref, SemanticKindTag
+from marivo._definition.expressions import DeclaredMetricRef
 from marivo.semantic.catalog import (
-    DatasourceDetails,
-    DimensionDetails,
-    DomainDetails,
-    EntityDetails,
-    RelationshipDetails,
-    RelationshipEntry,
+    DatasourceEntry,
+    DomainEntry,
     SemanticCatalog,
-    SemanticKind,
-    SimpleMetricDetails,
-    TimeDimensionDetails,
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import SourceLocation
-from tests.support.refs import make_ref
+from marivo.semantic.expressions import (
+    Dimension,
+    Entity,
+    Measure,
+    Metric,
+    Relationship,
+    TimeField,
+)
+from marivo.semantic.reader import SemanticProject
+
+ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -45,26 +48,89 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _DATASETS_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
 
-    @ms.dimension(entity=orders)
-    def region(table):
-        return table.region
-
-    @ms.time_dimension(entity=orders, granularity="day", parse=ms.timestamp(timezone="UTC"))
-    def created_at(table):
-        return table.created_at
-
-    @ms.metric(
-        entities=[orders],
-        additivity=ms.additive_all(),
+    orders = ms.entity(
+        name="orders",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
     )
-    def revenue(table):
-        return table.amount.sum()
+    region = ms.dimension_column(name="region", entity=orders, column="region")
+    created_at = ms.time_dimension_column(
+        name="created_at",
+        entity=orders,
+        column="created_at",
+        granularity="day",
+        parse=ms.timestamp(timezone="UTC"),
+        is_default=True,
+    )
+    amount = ms.measure_column(
+        name="amount",
+        entity=orders,
+        column="amount",
+        additivity=ms.additive_all(),
+        unit="CNY",
+    )
+
+    finalized = ms.finalize()
+    amount_value = finalized.resolve(amount)
+    created_at_value = finalized.resolve(created_at)
+
+    @ms.metric()
+    def revenue():
+        return amount_value.sum(time=created_at_value)
+""")
+
+_OPS_DOMAIN_PY = textwrap.dedent("""\
+    import marivo.semantic as ms
+    ms.domain(name="ops", owner="Mina Zhang")
+""")
+
+_OPS_DATASETS_PY = textwrap.dedent("""\
+    import marivo.datasource as md
+    import marivo.semantic as ms
+
+    events = ms.entity(
+        name="events",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("events"),
+    )
+
+    finalized = ms.finalize()
+    events_value = finalized.resolve(events)
+
+    @ms.metric()
+    def event_count():
+        return events_value.count()
+""")
+
+_RELATIONSHIP_PY = textwrap.dedent("""\
+    import marivo.datasource as md
+    import marivo.semantic as ms
+
+    orders = ms.entity(
+        name="orders",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
+        primary_key=["order_id"],
+    )
+    users = ms.entity(
+        name="users",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("users"),
+        primary_key=["id"],
+    )
+    user_id = ms.dimension_column(name="user_id", entity=orders, column="user_id")
+    id = ms.dimension_column(name="id", entity=users, column="id")
+    ms.relationship(
+        name="orders_to_users",
+        from_entity=orders,
+        to_entity=users,
+        keys=[ms.join_on(user_id, id)],
+    )
 """)
 
 
-def _make_catalog(semantic_project_factory) -> SemanticCatalog:
+def _make_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -74,475 +140,214 @@ def _make_catalog(semantic_project_factory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def _make_multi_domain_catalog(semantic_project_factory) -> SemanticCatalog:
+def _make_multi_domain_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
             "sales/datasets.py": _DATASETS_PY,
-            "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
-            "ops/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-                "@ms.metric(entities=[events], additivity=ms.additive_all(), )\n"
-                "def event_count(table):\n"
-                "    return table.id.nunique()\n"
-            ),
+            "ops/_domain.py": _OPS_DOMAIN_PY,
+            "ops/datasets.py": _OPS_DATASETS_PY,
         }
     )
     return SemanticCatalog(project)
 
 
-def _make_ref(r: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
-    return make_ref(r, kind)
-
-
-def _make_ctx():
-    from marivo.semantic.catalog import AiContextView
-
-    return AiContextView(
-        business_definition=None,
-        guardrails=(),
+def _make_relationship_catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
+    project = semantic_project_factory(
+        {
+            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
+            "sales/datasets.py": _RELATIONSHIP_PY,
+        }
     )
+    return SemanticCatalog(project)
 
 
-def _make_loc() -> SourceLocation:
-    return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
+# ---------------------------------------------------------------------------
+# Top-level collections return the published values
+# ---------------------------------------------------------------------------
 
 
-def _common_details_kwargs(*, python_symbol: str = "") -> dict[str, object]:
-    return {
-        "python_symbol": python_symbol,
+def test_discovery_metrics_returns_metrics(semantic_project_factory: ProjectFactory) -> None:
+    result = _make_catalog(semantic_project_factory).metrics
+
+    assert result.refs == (ms.ref.metric("sales.revenue"),)
+    assert all(isinstance(obj, Metric) for obj in result.items)
+    for obj in result.items:
+        assert isinstance(obj.node, DeclaredMetricRef)
+        assert str(obj.node.ref.ref.kind) == "metric"
+
+
+def test_discovery_metrics_get_returns_revenue_with_exact_ref(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    result = _make_catalog(semantic_project_factory).metrics
+
+    revenue = result.get("sales.revenue")
+    assert isinstance(revenue.node, DeclaredMetricRef)
+    assert revenue.node.ref.ref == ms.ref.metric("sales.revenue")
+    assert revenue.node.ref.version.startswith("sha256:")
+    assert result.get(ms.ref.metric("sales.revenue")) == revenue
+
+
+def test_discovery_metrics_cross_domain(semantic_project_factory: ProjectFactory) -> None:
+    result = _make_multi_domain_catalog(semantic_project_factory).metrics
+
+    assert {ref.path for ref in result.refs} == {"sales.revenue", "ops.event_count"}
+    assert all(isinstance(obj, Metric) for obj in result.items)
+
+
+def test_discovery_entities_returns_entities(semantic_project_factory: ProjectFactory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+    result = catalog.entities
+
+    assert result.refs == (ms.ref.entity("sales.orders"),)
+    assert all(isinstance(obj, Entity) for obj in result.items)
+
+    orders = result.get("sales.orders")
+    assert orders.ref.ref == ms.ref.entity("sales.orders")
+
+    created_at = catalog.fields.get("sales.orders.created_at")
+    assert isinstance(created_at, TimeField)
+    assert orders.default_time == created_at.ref
+
+
+def test_discovery_fields_holds_dimension_time_field_and_measure(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    result = _make_catalog(semantic_project_factory).fields
+
+    kinds: set[str] = set()
+    for value in result.items:
+        assert isinstance(value, (Dimension, TimeField, Measure))
+        kinds.add(str(value.ref.ref.kind))
+    assert kinds == {"dimension", "time_dimension", "measure"}
+    assert {ref.key for ref in result.refs} == {
+        "dimension:sales.orders.region",
+        "time_dimension:sales.orders.created_at",
+        "measure:sales.orders.amount",
     }
 
 
-# ---------------------------------------------------------------------------
-# Change 1: catalog.metrics returns metrics at top level
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_metrics_returns_metrics(semantic_project_factory):
+def test_discovery_fields_get_returns_typed_values(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
-    assert len(result.items) >= 1
-    assert all(str(obj.ref.kind) == "metric" for obj in result.items)
+
+    assert isinstance(catalog.fields.get("sales.orders.region"), Dimension)
+    assert isinstance(catalog.fields.get("sales.orders.created_at"), TimeField)
+
+    amount = catalog.fields.get("sales.orders.amount")
+    assert isinstance(amount, Measure)
+    assert amount.unit == "CNY"
+    assert amount.root.ref == ms.ref.entity("sales.orders")
 
 
-def test_discovery_metrics_includes_revenue(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
-    refs = {obj.ref.path for obj in result.items}
-    assert "sales.revenue" in refs
-
-
-def test_discovery_metrics_cross_domain(semantic_project_factory):
-    catalog = _make_multi_domain_catalog(semantic_project_factory)
-    result = catalog.metrics
-    refs = {obj.ref.path for obj in result.items}
-    assert "sales.revenue" in refs
-    assert "ops.event_count" in refs
-
-
-def test_discovery_entities_returns_entities(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.entities
-    assert len(result.items) >= 1
-    assert all(str(obj.ref.kind) == "entity" for obj in result.items)
-
-
-def test_discovery_dimensions_returns_dimensions(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.dimensions
-    assert len(result.items) >= 1
-    assert all(str(obj.ref.kind) == "dimension" for obj in result.items)
-
-
-def test_discovery_time_dimensions_returns_time_dimensions(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.time_dimensions
-    assert len(result.items) >= 1
-    assert all(str(obj.ref.kind) == "time_dimension" for obj in result.items)
-
-
-def test_discovery_relationships_returns_relationships(semantic_project_factory):
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/datasets.py": (
-                "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-                "orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'))\n"
-                "users = ms.entity(name='users', datasource=ms.ref.datasource('warehouse'), source=md.table('users'), primary_key=['id'])\n"
-                "user_id = ms.dimension_column(name='user_id', entity=orders, column='user_id')\n"
-                "id = ms.dimension_column(name='id', entity=users, column='id')\n"
-                "ms.relationship(\n"
-                "    name='orders_to_users',\n"
-                "    from_entity=orders,\n"
-                "    to_entity=users,\n"
-                "    keys=[ms.join_on(user_id, id)],\n"
-                ")\n"
-            ),
-        }
-    )
-    catalog = SemanticCatalog(project)
+def test_discovery_relationships_returns_relationships(
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    catalog = _make_relationship_catalog(semantic_project_factory)
     result = catalog.relationships
-    assert len(result.items) >= 1
-    assert all(isinstance(obj, RelationshipEntry) for obj in result.items)
 
-
-def test_discovery_top_level_domains_and_datasources(
-    semantic_project_factory,
-):
-    """Top-level domain/datasource collections return only container kinds."""
-    catalog = _make_catalog(semantic_project_factory)
-    domain_kinds = {str(obj.ref.kind) for obj in catalog.domains.items}
-    ds_kinds = {str(obj.ref.kind) for obj in catalog.datasources.items}
-    assert domain_kinds == {"domain"}
-    assert ds_kinds == {"datasource"}
+    assert result.refs == (ms.ref.relationship("sales.orders_to_users"),)
+    relationship = result.get("sales.orders_to_users")
+    assert isinstance(relationship, Relationship)
+    assert relationship.from_entity.ref == ms.ref.entity("sales.orders")
+    assert relationship.to_entity.ref == ms.ref.entity("sales.users")
+    assert relationship.cardinality == "many_to_one"
+    assert isinstance(catalog.require(ms.ref.relationship("sales.orders_to_users")), Relationship)
 
 
 # ---------------------------------------------------------------------------
-# Change 2: Typed collections provide scoped browsing via collection.get(...)
+# Domain and datasource collections return only their own kinds
 # ---------------------------------------------------------------------------
 
 
-def test_discovery_entities_collection_returns_entities(semantic_project_factory):
+def test_discovery_top_level_domains_and_datasources_return_only_their_kinds(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    entity_result = catalog.entities
-    metric_result = catalog.metrics
-    assert any(str(obj.ref.kind) == "entity" for obj in entity_result.items)
-    assert any(str(obj.ref.kind) == "metric" for obj in metric_result.items)
+
+    assert {str(ref.kind) for ref in catalog.domains.refs} == {"domain"}
+    assert all(isinstance(obj, DomainEntry) for obj in catalog.domains.items)
+
+    assert {str(ref.kind) for ref in catalog.datasources.refs} == {"datasource"}
+    assert all(isinstance(obj, DatasourceEntry) for obj in catalog.datasources.items)
+    assert "datasource:warehouse" in {ref.key for ref in catalog.datasources.refs}
 
 
-def test_discovery_metrics_collection_has_revenue(semantic_project_factory):
+def test_discovery_domain_and_datasource_scope_their_members(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.metrics
-    assert all(str(obj.ref.kind) == "metric" for obj in result.items)
-    assert any(obj.ref.path == "sales.revenue" for obj in result.items)
+
+    sales = catalog.domains.get("sales")
+    assert sales.metrics.refs == (ms.ref.metric("sales.revenue"),)
+    assert {ref.key for ref in sales.fields.refs} == {
+        "dimension:sales.orders.region",
+        "time_dimension:sales.orders.created_at",
+        "measure:sales.orders.amount",
+    }
+
+    warehouse = catalog.datasources.get("warehouse")
+    assert warehouse.entities.refs == (ms.ref.entity("sales.orders"),)
 
 
-def test_discovery_entities_collection_has_orders(semantic_project_factory):
+# ---------------------------------------------------------------------------
+# require() membership and NOT_FOUND behavior
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_require_resolves_every_expression_member(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    result = catalog.entities
-    assert all(str(obj.ref.kind) == "entity" for obj in result.items)
-    assert any(obj.ref.path == "sales.orders" for obj in result.items)
+
+    assert catalog.entities.refs
+    for ref in catalog.entities.refs:
+        assert isinstance(catalog.require(ref), Entity)
+    assert catalog.fields.refs
+    for ref in catalog.fields.refs:
+        assert isinstance(catalog.require(ref), (Dimension, TimeField, Measure))
+    assert catalog.metrics.refs
+    for ref in catalog.metrics.refs:
+        assert isinstance(catalog.require(ref), Metric)
 
 
-def test_discovery_multi_domain_metrics_contains_both(semantic_project_factory):
-    catalog = _make_multi_domain_catalog(semantic_project_factory)
-    result = catalog.metrics
-    refs = {obj.ref.path for obj in result.items}
-    assert "ops.event_count" in refs
-    assert "sales.revenue" in refs
-
-
-def test_discovery_unknown_domain_raises_error(semantic_project_factory):
+def test_discovery_require_resolves_container_entries(
+    semantic_project_factory: ProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
+
+    assert isinstance(catalog.require(ms.ref.domain("sales")), DomainEntry)
+    assert isinstance(catalog.require(ms.ref.datasource("warehouse")), DatasourceEntry)
+
+
+def test_discovery_unknown_domain_raises_error(semantic_project_factory: ProjectFactory) -> None:
+    catalog = _make_catalog(semantic_project_factory)
+
     with pytest.raises(SemanticRuntimeError) as exc_info:
         catalog.require(ms.ref.domain("nonexistent"))
+
     assert exc_info.value.kind == ErrorKind.NOT_FOUND
+    assert "sales" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
-# Change 3: *Details types have render/show/repr
+# Plain reads stay silent
 # ---------------------------------------------------------------------------
 
 
-def test_discovery_domain_details_repr_is_single_line():
-    d = DomainDetails(
-        ref=_make_ref("sales", SemanticKind.DOMAIN),
-        kind=SemanticKind.DOMAIN,
-        name="sales",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(),
-        children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        dependents=(),
-        **_common_details_kwargs(),
-        owner="Mina Zhang",
-        default=True,
-    )
-    r = repr(d)
-    assert isinstance(r, str)
-    assert "\n" not in r
-    assert "sales" in r
-
-
-def test_discovery_domain_details_render_returns_str():
-    d = DomainDetails(
-        ref=_make_ref("sales", SemanticKind.DOMAIN),
-        kind=SemanticKind.DOMAIN,
-        name="sales",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(),
-        children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        dependents=(),
-        **_common_details_kwargs(),
-        owner="Mina Zhang",
-        default=True,
-    )
-    rendered = d.render()
-    assert isinstance(rendered, str)
-    assert "sales" in rendered
-    assert "owner: Mina Zhang" in rendered
-    assert "children" in rendered
-
-
-def test_discovery_domain_details_show_prints_output(capsys):
-    d = DomainDetails(
-        ref=_make_ref("sales", SemanticKind.DOMAIN),
-        kind=SemanticKind.DOMAIN,
-        name="sales",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(),
-        children=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        dependents=(),
-        **_common_details_kwargs(),
-        owner="Mina Zhang",
-        default=True,
-    )
-    d.show()
-    out = capsys.readouterr().out
-    assert "sales" in out
-
-
-def test_discovery_metric_details_repr_is_single_line():
-    d = SimpleMetricDetails(
-        ref=_make_ref("sales.revenue", SemanticKind.METRIC),
-        kind=SemanticKind.METRIC,
-        name="revenue",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="revenue"),
-        entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        aggregation=None,
-        measure=None,
-        additivity="additive",
-        fanout_policy="block",
-        unit=None,
-        fold=None,
-        status_time_dimension=None,
-    )
-    r = repr(d)
-    assert isinstance(r, str)
-    assert "\n" not in r
-    assert "revenue" in r
-
-
-def test_discovery_metric_details_render_shows_additivity():
-    d = SimpleMetricDetails(
-        ref=_make_ref("sales.revenue", SemanticKind.METRIC),
-        kind=SemanticKind.METRIC,
-        name="revenue",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="revenue"),
-        entities=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        root_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        aggregation=None,
-        measure=None,
-        additivity="additive",
-        fanout_policy="block",
-        unit=None,
-        fold=None,
-        status_time_dimension=None,
-    )
-    rendered = d.render()
-    assert "additive" in rendered
-
-
-def test_discovery_datasource_details_repr():
-    d = DatasourceDetails(
-        ref=_make_ref("warehouse", SemanticKind.DATASOURCE),
-        kind=SemanticKind.DATASOURCE,
-        name="warehouse",
-        domain=None,
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="warehouse"),
-        backend_type="duckdb",
-        fields={"path": ":memory:"},
-        env_refs={},
-    )
-    r = repr(d)
-    assert "warehouse" in r
-
-
-def test_discovery_entity_details_render():
-    from marivo.semantic.dtos import TableSource
-
-    d = EntityDetails(
-        definition_form="direct",
-        ref=_make_ref("sales.orders", SemanticKind.ENTITY),
-        kind=SemanticKind.ENTITY,
-        name="orders",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="orders"),
-        datasource=_make_ref("warehouse", SemanticKind.DATASOURCE),
-        source=TableSource(table="orders", database=None),
-        primary_key=("order_id",),
-        versioning=None,
-    )
-    rendered = d.render()
-    assert isinstance(rendered, str)
-    assert "orders" in rendered
-
-
-def test_projected_entity_details_render_is_bounded_and_recoverable():
-    source = md.table(
-        "wide_events",
-        database=("analytics", "with.dot"),
-        columns={f"alias_{index:03d}": f"physical_{index:03d}" for index in range(80)},
-    )
-    details = EntityDetails(
-        definition_form="direct",
-        ref=_make_ref("sales.wide_events", SemanticKind.ENTITY),
-        kind=SemanticKind.ENTITY,
-        name="wide_events",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("warehouse", SemanticKind.DATASOURCE),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="wide_events"),
-        datasource=_make_ref("warehouse", SemanticKind.DATASOURCE),
-        source=source,
-        primary_key=("alias_000",),
-        versioning=None,
-    )
-
-    rendered = details.render(max_output_bytes=1500)
-
-    assert "projected_columns: 80" in rendered
-    assert "database: segments=('analytics', 'with.dot')" in rendered
-    assert "full_source: .source.to_dict()" in rendered
-    assert "column_bindings" in rendered
-    assert "total=80" in rendered
-    assert '"columns":' not in rendered
-
-
-def test_discovery_dimension_details_render():
-    d = DimensionDetails(
-        ref=_make_ref("sales.orders.region", SemanticKind.DIMENSION),
-        kind=SemanticKind.DIMENSION,
-        name="region",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="region"),
-        entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-    )
-    rendered = d.render()
-    assert "region" in rendered
-
-
-def test_discovery_time_dimension_details_render():
-    d = TimeDimensionDetails(
-        ref=_make_ref("sales.orders.created_at", SemanticKind.TIME_DIMENSION),
-        kind=SemanticKind.TIME_DIMENSION,
-        name="created_at",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(_make_ref("sales.orders", SemanticKind.ENTITY),),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(python_symbol="created_at"),
-        entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        parse_kind="timestamp",
-        data_type="timestamp",
-        granularity="day",
-        format=None,
-        timezone="UTC",
-        is_default=True,
-        sample_interval=None,
-    )
-    rendered = d.render()
-    assert "created_at" in rendered
-
-
-def test_discovery_relationship_details_render():
-    d = RelationshipDetails(
-        ref=_make_ref("sales.orders_to_users", SemanticKind.RELATIONSHIP),
-        kind=SemanticKind.RELATIONSHIP,
-        name="orders_to_users",
-        domain="sales",
-        context=_make_ctx(),
-        source_location=_make_loc(),
-        parents=(
-            _make_ref("sales.orders", SemanticKind.ENTITY),
-            _make_ref("sales.users", SemanticKind.ENTITY),
-        ),
-        children=(),
-        dependents=(),
-        **_common_details_kwargs(),
-        from_entity=_make_ref("sales.orders", SemanticKind.ENTITY),
-        to_entity=_make_ref("sales.users", SemanticKind.ENTITY),
-        from_keys=("user_id",),
-        to_keys=("id",),
-        cardinality="many_to_one",
-        from_version_resolution_required=False,
-        to_version_resolution_required=False,
-    )
-    rendered = d.render()
-    assert "orders_to_users" in rendered
-
-
-# ---------------------------------------------------------------------------
-# Change 4: Catalog object children via details() only
-# ---------------------------------------------------------------------------
-
-
-def test_discovery_domain_object_children_returns_refs(semantic_project_factory):
+def test_discovery_reads_emit_no_stdout(
+    semantic_project_factory: ProjectFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
-    domain_obj = catalog.require(ms.ref.domain("sales"))
-    children = domain_obj.details().children
-    assert isinstance(children, tuple)
-    child_refs = {r.path for r in children}
-    assert "sales.orders" in child_refs
-    assert "sales.revenue" in child_refs
 
+    _ = catalog.metrics.refs
+    _ = catalog.fields.items
+    _ = catalog.entities.get("sales.orders")
+    _ = len(catalog.relationships)
+    _ = catalog.domains.get("sales").metrics
+    _ = repr(catalog.fields)
 
-def test_discovery_entity_object_children_returns_field_refs(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    entity_obj = catalog.require(ms.ref.entity("sales.orders"))
-    children = entity_obj.details().children
-    assert isinstance(children, tuple)
-    child_refs = {r.path for r in children}
-    assert "sales.orders.region" in child_refs or "sales.orders.created_at" in child_refs
-
-
-def test_discovery_metric_object_children_returns_empty_tuple(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    metric_obj = catalog.require(ms.ref.metric("sales.revenue"))
-    assert metric_obj.details().children == ()
-
-
-def test_discovery_dimension_object_children_returns_empty_tuple(semantic_project_factory):
-    catalog = _make_catalog(semantic_project_factory)
-    dim_obj = catalog.require(ms.ref.dimension("sales.orders.region"))
-    assert dim_obj.details().children == ()
+    assert capsys.readouterr().out == ""

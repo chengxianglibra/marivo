@@ -15,7 +15,7 @@ from __future__ import annotations
 import ast
 import sys
 import types
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from hashlib import sha1
@@ -33,7 +33,7 @@ from marivo.datasource.errors import (
 )
 from marivo.datasource.ir import DatasourceIR
 from marivo.datasource.loader import _load_models_datasources, _models_root_errors
-from marivo.refs import FieldKind, Ref, SemanticKindTag
+from marivo.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompiledSemanticState, build_compiled_state
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
@@ -61,8 +61,9 @@ from marivo.semantic.validator import (
 )
 
 if TYPE_CHECKING:
+    from marivo._definition.types import ExactRef
     from marivo.semantic._authoring_context import PendingDefinition
-    from marivo.semantic.expressions import FinalizedDeclarations
+    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric, FinalizedDeclarations
 
 __all__ = [
     "LoadResult",
@@ -88,6 +89,8 @@ class LoaderContext:
     datasource_irs: tuple[DatasourceIR, ...] = ()
     prior_contexts: tuple[LoaderContext, ...] = ()
     finalized: FinalizedDeclarations | None = None
+    # Module-level Measure/Metric declarations, collected once per object.
+    declarations: list[DeclaredMeasure | DeclaredMetric] = field(default_factory=list)
 
 
 _LOADER_CTX: ContextVar[LoaderContext | None] = ContextVar(
@@ -515,8 +518,10 @@ def _load_model_dir(
             continue
         sibling_files.append(child)
 
+    module_names = [f"{model_package}._domain"]
     for sibling in sibling_files:
         module_name = f"{model_package}.{sibling.stem}"
+        module_names.append(module_name)
         if module_name in sys.modules:
             continue
         ctx.current_model_file = str(sibling)
@@ -528,7 +533,244 @@ def _load_model_dir(
             package_name=model_package,
         )
 
+    _collect_module_declarations(ctx, module_names)
     return ctx
+
+
+def _collect_module_declarations(ctx: LoaderContext, module_names: Sequence[str]) -> None:
+    """Record module-level Measure/Metric declarations once, in file order.
+
+    Only declarations decorated in this model directory's own files are
+    collected; an alias or an import of a declaration from another model never
+    re-publishes it here.
+    """
+    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric
+
+    modules = [sys.modules[name] for name in module_names if name in sys.modules]
+    own_files = {getattr(module, "__file__", None) for module in modules}
+    for module in modules:
+        for value in vars(module).values():
+            if not isinstance(value, (DeclaredMeasure, DeclaredMetric)):
+                continue
+            location = value.declaration.location
+            if location is None or location.path not in own_files:
+                continue
+            if not any(value is item for item in ctx.declarations):
+                ctx.declarations.append(value)
+
+
+def _declaration_site(value: DeclaredMeasure | DeclaredMetric) -> str:
+    location = value.declaration.location
+    return f"{location.path}:{location.line}" if location is not None else "<unknown>"
+
+
+def _publish_declarations(
+    all_contexts: Sequence[LoaderContext], registry: Registry
+) -> list[SemanticError]:
+    """Qualify, admit and publish collected pure declarations into ``registry``.
+
+    A Metric is qualified by its explicit domain or its model's default domain;
+    a Measure by its contribution root. Distinct declarations cannot share a
+    full name, and a closure bound to an execution Session is not admitted.
+    Collection never executes a domain or reads a source.
+    """
+    from marivo._definition.expressions import MetricNode
+    from marivo._definition.graph import walk
+    from marivo._definition.types import DefinitionGraphError
+    from marivo.semantic.errors import SemanticExpressionError
+    from marivo.semantic.expressions import DeclaredMeasure
+
+    errors: list[SemanticError] = []
+    sites: dict[str, str] = {}
+    defined = _defined_kinds(registry)
+
+    def published_node(exact: ExactRef) -> MetricNode | None:
+        declared = registry.declared_metrics.get(exact.ref.path)
+        return declared.node if declared is not None else None
+
+    for ctx in all_contexts:
+        for value in ctx.declarations:
+            name = value.declaration.name
+            physical: str | None = None
+            if isinstance(value, DeclaredMeasure):
+                full = f"{value.root.ref.path}.{name}"
+                existing = registry.measures.get(full) or registry.dimensions.get(full)
+                physical = _semantic_source_path(existing) if existing is not None else None
+            else:
+                domain = value.declaration.domain
+                choices = ", ".join(sorted(registry.domains)) or "(none)"
+                if domain is not None and domain.path not in registry.domains:
+                    errors.append(
+                        SemanticExpressionError(
+                            kind=ErrorKind.MISSING_DOMAIN,
+                            message=f"Metric {name!r} names a domain this model does not declare.",
+                            refs=(name, domain.key),
+                            expected=f"one of the declared domains: {choices}",
+                            received=f"domain={domain.path}",
+                            action="Pass an existing domain ref, or omit domain= to use the model's default domain.",
+                            location_label=_declaration_site(value),
+                        )
+                    )
+                    continue
+                qualifier = domain.path if domain is not None else ctx.default_domain
+                if qualifier is None:
+                    errors.append(
+                        SemanticExpressionError(
+                            kind=ErrorKind.MISSING_DOMAIN,
+                            message=f"Metric {name!r} has no domain to publish under.",
+                            refs=(name,),
+                            expected=f"domain=ms.ref.domain(...) naming one of: {choices}",
+                            received="no explicit domain and no default domain",
+                            action="Pass domain= explicitly, or declare the model's domain with default=True.",
+                            location_label=_declaration_site(value),
+                        )
+                    )
+                    continue
+                full = f"{qualifier}.{name}"
+                existing_metric = registry.metrics.get(full)
+                physical = (
+                    _semantic_source_path(existing_metric) if existing_metric is not None else None
+                )
+            first = physical or sites.get(full)
+            if first is not None:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.DUPLICATE_NAME,
+                        message=(
+                            f"Duplicate semantic_id: {full!r}. First declaration: {first}. "
+                            f"Conflicting declaration: {_declaration_site(value)}."
+                        ),
+                        refs=(full, first, _declaration_site(value)),
+                        hint="Rename one declaration function; import order never decides a winner.",
+                    )
+                )
+                continue
+            sites[full] = _declaration_site(value)
+            try:
+                closure = walk((value.node,), resolve=published_node)
+            except DefinitionGraphError as error:
+                converted = SemanticExpressionError.from_definition(
+                    error, operation=f"collection of {full}"
+                )
+                converted.semantic_refs = (full,)
+                errors.append(converted)
+                continue
+            if closure.owner is not None:
+                errors.append(
+                    SemanticExpressionError(
+                        kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+                        message=f"{full} depends on a definition bound to an execution Session.",
+                        refs=(full,),
+                        expected="a dependency closure that resolves without an execution Session",
+                        received=(
+                            f"Session {closure.owner.session_id}/{closure.owner.owner_id} "
+                            "owns a Population or Query in the closure"
+                        ),
+                        action=(
+                            "Keep this expression in the analysis script, or rebuild the "
+                            "dependency from a literal domain or source program without a Session."
+                        ),
+                        location_label=_declaration_site(value),
+                    )
+                )
+                continue
+            scope_error = _closure_scope_error(full, value, closure.refs, defined)
+            if scope_error is not None:
+                errors.append(scope_error)
+                continue
+            if isinstance(value, DeclaredMeasure):
+                registry.declared_measures[full] = value
+                defined[full] = SemanticKind.MEASURE
+            else:
+                registry.declared_metrics[full] = value
+                defined[full] = SemanticKind.METRIC
+    return errors
+
+
+def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
+    """The kind of every definition this model scope declares, keyed by full path."""
+    kinds: dict[str, SemanticKind] = {}
+    for kind, paths in (
+        (SemanticKind.DOMAIN, registry.domains),
+        (SemanticKind.DATASOURCE, registry.datasources),
+        (SemanticKind.ENTITY, registry.entities),
+        (SemanticKind.MEASURE, registry.measures),
+        (SemanticKind.RELATIONSHIP, registry.relationships),
+        (SemanticKind.PERIOD_CALENDAR, registry.period_calendars),
+        (SemanticKind.TEMPORAL_SET, registry.temporal_sets),
+        (SemanticKind.WORK_SCHEDULE, registry.work_schedules),
+    ):
+        kinds.update(dict.fromkeys(paths, kind))
+    for path, dimension in registry.dimensions.items():
+        kinds[path] = (
+            SemanticKind.TIME_DIMENSION if dimension.is_time_dimension else SemanticKind.DIMENSION
+        )
+    return kinds
+
+
+# The first kind present names the error; an absent Entity explains its fields.
+_MISSING_REF_KINDS: tuple[tuple[SemanticKind, ErrorKind], ...] = (
+    (SemanticKind.ENTITY, ErrorKind.MISSING_ENTITY_REF),
+    (SemanticKind.METRIC, ErrorKind.MISSING_METRIC_REF),
+    (SemanticKind.MEASURE, ErrorKind.UNKNOWN_MEASURE),
+    (SemanticKind.DIMENSION, ErrorKind.MISSING_DIMENSION_REF),
+    (SemanticKind.TIME_DIMENSION, ErrorKind.MISSING_DIMENSION_REF),
+)
+
+
+def _closure_scope_error(
+    full: str,
+    value: DeclaredMeasure | DeclaredMetric,
+    consumed: frozenset[ExactRef],
+    defined: Mapping[str, SemanticKind],
+) -> SemanticError | None:
+    """Reject a closure that consumes a definition this model scope does not declare.
+
+    Every consumed ref must name a definition of the same kind and path here;
+    a value built from another scope cannot be published by reference alone.
+    """
+    from marivo.semantic.errors import SemanticExpressionError
+
+    missing = sorted(exact.ref.key for exact in consumed if exact.ref.path not in defined)
+    miskinded = sorted(
+        f"{exact.ref.key} (declared here as {defined[exact.ref.path].value})"
+        for exact in consumed
+        if exact.ref.path in defined and defined[exact.ref.path] is not exact.ref.kind
+    )
+    if missing:
+        missing_kinds = {key.split(":", 1)[0] for key in missing}
+        kind = next(
+            (
+                error_kind
+                for semantic_kind, error_kind in _MISSING_REF_KINDS
+                if semantic_kind.value in missing_kinds
+            ),
+            ErrorKind.NOT_FOUND,
+        )
+        return SemanticExpressionError(
+            kind=kind,
+            message=f"{full} consumes definitions this model does not declare.",
+            refs=(full,),
+            expected="every consumed Entity, field and Metric declared in the loaded models",
+            received=", ".join(missing[:8]),
+            action=(
+                "Build the declaration from values resolved in this model "
+                "(ms.finalize() then finalized.resolve(ref)), or declare the missing "
+                "definitions in a loaded model."
+            ),
+            location_label=_declaration_site(value),
+        )
+    if miskinded:
+        return SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            message=f"{full} consumes a definition under a different kind than this model declares.",
+            refs=(full,),
+            expected="each consumed ref with the kind its definition is declared as",
+            received=", ".join(miskinded[:8]),
+            action="Rebuild the expression from values resolved in this model.",
+            location_label=_declaration_site(value),
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1031,6 +1273,7 @@ def load_project(
         errors.extend(assembly_errors)
 
         errors.extend(_semantic_duplicate_errors(all_contexts))
+        errors.extend(_publish_declarations(all_contexts, registry))
 
         loaded_models_set = {d.name for d in model_dirs} if models is not None else None
         asm_errors, asm_warnings = assembly_validate(

@@ -396,7 +396,8 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = ms.load()
-    entry = catalog.require(ms.ref.metric("sales.revenue"))
+    entry = catalog.require(ms.ref.datasource("warehouse"))
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
 
     def fail(*args: object, **kwargs: object) -> object:
         raise AssertionError("CatalogEntry help must not load, query, or infer readiness")
@@ -410,8 +411,12 @@ def test_catalog_entry_briefing_uses_loaded_facts_without_datasource_io(
 
     resolved = resolve_live_target(entry, SEMANTIC_LIVE_SURFACE)
     assert resolved.kind == "reference_briefing"
-    assert resolved.reference_id == "sales.revenue"
+    assert resolved.reference_id == "warehouse"
     assert marivo.help(entry) is None
+    value_help = resolve_live_target(revenue, SEMANTIC_LIVE_SURFACE)
+    assert value_help.kind == "type_contract"
+    assert value_help.type_name == "Metric"
+    assert marivo.help(revenue) is None
 
 
 def test_error_instance_uses_qualified_repair_and_preserves_repair_free_facts() -> None:

@@ -8,7 +8,7 @@ from typing import Literal
 
 from marivo.refs import EntityKind, FieldKind, Ref
 from marivo.semantic._definition_display import describe_display
-from marivo.semantic.definition import (
+from marivo.semantic._definition_expression_types import (
     ExpressionDescription,
     ExpressionNode,
     _Binary,

@@ -19,7 +19,7 @@ import textwrap
 import pytest
 
 import marivo.semantic as ms
-from marivo.semantic.catalog import EntityDetails, SemanticCatalog, SemanticKind
+from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind
 from marivo.semantic.reader import SemanticProject
 from tests.support.refs import make_ref
@@ -37,32 +37,50 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 _MINIMAL_DATASET_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+    orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+    amount_ref = ms.measure_column(
+        name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
+    )
 
-    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-    def revenue(table):
-        return table.amount.sum()
+    finalized = ms.finalize()
+    amount = finalized.resolve(amount_ref)
+
+    @ms.metric()
+    def revenue():
+        return amount.sum()
 """)
 
 _SHARED_DATASOURCE_MODEL_A = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
-    orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+    orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+    amount_ref = ms.measure_column(
+        name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
+    )
 
-    @ms.metric(entities=[orders], additivity=ms.additive_all(), )
-    def revenue(orders):
-        return orders.amount.sum()
+    finalized = ms.finalize()
+    amount = finalized.resolve(amount_ref)
+
+    @ms.metric()
+    def revenue():
+        return amount.sum()
 """)
 
 _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
 
-    refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
+    refunds_ref = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"), source=md.table("refunds"))
+    amount_ref = ms.measure_column(
+        name="amount", entity=refunds_ref, column="amount", additivity=ms.additive_all()
+    )
 
-    @ms.metric(entities=[refunds], additivity=ms.additive_all(), )
-    def refunds_total(refunds):
-        return refunds.amount.sum()
+    finalized = ms.finalize()
+    amount = finalized.resolve(amount_ref)
+
+    @ms.metric()
+    def refunds_total():
+        return amount.sum()
 """)
 
 
@@ -86,12 +104,13 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     assert sorted(project._registry.datasources) == ["default", "warehouse"]
     datasources = catalog.datasources.items
     assert [ds.ref.path for ds in datasources] == ["default", "warehouse"]
-    orders = catalog.require(ms.ref.entity("sales.orders")).details()
-    refunds = catalog.require(ms.ref.entity("finance.refunds")).details()
-    assert isinstance(orders, EntityDetails)
-    assert isinstance(refunds, EntityDetails)
-    assert orders.datasource.key == "datasource:warehouse"
-    assert refunds.datasource.key == "datasource:warehouse"
+    backed = catalog.datasources.get("warehouse").entities.refs
+    assert ms.ref.entity("sales.orders") in backed
+    assert ms.ref.entity("finance.refunds") in backed
+    assert catalog.metrics.refs == (
+        ms.ref.metric("finance.refunds_total"),
+        ms.ref.metric("sales.revenue"),
+    )
 
 
 def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
@@ -126,12 +145,13 @@ def test_single_model_load_result_ready(semantic_project_factory) -> None:
     assert "sales" in reg.domains
     assert "warehouse" in reg.datasources
     assert "sales.orders" in reg.entities
-    assert "sales.revenue" in reg.metrics
+    assert "sales.revenue" in reg.declared_metrics
+    assert "sales.revenue" not in reg.metrics
 
     side = project._expression_sidecar
     assert side is not None
     assert ms.ref.entity("sales.orders") not in side.bodies
-    assert ms.ref.metric("sales.revenue") in side.bodies
+    assert ms.ref.metric("sales.revenue") not in side.bodies
     assert ms.ref.datasource("warehouse") not in side.bodies
 
 
@@ -245,10 +265,15 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
         import marivo.datasource as md
         import marivo.semantic as ms
         ms.domain(name="sales", owner='Mina Zhang', default=True)
-        orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
-        @ms.metric(entities=[orders], additivity=ms.additive_all(), ai_context={"business_definition": 42})
-        def revenue(orders):
-            return orders.amount.sum()
+        orders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+        amount_ref = ms.measure_column(
+            name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
+        )
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+        @ms.metric(ai_context={"business_definition": 42})
+        def revenue():
+            return amount.sum()
     """)
     project = semantic_project_factory(
         {
@@ -409,14 +434,20 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
         import marivo.semantic as ms
 
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))
+        amount = ms.measure_column(
+            name="amount", entity=orders, column="amount", additivity=ms.additive_all()
+        )
     """)
     metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
         import marivo.semantic as ms
+        from .datasets import amount as amount_ref
 
-        @ms.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+
+        @ms.metric()
+        def revenue():
+            return amount.sum()
     """)
     project = semantic_project_factory(
         {
@@ -503,14 +534,20 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
         import marivo.semantic as ms
 
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
+        amount = ms.measure_column(
+            name="amount", entity=orders, column="amount", additivity=ms.additive_all()
+        )
     """)
     metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
         import marivo.semantic as ms
+        from .datasets import amount as amount_ref
 
-        @ms.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+
+        @ms.metric()
+        def revenue():
+            return amount.sum()
     """)
     project = semantic_project_factory(
         {
@@ -523,7 +560,7 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     reg = project._registry
     assert reg is not None
     assert "sales.orders" in reg.entities
-    assert "sales.revenue" in reg.metrics
+    assert "sales.revenue" in reg.declared_metrics
 
 
 def test_relative_import_between_model_files(semantic_project_factory) -> None:
@@ -533,15 +570,20 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
         import marivo.semantic as ms
 
         query_info = ms.entity(name="query_info", datasource=ms.ref.datasource("wh"), source=md.table("query_info"))
+        query_count = ms.measure_column(
+            name="query_count", entity=query_info, column="query_count", additivity=ms.additive_all()
+        )
     """)
     metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
         import marivo.semantic as ms
-        from .dataset import query_info
+        from .dataset import query_count as query_count_ref
 
-        @ms.metric(entities=[query_info], additivity=ms.additive_all(), )
-        def total_query_count(table):
-            return table.query_count.sum()
+        finalized = ms.finalize()
+        query_count = finalized.resolve(query_count_ref)
+
+        @ms.metric()
+        def total_query_count():
+            return query_count.sum()
     """)
     project = semantic_project_factory(
         {
@@ -554,7 +596,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
     reg = project._registry
     assert reg is not None
     assert "sales.query_info" in reg.entities
-    assert "sales.total_query_count" in reg.metrics
+    assert "sales.total_query_count" in reg.declared_metrics
 
 
 def test_relative_import_from_later_sibling_is_not_executed_twice(
@@ -596,18 +638,20 @@ def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
         import marivo.semantic as ms
 
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-
-        @ms.measure(entity=orders, additivity=ms.additive_all())
-        def amount(table):
-            return table.amount
+        amount = ms.measure_column(
+            name="amount", entity=orders, column="amount", additivity=ms.additive_all()
+        )
     """)
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
-        from .z_fields import orders, amount
+        from .z_fields import amount as amount_ref
 
-        @ms.metric(entities=[orders], additivity=ms.additive_all())
-        def revenue(table):
-            return ms.bind(amount, table).sum()
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+
+        @ms.metric()
+        def revenue():
+            return amount.sum()
     """)
     project = semantic_project_factory(
         {
@@ -617,13 +661,11 @@ def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
         }
     )
     assert project.is_ready()
-    sidecar = project._expression_sidecar
-    assert sidecar is not None
-    body = sidecar.bodies[ms.ref.metric("sales.revenue")]
-    assert tuple(binding.to_ref() for binding in body.bindings) == (
-        ms.ref.measure("sales.orders.amount"),
-    )
-    assert tuple(binding.entity_position for binding in body.bindings) == (0,)
+    reg = project._registry
+    assert reg is not None
+    assert "sales.orders.amount" in reg.measures
+    revenue = reg.declared_metrics["sales.revenue"]
+    assert tuple(root.ref for root in revenue.roots) == (ms.ref.entity("sales.orders"),)
 
 
 def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:
@@ -635,13 +677,18 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
         query_info = ms.entity(name="query_info", datasource=ms.ref.datasource("wh"), source=md.table("query_info"))
     """)
     metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
         import marivo.semantic as ms
         from .dataset import query_info
 
-        @ms.metric(entities=[query_info], additivity=ms.additive_all(), )
-        def total_query_count(table):
-            return table.query_count.sum()
+        query_count_ref = ms.measure_column(
+            name="query_count", entity=query_info, column="query_count", additivity=ms.additive_all()
+        )
+        finalized = ms.finalize()
+        query_count = finalized.resolve(query_count_ref)
+
+        @ms.metric()
+        def total_query_count():
+            return query_count.sum()
     """)
     project = semantic_project_factory(
         {
@@ -667,14 +714,13 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
 
 
 def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
-    """Metric referencing a dataset that doesn't exist should error."""
+    """A field referencing an entity that doesn't exist should error."""
     metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
         import marivo.semantic as ms
 
-        @ms.metric(entities=[ms.ref.entity("sales.nonexistent")], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
+        status = ms.dimension_column(
+            name="status", entity=ms.ref.entity("sales.nonexistent"), column="status"
+        )
     """)
     project = semantic_project_factory(
         {
@@ -705,24 +751,6 @@ def test_load_result_has_warnings_field(semantic_project_factory) -> None:
     assert isinstance(result.warnings, tuple)
 
 
-def test_derived_metric_with_provenance_errors(semantic_project_factory) -> None:
-    # Derived metric constructors (ms.ratio, ms.linear)
-    # do not accept provenance at all — the constraint is
-    # enforced by construction, not by a load-time error.
-    with pytest.raises(TypeError, match="provenance"):
-        from tests.shared_fixtures import authoring_session
-
-        with authoring_session(domain="sales") as s:
-            import marivo.semantic as ms
-
-            ms.ratio(
-                name="ratio",
-                numerator="sales.revenue",
-                denominator="sales.revenue",
-                provenance="SELECT 1",
-            )
-
-
 # ---------------------------------------------------------------------------
 # Registry and Sidecar access
 # ---------------------------------------------------------------------------
@@ -748,17 +776,19 @@ def test_warnings_accessible_after_load(semantic_project_factory) -> None:
 def test_two_pass_separates_discovery_from_validation(semantic_project_factory) -> None:
     """Even if a metric references a dataset defined later in the file
     sequence, the two-pass loader should resolve it correctly."""
-    # File order: datasource.py -> metrics.py -> datasets.py
-    # Metric references dataset that comes in the third file.
+    # File order: b_measures.py -> c_datasets.py -> d_metrics.py
+    # The measure references an entity that comes in a later file.
     # Pass 1 collects all objects, Pass 2 validates references.
-    # metrics.py comes before datasets.py alphabetically but references sales.orders
-    metrics_py = textwrap.dedent("""\
-        import marivo.datasource as md
+    # b_measures.py comes before c_datasets.py alphabetically but references sales.orders
+    measures_py = textwrap.dedent("""\
         import marivo.semantic as ms
 
-        @ms.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all(), )
-        def revenue(table):
-            return table.amount.sum()
+        amount = ms.measure_column(
+            name="amount",
+            entity=ms.ref.entity("sales.orders"),
+            column="amount",
+            additivity=ms.additive_all(),
+        )
     """)
     datasets_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -766,17 +796,29 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
 
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
     """)
+    metrics_py = textwrap.dedent("""\
+        import marivo.semantic as ms
+        from .b_measures import amount as amount_ref
+
+        finalized = ms.finalize()
+        amount = finalized.resolve(amount_ref)
+
+        @ms.metric()
+        def revenue():
+            return amount.sum()
+    """)
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
-            "sales/b_metrics.py": metrics_py,
+            "sales/b_measures.py": measures_py,
             "sales/c_datasets.py": datasets_py,
+            "sales/d_metrics.py": metrics_py,
         }
     )
     assert project.is_ready()
     reg = project._registry
     assert reg is not None
-    assert "sales.revenue" in reg.metrics
+    assert "sales.revenue" in reg.declared_metrics
     assert "sales.orders" in reg.entities
 
 

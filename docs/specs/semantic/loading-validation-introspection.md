@@ -107,21 +107,25 @@ catalog = ms.load()
 catalog.metrics.show()
 
 sales = catalog.domains.get("sales")
-orders = sales.entities.get("orders")
-orders.dimensions.show()
+sales.fields.show()
 
+amount = catalog.fields.get("sales.orders.amount")
+orders = catalog.entities.get("sales.orders")
 revenue = catalog.require(ms.ref.metric("sales.revenue"))
-revenue.details().show()
+revenue.contract().show()
+aov = revenue / orders.count()
 ```
-`SemanticCatalog` exposes one global collection per object type:
+`SemanticCatalog` exposes these global collections:
 `catalog.domains`, `catalog.datasources`, `catalog.entities`,
-`catalog.dimensions`, `catalog.time_dimensions`, `catalog.measures`,
-`catalog.metrics`, `catalog.relationships`,
-`catalog.period_calendars`, `catalog.temporal_sets`,
-and `catalog.work_schedules`. Each is a
-`CatalogCollection[T]` with `.items`, `.refs`, `.get(key)`, `.render()`,
-`.show()`, `len()`, and iteration. `catalog.require(ref)` is the
-exact lookup entry point for IDs obtained from errors, logs, or persisted state.
+`catalog.fields` (Dimension, TimeField and Measure), `catalog.metrics`,
+`catalog.relationships`, `catalog.period_calendars`, `catalog.temporal_sets`,
+and `catalog.work_schedules`. Each is a `CatalogCollection[T]` with `.items`,
+`.refs`, `.get(key)`, `.render()`, `.show()`, `len()`, and iteration.
+Entities, fields, Metrics and Relationships are immutable expression values that
+compose directly; domains, datasources, period calendars, temporal sets and work
+schedules are navigation entries. There is no kind-keyed `items(kind)` accessor.
+`catalog.require(ref)` is the exact lookup entry point for IDs obtained from
+errors, logs, or persisted state and returns the same value or entry.
 `SemanticCatalog` itself follows the bounded result protocol: `repr(catalog)`
 points to `catalog.show()`, whose zero-query card lists only non-empty
 collections as copyable `catalog.<collection>.show()` calls and compresses all
@@ -130,7 +134,7 @@ empty collections into one summary.
 | API | Meaning |
 |---|---|
 | `ms.load(workspace_dir=None)` | Load the project and return a `SemanticCatalog`. |
-| `catalog.require(ms.ref.<kind>(path))` | Resolve and validate one `CatalogEntry` by exact typed ref; this global lookup remains ref-only. |
+| `catalog.require(ms.ref.<kind>(path))` | Resolve one exact typed ref to its expression value (Entity, field, Metric, Relationship) or navigation entry; this global lookup remains ref-only. |
 | `catalog.domains`, `catalog.metrics`, … | Typed global or scoped collections; `.get(...)` accepts a local name, full path, displayed same-kind typed key, or exact same-kind ref within that collection's scope. |
 | `catalog.preview(entry_or_ref, scope=scope_or_mapping, source_bindings=None)` | Read one current semantic object through an explicit datasource scope. |
 | `catalog.preview_many(entries_or_refs, scope=scope_or_mapping, source_bindings=None)` | Validate an ordered batch and its complete exact entity-ref scope mapping before connection. |
@@ -164,34 +168,32 @@ container object exposes typed collection properties:
 
 | Object | Navigation properties |
 |---|---|
-| `Domain` | `entities`, `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
-| `Datasource` | `entities` |
-| `Entity` | `dimensions`, `time_dimensions`, `measures`, `metrics`, `relationships` |
-| `Relationship` | `from_entity`, `to_entity` |
-| `Dimension` / `TimeDimension` / `Measure` / `Metric` | leaf objects — use `details()` for dependency information |
+| `DomainEntry` | `entities`, `fields`, `metrics`, `relationships`, `period_calendars`, `temporal_sets`, `work_schedules` |
+| `DatasourceEntry` | `entities` |
+| `Entity` / field / `Metric` / `Relationship` values | none — `contract()` discloses identity, roots and the refs a value reads |
 
-Scoped collections are the normal way to remove ambiguity:
-`catalog.domains.get("sales").entities.get("orders").dimensions.get("region")`.
+A field's full path already names its Entity, so there are no entity-scoped
+collections. Scoped collections remove ambiguity:
+`catalog.domains.get("sales").fields.get("sales.orders.region")`.
 
 ### Self-teaching object cards
 
-Every container object's bounded `render()` / `show()` card advertises non-empty
-navigation properties as copyable `entry.<collection>.show()` calls with counts.
-Empty child collections are compressed into one summary, so the agent can still
+Every navigation entry's bounded `render()` / `show()` card advertises non-empty
+collections as copyable `entry.<collection>.show()` calls with counts. Empty
+child collections are compressed into one summary, so the agent can still
 distinguish empty state from unsupported navigation without reading one line per
-zero-count collection.
-Every entry card names its exact kind and full path, exposes `.ref`, and
-advertises `details()`, `render()`, and `show()`. Metric cards
-additionally render bounded exact refs for effective
-entities, candidate dimensions, candidate time dimensions, required
-relationships, and component/measure lineage when present. An empty time-axis
-set is explicit (`candidate_time_dimensions: none`). Omitted members include an
-omitted count and a concrete full read such as `details().show()`; cards never
-rank axes or recommend an operator.
+zero-count collection. Entry cards name the exact kind and full path, expose
+`.ref`, and advertise `details()`, `render()`, and `show()`.
 
-`entry.show()` is the first read for key definition and dependency facts;
-`entry.details()` provides structured expansion. Details cards do not prescribe
-readiness merely because a definition was inspected.
+Expression values disclose their definition through `value.contract()`, an
+`ExpressionContract` with stage, exact identity and version, contribution
+roots, unit, sum permission, default time, computation fingerprint, the semantic
+refs the definition reads, declared name/business context/guardrails/site,
+physical binding facts (column, parse, granularity, join keys, Entity source and
+`definition_form`) and the operations valid at that stage. `value.show()` prints
+the same bounded card. Published Metrics report the physical definitions their
+computation reads. Contracts never read a source, rank axes, recommend an
+operator, or prescribe readiness merely because a definition was inspected.
 
 `marivo.help(entry)` composes that current catalog identity and usage navigation
 with the analysis registry's kind-level handoff. It shows only the first focused analysis target
@@ -231,39 +233,28 @@ session = mv.session.get_or_create(
 catalog = session.catalog
 catalog.show()
 collection = catalog.metrics
-collection.show()                              # bounded list when identity is unknown
-entry = collection.get("metric:sales.revenue")  # full path or displayed typed key
-entry.show()
-entry.details().show()
-marivo.help(entry)                             # identity, usage navigation, kind handoff
-members = session.members(ms.ref.entity("sales.orders"))
-grid = mv.time_grid(
-    during=mv.time_scope(start="2026-07-01", end="2026-10-01"),
-    grain=mv.grain("month"),
-)
-dataset = (
-    members.observe(entry.ref, during=grid)
-    .group_by(grid)
-    .rollup()
-)
+collection.show()                                # bounded list when identity is unknown
+revenue = collection.get("metric:sales.revenue")  # full path or displayed typed key
+revenue.contract().show()                        # stage, roots, unit, refs read
+marivo.help(revenue)                             # the Metric type contract
 ```
 
-This example assumes `sales.revenue` is an admitted event-time Metric rooted at
-`sales.orders`. A different computation root needs its explicit directed route.
+Observing published expression Metrics is the R2 execution contract; until it
+lands, analysis observation continues to consume its existing input families.
 
 `ms.load()` and `session.catalog` build separate immutable catalog snapshots
 over the same semantic project. They share the same browse contract and normally
-share a definition fingerprint when project state is unchanged, but a
-`CatalogEntry` remains owned by the instance that produced it. Analysis methods
-consume exact typed Refs or closed runtime Metric expressions. Use `entry.ref`
-for the loaded declaration; the entry itself remains a browse/detail object.
+share a definition fingerprint when project state is unchanged. A navigation
+`CatalogEntry` remains owned by the instance that produced it. Expression values
+carry no catalog handle: consumers resolve them by kind and path in their own
+completed scope.
 
 When an exact ref comes from configuration, persistence, or logs, the agent
-uses the exact-ref contract instead of browsing. `CatalogEntry` help owns the
-entry's browse operations and the handoff through `entry.ref`; `Ref` help
-owns the distinction between typed identity and current catalog membership.
-The analysis operator's focused help remains authoritative for accepted input
-families, readiness, and the consuming call shape.
+uses the exact-ref contract instead of browsing. `CatalogEntry` help owns
+navigation-entry browse operations; value type contracts own composition and
+`contract()`; `Ref` help owns the distinction between typed identity and current
+catalog membership. The analysis operator's focused help remains authoritative
+for accepted input families, readiness, and the consuming call shape.
 
 ### Lookup rules
 
@@ -298,21 +289,14 @@ from the loaded index:
   same-project entry receives an exact reacquisition retry only when the same
   path and kind still exist; entries owned by another catalog do not.
 
-`catalog.require(ref).details()` returns a structured details dataclass (not just
-text). Every details type exposes `ref`, `kind`, `name`, `domain`, `context`,
-`business_definition`, `guardrails`, `python_symbol`, `source_location`,
-`parents`, `children`, and
-`dependents`, plus type-specific facts (datasource `backend_type`/`fields`/
-`env_refs`; entity `datasource`/`source`/`primary_key`/`versioning`; measure
-`additivity`/`unit`; time dimension parse/granularity/timezone; metric
-entity/composition/additivity/unit; relationship join keys).
-Metric details also expose `effective_entities`, `candidate_dimensions`,
-`candidate_time_dimensions`, and role-keyed `measure_lineage`. Derived metrics
-keep their authored `entities=()` shape; effective entities and measures are
-projected recursively from composition components. Candidate axes are dimensions
-owned directly by those effective entities. They are static discovery facts, not
-a promise that every cross-entity relationship or fanout plan is executable;
-the member domain's `observe(...)` and registered planner own admission.
+Navigation entries keep structured `details()` dataclasses: domain owner and
+default flag, datasource `backend_type`/`fields`/`env_refs`, and the period
+calendar, temporal set and work schedule snapshot facts. Entities, fields,
+Metrics and Relationships have no Details type and no
+`marivo.semantic_definition/v2` payload; their bounded `contract()` is the one
+definition read. There is no exported per-kind Details projection, closure
+export, or candidate-axis inventory; the member domain's `observe(...)` and
+registered planner own admission.
 
 The compiled catalog derives identity and intrinsic aggregation facts from the
 same canonical declarations used by validation and analysis. Entity identity is
@@ -340,14 +324,6 @@ Entity as a unique join side. The consuming operation must supply the exact
 temporal anchor; source cardinality follows the Entity declaration without an
 automatic source-data proof. Population identity,
 current source bindings, and persisted Artifact state remain separate authority.
-`DerivedMetricDetails.render()` / `.show()` additionally include an
-`expression_tree` table that expands every authored component occurrence through
-intermediate metric refs to its named measure or entity inputs. The table preserves
-ratio roles, linear signs and declaration order, cumulative axes and anchors,
-aggregate filters and folds, and weighted-mean inputs. A metric implemented by an
-Ibis function body ends honestly at `expression_body` when it has no named base
-measure. This is a rendering projection only: `DerivedMetricDetails` adds no
-`expression_tree` field or traversal API.
 Secrets appear only as env-var *names* — a resolved secret value is never
 rendered.
 

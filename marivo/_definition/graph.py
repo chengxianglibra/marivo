@@ -24,6 +24,7 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
+    FieldPredicate,
     MeasureAssertion,
     MemberCount,
     MetricAdd,
@@ -303,6 +304,38 @@ def _collect_refs(value: object, into: set[ExactRef]) -> None:
             _collect_refs(getattr(value, field.name), into)
 
 
+def direct_refs(root: DefinitionNode | FieldPredicate) -> frozenset[ExactRef]:
+    """Exact refs ``root`` consumes; declared Metric references are kept, not expanded.
+
+    A Measure assertion's authorization names the declaration that asserted a
+    fact; it is provenance, not a consumed definition.
+    """
+    found: set[ExactRef] = set()
+    pending: list[DefinitionNode] = []
+    if _is_node(root):
+        pending.append(root)
+    else:
+        _collect_refs(root, found)
+        pending.extend(child for _role, child in _predicate_inputs(root))
+    seen: set[int] = set()
+    while pending:
+        node = pending.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        _consumed_refs(node, found)
+        pending.extend(edge.child for edge in children(node))
+    return frozenset(found)
+
+
+def _consumed_refs(node: DefinitionNode, into: set[ExactRef]) -> None:
+    """Collect the exact refs one node's own fields consume; authorization is provenance."""
+    for item in fields(node):
+        if isinstance(node, MeasureAssertion) and item.name == "authorization":
+            continue
+        _collect_refs(getattr(node, item.name), into)
+
+
 def walk(
     roots: Iterable[DefinitionNode],
     *,
@@ -361,8 +394,7 @@ def walk(
                     kind="ownership_conflict",
                     path=path,
                 )
-        for field in fields(node):
-            _collect_refs(getattr(node, field.name), refs)
+        _consumed_refs(node, refs)
         node_edges = children(node)
         if declared is not None:
             resolved = resolved_refs.get(declared)

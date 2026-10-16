@@ -614,7 +614,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("dimension", "SemanticCatalog"),
         "Requested dimensions must exist in the loaded project.",
         "Runtime operations look up registered dimension ids.",
-        "catalog.dimensions.show() and use catalog.require(ms.ref.dimension('<semantic_id>')).",
+        "catalog.fields.show() and use catalog.require(ms.ref.dimension('<semantic_id>')).",
     ),
     ConstraintId.SYMBOL_EXISTS: _constraint(
         ConstraintId.SYMBOL_EXISTS,

@@ -13,16 +13,13 @@ import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability, AuthoringRepair
+from marivo._definition.expressions import DeclaredMetricRef
 from marivo._help.render import help as show_help
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._capabilities.validation import _validate_minimal_example_signature
-from marivo.semantic.errors import (
-    ErrorKind,
-    SemanticLoadError,
-    SemanticLoadFailed,
-    SemanticRuntimeError,
-)
+from marivo.semantic.errors import SemanticLoadError, SemanticLoadFailed
+from marivo.semantic.expressions import DeclaredMeasure, Dimension, Measure, Metric, TimeField
 from marivo.semantic.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.readiness import ReadinessInputSummary, ReadinessIssue, ReadinessReport
@@ -41,24 +38,50 @@ def _assert_current_help_budget(text: str) -> None:
     assert len(routes) <= budget.max_outgoing_routes
 
 
+_REVENUE_MODEL = """\
+import marivo.datasource as md
+import marivo.semantic as ms
+orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'), primary_key=['order_id'])
+paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', granularity='day', parse=ms.timestamp(timezone='UTC'), is_default=True)
+amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')
+finalized = ms.finalize()
+amount_value = finalized.resolve(amount)
+paid_at_value = finalized.resolve(paid_at)
+
+@ms.metric(ai_context=ms.ai_context(business_definition='Sum of accepted order amounts.'))
+def revenue():
+    return amount_value.sum(time=paid_at_value)
+"""
+
+
 def test_definition_read_does_not_prescribe_readiness(
-    authoring_evidence_project: object,
+    tmp_path: Path,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    catalog = ms.load()
+    semantic_project_factory(
+        {
+            "sales/_domain.py": (
+                "import marivo.semantic as ms\n"
+                "ms.domain(name='sales', owner='Analytics', default=True)\n"
+            ),
+            "sales/models.py": _REVENUE_MODEL,
+        }
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
     assert marivo.help is show_help
-    entry = catalog.require(ms.ref.metric("sales.revenue"))
+    revenue = catalog.require(ms.ref.metric("sales.revenue"))
     monkeypatch.setattr("marivo.semantic.catalog.load", _no_io)
     monkeypatch.setattr("marivo.semantic.catalog.SemanticCatalog.readiness", _no_io)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", _no_io)
 
-    assert "sales.revenue" in entry.render()
-    assert "readiness(" not in entry.details().render()
-    show_help(entry)
+    contract = revenue.contract().render()
+    assert "metric:sales.revenue" in contract
+    assert "readiness(" not in contract
+    show_help(type(revenue))
     briefing = capsys.readouterr().out
-    assert "entry.details().show()" in briefing
-    assert 'marivo.help("semantic.readiness")' in briefing
+    assert ".show()" in briefing
     assert "readiness(" not in briefing
     show_help("semantic.authoring")
     authoring = capsys.readouterr().out
@@ -66,10 +89,12 @@ def test_definition_read_does_not_prescribe_readiness(
     for target in ("semantic.objects", "semantic.builders", "semantic.checks"):
         assert target in authoring
     show_help("semantic.metric")
+    assert "readiness(" not in capsys.readouterr().out
+    show_help("semantic.dimension_column")
     constructor = capsys.readouterr().out
     assert "Postcondition after saving" in constructor
     assert "catalog = ms.load()" in constructor
-    assert "catalog.metrics.get(" in constructor
+    assert "catalog.fields.get(" in constructor
     assert "readiness(" not in constructor
 
 
@@ -307,19 +332,25 @@ def test_decorator_help_example_loads_the_declared_object(
         "metric": ms.ref.metric,
     }[target]
     catalog = ms.load(workspace_dir=tmp_path)
+    value = catalog.require(factory(path))
     if target in {"measure", "metric"}:
-        # Local declaration identity is separate from R1.4 Catalog publication.
-        with pytest.raises(SemanticRuntimeError) as caught:
-            catalog.require(factory(path))
-        assert caught.value.kind == ErrorKind.NOT_FOUND
+        # R1.4 publishes module-level declarations under their function name.
+        if target == "measure":
+            assert isinstance(value, DeclaredMeasure)
+            assert value.declaration.name == "order_amount"
+            assert value.unit == "CNY"
+        else:
+            assert isinstance(value, Metric) and isinstance(value.node, DeclaredMetricRef)
+            assert value.node.ref.ref == factory(path)
+            assert value.unit == "CNY"
         for dependency in ("quantity", "unit_price"):
-            dependency_entry = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
-            assert dependency_entry.path == f"sales.orders.{dependency}"
-            assert dependency_entry.kind.value == "measure"
+            dependency_value = catalog.require(ms.ref.measure(f"sales.orders.{dependency}"))
+            assert isinstance(dependency_value, Measure)
+            assert dependency_value.ref.ref == ms.ref.measure(f"sales.orders.{dependency}")
         return
-    entry = catalog.require(factory(path))
-    assert entry.path == path
-    assert entry.kind.value == target
+    assert isinstance(value, (Dimension, TimeField))
+    assert value.ref.ref == factory(path)
+    assert value.ref.ref.kind.value == target
 
 
 def test_decorator_example_validation_rejects_a_factory_call() -> None:

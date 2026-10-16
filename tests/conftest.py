@@ -196,13 +196,22 @@ def authoring_evidence_project(tmp_path, monkeypatch):
         "    name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD',\n"
         "    ai_context=ms.ai_context(business_definition='Accepted order amount in USD.'),\n"
         ")\n"
-        "revenue = ms.aggregate(\n"
-        "    name='revenue', measure=amount, agg='sum', unit='USD',\n"
+    )
+    # Sorted after models.py, so physical declarations appended there are
+    # captured before this file finalizes and publishes the Metric.
+    (semantic_dir / "revenue.py").write_text(
+        "import marivo.semantic as ms\n\n"
+        "from .models import amount as amount_ref\n\n"
+        "finalized = ms.finalize()\n"
+        "amount = finalized.resolve(amount_ref)\n\n\n"
+        "@ms.metric(\n"
         "    ai_context=ms.ai_context(\n"
         "        business_definition='Sum of accepted order amounts.',\n"
         "        guardrails=['Do not mix currencies.'],\n"
         "    ),\n"
         ")\n"
+        "def revenue():\n"
+        "    return amount.sum()\n"
     )
     monkeypatch.chdir(tmp_path)
     return tmp_path

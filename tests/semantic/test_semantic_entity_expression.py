@@ -433,26 +433,39 @@ def test_expression_entity_body_includes_transitive_metric_dependency() -> None:
     source = (
         _identity_body_variant("filter(raw.amount > 0)")
         + """
-daily_amount = ms.measure_column(
+daily_amount_ref = ms.measure_column(
     name="daily_amount",
     entity=daily_orders,
     column="amount",
     additivity=ms.additive_all(),
     unit="CNY",
 )
-revenue = ms.aggregate(name="revenue", measure=daily_amount, agg="sum")
+
+finalized = ms.finalize()
+daily_amount = finalized.resolve(daily_amount_ref)
+
+
+@ms.metric()
+def revenue():
+    return daily_amount.sum()
 """
     )
-    with load_inline_semantic(source) as result:
-        assert result.compiled_state is not None
-        state = result.compiled_state
-        revenue_digest = scoped_definition_fingerprint(
-            root=ref_factory.metric("test.revenue"),
-            definitions=state.definitions,
-            dependencies=state.dependencies,
-            sidecar=state.sidecar,
-        )
-    assert revenue_digest.startswith("sha256:")
+
+    def revenue_digest(body_expr_source: str) -> str:
+        with load_inline_semantic(body_expr_source) as result:
+            assert result.compiled_state is not None, result.errors
+            state = result.compiled_state
+            return scoped_definition_fingerprint(
+                root=ref_factory.metric("test.revenue"),
+                definitions=state.definitions,
+                dependencies=state.dependencies,
+                sidecar=state.sidecar,
+            )
+
+    first = revenue_digest(source)
+    changed = revenue_digest(source.replace("raw.amount > 0", "raw.amount > 1"))
+    assert first.startswith("sha256:")
+    assert first != changed
 
 
 def test_direct_entity_fingerprint_excludes_absent_body() -> None:
@@ -549,17 +562,15 @@ def test_entity_card_discloses_expression_form_with_normalized_body(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entry = catalog.require(ref_factory.entity("sales.daily_totals"))
-    details = entry.details()
-    assert details.definition_form == "expression"
-    assert details.expression_display is not None
-    text = details.expression_display.text
+    entity = catalog.require(ref_factory.entity("sales.daily_totals"))
+    facts = dict(entity.contract().facts)
+    assert facts["definition_form"] == "expression"
+    text = facts["expression"]
     assert "t1.group_by" in text
     assert "'day'" in text
-    rendered = entry.details().render()
+    rendered = entity.contract().render()
     assert "definition_form: expression" in rendered
     assert "t1.group_by" in rendered
-    assert "output schema is the body's returned Table schema" in rendered
 
 
 def test_direct_entity_card_keeps_direct_form_disclosure(
@@ -589,10 +600,8 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     )
     monkeypatch.chdir(tmp_path)
     catalog = SemanticCatalog(project)
-    entry = catalog.require(ref_factory.entity("sales.orders"))
-    details = entry.details()
-    assert details.definition_form == "direct"
-    assert details.expression_display is None
-    rendered = entry.details().render()
-    assert "definition_form: direct" in rendered
-    assert "output schema is the source schema" in rendered
+    entity = catalog.require(ref_factory.entity("sales.orders"))
+    facts = dict(entity.contract().facts)
+    assert facts["definition_form"] == "direct"
+    assert "expression" not in facts
+    assert "definition_form: direct" in entity.contract().render()

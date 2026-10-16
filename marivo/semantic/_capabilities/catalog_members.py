@@ -9,47 +9,35 @@ from marivo.refs import SemanticKind
 
 @dataclass(frozen=True)
 class CatalogMemberContract:
-    """One exact typed collection exposed by ``SemanticCatalog``."""
+    """One exact collection exposed by ``SemanticCatalog`` and the kinds it holds."""
 
-    kind: SemanticKind
     property_name: str
-    entry_type_name: str
+    kinds: tuple[SemanticKind, ...]
+    item_type_name: str
 
 
 CATALOG_MEMBER_CONTRACTS: tuple[CatalogMemberContract, ...] = (
-    CatalogMemberContract(SemanticKind.DOMAIN, "domains", "DomainEntry"),
-    CatalogMemberContract(SemanticKind.DATASOURCE, "datasources", "DatasourceEntry"),
-    CatalogMemberContract(SemanticKind.ENTITY, "entities", "EntityEntry"),
-    CatalogMemberContract(SemanticKind.DIMENSION, "dimensions", "DimensionEntry"),
+    CatalogMemberContract("domains", (SemanticKind.DOMAIN,), "DomainEntry"),
+    CatalogMemberContract("datasources", (SemanticKind.DATASOURCE,), "DatasourceEntry"),
+    CatalogMemberContract("entities", (SemanticKind.ENTITY,), "Entity"),
     CatalogMemberContract(
-        SemanticKind.TIME_DIMENSION,
-        "time_dimensions",
-        "TimeDimensionEntry",
+        "fields",
+        (SemanticKind.DIMENSION, SemanticKind.TIME_DIMENSION, SemanticKind.MEASURE),
+        "Dimension | TimeField | Measure",
     ),
-    CatalogMemberContract(SemanticKind.MEASURE, "measures", "MeasureEntry"),
-    CatalogMemberContract(SemanticKind.METRIC, "metrics", "MetricEntry"),
+    CatalogMemberContract("metrics", (SemanticKind.METRIC,), "Metric"),
+    CatalogMemberContract("relationships", (SemanticKind.RELATIONSHIP,), "Relationship"),
     CatalogMemberContract(
-        SemanticKind.RELATIONSHIP,
-        "relationships",
-        "RelationshipEntry",
+        "period_calendars", (SemanticKind.PERIOD_CALENDAR,), "PeriodCalendarEntry"
     ),
-    CatalogMemberContract(
-        SemanticKind.PERIOD_CALENDAR,
-        "period_calendars",
-        "PeriodCalendarEntry",
-    ),
-    CatalogMemberContract(
-        SemanticKind.TEMPORAL_SET,
-        "temporal_sets",
-        "TemporalSetEntry",
-    ),
-    CatalogMemberContract(
-        SemanticKind.WORK_SCHEDULE,
-        "work_schedules",
-        "WorkScheduleEntry",
-    ),
+    CatalogMemberContract("temporal_sets", (SemanticKind.TEMPORAL_SET,), "TemporalSetEntry"),
+    CatalogMemberContract("work_schedules", (SemanticKind.WORK_SCHEDULE,), "WorkScheduleEntry"),
 )
 
 CATALOG_COLLECTION_PROPERTIES: tuple[str, ...] = tuple(
     member.property_name for member in CATALOG_MEMBER_CONTRACTS
 )
+
+CATALOG_COLLECTION_BY_KIND: dict[SemanticKind, str] = {
+    kind: member.property_name for member in CATALOG_MEMBER_CONTRACTS for kind in member.kinds
+}

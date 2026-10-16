@@ -30,7 +30,10 @@ from marivo.refs import (
     _decode_ref_payload,
 )
 from marivo.semantic._definition_expression import describe_expression
-from marivo.semantic.definition import ExpressionDescription, _UnsupportedExpression
+from marivo.semantic._definition_expression_types import (
+    ExpressionDescription,
+    _UnsupportedExpression,
+)
 from marivo.semantic.errors import (
     ErrorKind,
     SemanticError,

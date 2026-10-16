@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Literal
-
 import pytest
 
 from marivo.refs import ref as ref_factory
-from marivo.semantic import authoring, ir, loader
-from marivo.semantic.constraints import ConstraintId
+from marivo.semantic import authoring, ir
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
-from marivo.semantic.validator import Registry, assembly_validate
 from tests.shared_fixtures import load_inline_semantic
 
 # ---------------------------------------------------------------------------
@@ -44,175 +39,95 @@ def test_composition_components_per_kind() -> None:
 # loader — _resolve_metric_additivity resolution pass
 # ---------------------------------------------------------------------------
 
-_INLINE_METRICS = """\
+_PHYSICAL = """\
 import marivo.datasource as md
 import marivo.semantic as ms
-import marivo.datasource as md
 
 wh = ms.ref.datasource("wh")
-orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
+orders_ref = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
+refunds_ref = ms.entity(name="refunds", datasource=wh, source=md.table("refunds"))
+amount_ref = ms.measure_column(
+    name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all(), unit="CNY"
+)
+unit_price_ref = ms.measure_column(
+    name="unit_price", entity=orders_ref, column="unit_price", additivity=ms.non_additive(),
+    unit="CNY",
+)
+refund_ref = ms.measure_column(
+    name="refund", entity=refunds_ref, column="refund", additivity=ms.additive_all(), unit="CNY"
+)
 
-@ms.measure(entity=orders, additivity=ms.additive_all())
-def amount(orders): return orders.amount
-
-@ms.measure(entity=orders, additivity=ms.non_additive())
-def unit_price(orders): return orders.unit_price
-
-revenue = ms.aggregate(measure=amount, agg="sum", name="revenue")
-avg_price = ms.aggregate(measure=unit_price, agg="mean", name="avg_price")
-order_count = ms.aggregate(measure=amount, agg="count", name="order_count")
-query_count = ms.count(entity=orders, name="query_count")
-aov = ms.ratio(name="aov", numerator=revenue, denominator=order_count)
-gross_plus = ms.linear(name="gross_plus", add=[revenue, revenue])
-weighted_price = ms.weighted_mean(name="weighted_price", value=unit_price, weight=amount)
+finalized = ms.finalize()
+orders = finalized.resolve(orders_ref)
+amount = finalized.resolve(amount_ref)
+unit_price = finalized.resolve(unit_price_ref)
+refund = finalized.resolve(refund_ref)
 """
 
+_PUBLISHED = (
+    _PHYSICAL
+    + """
 
-def test_resolution_fills_additivity() -> None:
-    with load_inline_semantic(_INLINE_METRICS) as result:
-        reg = result.registry
-        assert reg.metrics["test.revenue"].additivity == "additive"
-        assert reg.metrics["test.avg_price"].additivity == "non_additive"
-        assert reg.metrics["test.order_count"].additivity == "additive"
-        assert reg.metrics["test.query_count"].additivity == "additive"
-        assert reg.metrics["test.query_count"].unit == "1"
-        assert reg.metrics["test.aov"].additivity == "non_additive"
-        assert reg.metrics["test.gross_plus"].additivity == "additive"
-        assert reg.metrics["test.weighted_price"].additivity == "non_additive"
+@ms.metric()
+def revenue():
+    return amount.sum()
 
 
-_INLINE_TARGET_RESOLUTION = """\
-import marivo.datasource as md
-import marivo.semantic as ms
+@ms.metric()
+def avg_price():
+    return unit_price.mean()
 
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
-region = ms.dimension_column(name="region", entity=orders, column="region")
-amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"
-)
-revenue = ms.aggregate(name="revenue", measure=amount, agg="sum")
-candidate = ms.aggregate(name="candidate", measure=amount, agg="sum")
-mixed = ms.linear(name="mixed", add=[candidate, revenue])
+
+@ms.metric()
+def order_count():
+    return orders.count()
+
+
+@ms.metric()
+def aov():
+    return revenue / order_count
+
+
+@ms.metric()
+def gross_plus():
+    return revenue + revenue
+
+
+@ms.metric()
+def weighted_price():
+    return unit_price.weighted_mean(weight=amount)
 """
-
-
-@pytest.mark.parametrize("is_dimension", [True, False], ids=["dimension", "unknown"])
-@pytest.mark.parametrize("aggregation", ["count", "sum"])
-def test_direct_ir_invalid_measure_target_preserves_ordered_errors(
-    is_dimension: bool, aggregation: Literal["count", "sum"]
-) -> None:
-    with load_inline_semantic(_INLINE_TARGET_RESOLUTION) as result:
-        assert result.registry is not None
-        registry = Registry(
-            domains=dict(result.registry.domains),
-            datasources=dict(result.registry.datasources),
-            entities=dict(result.registry.entities),
-            dimensions=dict(result.registry.dimensions),
-            measures=dict(result.registry.measures),
-            metrics=dict(result.registry.metrics),
-        )
-    target = "test.orders.region" if is_dimension else "test.orders.missing"
-    registry.metrics["test.candidate"] = replace(
-        registry.metrics["test.candidate"],
-        measure=target,
-        aggregation_target=target,
-        aggregation=aggregation,
-        additivity=None,
-        dsl_additivity=None,
-        unit=None,
-    )
-    registry.metrics["test.mixed"] = replace(
-        registry.metrics["test.mixed"], additivity=None, unit=None
-    )
-
-    loader._resolve_metric_additivity(registry)
-    loader._resolve_metric_unit(registry)
-    errors, warnings = assembly_validate(registry)
-
-    assert registry.metrics["test.candidate"].additivity is None
-    expected_kind = (
-        ErrorKind.MISSING_MEASURE_ADDITIVITY if is_dimension else ErrorKind.UNKNOWN_MEASURE
-    )
-    unit_conflict = is_dimension and aggregation == "count"
-    assert registry.metrics["test.candidate"].unit == ("1" if unit_conflict else None)
-    assert [error.kind for error in errors] == (
-        [expected_kind, ErrorKind.INCOMMENSURABLE_LINEAR_UNITS]
-        if unit_conflict
-        else [expected_kind]
-    )
-    error = errors[0]
-    assert error.semantic_refs == ("test.candidate", target)
-    assert error.expected is None
-    assert error.received is None
-    assert error.repair is None
-    if is_dimension:
-        assert error.message == (
-            "Measure 'test.orders.region' used by 'test.candidate' must declare additivity."
-        )
-        assert error.constraint_id == ConstraintId.MEASURE_ADDITIVITY_REQUIRED
-        assert error.hint == (
-            "Set additivity with ms.additive(...), ms.additive_all(...), or ms.non_additive()."
-        )
-        assert error.details == {"metric": "test.candidate", "measure": target}
-    else:
-        assert error.message == (
-            "Metric 'test.candidate' references unknown measure 'test.orders.missing'."
-        )
-        assert error.constraint_id is None
-        assert error.hint is None
-        assert error.details == {
-            "metric": "test.candidate",
-            "measure": target,
-            "did_you_mean": ["test.orders.amount", "test.orders.region"],
-        }
-    if unit_conflict:
-        conflict = errors[1]
-        assert conflict.message == (
-            "Metric 'test.mixed' adds incommensurable units ['1', 'CNY']; "
-            "linear terms must share one unit."
-        )
-        assert conflict.semantic_refs == ("test.mixed",)
-        assert conflict.constraint_id == ConstraintId.LINEAR_UNIT_COMMENSURABLE
-        assert conflict.details == {
-            "metric": "test.mixed",
-            "units": {"test.candidate": "1", "test.revenue": "CNY"},
-        }
-    assert not warnings
-
-
-@pytest.mark.parametrize(
-    "source, expected_text",
-    [
-        (
-            """\
-import marivo.datasource as md
-import marivo.semantic as ms
-wh = ms.ref.datasource("wh")
-o = ms.entity(name="o", datasource=wh, source=md.table("o"))
-value = ms.measure_column(name="value", entity=o, column="value", additivity=ms.non_additive())
-weight = ms.measure_column(name="weight", entity=o, column="weight", additivity=ms.non_additive())
-ms.weighted_mean(name="bad", value=value, weight=weight)
-""",
-            "must be additive",
-        ),
-        (
-            """\
-import marivo.datasource as md
-import marivo.semantic as ms
-wh = ms.ref.datasource("wh")
-left = ms.entity(name="left", datasource=wh, source=md.table("left"))
-right = ms.entity(name="right", datasource=wh, source=md.table("right"))
-value = ms.measure_column(name="value", entity=left, column="value", additivity=ms.non_additive())
-weight = ms.measure_column(name="weight", entity=right, column="weight", additivity=ms.additive_all())
-ms.weighted_mean(name="bad", value=value, weight=weight)
-""",
-            "same entity",
-        ),
-    ],
 )
-def test_weighted_mean_rejects_invalid_weight_grain(source: str, expected_text: str) -> None:
+
+
+def test_published_metrics_carry_units_from_their_computation() -> None:
+    with load_inline_semantic(_PUBLISHED) as result:
+        assert result.registry is not None, result.errors
+        declared = result.registry.declared_metrics
+        assert {path: metric.unit for path, metric in declared.items()} == {
+            "test.revenue": "CNY",
+            "test.avg_price": "CNY",
+            "test.order_count": "1",
+            "test.aov": "CNY",
+            "test.gross_plus": "CNY",
+            "test.weighted_price": "CNY",
+        }
+
+
+def test_weighted_mean_pairs_value_and_weight_on_one_root() -> None:
+    source = (
+        _PHYSICAL
+        + """
+
+@ms.metric()
+def bad():
+    return amount.weighted_mean(weight=refund)
+"""
+    )
     with load_inline_semantic(source) as result:
-        assert any(expected_text in error.message for error in result.errors)
+        errors = [e for e in result.errors if e.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION]
+        assert len(errors) == 1
+        assert "test.orders weighted by test.refunds" in (errors[0].received or "")
 
 
 # ---------------------------------------------------------------------------
@@ -233,69 +148,18 @@ def test_additivity_coordinate_must_be_dimension() -> None:
 # validator — sum on non-additive measure is rejected
 # ---------------------------------------------------------------------------
 
-_INLINE_SUM_ON_INTENSIVE = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-import marivo.datasource as md
-
-wh = ms.ref.datasource("wh")
-o = ms.entity(name="o", datasource=wh, source=md.table("o"))
-
-@ms.measure(entity=o, additivity=ms.non_additive())
-def unit_price(o): return o.unit_price
-
-bad = ms.aggregate(measure=unit_price, agg="sum", name="bad")
-"""
-
 
 def test_sum_on_non_additive_measure_is_rejected() -> None:
-    with load_inline_semantic(_INLINE_SUM_ON_INTENSIVE) as result:
+    source = (
+        _PHYSICAL
+        + """
+
+@ms.metric()
+def bad():
+    return unit_price.sum()
+"""
+    )
+    with load_inline_semantic(source) as result:
         kinds = {e.kind for e in result.errors}
-        assert ErrorKind.INVALID_MEASURE_AGGREGATION in kinds
-
-
-# ---------------------------------------------------------------------------
-# validator — composition component refs + cycle
-# ---------------------------------------------------------------------------
-
-_INLINE_BAD_COMPONENT = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-import marivo.datasource as md
-
-wh = ms.ref.datasource("wh")
-o = ms.entity(name="o", datasource=wh, source=md.table("o"))
-
-@ms.measure(entity=o, additivity=ms.additive_all())
-def amount(o): return o.amount
-
-rev = ms.aggregate(measure=amount, agg="sum", name="rev")
-bad_ratio = ms.ratio(name="bad_ratio", numerator=rev, denominator=ms.ref.metric("test.missing"))
-"""
-
-
-def test_unknown_composition_component_is_reported() -> None:
-    with load_inline_semantic(_INLINE_BAD_COMPONENT) as result:
-        assert ErrorKind.MISSING_METRIC_REF in {e.kind for e in result.errors}
-
-
-_INLINE_CYCLE = """\
-import marivo.datasource as md
-import marivo.semantic as ms
-import marivo.datasource as md
-
-wh = ms.ref.datasource("wh")
-o = ms.entity(name="o", datasource=wh, source=md.table("o"))
-
-@ms.measure(entity=o, additivity=ms.additive_all())
-def amount(o): return o.amount
-
-base = ms.aggregate(measure=amount, agg="sum", name="base")
-a = ms.linear(name="a", add=[base, ms.ref.metric("test.b")])
-b = ms.linear(name="b", add=[base, ms.ref.metric("test.a")])
-"""
-
-
-def test_metric_cycle_detected_over_composition() -> None:
-    with load_inline_semantic(_INLINE_CYCLE) as result:
-        assert ErrorKind.CROSS_MODEL_CYCLE in {e.kind for e in result.errors}
+        assert ErrorKind.MISSING_SUM_PERMISSION in kinds
+        assert result.registry is None

@@ -77,6 +77,7 @@ from marivo.semantic.ir import (
 
 if TYPE_CHECKING:
     from marivo.semantic._expression_binding import CompiledExpressionSidecar
+    from marivo.semantic.expressions import DeclaredMeasure, DeclaredMetric
 
 __all__ = [
     "Registry",
@@ -105,6 +106,9 @@ class Registry:
     period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
     temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     work_schedules: dict[str, WorkScheduleIR] = field(default_factory=dict)
+    # Published pure declarations, keyed by their qualified full name.
+    declared_measures: dict[str, DeclaredMeasure] = field(default_factory=dict)
+    declared_metrics: dict[str, DeclaredMetric] = field(default_factory=dict)
     _frozen: bool = field(default=False, init=False, repr=False)
 
     def freeze(self) -> None:
@@ -122,6 +126,8 @@ class Registry:
             "period_calendars",
             "temporal_sets",
             "work_schedules",
+            "declared_measures",
+            "declared_metrics",
         ):
             value = dict(getattr(self, name))
             object.__setattr__(self, name, MappingProxyType(value))

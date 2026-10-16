@@ -37,7 +37,7 @@ def test_scope_is_canonical_immutable_and_recovers_in_a_cold_process(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     scoped = mv.session.get_or_create("scoped", domains="sales")
     assert scoped.domains == ("sales",)
-    assert scoped.catalog.require(ms.ref.entity("sales.rows")).ref.path == "sales.rows"
+    assert scoped.catalog.require(ms.ref.entity("sales.rows")).ref.ref.path == "sales.rows"
     with pytest.raises(ms.errors.SemanticRuntimeError):
         scoped.catalog.require(ms.ref.entity("finance.rows"))
     assert mv.session.get_or_create("scoped").domains == ("sales",)
@@ -53,7 +53,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 session = mv.session.resume(sys.argv[1], by='id')
 assert session.domains == ('sales',)
-assert session.catalog.require(ms.ref.entity('sales.rows')).ref.path == 'sales.rows'
+assert session.catalog.require(ms.ref.entity('sales.rows')).ref.ref.path == 'sales.rows'
 """
     completed = subprocess.run(
         [sys.executable, "-c", code, scoped.id],

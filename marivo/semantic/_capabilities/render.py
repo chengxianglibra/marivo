@@ -544,7 +544,7 @@ def _render_type(type_name: str, original: object | None) -> str:
                 "ms.ref.metric('sales.revenue') or "
                 "ms.ref.dimension('sales.orders.region').",
                 "  Persisted/config identity: "
-                "entry = catalog.metrics.get('sales.revenue'); metric_ref = entry.ref.",
+                "domain = catalog.domains.get('sales'); domain_ref = domain.ref.",
                 "  Membership: catalog.require(ref) resolves the exact ref to the current "
                 "catalog; marivo.help(ref) reports identity only.",
                 "  Field application: Ref values are never callable; use "

@@ -29,6 +29,8 @@ _RETURN_FAMILY_ALIASES = {
     "Ref[DimensionKind]": "Ref[dimension]",
     "Ref[DimensionRefKind]": "Ref[dimension]",
     "ResolvedValue": "Entity | Dimension | TimeField | Measure | Relationship",
+    "CatalogItem": "CatalogEntry | Entity | Field | Metric | Relationship",
+    "ItemT": "CatalogEntry | Entity | Field | Metric | Relationship",
     "Ref[DimensionKindTag]": "Ref[dimension]",
     "Ref[TimeDimensionKind]": "Ref[time_dimension]",
     "Ref[MeasureKind]": "Ref[measure]",

@@ -38,7 +38,7 @@ def _require_kind(
         _raise(
             ErrorKind.INVALID_REF,
             f"Resolver requires an exact Ref; received {type(value).__name__}. "
-            "Pass entry.ref or construct ms.ref.<kind>(path).",
+            "Pass a typed Ref or construct ms.ref.<kind>(path).",
             cls=SemanticRuntimeError,
         )
     ref = value
@@ -51,7 +51,8 @@ def _require_kind(
             refs=(ref.key,),
             details={"expected_kind": expected_text, "actual_kind": str(ref.kind)},
         )
-    return catalog.require(ref).path
+    catalog.require(ref)
+    return ref.path
 
 
 @dataclass
