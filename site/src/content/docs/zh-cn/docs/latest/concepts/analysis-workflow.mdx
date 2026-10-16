@@ -3,6 +3,28 @@ title: 分析流程
 description: 构造明确的分析，执行后读取已提交结果。
 ---
 
+## R2.1：直接构造 Metric Query
+
+已有销售语义模型时，直接传入已解析的 Metric 表达式：
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("metric-review")
+revenue = session.catalog.metrics.get("sales.revenue")
+aov = session.catalog.metrics.get("sales.aov")
+query = session.observe({"revenue": revenue, "aov": aov})
+query.contract().show()
+```
+
+构造与检查 Query 不读取业务行或 schema，也不创建 Run。
+当前 `query.execute()` 会报结构化阶段缺口；绑定、执行和发布由 R2.2–R2.5 交付。
+`Artifact` 是独立的终端只读类型，只提供 `id`、`session_id`、`show(n=20)`、
+`to_pandas()`、`findings()` 和 `evidence_digest()`，没有 DSL 方法或 `contract()`。
+`session.artifact(id)` 只接受精确字符串 ID，并保留文件、拒绝旧图产物。
+终端存储和读取由 R2.5/R2.6 交付；Store 在 R2.5 前保持第 9 代。
+以下示例描述等待替换的旧执行路径，不能作为新 Query 的执行回退。
+
 从已确认口径的 Metric、成员 Entity 和针对当前问题的 Session 开始。
 [Python 教程](/zh-cn/docs/latest/guides/python-quick-start/)提供完整本地项目。
 本页示例使用另一套已加载的销售模型：包含客户、订单、收入以及订单到买家的已声明关系。
@@ -91,13 +113,11 @@ august_revenue = customers.observe(
 )
 total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
-restored = session.artifact(total.state.artifact_ref)
-restored.contract().show()
-for action in restored.contract().actions:
+total.contract().show()
+for action in total.contract().actions:
     print(action.call, action.help_target)
 saved_observation = august_revenue.execute()
-recovered_observation = session.artifact(saved_observation.state.artifact_ref)
-recovered_observation.aggregate(method=mv.count()).execute().show()
+saved_observation.aggregate(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
     order_count, during=august, via=buyer, by=(mv.member(),)
@@ -125,8 +145,8 @@ merged_count.show()
 `observe.by` 不再接受 Entity Ref。标记仅用于 `observe.by`，结果的 `group_by`
 继续使用已有的轴选择规则。
 
-分类 `read` 与链式 `.where()` 统一返回 `LogicalCategoryRelation`；执行及 Artifact
-恢复统一返回 `MaterializedCategoryRelation`。物化分类上的筛选生成基于已保存数据的
+分类 `read` 与链式 `.where()` 统一返回 `LogicalCategoryRelation`；旧执行路径
+返回 `MaterializedCategoryRelation`。物化分类上的筛选生成基于已保存数据的
 逻辑操作。作为 `by` 输入的分类经筛选后仍须覆盖全部消费键；若需限制成员范围，
 先通过其 `.members()` 构建观测接收者。
 
@@ -184,8 +204,8 @@ Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用
 
 ## 明确来源与已保存结果边界
 
-再次执行 live 定义会读取当前来源。使用 `session.artifact(ref)`恢复某个确切的历史结果。
-fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上新增 live Metric 或字段
+再次执行旧 live 定义会读取当前来源。R2.1 的 `session.artifact(id)` 只负责终端产物，
+拒绝旧图格式且保留文件。旧内存对象的 fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上新增 live Metric 或字段
 依赖会形成 mixed 工作，并在读取任何业务输入之前拒绝。
 
 继续阅读[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)、

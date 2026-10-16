@@ -68,6 +68,8 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = (
+    "Query",
+    "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",
     "LogicalRankingResult",

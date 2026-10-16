@@ -9,7 +9,10 @@ from types import MappingProxyType
 from typing import Literal, TypeAlias
 from uuid import uuid4
 
-from marivo.analysis.core.model import Signature, reject
+from marivo._definition.graph import computation_fingerprint, walk
+from marivo._definition.relations import ObserveQuery
+from marivo._definition.types import DefinitionGraphError
+from marivo.analysis.core.model import BoundSignature, Signature, reject
 from marivo.analysis.core.rules import (
     AttachCategory,
     AttributionDerive,
@@ -38,6 +41,38 @@ from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
 from marivo.analysis.refs import ArtifactRef
 from marivo.refs import DatasourceKind, EntityKind, MetricKind, Ref, SemanticKind
 from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
+
+
+@dataclass(frozen=True, slots=True)
+class BoundGraph:
+    """A multi-output Query definition, never a persisted Artifact dependency."""
+
+    root: ObserveQuery
+    signature: BoundSignature
+
+    def __post_init__(self) -> None:
+        if type(self.root) is not ObserveQuery or type(self.signature) is not BoundSignature:
+            _fail("an observation definition and multi-output signature", type(self).__name__)
+        if (
+            self.root.owner != self.signature.owner
+            or self.root.by != self.signature.axes
+            or self.root.metrics != tuple((q.name, q.definition) for q in self.signature.quantities)
+        ):
+            _fail("matching Query outputs, axes and Session ownership", "inconsistent binding")
+        definitions = dict(self.signature.declared_metrics)
+        try:
+            walk((self.root,), resolve=definitions.get)
+        except DefinitionGraphError as error:
+            reject(
+                "a closed definition graph from one Session owner",
+                str(error),
+                "Rebuild the Metric dependencies in the receiving Session.",
+                "query.definition",
+            )
+
+    @property
+    def fingerprint(self) -> str:
+        return computation_fingerprint(self.root)
 
 
 def _fail(expected: str, received: str) -> None:

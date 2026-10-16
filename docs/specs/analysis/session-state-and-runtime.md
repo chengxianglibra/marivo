@@ -5,6 +5,26 @@ Status: current Runtime and Store 9 contract, 2026-10-09.
 [Operators and Frames](operators-and-frames.md) owns method meaning and sufficient
 state. This document owns execution identity, publication, storage and recovery.
 
+## R2.1 terminal boundary (2026-10-16)
+
+Session identity and same-generation recovery remain available through the existing
+coordinator. The new `session.observe(named_metrics)` only captures a Query;
+`execute()` fails with a structured unavailable-stage error before Run admission.
+`session.artifact(artifact_id: str)` now owns terminal output only: missing IDs
+raise `ArtifactNotFoundError`, and graph-based outputs are rejected without graph
+decoding, Parquet reads or file changes. The remaining graph Runtime sections
+describe the execution implementation awaiting its R2 replacements, not a fallback
+for the new Query/Artifact path.
+
+`ArtifactPublication` holds final pandas output and explicit output Findings/Evidence;
+`ArtifactData` refers only to committed Parquet. Neither data schema nor manifest
+stores semantic Refs, definitions, formulas, fingerprints or continuations.
+Artifact owns no invocation, Query or in-memory Arrow table. Terminal publication
+and the single new/reopened-output reader are delivered in R2.5/R2.6, including
+the graph-free persisted Finding/Evidence format. The Store generation remains 9
+in R2.1; R2.5 performs the single incompatible format switch. No migration or
+dual-read path is introduced; rejected old Stores and files remain unchanged.
+
 ## Session and invocation ownership
 
 A Session owns an investigation and immutable Run/Artifact history under the
@@ -359,12 +379,10 @@ incomplete, failed and succeeded Runs.
 import marivo.analysis as mv
 
 run = session.get_run(run_id)
-if isinstance(run, mv.SucceededRun):
-    saved = session.artifact(run.output_artifact_ref)
-    saved.show()
+run.show()
 ```
 
-Recovery returns the concrete Materialized family from saved metadata, types
+The legacy graph recovery implementation returned the concrete Materialized family from saved metadata, types
 and required data. It preserves original time/report/calendar authority,
 versions, primary values and parts. It does not select the original producer,
 replay its method validation, load current models, read sources, refit statistics,

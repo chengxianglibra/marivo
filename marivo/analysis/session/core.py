@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -23,11 +24,12 @@ from marivo.refs import EntityKind, Ref
 from marivo.semantic.catalog import SemanticCatalog
 
 if TYPE_CHECKING:
+    from marivo.analysis.core.graph import BoundGraph
+    from marivo.analysis.dsl.artifact import Artifact
+    from marivo.analysis.dsl.query import Query
     from marivo.analysis.materialization.admission import DatasetRuntime
-    from marivo.analysis.public_dsl import (
-        LogicalAnalysisDomain,
-        PublicMaterialized,
-    )
+    from marivo.analysis.public_dsl import LogicalAnalysisDomain
+    from marivo.semantic.expressions import Metric
 
 
 class Session:
@@ -196,26 +198,72 @@ class Session:
         """
         return self._sources().binding_scopes.scope(bindings)
 
-    def artifact(self, reference: str | ArtifactRef) -> PublicMaterialized:
-        """Recover an exact committed Dataset without reading current sources.
+    def observe(self, metrics: Mapping[str, Metric]) -> Query:
+        """Capture named Metric expressions in a lazy Query.
 
-        Args: reference: Exact ArtifactRef or reference string.
-        Returns: The materialized relation variant selected by its checked Store 8 definition.
-        Example: ``saved = session.artifact(ref)``.
-        Constraints: Recovery uses Store 8, descriptor v3, continuation v4 and graph DAG v2 without reopening sources or reauditing committed result contents. Obsolete formats require source re-execution; existing files are preserved.
+        Args: metrics: Nonempty ordered mapping of output names to resolved Metric expressions.
+        Returns: An immutable Query owned by this Session.
+        Example: ``query = session.observe({'revenue': revenue, 'aov': aov})``.
+        Constraints: Captures definitions only; no schema or business reads and no Run. Observation context binding arrives in R2.2; execution/publication arrives in R2.3-R2.5. Artifact objects and IDs are not Metric inputs.
         """
-        from marivo.analysis.materialization import graph_store
-        from marivo.analysis.materialization.graph_dataset import GraphDataset
-        from marivo.analysis.materialization.graph_relation import Relation
-        from marivo.analysis.public_dsl import wrap_materialized
-        from marivo.analysis.session._lazy_runtime_reads import missing_artifact
+        from marivo._definition.types import Owner
+        from marivo.analysis.dsl.query import Query
 
+        return Query._from_metrics(
+            metrics,
+            Owner(self.id, self._runtime.store.store_id),
+            self._execute_query,
+        )
+
+    def _execute_query(self, graph: BoundGraph) -> Artifact:
+        from marivo.analysis.errors import AnalysisStageUnavailableError
+
+        raise AnalysisStageUnavailableError(
+            stage="query_execution",
+            expected="observation binding, qualified execution and terminal output publication",
+            received=f"R2.1 captured Query with {len(graph.signature.quantities)} named outputs",
+            repair="Keep the Query definition; use a build with R2.2-R2.5 implemented before calling execute(). No Run was admitted.",
+            target="Query.execute",
+        )
+
+    def artifact(self, artifact_id: str) -> Artifact:
+        """Open terminal output by exact ID without restoring a computation graph.
+
+        Args: artifact_id: Exact committed Artifact ID string from this Session.
+        Returns: A read-only Artifact when terminal output storage/readers are delivered.
+        Example: ``saved = session.artifact('artifact_0123456789abcdef')``.
+        Constraints: R2.1 rejects existing graph descriptors without decoding them; files remain unchanged. Missing IDs fail without source or Parquet reads. The new terminal format and reader arrive in R2.5/R2.6; Store generation remains unchanged until R2.5.
+        """
+        from marivo.analysis.core.model import reject
+        from marivo.analysis.errors import AnalysisStageUnavailableError, ArtifactNotFoundError
+        from marivo.analysis.materialization.store import _one
+
+        if (
+            type(artifact_id) is not str
+            or not artifact_id
+            or any(c in artifact_id for c in "\n\r\t")
+        ):
+            reject(
+                "an exact nonempty Artifact ID string",
+                type(artifact_id).__name__,
+                "Pass the exact committed output ID, not an Artifact object or Ref.",
+                "session.artifact",
+            )
         with self._runtime.store._read() as connection:
-            record = graph_store.artifact(self._runtime.store, connection, str(reference))
+            record = _one(
+                connection,
+                "SELECT artifact_ref FROM dataset_artifacts WHERE artifact_ref=? AND session_ref=?",
+                (artifact_id, self.id),
+            )
         if record is None:
-            raise missing_artifact(str(reference))
-        saved = GraphDataset(self._runtime, record)
-        return wrap_materialized(Relation.restore(saved), self._runtime, saved)
+            raise ArtifactNotFoundError.for_ref(artifact_id)
+        raise AnalysisStageUnavailableError(
+            stage="artifact_reading",
+            expected="a committed terminal output manifest without graph or continuation metadata",
+            received="an Artifact in the current graph-based Store generation",
+            repair="Preserve the existing Store and files. Terminal output publication and reading arrive in R2.5/R2.6; re-run the analysis in the new-format Store when available.",
+            target="session.artifact",
+        )
 
     def runs(
         self, *, status: RunLifecycle | None = None, limit: int = 20, cursor: str | None = None

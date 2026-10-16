@@ -1,6 +1,7 @@
 # Python Analysis Design
 
-Status: current architecture, 2026-10-08. This document owns the implemented
+Status: R2.1 contract separation, 2026-10-16; legacy execution sections remain
+until their owning R2 work packages replace them. This document owns the implemented
 Analysis DSL's public model and the path from algebraic definition to execution.
 Method equations and numerical contracts belong to
 [Operators and Frames](operators-and-frames.md); persistence and recovery belong
@@ -29,11 +30,29 @@ sample values or natural-language labels.
 
 ## Construct, execute, inspect
 
+The new Metric-first entry is `session.observe({"revenue": revenue, "aov": aov})`,
+where each value is a resolved semantic Metric expression. It returns immutable
+`Query`; the ordered multi-output `BoundSignature` and R1 definition graph belong
+to that Query, independently of terminal `DataSchema` and `ArtifactManifest`.
+`contract()` describes known definitions and unresolved physical dtype without
+schema/business reads or a Run. R2.1 `execute()` raises
+`AnalysisStageUnavailableError` before admission: binding, execution and publication
+are delivered in R2.2–R2.5. No old graph executor is used as a fallback.
+
+`Artifact` is a distinct terminal wrapper: exact ID, manifest and read service.
+It exposes `show(n=20)`, `to_pandas()`, `findings()` and `evidence_digest()`;
+it has no `contract()`, DSL methods or conversion to Query. `Session.artifact(id)`
+accepts an exact string and rejects old graph output without decoding it or
+changing files. New output publication/reading arrive in R2.5/R2.6. Store remains
+generation 9 until R2.5 activates the terminal format once. Session identity,
+timezone and same-generation `get_or_create`/`resume` contracts remain in force.
+
 A Session owns one investigation and project-local Run/Artifact history.
 `mv.session.get_or_create(...)`, `current()` and `resume(...)` retain their
 native identity and timezone contracts. The member-domain entry is
-`session.members(entity_ref)`; Session-level `population` and `observe` and
-their former Dataset families are removed without forwarding aliases.
+`session.members(entity_ref)` remains the legacy member-domain entry;
+Session-level `observe` now captures the new Query contract above, without
+reviving former Dataset families or forwarding aliases.
 
 ```python
 import marivo.analysis as mv

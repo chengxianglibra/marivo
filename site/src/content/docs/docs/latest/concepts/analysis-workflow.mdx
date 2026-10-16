@@ -3,6 +3,30 @@ title: Analysis workflow
 description: Construct explicit analysis, execute it, and read its committed results.
 ---
 
+## R2.1: capture a Metric-first Query
+
+With an authored sales model, capture resolved Metric expressions directly:
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("metric-review")
+revenue = session.catalog.metrics.get("sales.revenue")
+aov = session.catalog.metrics.get("sales.aov")
+query = session.observe({"revenue": revenue, "aov": aov})
+query.contract().show()
+```
+
+Query capture and inspection read no business rows or schemas and create no Run.
+`query.execute()` currently raises a structured unavailable-stage error;
+binding, execution and publication arrive in R2.2–R2.5. `Artifact` is a separate
+read-only type with `id`, `session_id`, `show(n=20)`, `to_pandas()`, `findings()`
+and `evidence_digest()`. It has no DSL methods or `contract()`.
+`session.artifact(id)` accepts only an exact string ID and rejects old graph
+outputs unchanged. Terminal storage and reading arrive in R2.5/R2.6; Store
+generation remains 9 until R2.5. The examples below describe the legacy execution
+surface awaiting replacement, not a Query execution fallback.
+
 Start with an approved Metric, a member Entity and a question-scoped Session.
 Use [the Python tutorial](/docs/latest/guides/python-quick-start/) for a complete local project.
 The examples here instead assume a loaded sales model with customers, orders,
@@ -94,13 +118,11 @@ august_revenue = customers.observe(
 )
 total = customers.observe(revenue, during=august, via=buyer).execute()
 total.show()
-restored = session.artifact(total.state.artifact_ref)
-restored.contract().show()
-for action in restored.contract().actions:
+total.contract().show()
+for action in total.contract().actions:
     print(action.call, action.help_target)
 saved_observation = august_revenue.execute()
-recovered_observation = session.artifact(saved_observation.state.artifact_ref)
-recovered_observation.aggregate(method=mv.count()).execute().show()
+saved_observation.aggregate(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
     order_count, during=august, via=buyer, by=(mv.member(),)
@@ -133,7 +155,7 @@ Refs are rejected in `observe.by`. Use the marker only in `observe.by`; result
 `group_by` keeps its existing axis selectors.
 
 Category `read` and chained `.where()` calls return `LogicalCategoryRelation`;
-execution and Artifact recovery return `MaterializedCategoryRelation`.
+legacy execution returns `MaterializedCategoryRelation`.
 Filtering a Materialized category builds Logical work over the saved data.
 Filtering a category used in `by` must still cover all consumed keys; select
 its `.members()` before observation to restrict the member scope.
@@ -208,7 +230,8 @@ from earlier formats require re-execution; existing history and files are preser
 ## Keep source and fixed work explicit
 
 A live definition reads current sources when executed again. Recover an exact
-past result with `session.artifact(ref)`. Fixed continuations consume retained
+past result is a separate terminal concern: `session.artifact(id)` rejects the
+old graph format in R2.1. Legacy in-memory fixed continuations consume retained
 parts without replaying origin. Adding a live Metric or field to a fixed
 receiver creates mixed work and rejects before either business input is read.
 

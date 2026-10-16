@@ -8,6 +8,8 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Literal, NoReturn, TypeAlias
 
+from marivo._definition.expressions import MetricNode
+from marivo._definition.types import AxisBinding, ExactRef, Owner
 from marivo.analysis.core.time_alignment import TimeKeyMapping
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridVersionSelection
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -32,6 +34,57 @@ class CoreRuleError(AnalysisError):
                 help_target=LiveHelpTarget(surface="analysis"),
             ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class BoundQuantity:
+    """One named Metric output; physical dtype remains unresolved until binding."""
+
+    name: str
+    definition: MetricNode
+    unit: str | None
+
+    def __post_init__(self) -> None:
+        if type(self.name) is not str or not self.name or any(c in self.name for c in "\n\r\t"):
+            reject(
+                "a nonempty single-line output name",
+                repr(self.name),
+                "Give each Metric a distinct output name.",
+                "query.metrics",
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class BoundSignature:
+    """Multi-output semantic contract owned exclusively by a Query invocation.
+
+    The older single-quantity Signature below still serves the execution path
+    scheduled for replacement. It is never an Artifact data schema.
+    """
+
+    owner: Owner
+    quantities: tuple[BoundQuantity, ...]
+    axes: tuple[AxisBinding, ...] = ()
+    declared_metrics: tuple[tuple[ExactRef, MetricNode], ...] = ()
+    evidence: tuple[Evidence, ...] = ()
+    obligations: tuple[Obligation, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.quantities) is not tuple
+            or not self.quantities
+            or any(type(item) is not BoundQuantity for item in self.quantities)
+        ):
+            reject(
+                "an immutable nonempty tuple of named Metric outputs",
+                type(self.quantities).__name__,
+                "Construct the Query through session.observe(metrics).",
+                "query.signature",
+            )
+        names = tuple(item.name for item in self.quantities)
+        _unique(names, "query.metrics")
+        _nonempty(self.owner.session_id, "query.session_id")
+        _nonempty(self.owner.owner_id, "query.owner_id")
 
 
 def reject(expected: str, received: str, repair: str, location: str) -> NoReturn:

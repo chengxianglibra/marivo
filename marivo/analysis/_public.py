@@ -30,6 +30,8 @@ from marivo.analysis._comparison import weekday as weekday
 from marivo.analysis._subject import SubjectBinding as SubjectBinding
 from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
 from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
+from marivo.analysis.dsl.artifact import Artifact as Artifact
+from marivo.analysis.dsl.query import Query as Query
 from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
 from marivo.analysis.evidence._dataset_types import Finding as Finding
 from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
@@ -163,6 +165,8 @@ from marivo.analysis.session._lazy_read_model import SucceededRun as SucceededRu
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - accepted public export order is contractual
+    "Query",
+    "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",
     "LogicalRankingResult",

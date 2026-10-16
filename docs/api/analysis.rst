@@ -6,6 +6,32 @@ marivo.analysis
 .. automodule:: marivo.analysis
    :no-members:
 
+R2.1 Query and terminal Artifact
+----------------------------------------
+
+``session.observe({"revenue": revenue, "aov": aov})`` captures resolved Metric
+expressions in an immutable ``Query`` without schema reads, business reads or Run
+admission. ``query.contract().show()`` reports captured definitions and unresolved
+physical types. In R2.1, ``query.execute()`` raises a structured
+``AnalysisStageUnavailableError``; binding, execution and publication belong to
+R2.2–R2.5. There is no fallback to the legacy graph executor.
+
+``Artifact`` has only exact identity, a committed output manifest and a read
+service. It offers ``show(n=20)``, ``to_pandas()``, ``findings()`` and
+``evidence_digest()``; it has no ``contract()`` or DSL continuation.
+``session.artifact(artifact_id)`` accepts an exact string ID, rejects old graph
+descriptors unchanged and does not load current semantics or Parquet rows.
+The new writer and complete reader arrive in R2.5/R2.6. Store generation remains
+9 until R2.5; same-generation Session recovery is unchanged.
+
+.. autoclass:: Query
+   :members:
+
+.. autoclass:: Artifact
+   :members:
+
+The following sections describe the legacy execution surface pending replacement.
+
 Construct typed algebra through ``session.members(entity_ref)`` and its owned
 read/observe operations. The former Population, Metric Dataset and generic Dataset APIs have been retired.
 Logical typed values describe work
@@ -303,8 +329,9 @@ R4.5 qualification boundary
 
 Public J1–J4 relations share the typed graph Runtime and Store 7. R1 schema-only
 preflight may precede Run allocation; business rows are read only after admission.
-Exact Artifact recovery verifies its snapshot, primary receipt and required parts
-without current Semantic or datasource access. Retired Dataset families have no current API.
+Legacy graph reads verify their snapshot, primary receipt and required parts
+without current Semantic or datasource access; ``session.artifact`` no longer
+opens this format. Retired Dataset families have no current API.
 Old-generation projects are preserved and are not migrated or read through a fallback.
 
 Ranking and terminal tables
@@ -394,12 +421,12 @@ R6 recovery and retired consumers
 ---------------------------------
 
 Comparison, selection/cohort, fixed references, ranking, attribution and terminal
-tables use one typed graph, Runtime and Store 9. ``session.artifact(ref)`` verifies
-complete state before fixed continuation. Missing parts revoke the affected
-operations; recovery does not consult Semantic or lineage sources. Tables remain
+tables still use the legacy typed graph, Runtime and Store 9 internally.
+``session.artifact(id)`` rejects this graph format at the R2.1 terminal boundary.
+Missing parts revoke the affected legacy operations. Tables remain
 terminal. Original reductions with group keys publish
 ``MaterializedGroupedNumericRelation``; Singleton reductions publish
-``MaterializedRolledNumericRelation``. Cold recovery preserves that contract.
+``MaterializedRolledNumericRelation``. These are not the new terminal Artifact type.
 
 The old Metric Dataset ``compare`` and public Delta/Attribution Dataset types
 are removed. Their Help targets are unresolved, with no compatibility redirect.

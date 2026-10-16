@@ -1123,8 +1123,8 @@ class Metric(_ExpressionDisplay):
     roots: tuple[ExactRef, ...]
     unit: str | None
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
-    # Stored bodies of the published Metrics this node references, so a filter
-    # over a published single-source Metric can verify its source scope.
+    # Stored bodies of published Metrics, retained through composition for
+    # source-scope checks and closed Query capture without live catalog lookup.
     _declared: tuple[tuple[ExactRef, MetricNode], ...] = field(
         default=(), compare=False, repr=False, kw_only=True
     )
@@ -1162,7 +1162,7 @@ class Metric(_ExpressionDisplay):
         return _metric_combine("divide", _metric_operand(other, operation="metric divide"), self)
 
     def __neg__(self) -> Metric:
-        return Metric(MetricNegate(self.node), self.roots, self.unit)
+        return Metric(MetricNegate(self.node), self.roots, self.unit, _declared=self._declared)
 
     def __pos__(self) -> Metric:
         """Unary plus is the identity: the same graph, policies, roots and unit."""
@@ -1457,7 +1457,8 @@ def _metric_combine(
             node = MetricDivide(left_node, right_node, zero_denominator=zero_denominator)
     metrics = [operand for operand in (left, right) if isinstance(operand, Metric)]
     roots = tuple(dict.fromkeys(root for metric in metrics for root in metric.roots))
-    return Metric(node, roots, unit)
+    declared = tuple(dict(item for metric in metrics for item in metric._declared).items())
+    return Metric(node, roots, unit, _declared=declared)
 
 
 _COUNT_REDUCERS: frozenset[Reducer] = frozenset({"count", "count_distinct"})

@@ -125,9 +125,8 @@ if TYPE_CHECKING:
         mv.MaterializedRolledNumericRelation | mv.MaterializedGroupedNumericRelation,
     )
     assert_type(fixed.contract(), mv.AnalysisContract)
-    recovered = session.artifact(fixed.state.artifact_ref)
-    if isinstance(recovered, mv.MaterializedNumericRelation):
-        assert_type(recovered, mv.MaterializedNumericRelation)
+    recovered = session.artifact(fixed.state.artifact_ref.ref)
+    assert_type(recovered, mv.Artifact)
 
 if TYPE_CHECKING:
     temporal = members.read(ms.ref.time_dimension("sales.customer.registered_at"))

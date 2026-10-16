@@ -159,6 +159,26 @@ class TimezoneInvalidError(AnalysisError):
     pass
 
 
+class AnalysisStageUnavailableError(AnalysisError):
+    """A requested Query/Artifact stage has not been delivered in this build."""
+
+    def __init__(
+        self, *, stage: str, expected: str, received: str, repair: str, target: str
+    ) -> None:
+        self.stage = stage
+        super().__init__(
+            message="This Query/Artifact stage is not available in the current build.",
+            expected=expected,
+            received=received,
+            location=f"analysis.{target}",
+            repair=AnalysisRepair(
+                kind="environment",
+                action=repair,
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=target),
+            ),
+        )
+
+
 StatisticalErrorCode = Literal[
     "r8.input_identity",
     "r8.input_mode",

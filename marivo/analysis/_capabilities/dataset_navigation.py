@@ -61,6 +61,7 @@ _HUBS = (
         (),
         "decision_hub",
         guidance=(
+            "Metric-first Query capture: session.observe(named_metrics); execution is pending R2.2-R2.5.",
             "Entity-member questions: start with session.members(Entity Ref).",
             "Known inputs: reuse exact refs and scope. Existing object: contract().show() -> its exact Help target.",
             "Existing work: resume the Session; recovery does not replay sources.",
@@ -87,6 +88,7 @@ _HUBS = (
         "Read result types and retained state.",
         (),
         "decision_hub",
+        related=("Artifact",),
     ),
     NavigationInput(
         "evidence",

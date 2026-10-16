@@ -35,6 +35,8 @@ if TYPE_CHECKING:
     from marivo.analysis._subject import SubjectBinding as SubjectBinding
     from marivo.analysis.datasets.descriptors import DatasetByteCount as DatasetByteCount
     from marivo.analysis.datasets.state import MaterializedDatasetState as MaterializedDatasetState
+    from marivo.analysis.dsl.artifact import Artifact as Artifact
+    from marivo.analysis.dsl.query import Query as Query
     from marivo.analysis.evidence._dataset_types import ArtifactDigest as ArtifactDigest
     from marivo.analysis.evidence._dataset_types import Finding as Finding
     from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage

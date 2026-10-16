@@ -18,9 +18,8 @@ def provider() -> DisclosureProvider:
             "datasets.materialized_state",
             MaterializedDatasetState,
             summary="Committed Artifact state, counts and execution identity.",
-            acquisition="Read result.state after execute() or exact Artifact recovery.",
-            producers=("session.artifact", "actions.execute"),
-            consumers=("session.artifact",),
+            acquisition="Read legacy result.state after execute(); terminal Artifacts have no computation state.",
+            producers=("actions.execute",),
         ),
         value_type(
             "datasets.byte_count",

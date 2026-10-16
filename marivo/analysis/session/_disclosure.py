@@ -204,10 +204,17 @@ def provider() -> DisclosureProvider:
         ),
         (
             Session,
+            "observe",
+            "Query",
+            "result = session.observe(metrics)",
+            "Capture named Metric definitions without schema reads or a Run; binding and execution are pending R2.2-R2.5.",
+        ),
+        (
+            Session,
             "artifact",
-            "Verified materialized relation variant",
-            "result = session.artifact(artifact_ref)",
-            "Recover the exact Store 8 relation type from the retained snapshot and required parts; never load current sources or Semantic.",
+            "Artifact",
+            "result = session.artifact(artifact_id)",
+            "Open terminal output by exact ID. R2.1 rejects existing graph descriptors unchanged; terminal storage/readers arrive in R2.5/R2.6.",
         ),
         (
             Session,
@@ -264,7 +271,8 @@ def provider() -> DisclosureProvider:
         "run_cursor": "Use the preceding inspection's runs.next_cursor.",
         "session_id": "Use the exact existing Session id.",
         "run_id": "Use an exact incomplete, failed or succeeded Run id from session.runs().",
-        "reference": "Use an exact committed ArtifactRef or artifact reference string.",
+        "artifact_id": "Use an exact committed Artifact ID string from this Session; objects and Refs are not IDs.",
+        "metrics": "Pass a nonempty ordered mapping from output names to resolved Metric expressions; Artifact objects and IDs are rejected.",
         "entity": "Governed Entity Ref from catalog.",
         "artifact_ref": "Choose a committed Artifact ref to scope the graph, or None for the bounded Session graph.",
         "status": "Choose incomplete, failed, succeeded or None.",
@@ -281,7 +289,7 @@ def provider() -> DisclosureProvider:
                 bindings=(bind(value, receiver if isinstance(receiver, type) else None),),
                 summary=effect,
                 discovery_group="entry"
-                if name == "members"
+                if name in ("members", "observe")
                 else "methods.events"
                 if name == "anchors"
                 else "session.namespace"
@@ -304,7 +312,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(_doc_section(value, "Constraints"),)
-                if name == "members"
+                if name in ("members", "observe", "artifact")
                 else (effect,),
                 effects=effect,
                 telemetry=name in ("get_or_create", "resume", "abandon_run"),
@@ -323,8 +331,12 @@ def provider() -> DisclosureProvider:
                     if name == "inspect"
                     else ("session", "pending_run")
                     if name == "abandon_run"
+                    else ("session", "artifact_id")
+                    if name == "artifact"
                     else ("session", "artifact_ref")
-                    if name in ("artifact", "graph")
+                    if name == "graph"
+                    else ("session", "metrics")
+                    if name == "observe"
                     else ("session", "run_id")
                     if name == "get_run"
                     else ("session", "entity_ref")
@@ -334,7 +346,7 @@ def provider() -> DisclosureProvider:
                     else ("session",),
                     "result",
                     output,
-                    True,
+                    name not in ("observe", "artifact"),
                 ),
             )
         )
@@ -459,4 +471,9 @@ def provider() -> DisclosureProvider:
     public_descriptors, public_exports = public_inputs()
     descriptors.extend(public_descriptors)
     exports.extend(public_exports)
+    from marivo.analysis.dsl._disclosure import provider as terminal_provider
+
+    terminal = terminal_provider()
+    descriptors.extend(terminal.descriptors)
+    exports.extend(terminal.exports)
     return DisclosureProvider("runtime", tuple(descriptors), tuple(exports))

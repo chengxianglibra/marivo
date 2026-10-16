@@ -284,10 +284,10 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 name,
                 type_value,
                 summary=f"Governed Analysis {name} value type.",
-                acquisition="Execute the paired Logical result or recover an exact Artifact through session.artifact()."
+                acquisition="Execute the paired legacy Logical result; session.artifact() now owns terminal output only."
                 if name.startswith("Materialized")
                 else acquisition,
-                producers=("session.artifact",) if name.startswith("Materialized") else producers,
+                producers=("actions.execute",) if name.startswith("Materialized") else producers,
                 consumers=(
                     "dsl.LogicalComparisonResult.execute",
                     "dsl.Value.contract",
