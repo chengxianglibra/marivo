@@ -7,19 +7,14 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from inspect import signature
-from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, overload
+from typing import TYPE_CHECKING, Literal, TypeAlias, overload
 
 import pandas as pd
 import pyarrow as pa
 
 from marivo._data_render import _validate_display
 from marivo._temporal import BeforeEndBoundary, Grain, TimeScope
-from marivo.analysis._cohort import (
-    AllInstances,
-    AnyInstance,
-    AtLeast,
-    CohortRule,
-)
+from marivo.analysis._cohort import AllInstances, AnyInstance, AtLeast, CohortRule
 from marivo.analysis._comparison import ExactAlignment as ExactAlignment
 from marivo.analysis._comparison import HolidayThenWeekdayTimeKey as HolidayThenWeekdayTimeKey
 from marivo.analysis._comparison import HolidayTimeKey as HolidayTimeKey
@@ -37,7 +32,7 @@ from marivo.analysis._subject import SubjectBinding, subject_binding
 from marivo.analysis._time_grid import GridEndpoint as GridEndpoint
 from marivo.analysis._time_grid import TimeGrid as TimeGrid
 from marivo.analysis._time_grid import time_grid as time_grid
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, retained_nodes, topology
+from marivo.analysis.core.graph import MethodNode, retained_nodes, topology
 from marivo.analysis.core.model import (
     AssociationStatePart,
     AttributionPart,
@@ -77,7 +72,6 @@ from marivo.analysis.core.rules import (
     ObserveWeightedMean,
     OccurrenceCombine,
     PartsTransport,
-    PreparedObservation,
     ReferenceDerive,
     RowState,
     TimeProduct,
@@ -85,15 +79,9 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.core.time_grid import BoundTimeGrid, GridPoint, bind_grid
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.evidence._dataset_types import (
-    GraphArtifactDigest as ArtifactDigest,
-)
-from marivo.analysis.evidence._dataset_types import (
-    GraphFinding as Finding,
-)
-from marivo.analysis.evidence._dataset_types import (
-    GraphFindingPage as FindingPage,
-)
+from marivo.analysis.evidence._dataset_types import GraphArtifactDigest as ArtifactDigest
+from marivo.analysis.evidence._dataset_types import GraphFinding as Finding
+from marivo.analysis.evidence._dataset_types import GraphFindingPage as FindingPage
 from marivo.analysis.forecast_models import ForecastHorizon, ForecastModel, naive
 from marivo.analysis.materialization.graph_dataset import (
     GraphDataset,
@@ -112,7 +100,7 @@ from marivo.analysis.materialization.graph_fields import (
     StatePredicate,
     TemporalField,
 )
-from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
+from marivo.analysis.materialization.graph_relation import Relation
 from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType
 from marivo.analysis.observation.route_inputs import RelationshipPath as RelationshipPath
 from marivo.analysis.refs import ArtifactRef
@@ -136,7 +124,6 @@ if TYPE_CHECKING:
     from marivo.analysis.datasets.state import MaterializedDatasetState
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.graph_exchange import ExchangeResult
-
 MetricInputValue: TypeAlias = Ref[MetricKind] | RuntimeMetricExpr
 _TOKEN = object()
 _DEFAULT_FORECAST_MODEL = naive()
@@ -452,366 +439,10 @@ def _kind(node: Relation) -> str:
     return "members"
 
 
-class _Value:
-    __slots__ = ("_dataset", "_node", "_runtime")
-    _runtime: DatasetRuntime
+class _ResultFacts:
     _node: Relation
     _dataset: GraphDataset | None
-
-    def __init__(
-        self,
-        token: object,
-        node: Relation,
-        runtime: DatasetRuntime,
-        *,
-        inputs: tuple[_Value, ...] = (),
-        dataset: GraphDataset | None = None,
-    ) -> None:
-        if token is not _TOKEN:
-            raise TypeError(
-                "Construct Analysis values through a Session or another Analysis value."
-            )
-        if any(
-            item._runtime.session_ref != runtime.session_ref
-            or item._runtime.store.store_id != runtime.store.store_id
-            for item in inputs
-        ):
-            raise _reject(
-                "one Session", "foreign Session inputs", "Use this Session's exact inputs."
-            )
-        self._runtime, self._dataset = runtime, dataset
-        self._node = (
-            node
-            if dataset is None
-            or dataset.projection is not None
-            or (
-                isinstance(node.root, FixedLeaf)
-                and node.root.artifact.ref == dataset.artifact.artifact_ref
-            )
-            else Relation.restore(dataset)
-        )
-
-    def _summarize_rows(self, method: RowMethod) -> LogicalStatisticRelation:
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
-        )
-
-    def _materialize_before_continuing(self) -> bool:
-        return (
-            self._dataset is None
-            and isinstance(self._node.binding, LiveBinding)
-            and (
-                (
-                    isinstance(self._node.root.value_type, DurationType)
-                    and isinstance(self._node.root.signature.quantity, RowStatisticQuantity)
-                )
-                or any(
-                    isinstance(node, MethodNode)
-                    and isinstance(node.parameters, PreparedObservation)
-                    and node.inputs[0].node.identity != node.inputs[1].node.identity
-                    for node in topology(self._node.root)
-                )
-            )
-        )
-
-    def contract(self) -> AnalysisContract:
-        """Return the verified relation state and its mechanically valid next calls.
-
-        Args: None.
-        Returns: An AnalysisContract for this exact relation.
-        Example: ``relation.contract().show()``.
-        Constraints: Fixed results verify their Store 8 files without opening sources.
-        """
-        if self._dataset is not None:
-            self._dataset.verified()
-        signature = self._node.root.signature
-        comparison_unavailable = self._node.comparison_error
-        kind, fixed = _kind(self._node), self._dataset is not None
-        roles = tuple(part_role(part) for part in signature.parts)
-        names: tuple[str, ...]
-        if kind == "comparison":
-            names = ("absolute", "relative")
-        elif kind == "forecast":
-            names = ("prediction", "lower", "upper", "where")
-        elif kind == "forecast_read":
-            names = ("where", "rank", "aggregate", "table")
-        elif kind == "association_read":
-            names = (
-                ("where", "table")
-                if self._node.root.value_type == ScalarType("boolean")
-                else ("where", "rank", "aggregate", "table")
-            )
-        elif kind == "correlate" and "pair_inputs" in roles:
-            names = ("coefficient", "selected", "where")
-        elif kind == "time_runs":
-            names = ("start", "end", "count", "duration", "where")
-        elif kind == "run_read":
-            names = (
-                ("where", "table")
-                if self._node.root.value_type.name != "int64"
-                else ("where", "rank", "table")
-            )
-            if self._node.root.value_type == ScalarType("int64") and any(
-                isinstance(p, SubjectPart) for p in signature.parts
-            ):
-                names += ("members",)
-        elif kind == "deviation":
-            names = ("observed", "reference", "deviation", "score", "where")
-        elif kind == "deviation_read":
-            names = (
-                "where",
-                "aggregate",
-                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
-            )
-        elif kind == "attribution":
-            names = ("contribution", "current", "baseline", "where")
-        elif kind == "attribution_view":
-            names = ("where", "aggregate")
-        elif kind == "ranking":
-            names = ("values", "ranks", "where", "limit")
-        elif isinstance(self, MaterializedCoefficientRelation):
-            names = ("where", "aggregate")
-        elif kind == "members":
-            names = (
-                (("cohort",) if signature.domain.time_grid is None else ())
-                if fixed
-                else (("cohort", "execute") if signature.domain.time_grid is None else ("execute",))
-                if self._has_fixed()
-                else ("read", "observe", "execute")
-                if signature.domain.time_grid is not None
-                else ("cohort", "read", "observe", "execute")
-            )
-        elif kind == "read":
-            names = (
-                ("where", "members", "group_by", "aggregate")
-                if fixed
-                else ("where", "members", "group_by", "aggregate", "execute")
-            )
-        elif isinstance(signature.quantity, RowStatisticQuantity):
-            names = (
-                (("group_by", "rollup") if signature.domain.instance_key else ("rollup",))
-                if "row_state" in roles
-                else ()
-            )
-        elif kind == "group":
-            names = ()
-        elif kind == "correlate":
-            names = ("coefficient",) if fixed else ("execute",)
-        elif kind == "correlate_where":
-            names = ("aggregate",)
-        elif kind in ("compare", "comparison_absolute", "comparison_relative", "relation_ratio"):
-            names = ("where", "aggregate")
-        elif kind == "where":
-            names = (
-                *(("members",) if any(isinstance(p, SubjectPart) for p in signature.parts) else ()),
-                *(("aggregate",) if signature.quantity is not None else ()),
-            )
-        elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
-            names = (
-                *(
-                    ("group_by",)
-                    if "coordinate_state" in roles or signature.domain.instance_key
-                    else ()
-                ),
-                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
-                "aggregate",
-                *(
-                    (("compare",) if "coordinate_state" in roles else ("compare", "correlate"))
-                    if kind == "observe" and signature.domain.kind == "entity"
-                    else ()
-                ),
-            )
-        else:
-            names = ()
-        if kind == "where":
-            names = ("where", *names)
-        state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
-        if state is not None and state.temporal_policy in ("repeated", "overlapping"):
-            names = tuple(name for name in names if name != "rollup")
-        if any(
-            isinstance(p, CoveragePart) and p.business_windows is not None for p in signature.parts
-        ):
-            names = tuple(name for name in names if name not in ("rollup", "group_by"))
-        if isinstance(self, _CountRelation):
-            names = tuple(dict.fromkeys((*names, "aggregate")))
-            names = tuple(name for name in names if name != "group_by")
-        if not fixed and kind not in ("members", "read", "group", "correlate"):
-            names = (*names, "execute")
-        if isinstance(self, (LogicalDifferenceRelation, MaterializedDifferenceRelation)):
-            from marivo.analysis.materialization.graph_attribution import method
-
-            try:
-                method(signature)
-            except DatasetConstructionError:
-                pass
-            else:
-                names = tuple(dict.fromkeys((*names, "attribute")))
-        if isinstance(self, _NumericComparison):
-            try:
-                self._node._check_runs_input()
-            except AnalysisError:
-                pass
-            else:
-                names = (*names, "runs", "forecast")
-            names = tuple(
-                dict.fromkeys(
-                    (
-                        *names,
-                        "rank",
-                        *(
-                            ("deviation", "correlate")
-                            if isinstance(self._node.root.value_type, DecimalType)
-                            or self._node.root.value_type
-                            in (ScalarType("int64"), ScalarType("float64"))
-                            else ()
-                        ),
-                    )
-                )
-            )
-            if self._node.comparison_error is None:
-                names = tuple(dict.fromkeys((*names, "compare", "ratio")))
-            elif any(isinstance(p, AttributionPart) for p in signature.parts):
-                names = tuple(dict.fromkeys((*names, "ratio")))
-            else:
-                names = tuple(name for name in names if name not in ("compare", "ratio"))
-            from marivo.analysis.materialization.graph_reference import original, statistical_unit
-
-            try:
-                parameters = original(self._node.definition).parameters
-            except DatasetConstructionError:
-                pass
-            else:
-                if isinstance(parameters, (ObserveCount, OccurrenceCombine)) or (
-                    isinstance(parameters, ObserveMetric)
-                    and parameters.method == "sum"
-                    and parameters.fold is None
-                ):
-                    names = tuple(dict.fromkeys((*names, "share_of")))
-            try:
-                statistical_unit(self._node.definition)
-            except DatasetConstructionError:
-                pass
-            else:
-                if signature.domain.kind == "group" and (
-                    isinstance(self._node.root.value_type, DecimalType)
-                    or self._node.root.value_type in (ScalarType("int64"), ScalarType("float64"))
-                ):
-                    names = tuple(dict.fromkeys((*names, "standardize")))
-        if isinstance(self, _CohortDomain) and signature.domain.kind == "entity":
-            names = tuple(dict.fromkeys((*names, "penetration_in")))
-        if (
-            "subject" in roles
-            and callable(getattr(type(self), "members", None))
-            and "members" not in names
-        ):
-            names = (*names, "members")
-        if "anchor" in roles and signature.quantity is not None:
-            names = (
-                "where",
-                "aggregate",
-                *(("members",) if kind == "where" else ()),
-                *(("execute",) if not fixed else ()),
-            )
-        if self._materialize_before_continuing():
-            names = ("execute",)
-        if "condition_cells" in roles and isinstance(self._node.root.value_type, DurationType):
-            names = tuple(
-                name
-                for name in names
-                if name not in ("rank", "members", "compare", "ratio", "deviation")
-            )
-        if (
-            signature.quantity is not None
-            and signature.quantity.value_policy == "prediction_interval_bound"
-        ):
-            names = tuple(
-                n
-                for n in names
-                if n
-                not in (
-                    "aggregate",
-                    "rollup",
-                    "attribute",
-                    "forecast",
-                    "correlate",
-                    "deviation",
-                    "rank",
-                )
-            )
-        if isinstance(self, _NumericComparison) and "compare" in names:
-            from marivo.analysis.materialization.graph_composition import (
-                comparison_bindings,
-                comparison_template,
-            )
-
-            try:
-                comparison_template(self._node.definition)
-                comparison_bindings(self._node.definition)
-            except DatasetConstructionError as error:
-                names = tuple(name for name in names if name != "compare")
-                comparison_unavailable = error.received
-        if isinstance(self, _NumericComparison) and not signature.domain.instance_key:
-            names = tuple(name for name in names if name != "correlate")
-        required = tuple(role for role in roles if role != "subject")
-        actions = self._action_contract(names)
-        if kind == "time_runs":
-            actions += (
-                AnalysisAction(
-                    "mv.table(start=relation.start, end=relation.end, count=relation.count, duration=relation.duration)",
-                    "analysis.dsl.table",
-                ),
-            )
-        elif kind == "run_read":
-            actions += (AnalysisAction("mv.table(value=relation)", "analysis.dsl.table"),)
-        if "anchor" in roles and signature.quantity is not None:
-            allowed = (
-                ("count", "count_defined", "mean")
-                if isinstance(self._node.root.value_type, DurationType)
-                else ("count", "count_defined")
-                if isinstance(self._node.root.value_type, DecimalType)
-                else (
-                    "count",
-                    "count_defined",
-                    "sum",
-                    "min",
-                    "max",
-                    *(("mean",) if self._node.root.value_type == ScalarType("float64") else ()),
-                )
-            )
-            actions = tuple(
-                replacement
-                for action in actions
-                for replacement in (
-                    tuple(
-                        AnalysisAction(
-                            f"relation.where(relation.value.is_defined()).aggregate(mv.{method}())",
-                            action.help_target,
-                        )
-                        for method in allowed
-                    )
-                    if action.call.startswith("relation.aggregate(")
-                    else (action,)
-                )
-            )
-        facts = self._contract_facts()
-        if comparison_unavailable is not None and self._node.comparison_error is None:
-            facts += (("comparison_unavailable", comparison_unavailable),)
-        return AnalysisContract(
-            kind,
-            "materialized" if fixed else "logical",
-            actions,
-            signature.domain.kind,
-            None if signature.quantity is None else signature.quantity.kind,
-            required,
-            roles if fixed else (),
-            facts,
-        )
+    _runtime: DatasetRuntime
 
     def _contract_facts(
         self, *, checked: ExchangeResult | None = None, display: bool = False
@@ -1016,13 +647,6 @@ class _Value:
                             f"{len(fit_state.partitions) - 3} additional partitions retained in original fit authority",
                         )
                     )
-        if self._materialize_before_continuing():
-            facts.append(
-                (
-                    "continuation_boundary",
-                    "Execute this local result first; use the materialized result for further operations.",
-                )
-            )
         if self._node.comparison_error is not None:
             facts.append(("comparison_unavailable", self._node.comparison_error))
         if isinstance(self, _NumericComparison) and not signature.domain.instance_key:
@@ -1319,8 +943,336 @@ class _Value:
             return f"<{type(self).__name__} id={identity} design={params.design}; use .show()>"
         return f"<{type(self).__name__} kind={_kind(self._node)} id={identity}; use {detail}>"
 
-    def _has_fixed(self) -> bool:
-        return isinstance(self._node.binding, FrozenBinding)
+
+class _Value(_ResultFacts):
+    __slots__ = ("_dataset", "_node", "_runtime")
+    _runtime: DatasetRuntime
+    _node: Relation
+    _dataset: GraphDataset | None
+
+    def __init__(
+        self,
+        token: object,
+        node: Relation,
+        runtime: DatasetRuntime,
+        *,
+        inputs: tuple[_Value, ...] = (),
+        dataset: GraphDataset | None = None,
+    ) -> None:
+        if token is not _TOKEN:
+            raise TypeError(
+                "Construct Analysis values through a Session or another Analysis value."
+            )
+        if any(not isinstance(item, _Value) for item in inputs):
+            raise _reject(
+                "unexecuted Logical inputs",
+                "a committed result or other value",
+                "Compose the complete analysis before execute(); export committed output with to_pandas() for external analysis.",
+            )
+        if any(
+            item._runtime.session_ref != runtime.session_ref
+            or item._runtime.store.store_id != runtime.store.store_id
+            for item in inputs
+        ):
+            raise _reject(
+                "one Session", "foreign Session inputs", "Use this Session's exact inputs."
+            )
+        self._runtime, self._dataset = (runtime, dataset)
+        self._node = node
+
+    def _summarize_rows(self, method: RowMethod) -> LogicalStatisticRelation:
+        if not isinstance(method, RowMethod):
+            raise _reject(
+                "mv.sum/count/count_defined/min/max/mean()",
+                type(method).__name__,
+                "Select a closed row method.",
+            )
+        return LogicalStatisticRelation(
+            _TOKEN, self._node.summarize(method.kind), self._runtime, inputs=(self,)
+        )
+
+    def contract(self) -> AnalysisContract:
+        """Return the verified relation state and its mechanically valid next calls.
+
+        Args: None.
+        Returns: An AnalysisContract for this exact relation.
+        Example: ``relation.contract().show()``.
+        Constraints: Describes an unexecuted source definition without reading business rows.
+        """
+        if self._dataset is not None:
+            self._dataset.verified()
+        signature = self._node.root.signature
+        comparison_unavailable = self._node.comparison_error
+        kind = _kind(self._node)
+        roles = tuple(part_role(part) for part in signature.parts)
+        names: tuple[str, ...]
+        if kind == "comparison":
+            names = ("absolute", "relative")
+        elif kind == "forecast":
+            names = ("prediction", "lower", "upper", "where")
+        elif kind == "forecast_read":
+            names = ("where", "rank", "aggregate", "table")
+        elif kind == "association_read":
+            names = (
+                ("where", "table")
+                if self._node.root.value_type == ScalarType("boolean")
+                else ("where", "rank", "aggregate", "table")
+            )
+        elif kind == "correlate" and "pair_inputs" in roles:
+            names = ("coefficient", "selected", "where")
+        elif kind == "time_runs":
+            names = ("start", "end", "count", "duration", "where")
+        elif kind == "run_read":
+            names = (
+                ("where", "table")
+                if self._node.root.value_type.name != "int64"
+                else ("where", "rank", "table")
+            )
+            if self._node.root.value_type == ScalarType("int64") and any(
+                isinstance(p, SubjectPart) for p in signature.parts
+            ):
+                names += ("members",)
+        elif kind == "deviation":
+            names = ("observed", "reference", "deviation", "score", "where")
+        elif kind == "deviation_read":
+            names = (
+                "where",
+                "aggregate",
+                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
+            )
+        elif kind == "attribution":
+            names = ("contribution", "current", "baseline", "where")
+        elif kind == "attribution_view":
+            names = ("where", "aggregate")
+        elif kind == "ranking":
+            names = ("values", "ranks", "where", "limit")
+        elif isinstance(self, MaterializedCoefficientRelation):
+            names = ("where", "aggregate")
+        elif kind == "members":
+            names = (
+                ("read", "observe", "execute")
+                if signature.domain.time_grid is not None
+                else ("cohort", "read", "observe", "execute")
+            )
+        elif kind == "read":
+            names = ("where", "members", "group_by", "aggregate", "execute")
+        elif isinstance(signature.quantity, RowStatisticQuantity):
+            names = (
+                (("group_by", "rollup") if signature.domain.instance_key else ("rollup",))
+                if "row_state" in roles
+                else ()
+            )
+        elif kind == "group":
+            names = ()
+        elif kind == "correlate":
+            names = ("execute",)
+        elif kind == "correlate_where":
+            names = ("aggregate",)
+        elif kind in ("compare", "comparison_absolute", "comparison_relative", "relation_ratio"):
+            names = ("where", "aggregate")
+        elif kind == "where":
+            names = (
+                *(("members",) if any(isinstance(p, SubjectPart) for p in signature.parts) else ()),
+                *(("aggregate",) if signature.quantity is not None else ()),
+            )
+        elif kind in ("observe", "ratio_observe", "rollup", "ratio_rollup"):
+            names = (
+                *(
+                    ("group_by",)
+                    if "coordinate_state" in roles or signature.domain.instance_key
+                    else ()
+                ),
+                *(("rollup",) if "original_state" in roles and "coverage" in roles else ()),
+                "aggregate",
+                *(
+                    (("compare",) if "coordinate_state" in roles else ("compare", "correlate"))
+                    if kind == "observe" and signature.domain.kind == "entity"
+                    else ()
+                ),
+            )
+        else:
+            names = ()
+        if kind == "where":
+            names = ("where", *names)
+        state = next((p for p in signature.parts if isinstance(p, OriginalStatePart)), None)
+        if state is not None and state.temporal_policy in ("repeated", "overlapping"):
+            names = tuple(name for name in names if name != "rollup")
+        if any(
+            isinstance(p, CoveragePart) and p.business_windows is not None for p in signature.parts
+        ):
+            names = tuple(name for name in names if name not in ("rollup", "group_by"))
+        if isinstance(self, _CountRelation):
+            names = tuple(dict.fromkeys((*names, "aggregate")))
+            names = tuple(name for name in names if name != "group_by")
+        if kind not in ("members", "read", "group", "correlate"):
+            names = (*names, "execute")
+        if isinstance(self, (LogicalDifferenceRelation,)):
+            from marivo.analysis.materialization.graph_attribution import method
+
+            try:
+                method(signature)
+            except DatasetConstructionError:
+                pass
+            else:
+                names = tuple(dict.fromkeys((*names, "attribute")))
+        if isinstance(self, _NumericComparison):
+            try:
+                self._node._check_runs_input()
+            except AnalysisError:
+                pass
+            else:
+                names = (*names, "runs", "forecast")
+            names = tuple(
+                dict.fromkeys(
+                    (
+                        *names,
+                        "rank",
+                        *(
+                            ("deviation", "correlate")
+                            if isinstance(self._node.root.value_type, DecimalType)
+                            or self._node.root.value_type
+                            in (ScalarType("int64"), ScalarType("float64"))
+                            else ()
+                        ),
+                    )
+                )
+            )
+            if self._node.comparison_error is None:
+                names = tuple(dict.fromkeys((*names, "compare", "ratio")))
+            elif any(isinstance(p, AttributionPart) for p in signature.parts):
+                names = tuple(dict.fromkeys((*names, "ratio")))
+            else:
+                names = tuple(name for name in names if name not in ("compare", "ratio"))
+            from marivo.analysis.materialization.graph_reference import original, statistical_unit
+
+            try:
+                parameters = original(self._node.definition).parameters
+            except DatasetConstructionError:
+                pass
+            else:
+                if isinstance(parameters, (ObserveCount, OccurrenceCombine)) or (
+                    isinstance(parameters, ObserveMetric)
+                    and parameters.method == "sum"
+                    and parameters.fold is None
+                ):
+                    names = tuple(dict.fromkeys((*names, "share_of")))
+            try:
+                statistical_unit(self._node.definition)
+            except DatasetConstructionError:
+                pass
+            else:
+                if signature.domain.kind == "group" and (
+                    isinstance(self._node.root.value_type, DecimalType)
+                    or self._node.root.value_type in (ScalarType("int64"), ScalarType("float64"))
+                ):
+                    names = tuple(dict.fromkeys((*names, "standardize")))
+        if isinstance(self, _CohortDomain) and signature.domain.kind == "entity":
+            names = tuple(dict.fromkeys((*names, "penetration_in")))
+        if (
+            "subject" in roles
+            and callable(getattr(type(self), "members", None))
+            and "members" not in names
+        ):
+            names = (*names, "members")
+        if "anchor" in roles and signature.quantity is not None:
+            names = (
+                "where",
+                "aggregate",
+                *(("members",) if kind == "where" else ()),
+                *("execute",),
+            )
+        if "condition_cells" in roles and isinstance(self._node.root.value_type, DurationType):
+            names = tuple(
+                name
+                for name in names
+                if name not in ("rank", "members", "compare", "ratio", "deviation")
+            )
+        if (
+            signature.quantity is not None
+            and signature.quantity.value_policy == "prediction_interval_bound"
+        ):
+            names = tuple(
+                n
+                for n in names
+                if n
+                not in (
+                    "aggregate",
+                    "rollup",
+                    "attribute",
+                    "forecast",
+                    "correlate",
+                    "deviation",
+                    "rank",
+                )
+            )
+        if isinstance(self, _NumericComparison) and "compare" in names:
+            from marivo.analysis.materialization.graph_composition import (
+                comparison_bindings,
+                comparison_template,
+            )
+
+            try:
+                comparison_template(self._node.definition)
+                comparison_bindings(self._node.definition)
+            except DatasetConstructionError as error:
+                names = tuple(name for name in names if name != "compare")
+                comparison_unavailable = error.received
+        if isinstance(self, _NumericComparison) and (not signature.domain.instance_key):
+            names = tuple(name for name in names if name != "correlate")
+        required = tuple(role for role in roles if role != "subject")
+        actions = self._action_contract(names)
+        if kind == "time_runs":
+            actions += (
+                AnalysisAction(
+                    "mv.table(start=relation.start, end=relation.end, count=relation.count, duration=relation.duration)",
+                    "analysis.dsl.table",
+                ),
+            )
+        elif kind == "run_read":
+            actions += (AnalysisAction("mv.table(value=relation)", "analysis.dsl.table"),)
+        if "anchor" in roles and signature.quantity is not None:
+            allowed = (
+                ("count", "count_defined", "mean")
+                if isinstance(self._node.root.value_type, DurationType)
+                else ("count", "count_defined")
+                if isinstance(self._node.root.value_type, DecimalType)
+                else (
+                    "count",
+                    "count_defined",
+                    "sum",
+                    "min",
+                    "max",
+                    *(("mean",) if self._node.root.value_type == ScalarType("float64") else ()),
+                )
+            )
+            actions = tuple(
+                replacement
+                for action in actions
+                for replacement in (
+                    tuple(
+                        AnalysisAction(
+                            f"relation.where(relation.value.is_defined()).aggregate(mv.{method}())",
+                            action.help_target,
+                        )
+                        for method in allowed
+                    )
+                    if action.call.startswith("relation.aggregate(")
+                    else (action,)
+                )
+            )
+        facts = self._contract_facts()
+        if comparison_unavailable is not None and self._node.comparison_error is None:
+            facts += (("comparison_unavailable", comparison_unavailable),)
+        return AnalysisContract(
+            kind,
+            "logical",
+            actions,
+            signature.domain.kind,
+            None if signature.quantity is None else signature.quantity.kind,
+            required,
+            (),
+            facts,
+        )
 
     def _run(self) -> GraphDataset:
         return self._dataset if self._dataset is not None else self._node.execute()
@@ -1348,12 +1300,9 @@ class _Value:
                     "missing relation",
                     "Build predicates from relation.value.",
                 )
-            if (
-                relation.runtime is not self._node.runtime
-                or isinstance(relation.binding, FrozenBinding) != self._has_fixed()
-            ):
+            if relation.runtime is not self._node.runtime:
                 raise _reject(
-                    "one Session and source/fixed mode",
+                    "unexecuted Logical inputs from one Session",
                     "incompatible predicate input",
                     "Bind all predicate inputs in the receiver's mode and Session.",
                 )
@@ -1424,7 +1373,7 @@ class _Value:
             return ValuePredicate(binding, operation, literal, input_index=left, right_index=right)
 
         tree = bind(predicate)
-        return tree, tuple(dependencies[1:])
+        return (tree, tuple(dependencies[1:]))
 
     @property
     def subject_binding(self) -> SubjectBinding:
@@ -1447,12 +1396,10 @@ class _Value:
             )
         return subject_binding(self._node.root.signature.domain, part)
 
-    def _members_domain(
-        self, through: SubjectBinding | None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
-        node = self._subject_members(through)
-        receiver = LogicalFixedAnalysisDomain if self._has_fixed() else LogicalAnalysisDomain
-        return receiver(_TOKEN, node, self._runtime, inputs=(self,))
+    def _members_domain(self, through: SubjectBinding | None) -> LogicalAnalysisDomain:
+        return LogicalAnalysisDomain(
+            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
+        )
 
     def _subject_members(self, through: SubjectBinding | None) -> Relation:
         if through is not None and (
@@ -1485,15 +1432,7 @@ class _Value:
         self, axes: tuple[Ref[DimensionKind] | CategoryRelation, ...]
     ) -> tuple[Ref[DimensionKind] | Coordinate, ...]:
         if type(axes) is not tuple or any(
-            not isinstance(
-                axis,
-                (
-                    Ref,
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                ),
-            )
-            for axis in axes
+            not isinstance(axis, (Ref, LogicalCategoryRelation)) for axis in axes
         ):
             raise _reject(
                 "an ordered tuple of Dimensions or corresponding classifications",
@@ -1505,13 +1444,7 @@ class _Value:
     def _group_nodes(
         self,
         keys: tuple[
-            Ref[DimensionKind]
-            | Ref[EntityKind]
-            | LogicalCategoryRelation
-            | MaterializedCategoryRelation
-            | TimeGrid
-            | Grain,
-            ...,
+            Ref[DimensionKind] | Ref[EntityKind] | LogicalCategoryRelation | TimeGrid | Grain, ...
         ],
     ) -> tuple[Relation, Relation]:
         node = self._node
@@ -1550,13 +1483,7 @@ class _Value:
                     )
                 references.append(key._bound)
                 continue
-            if isinstance(
-                key,
-                (
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                ),
-            ):
+            if isinstance(key, (LogicalCategoryRelation,)):
                 coordinate = self._classification_key(key)
                 retained = tuple(
                     dict.fromkeys(
@@ -1592,7 +1519,7 @@ class _Value:
             else:
                 references.append(key)
         if isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity)):
-            return node.rollup(*references), node
+            return (node.rollup(*references), node)
         coordinates: list[Coordinate] = []
         for reference in references:
             if isinstance(reference, BoundTimeGrid):
@@ -1619,7 +1546,7 @@ class _Value:
                     "Use a retained axis or a corresponding categorical read.",
                 )
             coordinates.extend(matches)
-        return node.group_domain(tuple(coordinates)), node
+        return (node.group_domain(tuple(coordinates)), node)
 
     def _action_contract(self, names: tuple[str, ...]) -> tuple[AnalysisAction, ...]:
         from marivo.analysis._capabilities.registry import REGISTRY
@@ -1692,14 +1619,7 @@ def _rank_relation(
     from marivo.analysis.materialization.graph_display import bind, invalid
 
     if type(partition_by) is not tuple or any(
-        not isinstance(
-            p,
-            (
-                LogicalCategoryRelation,
-                MaterializedCategoryRelation,
-            ),
-        )
-        for p in partition_by
+        not isinstance(p, (LogicalCategoryRelation,)) for p in partition_by
     ):
         raise invalid("partition_by must contain CategoryRelations")
     if len({p._node.root.identity for p in partition_by}) != len(partition_by):
@@ -1741,7 +1661,7 @@ class _NumericComparison(_Value):
         Args: others: One to fifteen distinct corresponding quantities. method: pearson, spearman, or kendall. lag_range: Signed offsets on the original complete time grid, or None for zero lag.
         Returns: A LogicalAssociationResult with coefficient and selected owned views.
         Example: ``result = revenue.correlate(orders, method="spearman")``.
-        Constraints: One Session and source/fixed closure; pairwise ordinary Null deletion only. Pair observations by the complete original key tuple, retaining each Entity, field and coordinate role in pairing_key; association output keys identify candidates. Positive lag pairs the left t with right t+k. No causal or significance claim.
+        Constraints: Unexecuted Logical inputs from one Session; pairwise ordinary Null deletion only. Pair observations by the complete original key tuple, retaining each Entity, field and coordinate role in pairing_key; association output keys identify candidates. Positive lag pairs the left t with right t+k. No causal or significance claim.
         Aligned time coordinates reject explicit lag_range; correlate without lag uses the common-domain contract.
         """
         if any(not isinstance(v, _NumericComparison) for v in others):
@@ -1810,10 +1730,7 @@ class _NumericComparison(_Value):
         self,
         *,
         method: Literal["zscore", "mad"],
-        partition_by: tuple[
-            LogicalCategoryRelation | MaterializedCategoryRelation,
-            ...,
-        ] = (),
+        partition_by: tuple[LogicalCategoryRelation, ...] = (),
     ) -> LogicalDeviationResult:
         """Fit signed equal-row deviation scores over the current numeric domain.
 
@@ -1822,17 +1739,10 @@ class _NumericComparison(_Value):
             partition_by: Explicit corresponding categorical relations; empty means one global fit.
         Returns: A LogicalDeviationResult with observed, reference, deviation and score views.
         Example: ``scored = change.deviation(method="mad")``.
-        Constraints: One Session and source/fixed closure; no automatic threshold or partitioning.
+        Constraints: Unexecuted Logical inputs from one Session; no automatic threshold or partitioning.
         """
         if type(partition_by) is not tuple or any(
-            not isinstance(
-                item,
-                (
-                    LogicalCategoryRelation,
-                    MaterializedCategoryRelation,
-                ),
-            )
-            for item in partition_by
+            not isinstance(item, (LogicalCategoryRelation,)) for item in partition_by
         ):
             from marivo.analysis.errors import StatisticalRelationError
 
@@ -1876,6 +1786,12 @@ class _NumericComparison(_Value):
         Example: ``shares = values.share_of(values.rollup())``.
         Constraints: Requires proved support inclusion; zero denominators are Undefined.
         """
+        if not isinstance(reference, _NumericComparison):
+            raise _reject(
+                "an unexecuted numeric reference",
+                type(reference).__name__,
+                "Compose share_of on Logical definitions before execute().",
+            )
         from marivo.analysis.materialization.graph_reference import bind
 
         if not isinstance(reference, _NumericComparison):
@@ -1980,7 +1896,7 @@ class _NumericComparison(_Value):
         """Divide corresponding numeric values using exact ordered endpoints.
 
         Args:
-            other: Denominator from this Session and source/fixed mode.
+            other: Denominator from this Session and unexecuted source inputs.
             align: Checked exact keys or a bound one-to-one correspondence.
         Returns: A LogicalNumericRelation with ordinary quotient semantics.
         Example: ``quotient = revenue.ratio(orders, align=mv.exact())``.
@@ -2030,7 +1946,6 @@ class _OriginalContinuation(_NumericComparison):
         *dimensions: Ref[DimensionKind]
         | Ref[EntityKind]
         | LogicalCategoryRelation
-        | MaterializedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedNumericRelation | GroupedRatioRelation:
@@ -2050,13 +1965,7 @@ class _OriginalContinuation(_NumericComparison):
             if quantity is not None and quantity.method_version == "ratio@v1"
             else GroupedNumericRelation
         )
-        return cls(
-            _TOKEN,
-            grouped,
-            self._runtime,
-            inputs=(self,),
-            row_node=rows,
-        )
+        return cls(_TOKEN, grouped, self._runtime, inputs=(self,), row_node=rows)
 
     def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
         """Reduce the current finished Cells into a new row statistic.
@@ -2114,7 +2023,14 @@ class _CountRelation(_Value):
         )
 
 
-class _MaterializedRead(_Value):
+class _MaterializedRead(_ResultFacts):
+    def __init__(
+        self, token: object, node: Relation, runtime: DatasetRuntime, *, dataset: GraphDataset
+    ) -> None:
+        if token is not _TOKEN:
+            raise TypeError("Acquire committed results through logical.execute().")
+        self._node, self._runtime, self._dataset = (node, runtime, dataset)
+
     def show(
         self, *, n: int | None = None, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES
     ) -> None:
@@ -2250,14 +2166,14 @@ class _CohortDomain(_Value):
 
     def cohort(
         self, predicate: BoundPredicate, *, rule: CohortRule, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    ) -> LogicalAnalysisDomain:
         """Select exact Subjects using their full retained opportunity domain.
 
         Args:
             predicate: Typed conditions over complete Entity or Entity/time opportunities.
             rule: any_instance, at_least, or all_instances with explicit empty policy.
             through: Optional exact SubjectBinding acquired from the opportunity producer.
-        Returns: A logical source or fixed AnalysisDomain with decision evidence.
+        Returns: An unexecuted AnalysisDomain with decision evidence.
         Example: ``members.cohort(values.value.gt(0), rule=mv.at_least(3))``.
         Constraints: Every Subject must be decidable; missing opportunities and Null/Undefined comparisons reject.
         """
@@ -2292,7 +2208,7 @@ class _CohortDomain(_Value):
                 "Acquire through from the opportunity relation.subject_binding.",
             )
         node = self._node.cohort(tree, dependencies, rule)
-        result_type = LogicalFixedAnalysisDomain if self._has_fixed() else LogicalAnalysisDomain
+        result_type = LogicalAnalysisDomain
         return result_type(_TOKEN, node, self._runtime, inputs=(self,))
 
 
@@ -2342,8 +2258,7 @@ class LogicalAnalysisDomain(_CohortDomain):
         Constraints: An unfiltered session.members(entity).execute() reads and saves the
         complete member key set; it may scan the entire Entity source, with no
         default row truncation. Primary-key uniqueness, unversioned identity and
-        show(n=...) do not bound member count. Execution has no default graph deadline. A source branch reevaluates; a fixed branch
-        uses exact retained Artifacts.
+        show(n=...) do not bound member count. Execution has no default graph deadline. Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
 
@@ -2681,71 +2596,20 @@ class LogicalAnalysisDomain(_CohortDomain):
         return LogicalNumericRelation(_TOKEN, observed, self._runtime, inputs=(self, *categories))
 
 
-class MaterializedAnalysisDomain(_MaterializedValue, _CohortDomain):
-    """Exact fixed Entity membership; it cannot introduce a new live observation."""
-
-
-class LogicalFixedAnalysisDomain(_CohortDomain):
-    """Selected fixed members awaiting a retained local projection."""
-
-    def execute(self) -> MaterializedAnalysisDomain:
-        """Publish only the selected member identity from its fixed predecessor.
-
-        Args:
-            None.
-        Returns: A MaterializedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
-        """
-        return MaterializedAnalysisDomain(_TOKEN, self._node, self._runtime, dataset=self._run())
-
-    if not TYPE_CHECKING:
-        # Static callers see only execute(); dynamic callers still receive a repair.
-        def __getattr__(self, name: str) -> NoReturn:
-            if name in ("read", "observe"):
-                fit = next(
-                    (
-                        part
-                        for node in topology(self._node.root)
-                        for part in node.signature.parts
-                        if isinstance(part, FitInputsPart)
-                    ),
-                    None,
-                )
-                if name == "observe" and fit is not None:
-                    from marivo.analysis.errors import StatisticalRelationError
-
-                    raise StatisticalRelationError(
-                        code="r8.retained_part",
-                        operation="observe",
-                        method=f"deviation.{fit.method}@v1",
-                        input_identity=self._node.root.fingerprint,
-                        expected="a retained observation contract with contributions, path, time and full Subject keys",
-                        received=f"fixed selected Subject with fit_scope={fit.fit_id}; no retained observation contract",
-                        repair="Read the already captured follow-up numeric Artifact and aggregate it. Prepare a new observation in a complete logical source chain before execute().",
-                    )
-                raise _reject(
-                    "source-only or fixed-only inputs",
-                    "fixed selected members plus live Metric"
-                    if name == "observe"
-                    else "fixed selected members plus live Dimension",
-                    "Construct the selection from logical source members before execution.",
-                )
-            raise AttributeError(name)
+class MaterializedAnalysisDomain(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalCategoryRelation(_CountRelation):
     """Unexecuted categorical member attribute relation."""
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -2781,50 +2645,13 @@ class LogicalCategoryRelation(_CountRelation):
             None.
         Returns: A MaterializedCategoryRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedCategoryRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedCategoryRelation(_MaterializedValue, _CountRelation):
-    """Fixed categorical relation retaining admitted member identity."""
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project retained complete Subject identities without source access.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A fixed-only logical member continuation.
-        Example: ``members = result.members()``.
-        Constraints: Requires the exact retained Subject part and cannot read external attributes.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def value(self) -> CategoryField:
-        """Return this relation's bound categorical field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return CategoryField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalCategoryRelation:
-        """Build a fixed-only categorical selection.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalCategoryRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalCategoryRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
+class MaterializedCategoryRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class GroupedNumericRelation(_Value):
@@ -2865,7 +2692,7 @@ class GroupedNumericRelation(_Value):
             None.
         Returns: A MaterializedGroupedNumericRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         if self._node.root.signature.quantity is None:
             raise _reject(
@@ -2971,15 +2798,13 @@ class GroupedRatioRelation(_Value):
 class LogicalNumericRelation(_NumericComparison):
     """One unexecuted original Metric observation over an Entity domain."""
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -3012,7 +2837,6 @@ class LogicalNumericRelation(_NumericComparison):
         *dimensions: Ref[DimensionKind]
         | Ref[EntityKind]
         | LogicalCategoryRelation
-        | MaterializedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedNumericRelation:
@@ -3022,17 +2846,11 @@ class LogicalNumericRelation(_NumericComparison):
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
         Returns: A GroupedNumericRelation bound to this exact relation.
         Example: ``result = relation.group_by(dimension)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
+        Constraints: Classifications use complete keys and unexecuted category inputs.
         Aligned time coordinates reject TimeGrid/Grain grouping; group original endpoints first.
         """
         grouped, rows = self._group_nodes(dimensions)
-        return GroupedNumericRelation(
-            _TOKEN,
-            grouped,
-            self._runtime,
-            inputs=(self,),
-            row_node=rows,
-        )
+        return GroupedNumericRelation(_TOKEN, grouped, self._runtime, inputs=(self,), row_node=rows)
 
     def rollup(self) -> LogicalRolledNumericRelation:
         """Merge original Metric components into a Singleton result.
@@ -3068,127 +2886,17 @@ class LogicalNumericRelation(_NumericComparison):
             None.
         Returns: A MaterializedNumericRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedNumericRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedNumericRelation(_MaterializedValue, _NumericComparison):
-    """Exact fixed original Metric observation with retained components."""
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project retained complete Subject identities without source access.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A fixed-only logical member continuation.
-        Example: ``members = result.members()``.
-        Constraints: Requires the exact retained Subject part and cannot read external attributes.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def value(self) -> NumericField:
-        """Return the bound numeric field for a fixed-only predicate.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return NumericField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
-        """Select current numeric values using their bound predicate.
-
-        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving any retained Subject part.
-        Example: ``selected = relation.where(relation.value.gt(0))``.
-        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
-        """
-        return LogicalSelectedNumericRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def group_by(
-        self,
-        *dimensions: Ref[DimensionKind]
-        | Ref[EntityKind]
-        | LogicalCategoryRelation
-        | MaterializedCategoryRelation
-        | TimeGrid
-        | Grain,
-    ) -> GroupedNumericRelation:
-        """Group retained fixed axes with fixed classifications.
-
-        Args:
-            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-        Returns: A GroupedNumericRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
-        """
-        grouped, rows = self._group_nodes(dimensions)
-        return GroupedNumericRelation(
-            _TOKEN,
-            grouped,
-            self._runtime,
-            inputs=(self,),
-            row_node=rows,
-        )
-
-    def rollup(self) -> LogicalRolledNumericRelation:
-        """Build fixed-only original-state rollup.
-
-        Args:
-            None.
-        Returns: A LogicalRolledNumericRelation bound to this exact relation.
-        Example: ``result = relation.rollup()``.
-        Constraints: Requires original retained components; subgroup values are not averaged.
-        """
-        return LogicalRolledNumericRelation(
-            _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
-        )
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build fixed-only current-row statistic.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedNumericRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
-class MaterializedGroupedNumericRelation(MaterializedNumericRelation):
-    """Fixed member or contribution group with retained Metric components."""
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a current-row statistic over this exact group.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Preserves every retained group axis and counts current materialized rows, not their original contributions.
-        """
-        if not isinstance(method, RowMethod):
-            raise _reject(
-                "mv.sum/count/count_defined/min/max/mean()",
-                type(method).__name__,
-                "Select a closed row method.",
-            )
-        return LogicalStatisticRelation(
-            _TOKEN,
-            self._node.summarize(
-                method.kind, coordinates=self._node.root.signature.domain.instance_key
-            ),
-            self._runtime,
-            inputs=(self,),
-        )
+class MaterializedGroupedNumericRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalRolledNumericRelation(_OriginalContinuation):
@@ -3212,7 +2920,7 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
             None.
         Returns: A MaterializedGroupedNumericRelation for retained group keys, otherwise a MaterializedRolledNumericRelation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         result = (
             MaterializedGroupedNumericRelation
@@ -3222,19 +2930,8 @@ class LogicalRolledNumericRelation(_OriginalContinuation):
         return result(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedRolledNumericRelation(_MaterializedValue, _OriginalContinuation):
-    """Fixed original-state Singleton observation."""
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only statistic over this Singleton row.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedRolledNumericRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalRatioRelation(_NumericComparison):
@@ -3245,7 +2942,6 @@ class LogicalRatioRelation(_NumericComparison):
         *dimensions: Ref[DimensionKind]
         | Ref[EntityKind]
         | LogicalCategoryRelation
-        | MaterializedCategoryRelation
         | TimeGrid
         | Grain,
     ) -> GroupedRatioRelation:
@@ -3255,16 +2951,10 @@ class LogicalRatioRelation(_NumericComparison):
             dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
         Returns: A GroupedRatioRelation bound to this exact relation.
         Example: ``result = relation.group_by(dimension)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
+        Constraints: Classifications use complete keys and unexecuted category inputs.
         """
         grouped, rows = self._group_nodes(dimensions)
-        return GroupedRatioRelation(
-            _TOKEN,
-            grouped,
-            self._runtime,
-            inputs=(self,),
-            row_node=rows,
-        )
+        return GroupedRatioRelation(_TOKEN, grouped, self._runtime, inputs=(self,), row_node=rows)
 
     def rollup(self) -> LogicalRolledRatioRelation:
         """Reobserve the target domain from the original ratio components.
@@ -3297,63 +2987,13 @@ class LogicalRatioRelation(_NumericComparison):
             None.
         Returns: A MaterializedRatioRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedRatioRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedRatioRelation(_MaterializedValue, _NumericComparison):
-    """Fixed ratio observation with retained numerator and denominator parts."""
-
-    def group_by(
-        self,
-        *dimensions: Ref[DimensionKind]
-        | Ref[EntityKind]
-        | LogicalCategoryRelation
-        | MaterializedCategoryRelation
-        | TimeGrid
-        | Grain,
-    ) -> GroupedRatioRelation:
-        """Group complete fixed coordinates for original ratio reduction.
-
-        Args:
-            dimensions: Retained Entity/Dimension axes or corresponding categorical reads.
-        Returns: A GroupedRatioRelation bound to this exact relation.
-        Example: ``result = relation.group_by(dimension)``.
-        Constraints: Classifications use complete keys; fixed inputs require fixed categories.
-        """
-        grouped, rows = self._group_nodes(dimensions)
-        return GroupedRatioRelation(
-            _TOKEN,
-            grouped,
-            self._runtime,
-            inputs=(self,),
-            row_node=rows,
-        )
-
-    def rollup(self) -> LogicalRolledRatioRelation:
-        """Build a fixed-only original-component rollup.
-
-        Args:
-            None.
-        Returns: A LogicalRolledRatioRelation bound to this exact relation.
-        Example: ``result = relation.rollup()``.
-        Constraints: Requires original retained components; subgroup values are not averaged.
-        """
-        return LogicalRolledRatioRelation(
-            _TOKEN, self._node.rollup(), self._runtime, inputs=(self,)
-        )
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only current-row statistic.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedRatioRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalRolledRatioRelation(_OriginalContinuation):
@@ -3377,26 +3017,15 @@ class LogicalRolledRatioRelation(_OriginalContinuation):
             None.
         Returns: A MaterializedRolledRatioRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedRolledRatioRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedRolledRatioRelation(_MaterializedValue, _OriginalContinuation):
-    """Fixed ratio rollup with retained original component meaning."""
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only statistic over current rolled ratio rows.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedRolledRatioRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalComparisonResult(_Value):
@@ -3450,41 +3079,7 @@ class LogicalComparisonResult(_Value):
 
 
 class MaterializedComparisonResult(_MaterializedValue):
-    """One committed Artifact with absolute and relative comparison views."""
-
-    @property
-    def absolute(self) -> MaterializedDifferenceRelation:
-        """Bind the absolute projection of this exact Artifact.
-
-        Args: None.
-        Returns: A MaterializedDifferenceRelation with original endpoint authority.
-        Example: ``allocation = changes.absolute.attribute(axes=(region,))``.
-        Constraints: No Run is allocated; independent attribution admission still applies.
-        """
-        assert self._dataset is not None
-        return MaterializedDifferenceRelation(
-            _TOKEN,
-            self._node.comparison_field("absolute"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="absolute"),
-        )
-
-    @property
-    def relative(self) -> MaterializedNumericRelation:
-        """Bind the dimensionless relative projection of this Artifact.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation with independent Cell state.
-        Example: ``values = changes.relative``.
-        Constraints: No recomputation or Run; zero baseline remains Undefined.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.comparison_field("relative"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="relative"),
-        )
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalDifferenceRelation(_NumericComparison):
@@ -3556,74 +3151,15 @@ class LogicalDifferenceRelation(_NumericComparison):
             None.
         Returns: A MaterializedDifferenceRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedDifferenceRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedDifferenceRelation(_MaterializedValue, _NumericComparison):
-    """Fixed exact Difference with retained paired endpoints."""
-
-    @property
-    def value(self) -> NumericField:
-        """Return the bound strict numeric field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return NumericField(self._node.root, self._node)
-
-    def attribute(
-        self,
-        *,
-        axes: tuple[Ref[DimensionKind] | CategoryRelation, ...],
-        mode: Literal["joint", "hierarchy"] = "joint",
-        top_k: int | None = None,
-    ) -> LogicalAttributionResult:
-        """Allocate an absolute change from its complete original endpoint states.
-
-        Args: axes: Unique ordered Dimensions or corresponding classifications selecting retained roles; mode: Joint tuples or authored prefixes; top_k: Common basis limit 1..1000, or None.
-        Returns: A LogicalAttributionResult with same-key contribution/current/baseline views.
-        Example: ``result = change.attribute(axes=(channel,), mode="joint", top_k=5).execute()``.
-        Constraints: Fixed inputs require retained axes; every resolution independently reconciles.
-        """
-        from marivo.analysis.materialization.graph_attribution import bind
-
-        return LogicalAttributionResult(
-            _TOKEN,
-            bind(self._node, self._attribution_axes(axes), mode, top_k),
-            self._runtime,
-            inputs=(self,),
-        )
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
-        """Build a fixed-only Difference selection.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedDifferenceRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only current-row statistic.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedDifferenceRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalSelectedDifferenceRelation(_NumericComparison):
@@ -3654,15 +3190,13 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -3684,63 +3218,15 @@ class LogicalSelectedDifferenceRelation(_NumericComparison):
             None.
         Returns: A MaterializedSelectedDifferenceRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedSelectedDifferenceRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedSelectedDifferenceRelation(_MaterializedValue, _NumericComparison):
-    """Fixed selected Difference with exact member projection."""
-
-    @property
-    def value(self) -> NumericField:
-        """Return the Difference-bound strict numeric field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return NumericField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedDifferenceRelation:
-        """Select Defined Difference rows through this exact field.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedDifferenceRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedDifferenceRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project fixed selected members without source access.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only statistic over selected rows.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
+class MaterializedSelectedDifferenceRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class GroupedStatisticRelation(_Value):
@@ -3824,25 +3310,13 @@ class LogicalStatisticRelation(_StatisticContinuation):
             None.
         Returns: A MaterializedStatisticRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedStatisticRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedStatisticRelation(_MaterializedValue, _StatisticContinuation):
-    """Fixed current-row statistic with retained-state merge continuations."""
-
-    def rollup(self) -> LogicalStatisticRelation:
-        """Merge this statistic's retained states, then finish once.
-
-        Args: None.
-        Returns: A logical statistic preserving its row-contribution identity.
-        Example: ``total = statistic.rollup().execute()``.
-        Constraints: Requires the exact row state; never averages finished subgroup means.
-        """
-        return LogicalStatisticRelation(
-            _TOKEN, self._node.rollup_statistic(), self._runtime, inputs=(self,)
-        )
+class MaterializedStatisticRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalCoefficientRelation(_Value):
@@ -3913,59 +3387,7 @@ class LogicalCoefficientRelation(_Value):
 
 
 class MaterializedCoefficientRelation(_MaterializedValue):
-    """Coefficient view bound to an exact retained Association."""
-
-    @property
-    def value(self) -> NumericField:
-        """Return the bound coefficient field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return NumericField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalCoefficientSelectionRelation:
-        """Select a Defined coefficient on this Association.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalCoefficientSelectionRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalCoefficientSelectionRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Calculate a statistic over current coefficient rows.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
-
-    def rank(
-        self,
-        *,
-        order: Literal["ascending", "descending"],
-        ties: Literal["ordinal", "dense", "min", "max"],
-        partition_by: tuple[CategoryRelation, ...] = (),
-    ) -> LogicalRankingResult:
-        """Rank current coefficient rows without changing search authority.
-
-        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
-        Returns: A LogicalRankingResult with values and ranks.
-        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
-        Constraints: No pooling or lag reselection.
-        """
-        return _rank_relation(self, order, ties, partition_by)
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalCoefficientSelectionRelation(_Value):
@@ -3989,7 +3411,7 @@ class LogicalCoefficientSelectionRelation(_Value):
             None.
         Returns: A MaterializedCoefficientSelectionRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedCoefficientSelectionRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
@@ -4013,34 +3435,7 @@ class LogicalCoefficientSelectionRelation(_Value):
 
 
 class MaterializedCoefficientSelectionRelation(_MaterializedValue):
-    """Fixed strict coefficient selection."""
-
-    def aggregate(self, method: RowMethod) -> LogicalStatisticRelation:
-        """Build a fixed-only statistic over the selected coefficient.
-
-        Args:
-            method: Closed current-row statistic: mv.sum(), mv.count(), mv.count_defined(), mv.min(), mv.max(), or mv.mean().
-        Returns: A LogicalStatisticRelation bound to this exact relation.
-        Example: ``result = relation.aggregate(mv.mean())``.
-        Constraints: Calculates over current rows using the selected Cell policy.
-        """
-        return self._summarize_rows(method)
-
-    def rank(
-        self,
-        *,
-        order: Literal["ascending", "descending"],
-        ties: Literal["ordinal", "dense", "min", "max"],
-        partition_by: tuple[CategoryRelation, ...] = (),
-    ) -> LogicalRankingResult:
-        """Rank current coefficient rows without changing search authority.
-
-        Args: order: ascending or descending. ties: ordinal, dense, min or max. partition_by: Explicit corresponding categories.
-        Returns: A LogicalRankingResult with values and ranks.
-        Example: ``ranked = coefficients.rank(order="descending", ties="ordinal")``.
-        Constraints: No pooling or lag reselection.
-        """
-        return _rank_relation(self, order, ties, partition_by)
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalTimeRunResult(_Value):
@@ -4052,7 +3447,7 @@ class LogicalTimeRunResult(_Value):
         Args: None.
         Returns: The verified MaterializedTimeRunResult.
         Example: ``fixed = segments.execute()``.
-        Constraints: Publication is atomic; source and fixed dependencies cannot mix.
+        Constraints: Publication is atomic; committed output is terminal.
         """
         return MaterializedTimeRunResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
@@ -4120,85 +3515,7 @@ class LogicalTimeRunResult(_Value):
 
 
 class MaterializedTimeRunResult(_MaterializedValue):
-    """Immutable maximal intervals with retained full-grid condition scope."""
-
-    def where(self, predicate: BoundPredicate) -> LogicalTimeRunResult:
-        """Select intervals without changing segmentation or original scope.
-
-        Args: predicate: A condition on an owned interval field.
-        Returns: A LogicalTimeRunResult with synchronized selected views.
-        Example: ``selected = segments.where(segments.count.value.gt(1))``.
-        Constraints: Ordinary where requires Defined consumed Cells.
-        """
-        return LogicalTimeRunResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
-
-    @property
-    def start(self) -> MaterializedTemporalRelation:
-        """Read the owned start interval field.
-
-        Args: None.
-        Returns: A MaterializedTemporalRelation over the current interval keys.
-        Example: ``values = segments.start``.
-        Constraints: Preserves original segmentation and complete classification scope.
-        """
-        assert self._dataset is not None
-        return MaterializedTemporalRelation(
-            _TOKEN,
-            self._node.run_field("start"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="start"),
-        )
-
-    @property
-    def end(self) -> MaterializedTemporalRelation:
-        """Read the owned end interval field.
-
-        Args: None.
-        Returns: A MaterializedTemporalRelation over the current interval keys.
-        Example: ``values = segments.end``.
-        Constraints: Preserves original segmentation and complete classification scope.
-        """
-        assert self._dataset is not None
-        return MaterializedTemporalRelation(
-            _TOKEN,
-            self._node.run_field("end"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="end"),
-        )
-
-    @property
-    def count(self) -> MaterializedNumericRelation:
-        """Read the owned count interval field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation over the current interval keys.
-        Example: ``values = segments.count``.
-        Constraints: Preserves original segmentation and complete classification scope.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.run_field("count"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="count"),
-        )
-
-    @property
-    def duration(self) -> MaterializedNumericRelation:
-        """Read the owned duration interval field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation over the current interval keys.
-        Example: ``values = segments.duration``.
-        Constraints: Preserves original segmentation and complete classification scope.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.run_field("duration"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="duration"),
-        )
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalDeviationResult(_Value):
@@ -4210,7 +3527,7 @@ class LogicalDeviationResult(_Value):
         Args: None.
         Returns: The checked MaterializedDeviationResult.
         Example: ``fixed = scored.execute()``.
-        Constraints: Source inputs obtain a new realization; fixed inputs use retained data only.
+        Constraints: Execution obtains a new source realization; committed output is terminal.
         """
         return MaterializedDeviationResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
@@ -4280,87 +3597,7 @@ class LogicalDeviationResult(_Value):
 
 
 class MaterializedDeviationResult(_MaterializedValue):
-    """Fixed deviation fit whose four fields share one checked Store 8 Artifact."""
-
-    def where(self, predicate: BoundPredicate) -> LogicalDeviationResult:
-        """Select retained deviation rows without changing the fitted scope.
-
-        Args: predicate: A bound retained-field predicate.
-        Returns: A LogicalDeviationResult for fixed-only execution.
-        Example: ``selected = fixed.where(fixed.score.value.is_defined())``.
-        Constraints: Verifies retained parts; never rereads the source or refits.
-        """
-        return LogicalDeviationResult(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def observed(self) -> MaterializedNumericRelation:
-        """Read the owned retained observed field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation owned by this Artifact.
-        Example: ``values = fixed.observed``.
-        Constraints: Reads verified retained fields without numerical refitting.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.deviation_field("observed"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="observed"),
-        )
-
-    @property
-    def reference(self) -> MaterializedNumericRelation:
-        """Read the owned retained reference field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation owned by this Artifact.
-        Example: ``values = fixed.reference``.
-        Constraints: Reads verified retained fields without numerical refitting.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.deviation_field("reference"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="reference"),
-        )
-
-    @property
-    def deviation(self) -> MaterializedNumericRelation:
-        """Read the owned retained deviation field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation owned by this Artifact.
-        Example: ``values = fixed.deviation``.
-        Constraints: Reads verified retained fields without numerical refitting.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.deviation_field("deviation"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="deviation"),
-        )
-
-    @property
-    def score(self) -> MaterializedNumericRelation:
-        """Read the owned retained score field.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation owned by this Artifact.
-        Example: ``values = fixed.score``.
-        Constraints: Reads verified retained fields without numerical refitting.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.deviation_field("score"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="score"),
-        )
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalAssociationResult(_Value):
@@ -4372,7 +3609,7 @@ class LogicalAssociationResult(_Value):
         Args: None.
         Returns: A MaterializedAssociationResult bound to this exact graph.
         Example: ``fixed = result.execute()``.
-        Constraints: Source execution captures anew; fixed execution verifies retained inputs.
+        Constraints: Execution captures source inputs anew; committed output is terminal.
         """
         return MaterializedAssociationResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
@@ -4416,59 +3653,7 @@ class LogicalAssociationResult(_Value):
 
 
 class MaterializedAssociationResult(_MaterializedValue):
-    """Fixed association with immutable original scope and owned views."""
-
-    def where(self, predicate: BoundPredicate) -> LogicalAssociationResult:
-        """Select synchronized result views while retaining original scope.
-
-        Args: predicate: A predicate on owned corresponding fields.
-        Returns: A LogicalAssociationResult over the current selected keys.
-        Example: ``chosen = result.where(result.selected.value.eq(True))``.
-        Constraints: No reestimation, lag reselection or future-grid reconstruction.
-        """
-        return LogicalAssociationResult(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def coefficient(self) -> MaterializedCoefficientRelation:
-        """Read the owned coefficient view.
-
-        Args: None.
-        Returns: A MaterializedCoefficientRelation on the current output domain.
-        Example: ``values = result.coefficient``.
-        Constraints: Preserves original pair/search authority and actual retained parts.
-        """
-        assert self._dataset is not None
-        from marivo.analysis.core.model import PairInputsPart
-
-        if not any(isinstance(p, PairInputsPart) for p in self._node.root.signature.parts):
-            return MaterializedCoefficientRelation(
-                _TOKEN, self._node, self._runtime, dataset=self._dataset
-            )
-        return MaterializedCoefficientRelation(
-            _TOKEN,
-            self._node.association_field("coefficient"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="coefficient"),
-        )
-
-    @property
-    def selected(self) -> MaterializedBooleanRelation:
-        """Read the owned selected view.
-
-        Args: None.
-        Returns: A MaterializedBooleanRelation on the current output domain.
-        Example: ``values = result.selected``.
-        Constraints: Preserves original pair/search authority and actual retained parts.
-        """
-        assert self._dataset is not None
-        return MaterializedBooleanRelation(
-            _TOKEN,
-            self._node.association_field("selected"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="selected"),
-        )
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalForecastResult(_Value):
@@ -4480,7 +3665,7 @@ class LogicalForecastResult(_Value):
         Args: None.
         Returns: A MaterializedForecastResult bound to this exact graph.
         Example: ``fixed = result.execute()``.
-        Constraints: Source execution captures anew; fixed execution verifies retained inputs.
+        Constraints: Execution captures source inputs anew; committed output is terminal.
         """
         return MaterializedForecastResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
@@ -4535,190 +3720,7 @@ class LogicalForecastResult(_Value):
 
 
 class MaterializedForecastResult(_MaterializedValue):
-    """Fixed forecast with immutable original scope and owned views."""
-
-    def where(self, predicate: BoundPredicate) -> LogicalForecastResult:
-        """Select synchronized result views while retaining original scope.
-
-        Args: predicate: A predicate on owned corresponding fields.
-        Returns: A LogicalForecastResult over the current selected keys.
-        Example: ``chosen = result.where(result.prediction.value.gt(0))``.
-        Constraints: No reestimation, lag reselection or future-grid reconstruction.
-        """
-        return LogicalForecastResult(_TOKEN, self._select(predicate), self._runtime, inputs=(self,))
-
-    @property
-    def prediction(self) -> MaterializedNumericRelation:
-        """Read the owned prediction view.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation on the current output domain.
-        Example: ``values = result.prediction``.
-        Constraints: Preserves original training/future authority and actual retained parts.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.forecast_field("prediction"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="prediction"),
-        )
-
-    @property
-    def lower(self) -> MaterializedNumericRelation:
-        """Read the owned lower view.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation on the current output domain.
-        Example: ``values = result.lower``.
-        Constraints: Preserves original training/future authority and actual retained parts.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.forecast_field("lower"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="lower"),
-        )
-
-    @property
-    def upper(self) -> MaterializedNumericRelation:
-        """Read the owned upper view.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation on the current output domain.
-        Example: ``values = result.upper``.
-        Constraints: Preserves original training/future authority and actual retained parts.
-        """
-        assert self._dataset is not None
-        return MaterializedNumericRelation(
-            _TOKEN,
-            self._node.forecast_field("upper"),
-            self._runtime,
-            dataset=replace(self._dataset, projection="upper"),
-        )
-
-
-def wrap_materialized(
-    node: Relation, runtime: DatasetRuntime, dataset: GraphDataset
-) -> PublicMaterialized:
-    """Restore the existing public result variant from its checked typed graph."""
-    kind = _kind(node)
-    if kind == "comparison":
-        return MaterializedComparisonResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "comparison_absolute":
-        return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "comparison_relative":
-        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "forecast":
-        return MaterializedForecastResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "association_read":
-        return (
-            MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
-            if node.root.value_type == ScalarType("boolean")
-            else MaterializedCoefficientRelation(_TOKEN, node, runtime, dataset=dataset)
-        )
-    if kind == "time_runs":
-        return MaterializedTimeRunResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "deviation":
-        return MaterializedDeviationResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "attribution":
-        return MaterializedAttributionResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "attribution_view":
-        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "ranking":
-        return MaterializedRankingResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "table":
-        return MaterializedTable(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "group":
-        from marivo.analysis.materialization.errors import IntegrityError
-
-        raise IntegrityError(
-            expected="a current member or quantity Artifact",
-            received="a retired standalone group-domain Artifact",
-            repair="Preserve the saved Artifact and re-execute the source analysis with observe(by=...).",
-            stage="graph_protocol",
-            help_target="dsl.LogicalAnalysisDomain.observe",
-        )
-    if kind == "members":
-        return MaterializedAnalysisDomain(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "read":
-        params = node.captured_definition.parameters
-        assert isinstance(params, BindProject)
-        if params.ref.kind is SemanticKind.MEASURE:
-            return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-        if params.ref.kind is SemanticKind.TIME_DIMENSION:
-            return MaterializedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
-        if node.root.value_type == ScalarType("boolean"):
-            return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
-        return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "where":
-        if node.root.value_type == ScalarType("boolean"):
-            params = node.captured_definition.parameters
-            if isinstance(params, PartsTransport) and params.mode == "view":
-                return MaterializedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
-            return MaterializedSelectedBooleanRelation(_TOKEN, node, runtime, dataset=dataset)
-        if node.root.signature.quantity is None:
-            scalar = node.root.value_type
-            if scalar in (ScalarType("date"), ScalarType("timestamp")):
-                return MaterializedSelectedTemporalRelation(_TOKEN, node, runtime, dataset=dataset)
-            params = node.captured_definition.parameters
-            if isinstance(params, PartsTransport) and params.field_kind == "measure":
-                return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-            return MaterializedCategoryRelation(_TOKEN, node, runtime, dataset=dataset)
-        if (
-            isinstance(node.root.signature.quantity, (ObservedQuantity, RolledQuantity))
-            or node.root.signature.quantity.method_version == "cell.ratio@v1"
-            or node.root.signature.quantity.method_version.startswith("reference.")
-        ):
-            return MaterializedSelectedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-        return MaterializedSelectedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "relation_ratio":
-        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "compare":
-        return MaterializedDifferenceRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "correlate":
-        return MaterializedAssociationResult(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "correlate_where":
-        return MaterializedCoefficientSelectionRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "aggregate":
-        return MaterializedStatisticRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "ratio_observe":
-        return MaterializedRatioRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "ratio_rollup":
-        return MaterializedRolledRatioRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "observe":
-        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    if kind == "rollup":
-        if node.root.signature.domain.kind == "group":
-            from marivo.analysis.core.rules import (
-                EntityObservationTarget,
-                ObserveWeightedMean,
-                OriginalReduce,
-            )
-            from marivo.analysis.materialization.graph_snapshot import MethodRecord
-
-            definition = dataset.artifact.validated.root
-            if isinstance(definition.parameters, OriginalReduce):
-                source = next(
-                    record
-                    for record in dataset.artifact.validated.document.nodes
-                    if record.identity == definition.inputs[0].node
-                )
-                parameters = source.parameters if isinstance(source, MethodRecord) else None
-                if isinstance(parameters, PreparedObservation):
-                    parameters = parameters.observation
-                if (
-                    isinstance(parameters, (ObserveMetric, ObserveCount, ObserveWeightedMean))
-                    and isinstance(parameters.target, EntityObservationTarget)
-                    and parameters.coordinates
-                ):
-                    return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-            return MaterializedGroupedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-        if node.root.signature.domain.kind == "singleton":
-            return MaterializedRolledNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-        return MaterializedNumericRelation(_TOKEN, node, runtime, dataset=dataset)
-    raise _reject("a qualified public result", kind, "Recover the exact public Artifact.")
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 def new_members(node: Relation, runtime: DatasetRuntime) -> LogicalAnalysisDomain:
@@ -4729,15 +3731,13 @@ def new_members(node: Relation, runtime: DatasetRuntime) -> LogicalAnalysisDomai
 class LogicalBooleanRelation(_CountRelation):
     """Unexecuted boolean member attribute relation."""
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -4773,50 +3773,13 @@ class LogicalBooleanRelation(_CountRelation):
             None.
         Returns: A MaterializedBooleanRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedBooleanRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedBooleanRelation(_MaterializedValue, _CountRelation):
-    """Fixed boolean relation retaining admitted member identity."""
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project retained complete Subject identities without source access.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A fixed-only logical member continuation.
-        Example: ``members = result.members()``.
-        Constraints: Requires the exact retained Subject part and cannot read external attributes.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def value(self) -> BooleanField:
-        """Return this relation's bound boolean field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return BooleanField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
-        """Build a fixed-only boolean selection.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedBooleanRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
+class MaterializedBooleanRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalSelectedBooleanRelation(_CountRelation):
@@ -4847,15 +3810,13 @@ class LogicalSelectedBooleanRelation(_CountRelation):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -4866,66 +3827,27 @@ class LogicalSelectedBooleanRelation(_CountRelation):
             None.
         Returns: A MaterializedSelectedBooleanRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedSelectedBooleanRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedSelectedBooleanRelation(_MaterializedValue, _CountRelation):
-    """Fixed boolean selection with an exact retained member projection."""
-
-    @property
-    def value(self) -> BooleanField:
-        """Return this relation's bound boolean field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return BooleanField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedBooleanRelation:
-        """Select rows using a predicate bound to this boolean relation.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedBooleanRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedBooleanRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project selected fixed member identity without a source read.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
+class MaterializedSelectedBooleanRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalTemporalRelation(_CountRelation):
     """Unexecuted temporal member attribute relation."""
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -4961,64 +3883,25 @@ class LogicalTemporalRelation(_CountRelation):
             None.
         Returns: A MaterializedTemporalRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedTemporalRelation(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedTemporalRelation(_MaterializedValue, _CountRelation):
-    """Fixed temporal relation retaining admitted member identity."""
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project retained complete Subject identities without source access.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A fixed-only logical member continuation.
-        Example: ``members = result.members()``.
-        Constraints: Requires the exact retained Subject part and cannot read external attributes.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
-
-    @property
-    def value(self) -> TemporalField:
-        """Return this relation's bound temporal field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return TemporalField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
-        """Build a fixed-only temporal selection.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedTemporalRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
+class MaterializedTemporalRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalSelectedTemporalRelation(_CountRelation):
     """Unexecuted temporal selection over one exact read relation."""
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -5054,52 +3937,15 @@ class LogicalSelectedTemporalRelation(_CountRelation):
             None.
         Returns: A MaterializedSelectedTemporalRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedSelectedTemporalRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedSelectedTemporalRelation(_MaterializedValue, _CountRelation):
-    """Fixed temporal selection with an exact retained member projection."""
-
-    @property
-    def value(self) -> TemporalField:
-        """Return this relation's bound temporal field.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return TemporalField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedTemporalRelation:
-        """Select rows using a predicate bound to this temporal relation.
-
-        Args:
-            predicate: Closed typed predicate over exact corresponding inputs.
-        Returns: A LogicalSelectedTemporalRelation bound to this exact relation.
-        Example: ``result = relation.where(predicate)``.
-        Constraints: Every referenced input must cover this complete domain; all children are checked.
-        """
-        return LogicalSelectedTemporalRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project selected fixed member identity without a source read.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
+class MaterializedSelectedTemporalRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class LogicalSelectedNumericRelation(_OriginalContinuation):
@@ -5129,15 +3975,13 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
             _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
         )
 
-    def members(
-        self, *, through: SubjectBinding | None = None
-    ) -> LogicalAnalysisDomain | LogicalFixedAnalysisDomain:
+    def members(self, *, through: SubjectBinding | None = None) -> LogicalAnalysisDomain:
         """Project complete Subject identities from this relation.
 
         Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A source member domain or a fixed-only member continuation.
+        Returns: An unexecuted source member domain.
         Example: ``selected_members = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
+        Constraints: Requires a retained total Subject map on the unexecuted definition.
         """
         return self._members_domain(through)
 
@@ -5148,65 +3992,22 @@ class LogicalSelectedNumericRelation(_OriginalContinuation):
             None.
         Returns: A MaterializedSelectedNumericRelation bound to this exact relation.
         Example: ``result = relation.execute()``.
-        Constraints: A source branch reevaluates; a fixed branch uses exact retained Artifacts.
+        Constraints: Execution reevaluates the source definition; committed output is terminal.
         """
         return MaterializedSelectedNumericRelation(
             _TOKEN, self._node, self._runtime, dataset=self._run()
         )
 
 
-class MaterializedSelectedNumericRelation(_MaterializedValue, _OriginalContinuation):
-    """Fixed numeric selection preserving any retained Subject map."""
-
-    @property
-    def value(self) -> NumericField:
-        """Return the bound numeric field for an admitted strict predicate.
-
-        Args:
-            None.
-        Returns: The predicate field bound to this exact relation.
-        Example: ``result = relation.value``.
-        Constraints: Predicates built from this field remain bound to its relation.
-        """
-        return NumericField(self._node.root, self._node)
-
-    def where(self, predicate: BoundPredicate) -> LogicalSelectedNumericRelation:
-        """Select current numeric values using their bound predicate.
-
-        Args: predicate: A comparison from this or an exactly corresponding numeric relation.value.
-        Returns: A logical numeric selection preserving any retained Subject part.
-        Example: ``selected = relation.where(relation.value.gt(0))``.
-        Constraints: Numeric dependencies require exact corresponding keys; non-Defined predicates reject.
-        """
-        return LogicalSelectedNumericRelation(
-            _TOKEN, self._select(predicate), self._runtime, inputs=(self,)
-        )
-
-    def members(self, *, through: SubjectBinding | None = None) -> LogicalFixedAnalysisDomain:
-        """Project selected fixed member identity without a source read.
-
-        Args: through: Optional exact producer-owned SubjectBinding; Entity projection is implicit.
-        Returns: A LogicalFixedAnalysisDomain bound to this exact relation.
-        Example: ``result = relation.members()``.
-        Constraints: Requires a retained total Subject map; fixed inputs cannot introduce sources.
-        """
-        return LogicalFixedAnalysisDomain(
-            _TOKEN, self._subject_members(through), self._runtime, inputs=(self,)
-        )
+class MaterializedSelectedNumericRelation(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class _Ranking(_Value):
-    def _view(
-        self, name: Literal["values", "ranks"]
-    ) -> LogicalNumericRelation | MaterializedNumericRelation:
+    def _view(self, name: Literal["values", "ranks"]) -> LogicalNumericRelation:
         from marivo.analysis.materialization.graph_display import view
 
-        node = view(self._node, name)
-        if self._dataset is None:
-            return LogicalNumericRelation(_TOKEN, node, self._runtime, inputs=(self,))
-        return MaterializedNumericRelation(
-            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection=name)
-        )
+        return LogicalNumericRelation(_TOKEN, view(self._node, name), self._runtime, inputs=(self,))
 
     def where(self, predicate: BoundPredicate) -> LogicalRankingResult:
         """Restrict both views while preserving original ranks and reference scope.
@@ -5281,34 +4082,8 @@ class LogicalRankingResult(_Ranking):
         return MaterializedRankingResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedRankingResult(_MaterializedValue, _Ranking):
-    """A verified fixed ranking; selection preserves its original domain and order."""
-
-    @property
-    def values(self) -> MaterializedNumericRelation:
-        """Return the fixed original-quantity view without allocating a new Run.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation over verified retained Cells and parts.
-        Example: ``values = ranking.values``.
-        Constraints: Uses the same selected keys and original ranking order.
-        """
-        result = self._view("values")
-        assert isinstance(result, MaterializedNumericRelation)
-        return result
-
-    @property
-    def ranks(self) -> MaterializedNumericRelation:
-        """Return the fixed int64 rank view without recomputing ranks.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation bound to the original ranking domain.
-        Example: ``ranks = ranking.ranks``.
-        Constraints: Retains non-Defined tags/reasons and allocates no new Run.
-        """
-        result = self._view("ranks")
-        assert isinstance(result, MaterializedNumericRelation)
-        return result
+class MaterializedRankingResult(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 class _Table:
@@ -5357,11 +4132,11 @@ class MaterializedTable(_Table):
 
     @property
     def artifact_ref(self) -> ArtifactRef:
-        """Return the exact saved terminal Artifact identity for session.artifact().
+        """Return the exact saved terminal Artifact identity.
 
         Args: None.
         Returns: The ArtifactRef identifying this committed terminal table.
-        Example: ``restored = session.artifact(table.artifact_ref)``.
+        Example: ``saved_ref = table.artifact_ref``.
         Constraints: Identifies fixed saved state, without granting analysis continuations.
         """
         assert self._dataset is not None
@@ -5468,59 +4243,8 @@ class LogicalAttributionResult(_Attribution):
         return MaterializedAttributionResult(_TOKEN, self._node, self._runtime, dataset=self._run())
 
 
-class MaterializedAttributionResult(_MaterializedValue, _Attribution):
-    """Materialized allocated change with original scope and three typed numeric views."""
-
-    @property
-    def contribution(self) -> MaterializedNumericRelation:
-        """Return the contribution view on exactly the current selected allocation keys.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
-        Example: ``values = result.contribution``.
-        Constraints: Side terms are allocated components; selection does not reallocate.
-        """
-        from marivo.analysis.materialization.graph_attribution import view
-
-        assert self._dataset is not None
-        node = view(self._node, "contribution")
-        return MaterializedNumericRelation(
-            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="contribution")
-        )
-
-    @property
-    def current(self) -> MaterializedNumericRelation:
-        """Return the current view on exactly the current selected allocation keys.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
-        Example: ``values = result.current``.
-        Constraints: Side terms are allocated components; selection does not reallocate.
-        """
-        from marivo.analysis.materialization.graph_attribution import view
-
-        assert self._dataset is not None
-        node = view(self._node, "current")
-        return MaterializedNumericRelation(
-            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="current")
-        )
-
-    @property
-    def baseline(self) -> MaterializedNumericRelation:
-        """Return the baseline view on exactly the current selected allocation keys.
-
-        Args: None.
-        Returns: A MaterializedNumericRelation retaining the original allocation evidence.
-        Example: ``values = result.baseline``.
-        Constraints: Side terms are allocated components; selection does not reallocate.
-        """
-        from marivo.analysis.materialization.graph_attribution import view
-
-        assert self._dataset is not None
-        node = view(self._node, "baseline")
-        return MaterializedNumericRelation(
-            _TOKEN, node, self._runtime, dataset=replace(self._dataset, projection="baseline")
-        )
+class MaterializedAttributionResult(_MaterializedValue):
+    """Terminal committed output; use show(), to_pandas() and saved facts."""
 
 
 PublicMaterialized: TypeAlias = (
@@ -5551,33 +4275,18 @@ PublicMaterialized: TypeAlias = (
     | MaterializedTable
     | MaterializedComparisonResult
 )
-
-
 NumericRelation: TypeAlias = (
-    MaterializedGroupedNumericRelation
-    | LogicalNumericRelation
-    | MaterializedNumericRelation
-    | LogicalRatioRelation
-    | MaterializedRatioRelation
-    | LogicalRolledNumericRelation
-    | MaterializedRolledNumericRelation
-    | LogicalRolledRatioRelation
-    | MaterializedRolledRatioRelation
-    | LogicalDifferenceRelation
-    | MaterializedDifferenceRelation
-    | LogicalSelectedNumericRelation
-    | MaterializedSelectedNumericRelation
+    LogicalStatisticRelation
     | LogicalSelectedDifferenceRelation
-    | MaterializedSelectedDifferenceRelation
-    | LogicalStatisticRelation
-    | MaterializedStatisticRelation
+    | LogicalSelectedNumericRelation
+    | LogicalDifferenceRelation
+    | LogicalRolledRatioRelation
+    | LogicalRolledNumericRelation
+    | LogicalRatioRelation
+    | LogicalNumericRelation
 )
-
-
-AnalysisDomain: TypeAlias = (
-    LogicalAnalysisDomain | MaterializedAnalysisDomain | LogicalFixedAnalysisDomain
-)
-CategoryRelation: TypeAlias = LogicalCategoryRelation | MaterializedCategoryRelation
+AnalysisDomain: TypeAlias = LogicalAnalysisDomain
+CategoryRelation: TypeAlias = LogicalCategoryRelation
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -5649,7 +4358,7 @@ def reference_weights(
         unit: Statistical-unit Entity, distinct from the measurement unit.
     Returns: A ReferenceWeights input for NumericRelation.standardize.
     Example: ``weights = mv.reference_weights(shares, strata=(region,), unit=orders)``.
-    Constraints: Same Session and source/fixed mode; exact strata, no normalization.
+    Constraints: Unexecuted inputs from one Session; exact strata, no normalization.
     """
     from marivo.analysis.materialization.graph_reference import invalid
     from marivo.refs import SemanticKind
@@ -5680,7 +4389,6 @@ def reference_weights(
         if (
             item._runtime.session_ref != values._runtime.session_ref
             or item._runtime.store.store_id != values._runtime.store.store_id
-            or item._has_fixed() != values._has_fixed()
         ):
             raise invalid("classification dependencies must share the reference Session and mode")
         from marivo.analysis.core.graph import retained_nodes
@@ -5757,22 +4465,15 @@ def one_to_one(
     """Bind a declared one-to-one relationship to exact ordered numeric endpoints.
 
     Args:
-        left: Numerator relation from the same Session and mode as right.
+        left: Numerator relation from the same Session as right.
         right: Denominator relation with the complete retained relationship keys.
         via: Explicit declared one-to-one Relationship Ref.
         time: Optional closed time-key mapping for complete grids with equal aligned key sets.
     Returns: An immutable OneToOneCorrespondence for these exact nodes only.
     Example: ``left.ratio(right, align=mv.one_to_one(left=left, right=right, via=relationship))``.
-    Constraints: Rejects many-to-one, outer alignment, mixed source/fixed modes and unretained relationship keys.
+    Constraints: Rejects many-to-one, outer alignment, executed results and unretained relationship keys.
     Time mapping outputs string aligned keys with kind prefixes and original-time projections, without a time grid.
     """
-    from marivo.analysis.core.graph import MethodNode, Node
-    from marivo.analysis.core.rules import (
-        ObserveCount,
-        ObserveMetric,
-        ObserveWeightedMean,
-    )
-
     if (
         not isinstance(left, _NumericComparison)
         or not isinstance(right, _NumericComparison)
@@ -5791,45 +4492,11 @@ def one_to_one(
         or left._runtime.store.store_id != right._runtime.store.store_id
     ):
         raise _reject(
-            "one Session and source/fixed mode",
-            "foreign or mixed endpoints",
-            "Use endpoints from the same Session and execution mode.",
+            "unexecuted Logical inputs from one Session",
+            "foreign Session endpoints",
+            "Use endpoints from the same Session.",
         )
-    if isinstance(left._node.binding, LiveBinding):
-        relationship = normalize_target_relationship(left._node.binding.graph.registry, via.path)
-    else:
-        retained: list[TargetRelationshipContract] = []
-        pending: list[Node] = [left._node.definition, right._node.definition]
-        seen: set[str] = set()
-        while pending:
-            node = pending.pop()
-            if node.identity in seen:
-                continue
-            seen.add(node.identity)
-            if not isinstance(node, MethodNode):
-                continue
-            pending.extend(edge.node for edge in node.inputs)
-            pending.extend(node.sources)
-            pending.extend(node.retained_endpoints)
-            params = node.parameters
-            if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
-                retained.extend(item for item in params.path if item.ref.path == via.path)
-            elif isinstance(params, BindProject):
-                retained.extend(item for item in params.path_contracts if item.ref.path == via.path)
-            elif (
-                isinstance(params, CellDerive)
-                and params.relationship is not None
-                and params.relationship.ref.path == via.path
-            ):
-                retained.append(params.relationship)
-        if not retained or any(item != retained[0] for item in retained):
-            raise _reject(
-                "one retained exact relationship definition",
-                via.path,
-                "Use Artifacts retaining this declared correspondence; fixed continuations never reload Semantic.",
-            )
-        relationship = retained[0]
-    # Construction checks the same core correspondence rule without executing its graph.
+    relationship = normalize_target_relationship(left._node.binding.graph.registry, via.path)
     left._node.combine(
         right._node,
         "relation_ratio",
@@ -5842,26 +4509,20 @@ def one_to_one(
 
 def table(
     **columns: LogicalCoefficientRelation
-    | MaterializedCoefficientRelation
     | LogicalCoefficientSelectionRelation
-    | MaterializedCoefficientSelectionRelation
     | NumericRelation
     | CategoryRelation
     | LogicalBooleanRelation
-    | MaterializedBooleanRelation
     | LogicalSelectedBooleanRelation
-    | MaterializedSelectedBooleanRelation
     | LogicalTemporalRelation
-    | MaterializedTemporalRelation
-    | LogicalSelectedTemporalRelation
-    | MaterializedSelectedTemporalRelation,
+    | LogicalSelectedTemporalRelation,
 ) -> LogicalTable:
     """Bind an ordered terminal table from complete corresponding scalar Relations.
 
     Args: columns: Nonempty display labels mapped to typed numeric, categorical, boolean or temporal Relations.
     Returns: A LogicalTable using the shared graph scheduler.
     Example: ``profile = mv.table(revenue=values, region=region).execute()``.
-    Constraints: All columns share full typed keys, time meaning, Session and source/fixed mode. Fitted columns and their ranks retain original fit scope and authority. Labels cannot collide with exported key names. The table has no analysis continuation.
+    Constraints: All columns share full typed keys, time meaning, Session and unexecuted source inputs. Fitted columns and their ranks retain original fit scope and authority. Labels cannot collide with exported key names. The table has no analysis continuation.
     """
     from marivo.analysis.materialization.graph_display import bind, invalid
 
@@ -5872,19 +4533,12 @@ def table(
             (
                 _NumericComparison,
                 LogicalCoefficientRelation,
-                MaterializedCoefficientRelation,
                 LogicalCoefficientSelectionRelation,
-                MaterializedCoefficientSelectionRelation,
                 LogicalCategoryRelation,
-                MaterializedCategoryRelation,
                 LogicalBooleanRelation,
-                MaterializedBooleanRelation,
                 LogicalSelectedBooleanRelation,
-                MaterializedSelectedBooleanRelation,
                 LogicalTemporalRelation,
-                MaterializedTemporalRelation,
                 LogicalSelectedTemporalRelation,
-                MaterializedSelectedTemporalRelation,
             ),
         )
         for value in columns.values()

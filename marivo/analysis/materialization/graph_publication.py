@@ -27,37 +27,20 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.materialization import graph_store
 from marivo.analysis.materialization.cell_arrow import binding_scope
-from marivo.analysis.materialization.contracts import (
-    RunFailure,
-    RunFailurePhase,
-    canonical_json,
-)
+from marivo.analysis.materialization.contracts import RunFailure, RunFailurePhase, canonical_json
 from marivo.analysis.materialization.errors import MaterializationError, RecoveryPendingError
 from marivo.analysis.materialization.execution_key import (
-    FixedKeyInput,
-    FixedPartKey,
     SourceKeyBinding,
-    _fixed_input_occurrences,
-    graph_fixed_execution_key,
     graph_source_execution_key,
 )
-from marivo.analysis.materialization.graph_exchange import (
-    VerifiedFixedInput,
-    to_arrow,
-)
+from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.materialization.graph_execution import _prepare_captured_graph
-from marivo.analysis.materialization.graph_local_execution import (
-    execute_verified_fixed,
-    validate_fixed_schedule,
-)
 from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
     SNAPSHOT,
     STATE,
     Continuation,
     Descriptor,
-    FixedInputBinding,
-    FixedRunInput,
     MethodBinding,
     MethodState,
     PartReceipt,
@@ -69,10 +52,8 @@ from marivo.analysis.materialization.graph_protocol import (
     digest,
     encode,
     evidence_identity,
-    fixed_signature,
     invalid,
     plan_digest,
-    receipt_digest,
     schema_text,
     semantic_versions,
 )
@@ -80,20 +61,13 @@ from marivo.analysis.materialization.graph_snapshot import _encode_document, gra
 from marivo.analysis.materialization.graph_source_execution import execute_source_graph
 from marivo.analysis.materialization.graph_storage import read_result, write_table
 from marivo.analysis.materialization.reconciliation import reconcile_session
-from marivo.analysis.materialization.resources import (
-    discharge_resources,
-    reserve_output,
-)
+from marivo.analysis.materialization.resources import discharge_resources, reserve_output
 from marivo.analysis.materialization.storage import _fsync_directory
 from marivo.analysis.materialization.store import SessionStore, _new_run_ref, _rows, _text
 from marivo.analysis.materialization.writer_guard import session_writer_guard
 from marivo.analysis.methods.physical import (
-    DecimalType,
-    DurationType,
     NoTime,
     Qualified,
-    ScalarType,
-    matches_arrow_scalar,
 )
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.datasource.adapters import SourceSession
@@ -101,7 +75,6 @@ from marivo.introspection.live.model import LiveHelpTarget
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.admission import DatasetRuntime
-
 SourceFactory = Callable[
     [], AbstractContextManager[tuple[SourceSession, tuple[SourceBinding, ...]]]
 ]
@@ -204,8 +177,7 @@ def _execute(
     source_factory: SourceFactory | None = None,
     source_schemas: tuple[pa.Schema, ...] = (),
 ) -> graph_store.GraphArtifact:
-    store, session, event = runtime.store, runtime.session_ref, runtime._event
-    # Admit the complete bounded definition closure before source I/O or cache lookup.
+    store, session, event = (runtime.store, runtime.session_ref, runtime._event)
     document = graph_document(root)
     captured = capture_graph(root)
     frozen_graph = _encode_document(document)
@@ -213,139 +185,31 @@ def _execute(
     plan = prepared.admitted
     if not isinstance(root, MethodNode):
         raise invalid("publication requires a qualified method root")
-    # Qualify the persistent envelope before any I/O or Run allocation.
     state_kind = REGISTRY.lookup(root.method).semantics.persistent_state_kind
     if state_kind is None:
         raise invalid("method has no qualified v8 state codec")
-    source_only = plan.classification.kind == "source"
-    if source_only:
-        if source_factory is None:
-            raise invalid("source invocation requires its selected R1 source factory")
-        if source_schemas and len(source_schemas) != len(source_bindings):
-            raise invalid("preflight schemas differ from ordered source bindings")
-        graph_source_execution_key(plan, source_bindings, "run_preflight")
-    elif source_factory is not None or source_bindings or source_schemas:
-        raise invalid("fixed invocation cannot carry source resources")
-    fixed_lowered = None if source_only else lower(plan, bindings=())
-    if fixed_lowered is not None:
-        validate_fixed_schedule(fixed_lowered)
+    if source_factory is None:
+        raise invalid("source invocation requires its selected source factory")
+    if source_schemas and len(source_schemas) != len(source_bindings):
+        raise invalid("preflight schemas differ from ordered source bindings")
+    graph_source_execution_key(plan, source_bindings, "run_preflight")
     with session_writer_guard(store.layout.lock_path(session), session_ref=session):
         reconcile_session(store, session, event=event)
-        fixed: dict[str, VerifiedFixedInput] = {}
-        inputs: list[FixedKeyInput] = []
-        if not source_only:
-            for leaf in _fixed_input_occurrences(root):
-                record = _read_artifact(store, leaf.artifact.ref)
-                descriptor = record.descriptor
-                if (
-                    record.session_ref != session
-                    or replace(
-                        fixed_signature(descriptor, _validated=record.validated),
-                        node_id=leaf.identity,
-                        key_domain_id=leaf.artifact.ref,
-                    )
-                    != leaf.signature
-                    or descriptor.definition_fingerprint != leaf.definition_fingerprint
-                    or not isinstance(leaf.value_type, (ScalarType, DecimalType, DurationType))
-                ):
-                    raise invalid("fixed leaf differs from exact committed signature or definition")
-                from marivo.analysis.materialization.graph_protocol import schema_from
-
-                schema = schema_from(descriptor.realized_schema)
-                if "value" in schema.names and not matches_arrow_scalar(
-                    schema.field("value").type, leaf.value_type
-                ):
-                    raise invalid("fixed physical value type differs before receipt read")
-                if leaf.identity not in fixed:
-                    result = read_result(
-                        store.project_root, descriptor, _validated=record.validated
-                    )
-                    result = replace(
-                        result,
-                        contract=replace(
-                            result.contract,
-                            signature=leaf.signature,
-                            input_binding=record.artifact_ref,
-                            _frozen=None,
-                        ),
-                    )
-                    fixed[leaf.identity] = VerifiedFixedInput(
-                        record.artifact_ref, descriptor.primary_receipt.local, result
-                    )
-                inputs.append(
-                    FixedKeyInput(
-                        leaf,
-                        session,
-                        record.producing_run_ref,
-                        receipt_digest(descriptor.primary_receipt),
-                        tuple(
-                            FixedPartKey(
-                                p.role, p.contract_id, p.contract_version, receipt_digest(p)
-                            )
-                            for p in descriptor.parts
-                        ),
-                        descriptor.method_state.input_binding,
-                        descriptor.method_state.contract_id,
-                        descriptor.method_state.contract_version,
-                        descriptor.continuation_snapshot_digest,
-                    )
-                )
-            key = graph_fixed_execution_key(plan, tuple(inputs))
-            with store._read() as conn:
-                hits = _rows(
-                    conn,
-                    "SELECT artifact_ref FROM dataset_artifacts WHERE session_ref=? AND execution_key_digest=?",
-                    (session, key),
-                )
-            if hits:
-                hit = _read_artifact(store, _text(hits[0], "artifact_ref"))
-                read_result(store.project_root, hit.descriptor, _validated=hit.validated)
-                _execution_log.annotate(cache_hit=True)
-                _execution_log.emit(
-                    "execution.reused",
-                    artifact_id=hit.artifact_ref,
-                    producing_run_id=hit.producing_run_ref,
-                )
-                return hit
         run_ref = _new_run_ref()
-        if source_only:
-            key = graph_source_execution_key(plan, source_bindings, run_ref)
-        selected = (
-            SourceRunInput(
-                "marivo.analysis.run_input/v1",
-                "source",
-                root.fingerprint,
-                plan_digest(plan),
-                tuple(
-                    (
-                        b.leaf.definition.fingerprint,
-                        b.semantic_dependency_digest,
-                        b.selected_binding_fingerprint,
-                    )
-                    for b in source_bindings
-                ),
-            )
-            if source_only
-            else FixedRunInput(
-                "marivo.analysis.run_input/v1",
-                "fixed",
-                root.fingerprint,
-                plan_digest(plan),
-                tuple(
-                    FixedInputBinding(
-                        v.session_ref,
-                        v.leaf.artifact.ref,
-                        v.producing_run_ref,
-                        v.primary_receipt_digest,
-                        v.ordered_parts,
-                        v.input_binding,
-                        v.method_state_contract_id,
-                        v.method_state_version,
-                        v.snapshot_digest,
-                    )
-                    for v in inputs
-                ),
-            )
+        key = graph_source_execution_key(plan, source_bindings, run_ref)
+        selected = SourceRunInput(
+            "marivo.analysis.run_input/v1",
+            "source",
+            root.fingerprint,
+            plan_digest(plan),
+            tuple(
+                (
+                    b.leaf.definition.fingerprint,
+                    b.semantic_dependency_digest,
+                    b.selected_binding_fingerprint,
+                )
+                for b in source_bindings
+            ),
         )
         graph_store.admit(store, session, key, selected, run_ref)
         invocation.run_ref = run_ref
@@ -357,69 +221,63 @@ def _execute(
         phase: RunFailurePhase = "stage_execution"
         try:
             event("graph_admitted")
-            if source_only:
-                assert source_factory is not None
-                with source_factory() as (source, bindings):
-                    # The opened adapter must correspond to the admitted metadata.
-                    if tuple(b.leaf for b in bindings) != tuple(b.leaf for b in source_bindings):
-                        raise invalid("opened source leaf order differs from admission")
-                    if any(
+            assert source_factory is not None
+            with source_factory() as (source, bindings):
+                if tuple(b.leaf for b in bindings) != tuple(b.leaf for b in source_bindings):
+                    raise invalid("opened source leaf order differs from admission")
+                if any(
+                    (
                         supplied.selected_binding_fingerprint
                         != digest(canonical_json(bound.source.source.to_dict()))
                         for supplied, bound in zip(source_bindings, bindings, strict=True)
-                    ):
-                        raise invalid(
-                            "opened physical source differs from admitted source metadata"
-                        )
-                    if source_schemas and any(
+                    )
+                ):
+                    raise invalid("opened physical source differs from admitted source metadata")
+                if source_schemas and any(
+                    (
                         not schema.equals(bound.source.facts.schema, check_metadata=True)
                         for schema, bound in zip(source_schemas, bindings, strict=True)
-                    ):
-                        raise invalid("opened physical schema differs from selected preflight")
-                    from marivo.analysis.core.rules import PreparedObservation
-                    from marivo.datasource.domain_snapshot import capture
-
-                    uses_preparation = any(
-                        isinstance(node, MethodNode)
-                        and isinstance(node.parameters, PreparedObservation)
-                        and node.inputs[0].node.identity != node.inputs[1].node.identity
-                        for node in captured.nodes
                     )
-                    with capture(source) if uses_preparation else nullcontext() as authority:
-                        if uses_preparation:
-                            source.domain_authority = authority
-                            rebound: list[SourceBinding] = []
-                            for source_binding in bindings:
-                                selected_source = source.binding_for(source_binding.leaf.identity)
-                                entity_relation = source_binding.entity_relation
-                                if entity_relation is not None:
-                                    entity_relation = (
-                                        entity_relation.op()
-                                        .replace(
-                                            {
-                                                source_binding.source.relation.op(): selected_source.relation.op()
-                                            }
-                                        )
-                                        .to_expr()
+                ):
+                    raise invalid("opened physical schema differs from selected preflight")
+                from marivo.analysis.core.rules import PreparedObservation
+                from marivo.datasource.domain_snapshot import capture
+
+                uses_preparation = any(
+                    isinstance(node, MethodNode)
+                    and isinstance(node.parameters, PreparedObservation)
+                    and (node.inputs[0].node.identity != node.inputs[1].node.identity)
+                    for node in captured.nodes
+                )
+                with capture(source) if uses_preparation else nullcontext() as authority:
+                    if uses_preparation:
+                        source.domain_authority = authority
+                        rebound: list[SourceBinding] = []
+                        for source_binding in bindings:
+                            selected_source = source.binding_for(source_binding.leaf.identity)
+                            entity_relation = source_binding.entity_relation
+                            if entity_relation is not None:
+                                entity_relation = (
+                                    entity_relation.op()
+                                    .replace(
+                                        {
+                                            source_binding.source.relation.op(): selected_source.relation.op()
+                                        }
                                     )
-                                rebound.append(
-                                    replace(
-                                        source_binding,
-                                        source=selected_source,
-                                        entity_relation=entity_relation,
-                                    )
+                                    .to_expr()
                                 )
-                            bindings = tuple(rebound)
-                        lowered = lower(plan, bindings=bindings)
-                        with _execution_log.stage("analysis.source") as summary:
-                            result = execute_source_graph(prepared, lowered, source)
-                            summary.update(row_count=len(result.primary))
-            else:
-                assert fixed_lowered is not None
-                values = tuple(fixed[leaf.identity] for leaf in _fixed_input_occurrences(root))
-                with _execution_log.stage("analysis.local") as summary:
-                    result = execute_verified_fixed(prepared, fixed_lowered, values)
-                    summary.update(row_count=len(result.primary))
+                            rebound.append(
+                                replace(
+                                    source_binding,
+                                    source=selected_source,
+                                    entity_relation=entity_relation,
+                                )
+                            )
+                        bindings = tuple(rebound)
+                    lowered = lower(plan, bindings=bindings)
+                    with _execution_log.stage("analysis.source") as summary:
+                        result = execute_source_graph(prepared, lowered, source)
+                        summary.update(row_count=len(result.primary))
             if result.contract.signature != root.signature or result.contract.method != root.method:
                 raise invalid("execution output differs from admitted root")
             if result.contract.pending_checks != plan.checks:
@@ -576,7 +434,6 @@ def _execute(
                 read_result(store.project_root, descriptor)
             event("graph_receipts_verified")
             phase = "publication"
-
             committing = True
             with _execution_log.stage("analysis.publication"):
                 return graph_store.publish(store, artifact_ref, descriptor, resources, event)

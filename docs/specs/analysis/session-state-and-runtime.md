@@ -62,63 +62,23 @@ Business reads follow exact physical admission and Run allocation, and recheck
 the schema captured during preflight. One typed-graph Runtime owns the path;
 scenario executors and former Population/Metric Dataset routes are removed.
 
-## Source and fixed execution identity
+## Source execution identity
 
-Classification follows the root's transitive data dependencies. An explicit
-FixedLeaf is a retained boundary; its origin lineage is not a current source.
-Source output passed to a local stage within the invocation remains source-only.
+Every admitted execute gets a fresh Run/evaluation key and reads current sources.
+A saved Artifact with the same definition cannot satisfy it. Local stages consume
+outputs of the current invocation; committed Artifacts are terminal output.
+There is no saved-input execution key, cache hit or fixed schedule.
 
-| Classification | Identity and execution |
-| --- | --- |
-| Source-only | Every admitted top-level execute gets a fresh Run/evaluation key and reads current sources. A saved Artifact with the same definition cannot satisfy it. |
-| Fixed-only | Exact ordered Artifact inputs, bindings and method/plan identity define the key. An exact published hit returns its original Artifact without a new Run; a miss executes the admitted local consumer. |
-| Mixed live source and fixed Artifact | Reject before Run admission, business source acquisition or retained row consumption. |
+Definition identity describes a normalized question and explicit bindings, not a
+source snapshot. One shared logical node realizes once per invocation; separate
+equal definitions remain separate nodes. A Run does not promise one scan,
+transaction or stable source version.
 
-Definition identity describes a normalized question and explicit bindings,
-not a source snapshot. One shared logical node realizes once per invocation;
-separate equal definitions remain separate nodes. Checks, required parts and
-terminal native expressions may read independently. A Run does not promise
-one scan, transaction or stable source version.
-
-The Runtime orders admission as follows:
-
-1. Capture the constructed graph's structural closure and ownership, classify
-   dependencies and select the exact qualified plan with one parameter admission
-   per method. Bind source inputs or lower and validate the fixed schedule once.
-2. Acquire the Session writer guard and reconcile unfinished Run/resource state.
-3. Resolve a fixed-only exact key and return an existing committed result if found.
-4. On a producer miss, determine the key and allocate/admit its Run.
-5. Execute preparation, methods and checks under their captured contracts.
-6. Publish complete Artifact/Evidence/Findings and successful Run atomically.
-
-The source key binds protocol, definition/plan and fresh Run identity.
-The fixed key binds exact ordered Artifact inputs and method/protocol/plan
-identity without a new random value. Store uniqueness remains
-`(Session, execution_key)`. Source evaluations can publish different immutable
-Artifacts for one definition; one fixed key has at most one successful output.
-
-Source admission uses the leaves of the current executable graph, including
-temporal shapes unified while composing dependencies. When preparation captures
-new physical relations, their Entity output expressions are rebound to those
-captured relations before lowering; the original source bindings remain the
-execution key authority.
-
-Prepared analysis over local Parquet reads the declared file directly rather
-than making a temporary copy. It records the file identity and content digest
-before execution and checks them again after the graph finishes; a detected
-change fails the Run. This check does not provide a filesystem snapshot while
-queries are running.
-
-Plan identity normalizes retained references to an Artifact already occupying
-one unambiguous execution slot to that slot's identity. Fresh-process rebinding
-therefore preserves the same plan and fixed key when frozen cohort evidence
-mentions its original member input. Multiple independent slots for one Artifact
-remain distinct.
-
-Exact Artifact references recover their own producing Run, never the latest
-result for a definition. A failed later evaluation does not replace an earlier
-success. Lost commit acknowledgement is reconciled against the original Run/key,
-without allocating a new identity or replaying sources.
+Admission captures the source graph, validates ownership and selects its qualified
+plan before business reads. It reconciles unfinished resources under the writer
+guard, allocates a fresh Run, executes selected stages/checks and atomically
+publishes the output. The private legacy graph protocol records source bindings
+only; an Artifact ID or receipt is never an invocation input.
 
 ## Acquisition and local consumption
 
@@ -144,10 +104,9 @@ selected Subject image. A population scalar cannot replace this support.
 No selected-ID upload, source-after-local query or implicit second
 selection is admitted.
 
-Fixed execution reads persisted Result Parquet directly into pandas for
-registered pandas/NumPy/SciPy methods. It does not open DuckDB to scan retained
-Parquet, load current Semantic/calendar definitions or reconnect historical sources.
-A fixed member domain does not fix a new live Metric/property dependency.
+Committed output reading is independent of execution. Opening an exact current
+Artifact reads its manifest; preview, export and saved fact reads use that output's
+receipts without rebuilding a definition or opening current sources.
 
 Independent native queries have no shared transaction-snapshot guarantee.
 A completed source check proves its own query, not a later calculation.
@@ -193,7 +152,7 @@ Store, graph, descriptor, continuation and method-state versions are distinct:
 | SQLite Store user_version=9 | Session, Run, Artifact, resources, committed Evidence/Findings and execution-key uniqueness |
 | graph_dag/v10, `graph-dag-v10:` | Bounded frozen Source/Fixed/Method records, final relationship paths, independent coordinate binding identities, ordered edges, derivations and retained references |
 
-| run_input/v1 | Closed source/fixed invocation inputs and selected plan identity |
+| run_input/v1 | Closed source invocation inputs and selected plan identity |
 | artifact_descriptor/v6 | Signature, row/row-set and realized schema, producing Run/key, method bindings, completed records, receipts, state, continuation and saved time shape |
 | receipt/v1 (primary), receipt/v2 (part) | Complete key schema, local storage facts, exact part payload SHA-256 and closed table/keyed/partition layout with an explicit owner role |
 | method_state/v2 | Kind-dispatched state, binding and method/contract versions |
@@ -256,8 +215,8 @@ Artifact and graph codec versions remain independent. Current public `show()` an
 
 Ordinary state includes Subject/coordinate maps, original components, current-row
 statistic state, coverage, correspondence/endpoints and references as required.
-Coordinate recovery preserves the numeric relation family, complete coordinate
-rows and original state. Domain/statistical selection can restrict current rows
+The private source layout preserves complete coordinate rows and original state.
+Public cold opening returns a terminal Artifact, never a numeric DSL receiver. Domain/statistical selection can restrict current rows
 while retaining original assignment, trace, fit, classification, search, training,
 or reconciliation scope. The tables below describe semantic layouts;
 the typed protocol and method-state consumers own their exact field schemas.
@@ -268,15 +227,15 @@ the typed protocol and method-state consumers own their exact field schemas.
 | existing parts_transport@v1 / bound selection, owned read, Subject image | receiver-specific transported state | preserve/rekey the required parts and explicit original scope; never recreate members from counts |
 | existing row.mean@v1 / Duration current rows | row_statistic | exact checked tick sum/count, unit, complete selected domain and final rounding policy |
 
-### Domain continuation conditions
+### In-flight domain composition conditions
 
 | Producer/view | Permitted continuation and exact condition |
 | --- | --- |
 | parts_transport / row.mean | transport preserves only capabilities justified by surviving rekeyed parts; mean retains exact sum/count/unit for its existing row-statistic continuations, never original Metric state |
 
-A missing required part removes its continuation and an attempted successor
-fails at the earliest known boundary. Materialized receivers construct Logical
-fixed work; successor derivation/admission still validate the request.
+A missing required part blocks a consuming operation at the earliest known
+boundary. All composition belongs to the current unexecuted graph; Materialized
+receivers have no continuation. Derivation/admission still validate each request.
 A serialized list of actions is not authority for K.
 
 ### Retained member layouts
@@ -405,105 +364,19 @@ run = session.get_run(run_id)
 run.show()
 ```
 
-The legacy graph recovery implementation returned the concrete Materialized family from saved metadata, types
-and required data. It preserves original time/report/calendar authority,
-versions, primary values and parts. It does not select the original producer,
-replay its method validation, load current models, read sources, refit statistics,
-resegment runs or reforecast. Recovery cannot
-establish freshness or suitability for a new question.
+`session.artifact(id)` returns the current terminal Artifact from its output
+manifest. It never restores a Logical receiver, graph, predicate field or method
+state for computation. Earlier Store/graph formats remain rejected without
+migration or file changes. Legacy in-memory Materialized receivers provide only
+output reads; they cannot re-enter the DSL.
 
-Inspection uses frozen graph records and signatures. A new continuation uses
-retained parts and current successor capability, then enters ordinary
-admission/execution. Independent operations decode their own metadata;
-an invocation-local ValidatedDescriptor is a handoff, not a disk-integrity cache.
 Missing/unreadable data, incompatible generations, invalid Session/cursor
-ownership and incomplete publication still raise structured errors.
+ownership and incomplete publication still raise structured errors. Recovery
+cannot establish freshness or suitability for a new question.
 
 Cards/pages are bounded and deterministic; `to_pandas()` returns an isolated
 copy. Run graphs report recorded input/output edges without inferring or
 replaying historical lineage.
-
-## Fixed execution groups
-
-A validated fixed schedule may group adjacent admitted local stages.
-Publication checks pending original-rollup obligations and fixed consumer domain
-constraints before reading Artifacts or allocating a Run. The executor consumes
-that same lowered schedule without repeating its validation or method admission;
-actual Artifact input bindings, data consumption, deadlines and checks retain
-their execution-time owners.
-Groups are invocation-local arrangements of the original DAG; they do not
-replace definition fingerprints, selected method records, plan digests,
-execution keys or saved graph/continuation versions. Public semantics and
-numerical qualifications remain unchanged.
-
-### A2 sequential selection
-
-After fixed schedule validation, the local executor may group adjacent selected
-`artifact_python` int64 `PartsTransport(mode="where")` stages. The existing L1
-owner checks the same quantity, domain, edge roles, retained parts and unknown
-policy without constructing another MethodNode. Each stage remains independently
-admitted and physically qualified; source execution and numeric type qualification
-are unchanged.
-
-Only receiver-bound ordinary predicates qualify. External dependencies, tag
-selection, cohort, limit, display or attribution views, business-coverage changes,
-and stages with pending check requirements retain their normal execution. A shared
-intermediate, requested output, explicit Artifact leaf or unfamiliar part transport
-ends a group. Ordinary Subject, original/coordinate/row state, coverage, statistical
-weight, endpoint and correspondence parts qualify only with the actual required
-schema and complete-key layout. Fixed references and domain-specific parts retain
-their specialized owners.
-
-A group converts its primary rows and builds its complete-key index once, preserving
-duplicate-insertion failures. Predicates execute in original stage order over only
-the surviving original positions; all leaves in each predicate tree are consumed
-before truth composition. Required part key positions are located once. Primary
-and restricted parts are constructed only at the group's consumption boundary,
-with original row/part ordering and the exact terminal Signature and continuation.
-Non-Defined predicate operands still fail with the original CoreRuleError; its
-location identifies the consuming logical node.
-
-Grouping is invocation-local and preserves the logical DAG, definition fingerprint,
-ordered implementation records, per-stage proof digests and `plan_digest`. There
-is no public optimization switch or persisted second graph. An unqualified group
-uses the already selected ordinary stages. Once grouped computation starts, failure
-never retries those stages or changes route. Native error propagation, resource cleanup and atomic publication still apply.
-
-### A3 direct-key original reduction
-
-After `validate_fixed_schedule`, the executor may group adjacent fixed
-`artifact_python` OriginalReduce stages for sum, sum_zero, count, mean, ratio,
-weighted mean and linear. The original logical DAG, node identities and selected
-implementations remain intact. Qualification is invocation-local and inspects the
-the implementation-local L8 contracts in
-[`core/local_laws.py`](../../../marivo/analysis/core/local_laws.py) without
-constructing or saving a replacement graph.
-
-Each mapping must project the complete input key, and successive projections
-may only remove coordinates. Each stage retains the same complete original-state
-binding, contribution, method, output type and finish/empty policy. Only ordinary
-Subject, original_state and coverage parts qualify, with their actual declared
-schemas and full-key layouts. A shared intermediate, requested boundary,
-explicit Artifact leaf, pending check, time coarsening map, retained contribution
-coordinate, allocation or other specialized part ends a group. Reference or
-weight changes and ordered folds never qualify.
-
-A group consumes and indexes the original input once, merges every component
-directly under terminal keys, then finishes and constructs the terminal result.
-It preserves the terminal Signature, complete parts, method state, empty policy
-and the original per-node proof chain. Exact carriers keep their captured range
-checks; floating merges keep the existing numeric contract and retained absolute
-magnitudes. This implementation-local L8 does not grant a new source route or numerical implementation.
-The earlier explicit sum-only StateEquation helper retains its independent
-qualification; invocation grouping does not invoke or broaden that helper.
-Grouping does not scan sources to prove every hypothetical intermediate range.
-Actual component and finish overflows remain execution failures in the captured
-carrier, as specified by the accepted numerical policy.
-
-Index insertion and grouping preserve the captured business checks.
-Unqualified schedules execute their already selected ordinary stages. Once a
-group starts, a numerical error, malformed consumed state, interruption or native timeout
-propagates without retry; Runtime publication remains atomic.
 
 ## Evidence, Findings and interpretation
 
@@ -586,7 +459,7 @@ retained Artifact reads never require current semantic models.
 
 The Session metadata column requires SQLite Store generation 9. Existing
 Store-generation directories are preserved without migration or dual reads.
-A prior generation is not qualified by the new source/fixed/cold acceptance.
+A prior generation is not qualified by current source execution or terminal cold reading.
 
 ComparisonResult publishes both mandatory Cells and shared endpoint/correspondence
 parts as one successful Artifact. Graph v8 includes CellCompare, ComparisonRead and

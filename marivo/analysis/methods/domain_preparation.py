@@ -7,7 +7,6 @@ from typing import Literal
 
 from marivo.analysis.core.model import DomainKind
 from marivo.analysis.methods.physical import (
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
@@ -58,32 +57,24 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                 for zone in ("UTC", "America/New_York")
             ),
         )
-        shapes: tuple[SourceShape | FixedShape, ...] = (
+        shapes: tuple[SourceShape, ...] = (
             *(
                 SourceShape("duckdb", form, "native" if form == "table" else "parquet", time)
                 for form in ("table", "parquet")
                 for time in times
                 if form == "parquet" or isinstance(time, NoTime) or time.unit == "us"
             ),
-            *(FixedShape(time) for time in times if isinstance(time, TimeShape)),
+            *(),
         )
         image_domains: tuple[DomainKind, ...] = ("entity", "group")
         return (
             *(
                 Implementation(
-                    QualificationKey(
-                        method,
-                        (typ,),
-                        (domain,),
-                        shape,
-                        "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
-                    ),
+                    QualificationKey(method, (typ,), (domain,), shape, "ibis_python"),
                     NUMERIC_CHECKS,
                     ("subject",),
                     "exact",
-                    ResourceRequirements(
-                        "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
-                    ),
+                    ResourceRequirements("complete", "producer", None),
                     Qualified(
                         f"r83.subject_image.{shape}@v1"
                         if domain == "group"
@@ -92,10 +83,8 @@ def consumers(method: MethodKey) -> tuple[Implementation, ...]:
                         "tests/test_analysis_deviation_f11_r82.py",
                     ),
                 )
-                for shape in (*shapes, FixedShape(NoTime()))
+                for shape in (*shapes,)
                 for domain in image_domains
-                if domain == "group"
-                or not (isinstance(shape, FixedShape) and isinstance(shape.time, NoTime))
                 for typ in (ScalarType("int64"), ScalarType("float64"), ScalarType("string"))
             ),
         )

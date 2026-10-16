@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Annotated, Literal, TypeVar, get_args
 
 import pyarrow as pa
@@ -15,15 +15,8 @@ from marivo.analysis.compiler.graph_plan import CheckRequirement, GraphPlan, Rou
 from marivo.analysis.compiler.graph_plan import plan as make_plan
 from marivo.analysis.core.cell_encoding import CellTable
 from marivo.analysis.core.graph import MethodNode, Node, SourceLeaf, topology
-from marivo.analysis.core.model import (
-    Evidence,
-    Fact,
-    PartRole,
-    Signature,
-)
-from marivo.analysis.core.rules import (
-    PreparedObservation,
-)
+from marivo.analysis.core.model import Fact, PartRole, Signature
+from marivo.analysis.core.rules import PreparedObservation
 from marivo.analysis.materialization.contracts import (
     LocalReceipt,
     canonical_json,
@@ -31,13 +24,8 @@ from marivo.analysis.materialization.contracts import (
     receipt_payload,
 )
 from marivo.analysis.materialization.errors import IntegrityError
-from marivo.analysis.materialization.execution_key import (
-    FixedPartKey,
-    _ordered_plan,
-)
-from marivo.analysis.materialization.graph_snapshot import (
-    GRAPH as GRAPH,
-)
+from marivo.analysis.materialization.execution_key import _ordered_plan
+from marivo.analysis.materialization.graph_snapshot import GRAPH as GRAPH
 from marivo.analysis.materialization.graph_snapshot import (
     GraphDocument,
     MethodRecord,
@@ -46,25 +34,12 @@ from marivo.analysis.materialization.graph_snapshot import (
     _order,
     read_graph_document,
 )
-from marivo.analysis.materialization.graph_snapshot import (
-    freeze_graph as freeze_graph,
-)
-from marivo.analysis.materialization.graph_snapshot import (
-    graph_document as graph_document,
-)
-from marivo.analysis.materialization.graph_snapshot import (
-    thaw_graph as thaw_graph,
-)
-from marivo.analysis.methods.coordinate_state import (
-    PartLayout,
-    TablePartLayout,
-)
-from marivo.analysis.methods.coordinate_state import (
-    declarations as coordinate_declarations,
-)
-from marivo.analysis.methods.coordinate_state import (
-    key_fields as coordinate_keys,
-)
+from marivo.analysis.materialization.graph_snapshot import freeze_graph as freeze_graph
+from marivo.analysis.materialization.graph_snapshot import graph_document as graph_document
+from marivo.analysis.materialization.graph_snapshot import thaw_graph as thaw_graph
+from marivo.analysis.methods.coordinate_state import PartLayout, TablePartLayout
+from marivo.analysis.methods.coordinate_state import declarations as coordinate_declarations
+from marivo.analysis.methods.coordinate_state import key_fields as coordinate_keys
 from marivo.analysis.methods.coordinate_state import layout as coordinate_layout
 from marivo.analysis.methods.descriptor import MethodName, PersistentStateKind
 from marivo.analysis.methods.physical import NoTime, Qualified, TimeShape
@@ -153,29 +128,7 @@ class SourceRunInput:
     ordered_source_bindings: tuple[tuple[str, str, str], ...]
 
 
-@dataclass(frozen=True, slots=True)
-class FixedInputBinding:
-    session_ref: str
-    artifact_ref: str
-    producing_run_ref: str
-    primary_receipt_digest: str
-    ordered_parts: tuple[FixedPartKey, ...]
-    input_binding: str
-    method_state_contract_id: str
-    method_state_version: int
-    snapshot_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class FixedRunInput:
-    schema: Literal["marivo.analysis.run_input/v1"]
-    kind: Literal["fixed"]
-    definition_fingerprint: str
-    plan_digest: str
-    ordered_artifact_inputs: tuple[FixedInputBinding, ...]
-
-
-RunInput = SourceRunInput | FixedRunInput
+RunInput = SourceRunInput
 RUN_INPUT: TypeAdapter[RunInput] = TypeAdapter(RunInput)
 
 
@@ -365,26 +318,6 @@ class Descriptor:
     continuation_snapshot: str
     continuation_snapshot_digest: str
     time_shape: NoTime | TimeShape
-
-
-def fixed_signature(
-    value: Descriptor, *, _validated: ValidatedDescriptor | None = None
-) -> Signature:
-    """Expose a checked Artifact's semantic signature to a fixed-only graph."""
-    checked = checked_metadata(value, _validated)
-    proven = tuple(
-        Evidence(
-            actual.fact,
-            "check",
-            digest(actual.producing_run_ref + actual.result_digest + actual.origin_node),
-        )
-        for actual in checked.descriptor.completed_checks
-    )
-    return replace(
-        value.signature,
-        obligations=(),
-        evidence=tuple(dict.fromkeys((*value.signature.evidence, *proven))),
-    )
 
 
 DESCRIPTOR = TypeAdapter(Descriptor)

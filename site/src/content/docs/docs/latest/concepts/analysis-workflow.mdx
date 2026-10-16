@@ -93,8 +93,8 @@ change.show()
 
 Construction returns a Logical relation without reading business rows or allocating a Run.
 Schema-only preflight may connect to establish key/value types. `execute()` admits
-and executes the graph, then publishes its Materialized result. Calling a method
-on a Materialized receiver constructs new Logical work over retained inputs.
+and executes the graph, then publishes its Materialized result. Materialized receivers provide output reads only. Compose all DSL operations
+on Logical definitions before execution, or export output with `to_pandas()`.
 
 Executing `session.members(entity).execute()` alone reads and saves the complete
 member key set. It may scan the entire Entity source, with no default row
@@ -144,13 +144,14 @@ august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 august_revenue = customers.observe(
     revenue, during=august, via=buyer, by=(mv.member(),)
 )
-total = customers.observe(revenue, during=august, via=buyer).execute()
-total.show()
+total = customers.observe(revenue, during=august, via=buyer)
+total.execute().show()
 total.contract().show()
 for action in total.contract().actions:
     print(action.call, action.help_target)
 saved_observation = august_revenue.execute()
-saved_observation.aggregate(method=mv.count()).execute().show()
+saved_observation.show()
+august_revenue.aggregate(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
     order_count, during=august, via=buyer, by=(mv.member(),)
@@ -184,7 +185,7 @@ Refs are rejected in `observe.by`. Use the marker only in `observe.by`; result
 
 Category `read` and chained `.where()` calls return `LogicalCategoryRelation`;
 legacy execution returns `MaterializedCategoryRelation`.
-Filtering a Materialized category builds Logical work over the saved data.
+Category filtering belongs to the Logical definition before execution.
 Filtering a category used in `by` must still cover all consumed keys; select
 its `.members()` before observation to restrict the member scope.
 
@@ -248,20 +249,19 @@ use saved bindings and complete keys without re-inferring paths.
 Contribution coordinates use flat state on all five backends, including MySQL and ClickHouse. Coordinates already in the result key reuse original
 components; other coordinates retain complete flat partitions. Real all-Null
 contributions remain distinct from empty targets. Automatic relationships preserve
-the exact backend admission boundary. Materialized comparisons retain the bound
-endpoint partitions for source-free attribution; old state requires re-execution.
+the exact backend admission boundary. Attribution is composed on Logical comparison endpoints before execution;
+old output formats require re-execution.
 Frozen definitions use shared contract tables so repeated facts and bindings do
 not expand at every graph node. This preserves original attribution scope and
-source-free continuations within the existing definition budget. Graph snapshots
+source graph composition within the existing definition budget. Graph snapshots
 from earlier formats require re-execution; existing history and files are preserved.
 
-## Keep source and fixed work explicit
+## Keep computation and committed output separate
 
-A live definition reads current sources when executed again. Recover an exact
-past result is a separate terminal concern: `session.artifact(id)` rejects the
-old graph format in R2.1. Legacy in-memory fixed continuations consume retained
-parts without replaying origin. Adding a live Metric or field to a fixed
-receiver creates mixed work and rejects before either business input is read.
+Executing a live definition reads current sources. `session.artifact(id)` opens
+an exact current terminal result for preview, complete pandas export and saved
+facts. It rejects old graph output without changing files. Neither reopened
+Artifacts nor legacy in-memory Materialized results can enter DSL composition.
 
 Continue with [time and cohorts](/docs/latest/guides/time-and-cohorts/),
 [comparison and attribution](/docs/latest/guides/comparison-and-attribution/),

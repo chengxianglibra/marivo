@@ -12,15 +12,7 @@ import ibis.expr.datatypes as dt
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.core.graph import (
-    Edge,
-    FixedLeaf,
-    MethodNode,
-    Node,
-    method_node,
-    retained_inclusion,
-    topology,
-)
+from marivo.analysis.core.graph import Edge, MethodNode, method_node, retained_inclusion, topology
 from marivo.analysis.core.model import (
     Coordinate,
     DisplayPart,
@@ -48,13 +40,7 @@ from marivo.analysis.materialization.graph_exchange import (
     numeric_primary,
     to_arrow,
 )
-from marivo.analysis.materialization.graph_relation import (
-    FrozenBinding,
-    LiveBinding,
-    Relation,
-    _retained_definition,
-    _shared_root,
-)
+from marivo.analysis.materialization.graph_relation import Relation, _shared_root
 from marivo.analysis.methods.physical import DurationType, ScalarType
 
 
@@ -62,7 +48,7 @@ def invalid(
     received: str,
     *,
     expected: str = "complete typed display inputs and retained ranking scope",
-    repair: str = "Use corresponding Relations in one Session and source/fixed mode; preserve the original ranking parts.",
+    repair: str = "Use corresponding Relations in one Session and unexecuted source inputs; preserve the original ranking parts.",
     target: str = "dsl.table",
 ) -> DatasetConstructionError:
     return DatasetConstructionError(
@@ -95,11 +81,6 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
         for item in inputs
     ):
         raise invalid("cross-Session columns")
-    if any(
-        isinstance(item.binding, LiveBinding) != isinstance(first.binding, LiveBinding)
-        for item in inputs
-    ):
-        raise invalid("mixed source/fixed columns")
     scopes = {
         item.root.signature.quantity.time_scope
         for item in inputs
@@ -120,30 +101,6 @@ def bind(inputs: tuple[Relation, ...], params: DisplayRank | DisplayTable) -> Re
             ),
         )
     endpoints: tuple[MethodNode, ...] = ()
-    if isinstance(first.binding, FrozenBinding):
-        closures: dict[tuple[str, ...], dict[str, tuple[Node, Node]]] = {}
-        retained: list[MethodNode] = []
-        execution: list[Node] = []
-        for item in inputs:
-            receipts = tuple(
-                sorted(
-                    {
-                        node.artifact.ref
-                        for node in topology(item.root)
-                        if isinstance(node, FixedLeaf)
-                    }
-                )
-            )
-            is_view = item.root is item.definition
-            endpoint = _retained_definition(
-                item.definition,
-                preserve_fixed=is_view,
-                shared=closures.setdefault(receipts, {}),
-            )
-            retained.append(endpoint)
-            execution.append(endpoint if is_view else item.root)
-        endpoints = tuple(retained)
-        roots = tuple(execution)
     node = method_node(
         tuple(
             Edge("subject" if root.signature.quantity is None else "quantity", root)

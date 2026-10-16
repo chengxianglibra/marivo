@@ -17,15 +17,6 @@ RECEIVERS = (
     "LogicalSelectedNumericRelation",
     "LogicalSelectedDifferenceRelation",
     "LogicalStatisticRelation",
-    "MaterializedNumericRelation",
-    "MaterializedRatioRelation",
-    "MaterializedRolledNumericRelation",
-    "MaterializedRolledRatioRelation",
-    "MaterializedDifferenceRelation",
-    "MaterializedSelectedNumericRelation",
-    "MaterializedSelectedDifferenceRelation",
-    "MaterializedStatisticRelation",
-    "MaterializedGroupedNumericRelation",
 )
 
 
@@ -36,19 +27,15 @@ def test_deviation_and_statistics_public_contracts(tmp_path: Path) -> None:
         body += (
             f"def accepts_{receiver}(value: mv.{receiver}, category: mv.LogicalCategoryRelation, fixed: mv.MaterializedCategoryRelation) -> None:\n"
             "    assert_type(value.deviation(method='zscore'), mv.LogicalDeviationResult)\n"
-            "    assert_type(value.deviation(method='mad', partition_by=(category, fixed)), mv.LogicalDeviationResult)\n"
+            "    assert_type(value.deviation(method='mad', partition_by=(category,)), mv.LogicalDeviationResult)\n"
         )
     body += (
         "def fields(result: mv.LogicalDeviationResult, fixed: mv.MaterializedDeviationResult) -> None:\n"
         "    assert_type(result.execute(), mv.MaterializedDeviationResult)\n"
         "    assert_type(result.where(result.score.value.gt(0)), mv.LogicalDeviationResult)\n"
-        "    assert_type(fixed.where(fixed.score.value.is_defined()), mv.LogicalDeviationResult)\n"
     )
     for field in ("observed", "reference", "deviation", "score"):
-        body += (
-            f"    assert_type(result.{field}, mv.LogicalNumericRelation)\n"
-            f"    assert_type(fixed.{field}, mv.MaterializedNumericRelation)\n"
-        )
+        body += f"    assert_type(result.{field}, mv.LogicalNumericRelation)\n"
     body += """def methods(v: mv.LogicalNumericRelation, b: mv.LogicalNumericRelation) -> None:
     assert_type(v.deviation(method="zscore"), mv.LogicalDeviationResult)
     assert_type(v.deviation(method="mad"), mv.LogicalDeviationResult)

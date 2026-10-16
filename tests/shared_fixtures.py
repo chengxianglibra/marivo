@@ -17,9 +17,7 @@ import ibis
 
 if TYPE_CHECKING:
     from marivo._help.render import PublicHelpTarget
-    from marivo.analysis.core.graph import MethodNode
     from marivo.analysis.core.time_authority import TemporalExecution
-    from marivo.analysis.materialization.graph_store import GraphArtifact
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.refs import EntityKind, MeasureKind, Ref
@@ -895,29 +893,6 @@ def seed_multi_metric_tables(con: ibis.duckdb.DuckDBBackend) -> None:
     )
     con.raw_sql("CREATE TABLE users (user_id INTEGER, signed_up_at DATE)")
     con.raw_sql("INSERT INTO users VALUES (100, DATE '2026-07-01'), (200, DATE '2026-07-03')")
-
-
-def graph_count_continuation(record: GraphArtifact) -> MethodNode:
-    """Build a current-row count from an exact private v7 Artifact."""
-    from marivo.analysis.core.graph import Edge, FixedLeaf, method_node
-    from marivo.analysis.core.model import DomainSignature
-    from marivo.analysis.core.rules import RowState
-    from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
-    from marivo.analysis.refs import ArtifactRef
-
-    leaf = FixedLeaf(
-        ArtifactRef(ref=record.artifact_ref),
-        record.descriptor.definition_fingerprint,
-        record.descriptor.signature,
-        ScalarType("int64"),
-        FixedShape(NoTime()),
-    )
-    domain = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all-products")
-    return method_node(
-        (Edge("quantity", leaf),),
-        RowState("count", domain, "current-count", "count_all"),
-        value_type=ScalarType("int64"),
-    )
 
 
 def run_ids(session: Session) -> set[str]:

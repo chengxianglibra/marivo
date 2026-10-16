@@ -13,7 +13,6 @@ from pydantic import Field, TypeAdapter
 from marivo.analysis.core.graph import (
     Edge,
     EdgeRole,
-    FixedLeaf,
     MethodNode,
     Node,
     SourceDefinition,
@@ -38,9 +37,8 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.materialization import graph_value_tables as _value_tables
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.graph_value_tables import GraphValueCodec
-from marivo.analysis.methods.physical import FixedShape, ValueType
+from marivo.analysis.methods.physical import ValueType
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.refs import ArtifactRef
 
 MAX_NODES = 4096
 MAX_REFERENCES = 16384
@@ -66,17 +64,6 @@ class SourceRecord:
 
 
 @dataclass(frozen=True, slots=True)
-class FixedRecord:
-    kind: Literal["fixed"]
-    identity: str
-    artifact: ArtifactRef
-    definition_fingerprint: str
-    signature: Signature
-    value_type: ValueType
-    shape: FixedShape
-
-
-@dataclass(frozen=True, slots=True)
 class MethodRecord:
     kind: Literal["method"]
     identity: str
@@ -93,7 +80,7 @@ class MethodRecord:
         return self.derivation.output
 
 
-Record = Annotated[SourceRecord | FixedRecord | MethodRecord, Field(discriminator="kind")]
+Record = Annotated[SourceRecord | MethodRecord, Field(discriminator="kind")]
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +90,6 @@ class GraphDocument:
     nodes: tuple[Record, ...]
 
 
-# Native records serve exact definition comparisons; wire persistence uses VALUE_CODEC.
 GRAPH = TypeAdapter(GraphDocument)
 VALUE_CODEC = GraphValueCodec(GraphDocument)
 
@@ -118,16 +104,6 @@ def node_record(node: Node) -> Record:
     if isinstance(node, SourceLeaf):
         return SourceRecord(
             "source", node.identity, node.definition, node.signature, node.value_type
-        )
-    if isinstance(node, FixedLeaf):
-        return FixedRecord(
-            "fixed",
-            node.identity,
-            node.artifact,
-            node.definition_fingerprint,
-            node.signature,
-            node.value_type,
-            node.shape,
         )
     return MethodRecord(
         "method",
@@ -278,7 +254,7 @@ def graph_document(root: Node) -> GraphDocument:
         if id(node) in seen:
             continue
         seen.add(id(node))
-        if type(node) not in (MethodNode, SourceLeaf, FixedLeaf):
+        if type(node) not in (MethodNode, SourceLeaf):
             raise invalid("untyped definition node")
         record = node_record(node)
         prior = records.get(node.identity)
@@ -310,15 +286,6 @@ def _restore(document: GraphDocument) -> Node:
         if isinstance(record, SourceRecord):
             node = SourceLeaf(
                 record.definition, record.signature, record.value_type, record.identity
-            )
-        elif isinstance(record, FixedRecord):
-            node = FixedLeaf(
-                record.artifact,
-                record.definition_fingerprint,
-                record.signature,
-                record.value_type,
-                record.shape,
-                record.identity,
             )
         else:
             sources = tuple(nodes[identity] for identity in record.sources)
@@ -429,7 +396,7 @@ def read_graph_document(text: str) -> GraphDocument:
 
 
 def thaw_graph(text: str) -> Node:
-    """Restore historical semantics only when entering a typed continuation."""
+    """Decode a source definition for graph integrity validation."""
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.graph_protocol import invalid
 

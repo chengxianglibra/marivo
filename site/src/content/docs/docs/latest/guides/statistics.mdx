@@ -25,9 +25,8 @@ followup = positive.observed.members().observe(
     by=(mv.member(),),
 )
 followup.aggregate(method=mv.count_defined()).execute().show()
-fixed = scored.execute()
-fixed.contract().show()
-ranking = fixed.score.rank(order="descending", ties="dense").limit(10).execute()
+scored.contract().show()
+ranking = scored.score.rank(order="descending", ties="dense").limit(10)
 ranking.ranks.contract().show()
 mv.table(score=ranking.values, rank=ranking.ranks).execute().show()
 marivo.help("analysis.dsl.NumericComparison.deviation")
@@ -45,8 +44,7 @@ filtering a retained result does not refit its original reference population.
 
 ```python
 segments = daily.runs(where=daily.value.gt(20))
-fixed = segments.execute()
-selected = fixed.where(fixed.count.value.gt(1)).execute()
+selected = segments.where(segments.count.value.gt(1))
 mv.table(start=selected.start, end=selected.end, count=selected.count,
          duration=selected.duration).execute().show()
 ```
@@ -64,24 +62,22 @@ Bind `revenue`, `order_count` and `daily` as described above. Forecast input nee
 ```python
 zscore = revenue.deviation(method="zscore")
 mad = revenue.deviation(method="mad")
-fixed = zscore.execute()
-chosen = fixed.where(fixed.score.value.is_defined())
-chosen = chosen.where(chosen.score.value.gt(0)).execute()
+chosen = zscore.where(zscore.score.value.is_defined())
+chosen = chosen.where(chosen.score.value.gt(0))
 chosen.contract().show()
 mv.table(observed=chosen.observed, reference=chosen.reference,
          deviation=chosen.deviation, score=chosen.score).execute().show()
 chosen.score.rank(order="descending", ties="dense").limit(2).execute().show()
 mad.execute().show()
 
-segments = daily.runs(where=daily.value.gt(0)).execute()
+segments = daily.runs(where=daily.value.gt(0))
 segments.where(segments.count.value.gt(1)).execute().show()
 
 pearson = revenue.correlate(order_count, method="pearson")
 spearman = revenue.correlate(order_count, method="spearman")
 kendall = revenue.correlate(order_count, method="kendall")
 for associations in (pearson, spearman, kendall):
-    fixed_associations = associations.execute()
-    selected = fixed_associations.where(fixed_associations.selected.value.eq(True)).execute()
+    selected = associations.where(associations.selected.value.eq(True))
     mv.table(coefficient=selected.coefficient, selected=selected.selected).execute().show()
     selected.coefficient.rank(order="descending", ties="dense").limit(1).execute().show()
 
@@ -89,8 +85,7 @@ naive = daily.forecast(horizon=mv.periods(2), model=mv.naive())
 drift = daily.forecast(horizon=mv.periods(2), model=mv.drift())
 seasonal = daily.forecast(horizon=mv.periods(2), model=mv.seasonal_naive(periods=2))
 for future in (naive, drift, seasonal):
-    fixed_future = future.execute()
-    selected = fixed_future.where(fixed_future.prediction.value.gt(0)).execute()
+    selected = future.where(future.prediction.value.gt(0))
     mv.table(prediction=selected.prediction, lower=selected.lower,
              upper=selected.upper).execute().show()
     selected.contract().show()

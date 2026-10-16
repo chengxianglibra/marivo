@@ -17,7 +17,6 @@ from marivo.analysis.materialization.graph_protocol import (
     DESCRIPTOR,
     RUN_INPUT,
     Descriptor,
-    FixedRunInput,
     PartReceipt,
     PrimaryReceipt,
     RunInput,
@@ -78,11 +77,7 @@ def run(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphRun | N
     ):
         raise invalid("Run input order or Session differs")
     refs = tuple(_text(item, "artifact_ref") for item in inputs)
-    if refs != (
-        tuple(item.artifact_ref for item in selected.ordered_artifact_inputs)
-        if isinstance(selected, FixedRunInput)
-        else ()
-    ):
+    if refs != ():
         raise invalid("Run input envelope differs from ordered input rows")
     terminal = _one(conn, "SELECT * FROM analysis_action_run_terminals WHERE run_ref=?", (ref,))
     outcome: Literal["incomplete", "succeeded", "failed"] = "incomplete"
@@ -170,11 +165,6 @@ def artifact(store: SessionStore, conn: sqlite3.Connection, ref: str) -> GraphAr
 def admit(store: SessionStore, session: str, key: str, selected: RunInput, ref: str) -> GraphRun:
     payload = encode(selected, RUN_INPUT)
     decode(payload, RUN_INPUT)
-    refs = (
-        tuple(item.artifact_ref for item in selected.ordered_artifact_inputs)
-        if isinstance(selected, FixedRunInput)
-        else ()
-    )
     with store._write() as conn:
         if (
             _one(
@@ -194,17 +184,9 @@ def admit(store: SessionStore, session: str, key: str, selected: RunInput, ref: 
             is not None
         ):
             raise invalid("execution key already has an Artifact")
-        for reference in refs:
-            value = artifact(store, conn, reference)
-            if value is None or value.session_ref != session:
-                raise invalid("absent or foreign fixed input")
         conn.execute(
             "INSERT INTO analysis_action_runs VALUES(?,?,?,?,?)",
             (ref, session, key, _now(), payload),
-        )
-        conn.executemany(
-            "INSERT INTO analysis_action_run_inputs VALUES(?,?,?,?)",
-            ((ref, session, i, r) for i, r in enumerate(refs)),
         )
         result = run(store, conn, ref)
         assert result is not None

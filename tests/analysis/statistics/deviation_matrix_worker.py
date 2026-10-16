@@ -2,29 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
-from unittest.mock import patch
 
-import duckdb
-import ibis
 import pyarrow as pa
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.deviation_execution import decode as _decode
 from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import DecimalType, NoTime, ScalarType
-from marivo.datasource.adapters import SourceSession
-from marivo.semantic.reader import SemanticProject
-from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected, forbidden
+from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected
 
 
 def verify(
@@ -104,84 +94,3 @@ def verify(
         if domain == "category"
         else ("entity",)
     )
-
-
-def run(root: Path, phase: str, domain: str, key_profile: str) -> None:
-    os.environ["MARIVO_PROJECT_ROOT"] = str(root)
-    os.environ["MARIVO_TELEMETRY"] = "off"
-    path = root / "deviation-domains.json"
-    if phase == "produce":
-        ms.load(workspace_dir=root)
-        session = mv.session.get_or_create("r82-domains", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.order"))
-        entries = []
-        for index in (7,) if domain == "entity" else (0,) if domain == "scalar" else (1,):
-            raw = members.read(ms.ref.measure(f"sales.order.profile_{index}"))
-            category = members.read(ms.ref.dimension("sales.order.channel"))
-            assert isinstance(category, mv.LogicalCategoryRelation)
-            source = (
-                raw.aggregate(mv.max())
-                if domain == "scalar"
-                else raw.group_by(category).aggregate(mv.max())
-                if domain == "category"
-                else raw
-            )
-            original = source.execute()
-            for method in ("zscore", "mad"):
-                result = source.deviation(method=method).execute()
-                verify(result, index, method, domain, key_profile, "ibis_python")
-                entries.append(
-                    {
-                        "index": index,
-                        "method": method,
-                        "input": original.evidence_digest().artifact_ref.ref,
-                        "result": result.evidence_digest().artifact_ref.ref,
-                    }
-                )
-        path.write_text(json.dumps({"session": session.id, "entries": entries}))
-    else:
-        manifest = json.loads(path.read_text())
-        with (
-            patch.object(SemanticProject, "load", forbidden),
-            patch.object(ms, "load", forbidden),
-            patch.object(SourceSession, "__enter__", forbidden),
-            patch.object(SourceSession, "execute", forbidden),
-            patch.object(duckdb, "connect", forbidden),
-            patch.object(ibis.duckdb, "connect", forbidden),
-        ):
-            session = mv.session.resume(manifest["session"], by="id")
-            entries = manifest["entries"]
-            for entry in entries:
-                captured_input, recovered = (
-                    session.artifact(entry["input"]),
-                    session.artifact(entry["result"]),
-                )
-                assert isinstance(
-                    captured_input,
-                    (mv.MaterializedNumericRelation, mv.MaterializedStatisticRelation),
-                )
-                original = captured_input
-                assert isinstance(recovered, mv.MaterializedDeviationResult)
-                verify(
-                    recovered, entry["index"], entry["method"], domain, key_profile, "ibis_python"
-                )
-                fixed = original.deviation(method=entry["method"]).execute()
-                verify(
-                    fixed, entry["index"], entry["method"], domain, key_profile, "artifact_python"
-                )
-                entry["fixed"] = fixed.evidence_digest().artifact_ref.ref
-            path.write_text(json.dumps(manifest))
-    print(
-        json.dumps(
-            {
-                "accepted": phase,
-                "domain": domain,
-                "key_profile": key_profile,
-                "profiles": 1,
-            }
-        )
-    )
-
-
-if __name__ == "__main__":
-    run(Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4])

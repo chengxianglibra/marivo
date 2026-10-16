@@ -65,7 +65,6 @@ from marivo.analysis.public_dsl import (
 from marivo.analysis.public_dsl import LogicalComparisonResult as LogicalComparisonResult
 from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
 from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
-from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
 from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
 from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
 from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult
@@ -260,7 +259,6 @@ __all__ = [  # noqa: RUF022 - accepted public export order is contractual
     "MaterializedCoefficientRelation",
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
-    "LogicalFixedAnalysisDomain",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
     "LogicalTimeRunResult",

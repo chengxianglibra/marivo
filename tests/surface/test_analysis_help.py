@@ -43,6 +43,7 @@ def test_unqualified_receiver_method_remains_unregistered() -> None:
         marivo.help("analysis.group_by")
     error = captured.value
     assert "marivo.help(value.method)" in str(error)
-    assert error.candidates and all(target.endswith(".group_by") for target in error.candidates)
+    assert sum(target.endswith(".group_by") for target in error.candidates) >= 2
+    assert all("Materialized" not in target for target in error.candidates)
     for candidate in error.candidates:
         assert isinstance(route_help_target(candidate), NativeHelpRoute)

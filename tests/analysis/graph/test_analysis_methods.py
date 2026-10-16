@@ -38,7 +38,6 @@ from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
     Backend,
     DecimalType,
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
@@ -511,26 +510,6 @@ def test_decimal_precision_and_scale_are_part_of_the_key() -> None:
         replace(candidate, precision="finite_float64")
 
 
-def test_wrong_type_route_resource_and_check_declarations_refuse() -> None:
-    candidate = _implementation()
-    with pytest.raises(MethodRegistrationError, match="scalar type"):
-        ScalarType("unknown")
-    with pytest.raises(MethodRegistrationError, match="Decimal precision"):
-        DecimalType(4, 5)
-    with pytest.raises(MethodRegistrationError, match="positive optional row limit"):
-        ResourceRequirements("complete", "caller", 0)
-    with pytest.raises(MethodRegistrationError, match="consumer and qualification evidence"):
-        Qualified("example", "", "evidence")
-    with pytest.raises(MethodRegistrationError, match="complete immutable implementation"):
-        replace(candidate, checks=("source.not_a_checker@v1",))
-    with pytest.raises(MethodRegistrationError, match="complete exact"):
-        replace(candidate.key, shape=FixedShape(NoTime()))
-    with pytest.raises(MethodRegistrationError, match="complete exact"):
-        replace(candidate.key, route="raw_sql")
-    with pytest.raises(MethodRegistrationError, match="producer-owned"):
-        replace(candidate, resources=ResourceRequirements("stream", "caller", None))
-
-
 def test_physical_input_positions_match_the_connected_rule() -> None:
     candidate = _implementation()
     with pytest.raises(MethodRegistrationError, match="complete exact"):
@@ -585,49 +564,6 @@ def test_numeric_precision_matches_method_result_and_input_types() -> None:
             )
     decimal_count = replace(count, key=replace(count_key, input_types=(DecimalType(18, 2),)))
     MethodRegistry((replace(registration, implementations=(decimal_count,)),))
-
-
-def test_route_selection_preserves_semantics_and_never_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source = _input()
-    params = _params(source)
-    ibis = _implementation()
-    python = replace(ibis, key=replace(ibis.key, route="ibis_python"))
-    fixed = replace(
-        ibis,
-        key=replace(ibis.key, route="artifact_python", shape=FixedShape(NoTime())),
-        resources=ResourceRequirements("complete", "caller", 1000),
-    )
-    registry = _registry(ibis, python, fixed)
-    expected = derive((source,), params)
-    for candidate in (ibis, python, fixed):
-        chosen = registry.select(candidate.key, (source,), params)
-        assert chosen.implementation is candidate
-        assert chosen.derivation == expected
-        assert chosen.derivation.output.quantity.method_version == "row.mean@v1"
-        assert chosen.derivation.output.quantity.unit == "CNY"
-        assert chosen.derivation.output.parts[0].components == ("sum", "count")
-        assert chosen.derivation.obligations
-    with pytest.raises(MethodRegistrationError, match="qualified exact key"):
-        _registry(python).select(ibis.key, (source,), params)
-    blocked = replace(
-        ibis, qualification=Unavailable("blocked", "failed qualification", "Repair this route.")
-    )
-    with pytest.raises(MethodRegistrationError, match="failed qualification"):
-        _registry(blocked, python).select(ibis.key, (source,), params)
-    from marivo.analysis.core import rules
-
-    calls = []
-
-    def fail(*args: object) -> None:
-        calls.append(args)
-        raise RuntimeError("semantic consumer failed")
-
-    monkeypatch.setattr(rules, "_row_state", fail)
-    with pytest.raises(RuntimeError, match="semantic consumer failed"):
-        registry.select(ibis.key, (source,), params)
-    assert len(calls) == 1
 
 
 def test_cell_semantics_are_not_adapter_options() -> None:

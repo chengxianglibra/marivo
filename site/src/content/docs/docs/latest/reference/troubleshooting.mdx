@@ -23,9 +23,9 @@ business descriptions and guardrails do not block readiness. Bounded preview
 and source-health failures do not change Readiness, and successful connectivity
 cannot authorize a Metric equation.
 
-## Repair mixed inputs
+## Keep committed output terminal
 
-After the Python tutorial has bound `current` and `baseline`, this deliberately failing example combines a saved input with a live definition.
+After the Python tutorial has bound `current` and `baseline`, this deliberately failing example passes committed output as a computation input.
 
 {/* example: mixed-input-setup */}
 
@@ -36,14 +36,13 @@ saved_current = current.execute()
 {/* example: mixed-input-error */}
 
 ```python
-# This intentionally combines fixed and live inputs and must fail.
-saved_current.compare(baseline).execute()
+# A committed result is not a DSL input; this intentionally fails.
+current.compare(saved_current).execute()
 ```
 
-Choose one question: compare current live definitions as in the tutorial, or
-execute both sides and compare their compatible retained results. Do not upload
-saved rows to bypass admission. Construct a downstream live observation before
-materializing its selection, or follow the receiver’s required execution boundary.
+Compare `current` and `baseline` while both are Logical definitions, then execute
+the complete comparison. For analysis of saved rows, export with `to_pandas()`
+and continue outside the DSL. Saved results cannot be converted into Logical inputs.
 
 ## Repair predicates and correspondence
 

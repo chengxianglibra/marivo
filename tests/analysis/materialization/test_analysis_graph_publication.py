@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
-import sys
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -17,12 +15,11 @@ import pytest
 from marivo.analysis.compiler.graph_lowering import (
     CellColumns,
     CoordinateColumn,
-    LoweredPlan,
     RelationLayout,
     SourceBinding,
 )
 from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import Edge, FixedLeaf, SourceDefinition, SourceLeaf, method_node
+from marivo.analysis.core.graph import Edge, SourceDefinition, SourceLeaf, method_node
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
@@ -31,8 +28,7 @@ from marivo.analysis.core.model import (
     Signature,
 )
 from marivo.analysis.core.predicates import ValuePredicate
-from marivo.analysis.core.rules import AssociationScore, CellDerive, PartsTransport, RowState
-from marivo.analysis.materialization import graph_local_execution, graph_publication
+from marivo.analysis.core.rules import AssociationScore, PartsTransport, RowState
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import (
@@ -50,19 +46,16 @@ from marivo.analysis.materialization.graph_protocol import (
     decode,
     digest,
     encode,
-    fixed_signature,
     freeze_graph,
     thaw_graph,
 )
 from marivo.analysis.materialization.graph_storage import read_result
 from marivo.analysis.materialization.store import SessionStore
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape
+from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.refs import ArtifactRef
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation, TableSourceIR
 from marivo.refs import ref
-from tests.shared_fixtures import graph_count_continuation as _fixed
 
 
 def _root(session):
@@ -213,519 +206,6 @@ def _counts(store):
         )
 
 
-@pytest.mark.slow
-def test_fixed_difference_uses_ordered_exact_endpoints_without_source(case):
-    first = _capture(case)
-    case[5].create_table(
-        "facts",
-        pa.table(
-            {
-                "id": [9007199254740993, 2, 3],
-                "amount": [1, 3, 8],
-                "tag": ["defined"] * 3,
-                "reason": pa.array([None] * 3, type=pa.string()),
-            }
-        ),
-        overwrite=True,
-    )
-    second = _capture(case)
-    a = _fixed(first).inputs[0].node
-    b = _fixed(second).inputs[0].node
-    assert a.signature.quantity is not None
-
-    def difference(current, baseline):
-        return method_node(
-            (Edge("current", current), Edge("baseline", baseline)),
-            CellDerive(
-                "difference",
-                "fixed-stock-difference",
-                "propagate",
-                a.signature.quantity.unit,
-                a.signature.quantity.time_scope,
-                "source.exact_pairing@v1",
-                "source.finite_numeric@v1",
-            ),
-            value_type=ScalarType("int64"),
-        )
-
-    before_opens = len(case[4])
-    forward = difference(a, b)
-    saved = case[0]._execute_graph(forward, (RouteChoice(forward.identity, "artifact_python"),))
-    actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].tolist() == [3, 4, 1]
-    assert actual.parts[0].table["current_endpoint__value"].tolist() == [4, 7, 9]
-    assert actual.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3, 8]
-    reverse = difference(b, a)
-    reversed_saved = case[0]._execute_graph(
-        reverse, (RouteChoice(reverse.identity, "artifact_python"),)
-    )
-    assert read_result(case[0].store.project_root, reversed_saved.descriptor).primary[
-        "value"
-    ].tolist() == [-3, -4, -1]
-    assert saved.execution_key_digest != reversed_saved.execution_key_digest
-    assert len(case[4]) == before_opens
-    source_path = case[0].store.project_root / "source.duckdb"
-    offline_path = source_path.with_suffix(".offline")
-    source_path.rename(offline_path)
-    try:
-        process = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                """\
-import sys
-from dataclasses import replace
-from marivo.analysis.compiler.graph_plan import RouteChoice
-from marivo.analysis.core.graph import method_node
-from marivo.analysis.materialization.admission import DatasetRuntime
-from marivo.analysis.materialization.graph_protocol import thaw_graph
-from marivo.analysis.materialization.graph_storage import read_result
-from marivo.analysis.materialization.store import SessionStore
-
-store = SessionStore(sys.argv[1], existing_only=True)
-runtime = DatasetRuntime(store, sys.argv[2])
-prior = thaw_graph(sys.argv[3])
-root = method_node(
-    prior.inputs,
-    replace(prior.parameters, definition_id="cold-fixed-difference"),
-    value_type=prior.value_type,
-)
-saved = runtime._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-assert read_result(store.project_root, saved.descriptor).primary["value"].tolist() == [3, 4, 1]
-assert saved.producing_run_ref != sys.argv[4]
-""",
-                str(case[0].store.project_root),
-                case[0].session_ref,
-                freeze_graph(forward),
-                saved.producing_run_ref,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    finally:
-        offline_path.rename(source_path)
-    assert process.returncode == 0, process.stderr
-
-
-def test_source_roundtrip_new_identity_and_fixed_exact_hit(case, monkeypatch: pytest.MonkeyPatch):
-    first = _execute(case)
-    runtime, root, _, _, opens, backend = case
-    assert read_result(runtime.store.project_root, first.descriptor).primary["value"].tolist() == [
-        3
-    ]
-    assert thaw_graph(freeze_graph(root)).fingerprint == root.fingerprint
-    assert decode(encode(first.descriptor, DESCRIPTOR), DESCRIPTOR) == first.descriptor
-    backend.insert(
-        "facts",
-        pa.table(
-            {
-                "id": [4],
-                "amount": [10],
-                "tag": ["defined"],
-                "reason": pa.array([None], type=pa.string()),
-            }
-        ),
-    )
-    second = _execute(case)
-    assert first.artifact_ref != second.artifact_ref
-    assert first.producing_run_ref != second.producing_run_ref
-    assert read_result(runtime.store.project_root, second.descriptor).primary["value"].tolist() == [
-        4
-    ]
-    fixed = _fixed(_capture(case))
-    schedule_calls: list[LoweredPlan] = []
-    validate = graph_local_execution.validate_fixed_schedule
-
-    def validate_once(lowered: LoweredPlan) -> None:
-        schedule_calls.append(lowered)
-        validate(lowered)
-
-    monkeypatch.setattr(graph_publication, "validate_fixed_schedule", validate_once)
-    monkeypatch.setattr(graph_local_execution, "validate_fixed_schedule", validate_once)
-    result = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    assert len(schedule_calls) == 1
-    assert read_result(runtime.store.project_root, result.descriptor).primary["value"].tolist() == [
-        4
-    ]
-    before = _counts(runtime.store)
-    assert (
-        runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),)) == result
-    )
-    assert len(schedule_calls) == 2
-    assert _counts(runtime.store) == before == (4, 4, 4, 0)
-    assert opens == ["open", "open", "open"]
-
-
-def test_fixed_spearman_accepts_independent_captures_of_one_frozen_membership(case):
-    first, second = _capture(case), _capture(case)
-    assert first.artifact_ref != second.artifact_ref
-    left, right = (
-        FixedLeaf(
-            ArtifactRef(saved.artifact_ref),
-            saved.descriptor.definition_fingerprint,
-            saved.descriptor.signature,
-            ScalarType("int64"),
-            FixedShape(NoTime()),
-        )
-        for saved in (first, second)
-    )
-    binding = left.signature.domain.binding
-    root = method_node(
-        (Edge("quantity", left), Edge("quantity", right)),
-        AssociationScore(
-            DomainSignature(binding, "singleton", (), (), "all-products"),
-            "captured-association",
-            "source.exact_pairing@v1",
-            "source.finite_numeric@v1",
-        ),
-        value_type=ScalarType("float64"),
-    )
-    before = _counts(case[0].store)
-    saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].tolist() == [1.0]
-    assert _counts(case[0].store)[0] == before[0] + 1
-    assert case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),)) == saved
-
-
-def test_fixed_transport_filters_exact_saved_rows_without_source_open(case):
-    captured = _capture(case)
-    leaf = _fixed(captured).inputs[0].node
-    assert isinstance(leaf, FixedLeaf)
-    root = method_node(
-        (Edge("quantity", leaf),),
-        PartsTransport(
-            "where",
-            leaf.signature.domain,
-            (),
-            True,
-            (ValuePredicate(leaf.signature.domain.binding, "gt", 5, "drop"),),
-        ),
-        value_type=ScalarType("int64"),
-    )
-    before_opens = len(case[4])
-    saved = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].tolist() == [7, 9]
-    assert len(case[4]) == before_opens
-
-
-def test_fixed_filter_then_count_defined_uses_one_graph_run(case):
-    method, value_type, expected = "count_defined", "int64", 2
-    captured = _capture(case)
-    leaf = _fixed(captured).inputs[0].node
-    assert isinstance(leaf, FixedLeaf)
-    filtered = method_node(
-        (Edge("quantity", leaf),),
-        PartsTransport(
-            "where",
-            leaf.signature.domain,
-            (),
-            True,
-            (ValuePredicate(leaf.signature.domain.binding, "gt", 5, "drop"),),
-        ),
-        value_type=ScalarType("int64"),
-    )
-    count_domain = DomainSignature(
-        leaf.signature.domain.binding, "singleton", (), (), "selected-stock"
-    )
-    root = method_node(
-        (Edge("quantity", filtered),),
-        RowState(
-            method,
-            count_domain,
-            "selected-stock-" + method,
-            {"count": "count_all", "count_defined": "defined_only"}.get(method, "strict"),
-            numeric_check_id=(
-                "source.cell_policy@v1" if method == "count_defined" else "source.finite_numeric@v1"
-            ),
-        ),
-        value_type=ScalarType(value_type),
-    )
-    before_runs = _counts(case[0].store)[0]
-    before_opens = len(case[4])
-    saved = case[0]._execute_graph(
-        root,
-        (
-            RouteChoice(filtered.identity, "artifact_python"),
-            RouteChoice(root.identity, "artifact_python"),
-        ),
-    )
-    assert read_result(case[0].store.project_root, saved.descriptor).primary["value"].tolist() == [
-        expected
-    ]
-    assert _counts(case[0].store)[0] == before_runs + 1
-    assert len(case[4]) == before_opens
-
-
-def test_fixed_shared_difference_filter_sum_is_one_atomic_run(case, monkeypatch):
-    from marivo.analysis.materialization import graph_local_execution
-
-    captured = _capture(case)
-    leaf = _fixed(captured).inputs[0].node
-    assert isinstance(leaf, FixedLeaf)
-    difference = method_node(
-        (Edge("current", leaf), Edge("baseline", leaf)),
-        CellDerive(
-            "difference",
-            "self-difference",
-            "propagate",
-            "units",
-            "all",
-            "source.exact_pairing@v1",
-            "source.finite_numeric@v1",
-        ),
-        value_type=ScalarType("int64"),
-    )
-    filtered = method_node(
-        (Edge("quantity", difference),),
-        PartsTransport(
-            "where",
-            difference.signature.domain,
-            ("current_endpoint", "baseline_endpoint", "correspondence"),
-            True,
-            (ValuePredicate(difference.signature.domain.binding, "eq", 0, "reject"),),
-        ),
-        value_type=ScalarType("int64"),
-    )
-    root = method_node(
-        (Edge("quantity", filtered),),
-        RowState(
-            "sum",
-            DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all"),
-            "selected-total",
-            "strict",
-            numeric_check_id="source.finite_numeric@v1",
-        ),
-        value_type=ScalarType("int64"),
-    )
-    calls = []
-    original = graph_local_execution._difference_stage
-
-    def tracked(*args, **kwargs):
-        calls.append("difference")
-        return original(*args, **kwargs)
-
-    monkeypatch.setattr(graph_local_execution, "_difference_stage", tracked)
-    before = _counts(case[0].store)
-    before_opens = len(case[4])
-    routes = tuple(
-        RouteChoice(node.identity, "artifact_python") for node in (difference, filtered, root)
-    )
-    saved = case[0]._execute_graph(root, routes)
-    actual = read_result(case[0].store.project_root, saved.descriptor)
-    assert actual.primary["value"].tolist() == [0]
-    assert calls == ["difference"]
-    assert _counts(case[0].store) == (before[0] + 1, before[1] + 1, before[2] + 1, 0)
-    assert len(case[4]) == before_opens
-    assert case[0]._execute_graph(root, routes) == saved
-    assert calls == ["difference"]
-
-
-@pytest.mark.slow
-def test_fixed_spearman_coefficient_selection_keeps_verified_pair_counts(case):
-    captured = _capture(case)
-    association_root = _fixed_pair(captured, captured)
-    association = case[0]._execute_graph(
-        association_root, (RouteChoice(association_root.identity, "artifact_python"),)
-    )
-    fixed = FixedLeaf(
-        ArtifactRef(association.artifact_ref),
-        association.descriptor.definition_fingerprint,
-        fixed_signature(association.descriptor),
-        ScalarType("float64"),
-        FixedShape(NoTime()),
-    )
-    selected_root = method_node(
-        (Edge("quantity", fixed),),
-        PartsTransport(
-            "where",
-            fixed.signature.domain,
-            ("pair_counts",),
-            True,
-            (ValuePredicate(fixed.signature.domain.binding, "gt", 0, "drop"),),
-        ),
-        value_type=ScalarType("float64"),
-    )
-    selected = case[0]._execute_graph(
-        selected_root, (RouteChoice(selected_root.identity, "artifact_python"),)
-    )
-    result = read_result(case[0].store.project_root, selected.descriptor)
-    assert result.primary["value"].tolist() == [1.0]
-    assert tuple(part.role for part in result.parts) == ("pair_counts",)
-    rejected_root = method_node(
-        (Edge("quantity", fixed),),
-        PartsTransport(
-            "where",
-            fixed.signature.domain,
-            ("pair_counts",),
-            True,
-            (ValuePredicate(fixed.signature.domain.binding, "lt", 0, "drop"),),
-        ),
-        value_type=ScalarType("float64"),
-    )
-    rejected = case[0]._execute_graph(
-        rejected_root, (RouteChoice(rejected_root.identity, "artifact_python"),)
-    )
-    empty = read_result(case[0].store.project_root, rejected.descriptor)
-    assert empty.primary.empty
-    assert empty.parts[0].table.empty
-    assert rejected.descriptor.row_set_contract.kind == "optional_singleton"
-    source_path = case[0].store.project_root / "source.duckdb"
-    offline_path = source_path.with_suffix(".offline")
-    source_path.rename(offline_path)
-    try:
-        process = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                """\
-import sys
-from marivo.analysis.materialization import graph_store
-from marivo.analysis.materialization.graph_storage import read_result
-from marivo.analysis.materialization.store import SessionStore
-
-store = SessionStore(sys.argv[1], existing_only=True)
-with store._read() as conn:
-    saved = graph_store.artifact(store, conn, sys.argv[2])
-assert saved is not None
-result = read_result(store.project_root, saved.descriptor)
-assert result.primary.empty
-assert result.parts[0].table.empty
-""",
-                str(case[0].store.project_root),
-                rejected.artifact_ref,
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    finally:
-        offline_path.rename(source_path)
-    assert process.returncode == 0, process.stderr
-
-
-def test_source_difference_retains_both_ordered_endpoint_parts(case):
-    runtime, _, binding, _, _, backend = case
-    leaf = binding.leaf
-    assert leaf.signature.quantity is not None
-    baseline_ref = ref.metric("inventory.baseline")
-    baseline = SourceLeaf(
-        SourceDefinition(
-            baseline_ref,
-            "baseline-v1",
-            leaf.definition.datasource,
-            leaf.definition.shape,
-        ),
-        Signature(
-            leaf.signature.domain,
-            replace(
-                leaf.signature.quantity,
-                definition_id="baseline-stock",
-                metric_ref=baseline_ref,
-                graph_fingerprint="baseline-v1",
-            ),
-        ),
-        ScalarType("int64"),
-    )
-    backend.create_table(
-        "baseline",
-        pa.table(
-            {
-                "id": [9007199254740993, 2, 3],
-                "amount": [1, 3, 8],
-                "tag": ["defined"] * 3,
-                "reason": pa.array([None] * 3, type=pa.string()),
-            }
-        ),
-    )
-    datasource = DatasourceIR(
-        "db", "db", "duckdb", {}, {}, AiContextIR(), "db", DatasourceSourceLocation("source.py", 1)
-    )
-
-    @contextmanager
-    def source():
-        with SourceSession(
-            provider_for("duckdb"),
-            datasource,
-            ibis.duckdb.connect(runtime.store.project_root / "source.duckdb"),
-        ) as selected:
-            first = selected.bind(TableSourceIR("facts"), source_identity=leaf.identity)
-            second = selected.bind(TableSourceIR("baseline"), source_identity=baseline.identity)
-            layout = RelationLayout(
-                (CoordinateColumn(leaf.signature.domain.instance_key[0], "id"),),
-                CellColumns("amount", "tag", "reason"),
-            )
-            yield (
-                selected,
-                (
-                    SourceBinding(leaf, first, layout),
-                    SourceBinding(baseline, second, layout),
-                ),
-            )
-
-    baseline_key = SourceKeyBinding(
-        baseline,
-        baseline.definition.shape,
-        baseline.definition.fingerprint,
-        digest(canonical_json(TableSourceIR("baseline").to_dict())),
-    )
-    root = method_node(
-        (Edge("current", leaf), Edge("baseline", baseline)),
-        CellDerive(
-            "difference",
-            "same-stock-difference",
-            "propagate",
-            leaf.signature.quantity.unit,
-            leaf.signature.quantity.time_scope,
-            "source.exact_pairing@v1",
-            "source.finite_numeric@v1",
-        ),
-        value_type=ScalarType("int64"),
-    )
-    saved = runtime._execute_graph(
-        root,
-        (RouteChoice(root.identity, "ibis"),),
-        source_bindings=(binding, baseline_key),
-        source_factory=source,
-    )
-    actual = read_result(runtime.store.project_root, saved.descriptor)
-    assert actual.primary["value"].tolist() == [3, 4, 1]
-    assert tuple(part.role for part in actual.parts) == (
-        "current_endpoint",
-        "baseline_endpoint",
-        "correspondence",
-    )
-    assert actual.parts[0].table["current_endpoint__value"].tolist() == [4, 7, 9]
-    assert actual.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3, 8]
-    fixed = FixedLeaf(
-        ArtifactRef(saved.artifact_ref),
-        saved.descriptor.definition_fingerprint,
-        fixed_signature(saved.descriptor),
-        ScalarType("int64"),
-        FixedShape(NoTime()),
-    )
-    continuation = method_node(
-        (Edge("quantity", fixed),),
-        PartsTransport(
-            "where",
-            fixed.signature.domain,
-            ("current_endpoint", "baseline_endpoint", "correspondence"),
-            True,
-            (ValuePredicate(fixed.signature.domain.binding, "gt", 2, "drop"),),
-        ),
-        value_type=ScalarType("int64"),
-    )
-    continued = runtime._execute_graph(
-        continuation, (RouteChoice(continuation.identity, "artifact_python"),)
-    )
-    retained = read_result(runtime.store.project_root, continued.descriptor)
-    assert retained.primary["value"].tolist() == [3, 4]
-    assert retained.parts[0].table["current_endpoint__value"].tolist() == [4, 7]
-    assert retained.parts[1].table["baseline_endpoint__value"].tolist() == [1, 3]
-
-
 def test_faults_have_no_success_and_clean_only_own_run(case):
     saved = _execute(case)
     runtime = case[0]
@@ -858,23 +338,6 @@ def test_unknown_commit_preserves_success_and_does_not_replay(case, monkeypatch)
     assert _counts(case[0].store) == (1, 1, 1, 0)
 
 
-@pytest.mark.parametrize("target", ["primary", "part"])
-def test_corrupt_input_cannot_hit_or_admit(case, target):
-    saved = _capture(case)
-    runtime = case[0]
-    fixed = _fixed(saved)
-    output = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    receipt = (
-        saved.descriptor.primary_receipt if target == "primary" else output.descriptor.parts[0]
-    )
-    path = runtime.store.project_root / receipt.local.project_relative_path / "data.parquet"
-    path.unlink()
-    before = _counts(runtime.store)
-    with pytest.raises(Exception):
-        runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    assert _counts(runtime.store) == before
-
-
 def test_strict_descriptor_rejects_altered_fields(case):
     record = _execute(case)
     mutations = (
@@ -941,7 +404,6 @@ def test_method_state_and_completed_evidence_roundtrip(case):
 
 @pytest.mark.parametrize("route", ["ibis", "ibis_python"])
 def test_spearman_shared_node_preserves_frozen_identity_and_parts(case, route):
-    from marivo.analysis.core.rules import AssociationScore
 
     leaf = case[2].leaf
     domain = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all")
@@ -980,75 +442,10 @@ def test_foreign_session_rejects_before_source_and_run(case):
     assert _counts(runtime.store) == (0, 0, 0, 0)
 
 
-def _worker(store, reference, mode, point=""):
-    import subprocess
-    import sys
-
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "tests.analysis.materialization.publication_worker",
-            str(store.project_root),
-            reference,
-            mode,
-            point,
-        ],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-
-
 def _finish(process, expected=0):
     output, error = process.communicate(timeout=30)
     assert process.returncode == expected, error
     return output.strip()
-
-
-@pytest.mark.parametrize(
-    "point",
-    ["graph_files_published", "after_commit"],
-)
-@pytest.mark.slow
-def test_process_exit_coordinates_original_run_without_replay(case, point):
-    saved = _capture(case)
-    store = case[0].store
-    _finish(_worker(store, saved.artifact_ref, "crash", point), expected=77)
-    assert _finish(_worker(store, saved.artifact_ref, "reconcile")) == "reconciled"
-    assert _counts(store) == ((2, 2, 2, 0) if point == "after_commit" else (2, 1, 2, 0))
-    assert len(read_result(store.project_root, saved.descriptor).primary) == 3
-
-
-@pytest.mark.slow
-def test_two_process_writers_share_one_success_and_release_lock(case):
-    saved = _capture(case)
-    store = case[0].store
-    holder = _worker(store, saved.artifact_ref, "hold")
-    try:
-        assert holder.stdout.readline().strip() == "locked"
-        assert _finish(_worker(store, saved.artifact_ref, "execute")) == "busy"
-        holder.stdin.write("go\n")
-        holder.stdin.flush()
-        first = json.loads(_finish(holder))
-        second = json.loads(_finish(_worker(store, saved.artifact_ref, "execute")))
-        assert first == second
-        assert _counts(store) == (2, 2, 2, 0)
-    finally:
-        if holder.poll() is None:
-            holder.kill()
-            holder.communicate(timeout=10)
-
-
-def test_equal_values_from_distinct_artifacts_do_not_hit(case):
-    first, second = _capture(case), _capture(case)
-    root_a, root_b = _fixed(first), _fixed(second)
-    a = case[0]._execute_graph(root_a, (RouteChoice(root_a.identity, "artifact_python"),))
-    b = case[0]._execute_graph(root_b, (RouteChoice(root_b.identity, "artifact_python"),))
-    assert a.artifact_ref != b.artifact_ref
-    assert a.execution_key_digest != b.execution_key_digest
-    assert _counts(case[0].store) == (4, 4, 4, 0)
 
 
 def test_missing_live_method_part_never_publishes(case, monkeypatch):
@@ -1064,21 +461,6 @@ def test_missing_live_method_part_never_publishes(case, monkeypatch):
     with pytest.raises(IntegrityError, match="required roles"):
         _execute(case)
     assert _counts(case[0].store) == (1, 0, 1, 0)
-
-
-def test_empty_source_and_empty_fixed_input_publish_truthful_state(case):
-    case[5].create_table(
-        "facts",
-        pa.Table.from_batches([], schema=case[5].table("facts").schema().to_pyarrow()),
-        overwrite=True,
-    )
-    saved = _capture(case)
-    assert read_result(case[0].store.project_root, saved.descriptor).primary.empty
-    root = _fixed(saved)
-    result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    data = read_result(case[0].store.project_root, result.descriptor)
-    assert data.primary["value"].tolist() == [0]
-    assert data.parts[0].table["row_state__count"].tolist() == [0]
 
 
 def test_unknown_precommit_preserves_original_resources(case, monkeypatch):
@@ -1191,43 +573,6 @@ def test_storage_write_failure_removes_run_owned_staging(tmp_path, monkeypatch):
     assert not staging.exists()
 
 
-def _fixed_pair(first, second):
-    from marivo.analysis.core.rules import AssociationScore
-
-    a = _fixed(first).inputs[0].node
-    b = a if first.artifact_ref == second.artifact_ref else _fixed(second).inputs[0].node
-    domain = DomainSignature(a.signature.domain.binding, "singleton", (), (), "paired")
-    return method_node(
-        (Edge("quantity", a), Edge("quantity", b)),
-        AssociationScore(
-            domain, "stock-pair", "source.exact_pairing@v1", "source.finite_numeric@v1"
-        ),
-        value_type=ScalarType("float64"),
-    )
-
-
-def test_shared_fixed_spearman_preserves_ordered_slots_and_reads_once(case, monkeypatch):
-    import marivo.analysis.materialization.graph_storage as storage
-
-    record = _capture(case)
-    root = _fixed_pair(record, record)
-    reads = []
-    original = storage._read_pandas_payload
-
-    def counted(project, receipt, **kwargs):
-        reads.append(receipt.project_relative_path)
-        return original(project, receipt, **kwargs)
-
-    monkeypatch.setattr(storage, "_read_pandas_payload", counted)
-    result = case[0]._execute_graph(root, (RouteChoice(root.identity, "artifact_python"),))
-    assert reads.count(record.descriptor.primary_receipt.local.project_relative_path) == 1
-    assert read_result(case[0].store.project_root, result.descriptor).primary[
-        "value"
-    ].tolist() == pytest.approx([1.0])
-    run = case[0].store._graph_run(result.producing_run_ref)
-    assert run.input_artifact_refs == (record.artifact_ref, record.artifact_ref)
-
-
 @pytest.mark.parametrize("failure", ["iteration", "close"])
 def test_retained_reader_failure_is_structured_and_closes(case, monkeypatch, failure):
     import marivo.analysis.materialization.graph_storage as storage
@@ -1288,45 +633,6 @@ def test_native_write_failure_is_structured_and_has_no_publication(case, monkeyp
     assert _counts(case[0].store) == (1, 0, 1, 0)
 
 
-@pytest.mark.parametrize("target", ["input", "cached_output"])
-def test_invalid_dag_cannot_hit_or_admit(case, target):
-    import base64
-    import zlib
-
-    from marivo.analysis.materialization.graph_protocol import SNAPSHOT
-    from marivo.analysis.materialization.graph_snapshot import PREFIX, document_json, graph_document
-
-    saved = _capture(case)
-    runtime = case[0]
-    fixed = _fixed(saved)
-    output = runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    victim = saved if target == "input" else output
-    snapshot = decode(victim.descriptor.continuation_snapshot, SNAPSHOT)
-    document = replace(graph_document(thaw_graph(snapshot.root)), root="missing-root")
-    root = (
-        PREFIX + base64.b64encode(zlib.compress(document_json(document).encode(), level=9)).decode()
-    )
-    text = encode(replace(snapshot, root=root), SNAPSHOT)
-    descriptor = replace(
-        victim.descriptor, continuation_snapshot=text, continuation_snapshot_digest=digest(text)
-    )
-    payload = encode(descriptor, DESCRIPTOR)
-    with runtime.store._write() as connection:
-        connection.execute(
-            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-            (payload, victim.artifact_ref),
-        )
-        connection.execute(
-            "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
-            (digest(payload), victim.artifact_ref),
-        )
-    before, opens = _counts(runtime.store), list(case[4])
-    with pytest.raises(IntegrityError, match="root definition reference"):
-        runtime._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    assert _counts(runtime.store) == before
-    assert case[4] == opens
-
-
 def test_dag_budget_rejects_before_source_open_or_run_admission(case, monkeypatch):
     from marivo.analysis.materialization import graph_snapshot
 
@@ -1344,37 +650,6 @@ def test_live_cycle_keeps_snapshot_error_before_source_or_run(case) -> None:
         _execute(case)
     assert case[4] == []
     assert _counts(case[0].store) == (0, 0, 0, 0)
-
-
-def test_fixed_reads_without_producer_registry(case, monkeypatch, capsys):
-    from marivo.analysis.materialization import graph_protocol, graph_store
-    from marivo.analysis.materialization.graph_dataset import GraphDataset
-    from marivo.analysis.materialization.graph_relation import Relation
-    from marivo.analysis.methods.registry import MethodRegistry
-    from marivo.analysis.public_dsl import wrap_materialized
-
-    output = _execute(case)
-    opens = list(case[4])
-
-    def unavailable(*args, **kwargs):
-        raise AssertionError("fixed reading accessed producer registry or planner")
-
-    monkeypatch.setattr(MethodRegistry, "lookup", unavailable)
-    monkeypatch.setattr(MethodRegistry, "select", unavailable)
-    monkeypatch.setattr(graph_protocol, "make_plan", unavailable)
-    descriptor = decode(encode(output.descriptor, DESCRIPTOR), DESCRIPTOR)
-    assert read_result(case[0].store.project_root, descriptor).primary["value"].tolist() == [3]
-    with case[0].store._read() as connection:
-        recovered = graph_store.artifact(case[0].store, connection, output.artifact_ref)
-    assert recovered is not None
-    dataset = GraphDataset(case[0], recovered)
-    result = wrap_materialized(Relation.restore(dataset), case[0], dataset)
-    assert result.to_pandas()["value"].tolist() == [3]
-    assert result.evidence_digest().finding_count == 0
-    assert fixed_signature(descriptor).obligations == ()
-    dataset.show()
-    assert capsys.readouterr().out
-    assert case[4] == opens
 
 
 def test_validated_read_is_bound_and_rechecks_bytes(case, monkeypatch):
@@ -1405,32 +680,6 @@ def test_old_descriptor_rejects_without_migration(case):
     )
     with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
         decode(old, DESCRIPTOR)
-
-
-def test_materialized_show_without_original_implementation(case, monkeypatch, capsys):
-    from marivo.analysis.materialization.graph_dataset import GraphDataset
-    from marivo.analysis.materialization.graph_relation import Relation
-    from marivo.analysis.methods.registry import MethodRegistry
-    from marivo.analysis.public_dsl import wrap_materialized
-
-    output = _execute(case)
-    lookup = MethodRegistry.lookup
-
-    def without_implementations(self, key):
-        registration = lookup(self, key)
-        return replace(registration, implementations=())
-
-    monkeypatch.setattr(MethodRegistry, "lookup", without_implementations)
-    dataset = GraphDataset(case[0], output)
-    result = wrap_materialized(Relation.restore(dataset), case[0], dataset)
-    result.show()
-    assert capsys.readouterr().out
-    assert result.to_pandas()["value"].tolist() == [3]
-    from marivo.analysis.errors import AnalysisError
-
-    successor = _fixed(output)
-    with pytest.raises(AnalysisError):
-        case[0]._execute_graph(successor, (RouteChoice(successor.identity, "artifact_python"),))
 
 
 def test_committed_reads_do_not_repeat_production_validation(case, monkeypatch):
@@ -1499,33 +748,6 @@ def test_missing_evidence_row_blocks_evidence_read(case):
     with pytest.raises(IntegrityError) as caught:
         dataset.evidence_digest()
     assert caught.value.received == "Artifact lacks atomic Evidence"
-
-
-def test_relation_restore_uses_current_validated_artifact(case, monkeypatch):
-    from marivo.analysis.materialization import graph_store
-    from marivo.analysis.materialization.graph_dataset import GraphDataset
-    from marivo.analysis.materialization.graph_relation import FrozenBinding, Relation
-    from marivo.analysis.materialization.graph_store import GraphArtifact
-
-    output = _execute(case)
-    dataset = GraphDataset(case[0], output)
-    artifact = graph_store.artifact
-    selected: list[GraphArtifact | None] = []
-
-    def tracked(
-        store: SessionStore, connection: sqlite3.Connection, artifact_ref: str
-    ) -> GraphArtifact | None:
-        current = artifact(store, connection, artifact_ref)
-        selected.append(current)
-        return current
-
-    monkeypatch.setattr(graph_store, "artifact", tracked)
-    relation = Relation.restore(dataset)
-    assert len(selected) == 1
-    current = selected[0]
-    assert current is not None and current is not output
-    assert isinstance(relation.binding, FrozenBinding)
-    assert relation.binding.definition is current.validated
 
 
 def test_finding_collection_rejects_invalid_stored_envelope(case):
@@ -1609,44 +831,3 @@ def test_compact_binding_has_one_frozen_storage_owner(case):
     assert descriptor.method_state.schema == "marivo.analysis.method_state/v2"
     assert descriptor.method_state.contract_version == 4
     assert all(item.implementation_version == 7 for item in descriptor.method_bindings)
-
-
-def test_obsolete_artifact_cannot_hit_cache_or_mutate_saved_files(case):
-    saved = _execute(case)
-    fixed = _fixed(saved)
-    case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-    original = encode(saved.descriptor, DESCRIPTOR)
-    paths = tuple(case[0].store.project_root.glob(".marivo/analysis/**/data.parquet"))
-    before = {path: path.read_bytes() for path in paths}
-    versions = (
-        ("artifact_descriptor/v6", "artifact_descriptor/v4"),
-        ("method_state/v2", "method_state/v1"),
-        ("receipt/v2", "receipt/v1"),
-    )
-    for current, obsolete in versions:
-        payload = original.replace(current, obsolete)
-        with case[0].store._write() as connection:
-            connection.execute(
-                "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                (payload, saved.artifact_ref),
-            )
-            connection.execute(
-                "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
-                (digest(payload), saved.artifact_ref),
-            )
-        counts, opens = _counts(case[0].store), list(case[4])
-        try:
-            with pytest.raises(IntegrityError, match="Re-execute the source analysis"):
-                case[0]._execute_graph(fixed, (RouteChoice(fixed.identity, "artifact_python"),))
-            assert _counts(case[0].store) == counts and case[4] == opens
-            assert before and all(path.read_bytes() == data for path, data in before.items())
-        finally:
-            with case[0].store._write() as connection:
-                connection.execute(
-                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
-                    (original, saved.artifact_ref),
-                )
-                connection.execute(
-                    "UPDATE dataset_evidence SET evidence_digest=? WHERE artifact_ref=?",
-                    (digest(original), saved.artifact_ref),
-                )

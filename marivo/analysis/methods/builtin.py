@@ -49,7 +49,6 @@ from marivo.analysis.methods.physical import (
     Backend,
     DecimalType,
     DurationType,
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
@@ -120,18 +119,12 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         return tuple(
             Implementation(
                 QualificationKey(
-                    method,
-                    (ScalarType("int64"),) * 2,
-                    (domain,) * 2,
-                    shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                    method, (ScalarType("int64"),) * 2, (domain,) * 2, shape, "ibis_python"
                 ),
                 NUMERIC_CHECKS,
                 (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence"),
                 "exact",
-                ResourceRequirements(
-                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
-                ),
+                ResourceRequirements("complete", "producer", None),
                 Qualified(
                     f"r66.{method}.{domain}.{shape}",
                     "analysis.materialization.graph_attribution",
@@ -144,60 +137,36 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 SourceShape("duckdb", "parquet", "parquet", NoTime()),
                 SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
                 SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
-                FixedShape(NoTime()),
-                FixedShape(TimeShape("instant", "us", "UTC")),
             )
         )
     if method.name.startswith("display."):
         return tuple(
             Implementation(
-                QualificationKey(
-                    method,
-                    (ScalarType("int64"),),
-                    (domain,),
-                    shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
-                ),
+                QualificationKey(method, (ScalarType("int64"),), (domain,), shape, "ibis_python"),
                 NUMERIC_CHECKS,
-                (
-                    *PARTS,
-                    "current_endpoint",
-                    "baseline_endpoint",
-                    "correspondence",
-                    "pair_counts",
-                ),
+                (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence", "pair_counts"),
                 "exact",
-                ResourceRequirements(
-                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
-                ),
+                ResourceRequirements("complete", "producer", None),
                 Qualified(
                     f"r65.{method}.{domain}.{shape}",
                     "analysis.materialization.graph_display",
                     "tests/test_analysis_display_r65.py",
                 ),
             )
-            for domain in (
-                "entity",
-                "group",
-                "singleton",
-            )
+            for domain in ("entity", "group", "singleton")
             for shape in (
                 SourceShape("duckdb", "table", "native", NoTime()),
                 SourceShape("duckdb", "parquet", "parquet", NoTime()),
                 SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
                 SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
-                FixedShape(NoTime()),
             )
-            if True
         )
     if method.name.startswith("reference."):
-        shapes: tuple[SourceShape | FixedShape, ...] = (
+        shapes: tuple[SourceShape, ...] = (
             SourceShape("duckdb", "table", "native", NoTime()),
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", NoTime()),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
-            FixedShape(NoTime()),
-            FixedShape(TimeShape("instant", "us", "UTC")),
         )
         domains: tuple[tuple[DomainKind, ...], ...] = (
             (
@@ -213,18 +182,12 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         return tuple(
             Implementation(
                 QualificationKey(
-                    method,
-                    (ScalarType("int64"),) * len(domain),
-                    domain,
-                    shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
+                    method, (ScalarType("int64"),) * len(domain), domain, shape, "ibis_python"
                 ),
                 NUMERIC_CHECKS,
                 ("fixed_reference", "reference_proof", "stratum_values", "strata"),
                 "exact",
-                ResourceRequirements(
-                    "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
-                ),
+                ResourceRequirements("complete", "producer", None),
                 Qualified(
                     f"r64.{method}.{shape}.{domain}@v1",
                     "analysis.materialization.graph_reference",
@@ -254,7 +217,7 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for item in _shape_implementations(MethodKey("parts_transport"))
             if item.key.input_types == (ScalarType("int64"),)
             and item.key.input_domains == ("entity",)
-            and (isinstance(item.key.shape, FixedShape) or item.key.shape.backend == "duckdb")
+            and (item.key.shape.backend == "duckdb")
         )
     declarations = _implementations(method)
     if method.name == "state_rollup.count":
@@ -463,8 +426,6 @@ def _shape_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         and item.key.input_types[0] in (ScalarType("int64"), ScalarType("string"))
     )
     remote: dict[Backend, tuple[Implementation, ...]] = {}
-    # Preserve historical upstream key text in proof IDs and declaration order.
-    # The retired backend name here is provenance only; all shapes use supported providers.
     native_routes: tuple[tuple[Backend, Backend], ...] = (
         ("postgres", "duckdb"),
         ("mysql", "postgres"),
@@ -606,14 +567,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ("table", "native"),
             ("parquet", "parquet"),
         )
-        classification_shapes: tuple[SourceShape | FixedShape, ...] = (
+        classification_shapes: tuple[SourceShape, ...] = (
             *(
                 SourceShape("duckdb", form, kind, time)
                 for form, kind in classification_forms
                 for time in (NoTime(), TimeShape("instant", "us", "UTC"))
             ),
-            FixedShape(NoTime()),
-            FixedShape(TimeShape("instant", "us", "UTC")),
         )
         return tuple(
             Implementation(
@@ -622,19 +581,15 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     (ScalarType(value), ScalarType(category_type)),
                     (domain, target_domain),
                     shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                    "ibis",
                 ),
                 NUMERIC_CHECKS,
                 PARTS,
                 "exact",
-                ResourceRequirements("complete", "caller", None)
-                if isinstance(shape, FixedShape)
-                else ResourceRequirements("stream", "producer", None),
+                ResourceRequirements("stream", "producer", None),
                 Qualified(
                     f"r54.{method}.{value}.{category_type}.{domain}.{target_domain}.{shape}",
-                    "analysis.materialization.graph_local_execution"
-                    if isinstance(shape, FixedShape)
-                    else "analysis.compiler.graph_lowering",
+                    "analysis.compiler.graph_lowering",
                     "tests/test_analysis_coordinates_r54.py",
                 ),
             )
@@ -650,12 +605,12 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
         "state_rollup.weighted_mean",
         "state_rollup.mean",
     ):
-        ratio_shapes: tuple[SourceShape | FixedShape, ...] = (
+        ratio_shapes: tuple[SourceShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
         )
         if method.name in ("state_rollup.ratio", "state_rollup.weighted_mean", "state_rollup.mean"):
-            ratio_shapes += (FixedShape(NoTime()), FixedShape(TimeShape("instant", "us", "UTC")))
+            ratio_shapes += ()
         return tuple(
             Implementation(
                 QualificationKey(
@@ -665,19 +620,15 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                     else (ScalarType("float64"),),
                     (domain, domain) if method.name == "metric.ratio" else (domain,),
                     shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
+                    "ibis",
                 ),
                 NUMERIC_CHECKS,
                 PARTS,
                 "finite_float64",
-                ResourceRequirements("complete", "caller", None)
-                if isinstance(shape, FixedShape)
-                else ResourceRequirements("stream", "producer", None),
+                ResourceRequirements("stream", "producer", None),
                 Qualified(
                     f"r45.{method}.{shape}.{domain}@v1",
-                    "analysis.materialization.graph_local_execution"
-                    if isinstance(shape, FixedShape)
-                    else "analysis.compiler.graph_lowering",
+                    "analysis.compiler.graph_lowering",
                     "tests/test_analysis_graph_preflight_r45.py",
                 ),
             )
@@ -685,30 +636,20 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             for domain in ("entity", "group")
         )
     if method.name == "metric.linear":
-        linear_shapes: tuple[SourceShape | FixedShape, ...] = (
+        linear_shapes: tuple[SourceShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
         )
         return tuple(
             Implementation(
-                QualificationKey(
-                    method,
-                    (ScalarType("int64"),) * 2,
-                    (domain,) * 2,
-                    shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
-                ),
+                QualificationKey(method, (ScalarType("int64"),) * 2, (domain,) * 2, shape, "ibis"),
                 NUMERIC_CHECKS,
                 PARTS,
                 "checked_int64",
-                ResourceRequirements("complete", "caller", None)
-                if isinstance(shape, FixedShape)
-                else ResourceRequirements("stream", "producer", None),
+                ResourceRequirements("stream", "producer", None),
                 Qualified(
                     f"r53.{method}.{shape}.{domain}@v1",
-                    "analysis.materialization.graph_local_execution"
-                    if isinstance(shape, FixedShape)
-                    else "analysis.compiler.graph_lowering",
+                    "analysis.compiler.graph_lowering",
                     "tests/test_analysis_observation_r53.py",
                 ),
             )
@@ -729,32 +670,20 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             if method.name in ("state_rollup.count", "state_rollup.linear")
             else ("int64", "float64")
         )
-        rollup_shapes: tuple[SourceShape | FixedShape, ...] = (
+        rollup_shapes: tuple[SourceShape, ...] = (
             SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC")),
             SourceShape("duckdb", "parquet", "parquet", TimeShape("instant", "us", "UTC")),
-            FixedShape(NoTime()),
-            FixedShape(TimeShape("instant", "us", "UTC")),
         )
         return tuple(
             Implementation(
-                QualificationKey(
-                    method,
-                    (ScalarType(value_type),),
-                    (domain,),
-                    shape,
-                    "artifact_python" if isinstance(shape, FixedShape) else "ibis",
-                ),
+                QualificationKey(method, (ScalarType(value_type),), (domain,), shape, "ibis"),
                 NUMERIC_CHECKS,
                 PARTS,
                 "checked_int64" if value_type == "int64" else "finite_float64",
-                ResourceRequirements("complete", "caller", None)
-                if isinstance(shape, FixedShape)
-                else ResourceRequirements("stream", "producer", None),
+                ResourceRequirements("stream", "producer", None),
                 Qualified(
                     f"r45.rollup.{shape}.{value_type}.{domain}@v1",
-                    "analysis.materialization.graph_local_execution"
-                    if isinstance(shape, FixedShape)
-                    else "analysis.compiler.graph_lowering",
+                    "analysis.compiler.graph_lowering",
                     "tests/test_analysis_graph_preflight_r45.py",
                 ),
             )
@@ -850,28 +779,6 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                                 ),
                             )
                         )
-        for left in scalar_names:
-            for right in scalar_names:
-                pair_declarations.append(
-                    Implementation(
-                        QualificationKey(
-                            method,
-                            (ScalarType(left), ScalarType(right)),
-                            ("entity", "entity"),
-                            FixedShape(NoTime()),
-                            "artifact_python",
-                        ),
-                        ("source.exact_pairing@v1", "source.finite_numeric@v1"),
-                        pair_parts,
-                        "finite_float64",
-                        ResourceRequirements("complete", "caller", None),
-                        Qualified(
-                            f"r43.spearman.fixed.{left}.{right}@v1",
-                            "analysis.methods.local",
-                            "tests/test_analysis_lowering_r34.py",
-                        ),
-                    )
-                )
         temporal_pairs = tuple(
             replace(
                 item,
@@ -957,64 +864,6 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         ),
                     )
                 )
-    if method.name in (
-        "row.count",
-        "row.count_defined",
-        "row.sum",
-        "row.mean",
-        "row.min",
-        "row.max",
-    ):
-        declarations.append(
-            Implementation(
-                QualificationKey(
-                    method,
-                    (ScalarType("int64"),),
-                    ("entity",),
-                    FixedShape(NoTime()),
-                    "artifact_python",
-                ),
-                NUMERIC_CHECKS,
-                ("row_state",),
-                "finite_float64" if method.name == "row.mean" else "checked_int64",
-                ResourceRequirements(
-                    "complete", "caller", 100_000 if method.name == "row.count" else None
-                ),
-                Qualified(
-                    "r34.local.row.count@v1"
-                    if method.name == "row.count"
-                    else f"r43.local.{method}@v1",
-                    "analysis.methods.local",
-                    "tests/test_analysis_lowering_r34.py",
-                ),
-            )
-        )
-    if method.name == "cell.difference":
-        declarations.append(
-            Implementation(
-                QualificationKey(
-                    method,
-                    (ScalarType("int64"), ScalarType("int64")),
-                    ("entity", "entity"),
-                    FixedShape(NoTime()),
-                    "artifact_python",
-                ),
-                (
-                    "source.unique_key@v1",
-                    "source.exact_pairing@v1",
-                    "source.finite_numeric@v1",
-                    "source.complete_coverage@v1",
-                ),
-                ("subject", "current_endpoint", "baseline_endpoint", "correspondence"),
-                "checked_int64",
-                ResourceRequirements("complete", "caller", None),
-                Qualified(
-                    "r45.local.cell.difference.int64@v1",
-                    "analysis.materialization.graph_local_execution",
-                    "tests/test_analysis_graph_publication_r44.py",
-                ),
-            )
-        )
     if method.name in ("parts_transport", "map_correspond"):
         fixed_shapes: tuple[tuple[ScalarName, DomainKind], ...] = (
             ("int64", "entity"),
@@ -1025,41 +874,9 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
             ("timestamp", "entity"),
             ("float64", "singleton"),
         )
-        for name, domain_kind in fixed_shapes:
+        for _name, domain_kind in fixed_shapes:
             if method.name == "map_correspond" and domain_kind != "entity":
                 continue
-            declarations.append(
-                Implementation(
-                    QualificationKey(
-                        method,
-                        (ScalarType(name),),
-                        (domain_kind,),
-                        FixedShape(NoTime()),
-                        "artifact_python",
-                    ),
-                    NUMERIC_CHECKS,
-                    (
-                        *PARTS,
-                        "current_endpoint",
-                        "baseline_endpoint",
-                        "correspondence",
-                        "pair_counts",
-                    ),
-                    "exact",
-                    ResourceRequirements("complete", "caller", None),
-                    Qualified(
-                        f"r52.local.{method}.{name}.{domain_kind}"
-                        if method.name == "map_correspond"
-                        or name in ("boolean", "date", "timestamp")
-                        else f"r45.local.parts_transport.{name}.{domain_kind}@v1",
-                        "analysis.materialization.graph_local_execution",
-                        "tests/test_analysis_members_r52.py"
-                        if method.name == "map_correspond"
-                        or name in ("boolean", "date", "timestamp")
-                        else "tests/test_analysis_graph_publication_r44.py",
-                    ),
-                )
-            )
     if method.name in (
         "row.count",
         "row.count_defined",
@@ -1099,39 +916,16 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                             numeric_specialization="consumer",
                             qualification=Qualified(
                                 f"r45.{method}.{key.shape}.{numeric_type}.{row_domain}@v1",
-                                "analysis.materialization.graph_local_execution"
-                                if isinstance(key.shape, FixedShape)
-                                else "analysis.compiler.graph_lowering",
+                                "analysis.compiler.graph_lowering",
                                 "tests/test_analysis_graph_preflight_r45.py",
                             ),
                         )
                     )
     if method.name in ("row.sum", "row.mean"):
-        decimal_rows: tuple[tuple[DecimalType, DomainKind], ...] = (
+        (
             (DecimalType(18, 2), "entity"),
             (DecimalType(38, 6 if method.name == "row.mean" else 2), "singleton"),
         )
-        for decimal_type, decimal_domain in decimal_rows:
-            declarations.append(
-                Implementation(
-                    QualificationKey(
-                        method,
-                        (decimal_type,),
-                        (decimal_domain,),
-                        FixedShape(NoTime()),
-                        "artifact_python",
-                    ),
-                    NUMERIC_CHECKS,
-                    ("row_state",),
-                    "exact",
-                    ResourceRequirements("complete", "caller", None),
-                    Qualified(
-                        f"r94.local.{method}.{decimal_type.name}.{decimal_domain}@v1",
-                        "analysis.materialization.graph_local_execution",
-                        "tests/test_r94_decimal_row_statistics.py",
-                    ),
-                )
-            )
     if method.name == "parts_transport":
         unary = tuple(declarations)
         for item in unary:
@@ -1149,9 +943,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         numeric_specialization="consumer",
                         qualification=Qualified(
                             f"r54.where.corresponding.{item.key}.{predicate_type}",
-                            "analysis.materialization.graph_local_execution"
-                            if isinstance(item.key.shape, FixedShape)
-                            else "analysis.compiler.graph_lowering",
+                            "analysis.compiler.graph_lowering",
                             "tests/test_analysis_coordinates_r54.py",
                         ),
                     )
@@ -1182,9 +974,7 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
                         numeric_specialization="consumer",
                         qualification=Qualified(
                             f"r45.transport.{key.shape}.{numeric_type}.{target_domain}@v1",
-                            "analysis.materialization.graph_local_execution"
-                            if isinstance(key.shape, FixedShape)
-                            else "analysis.compiler.graph_lowering",
+                            "analysis.compiler.graph_lowering",
                             "tests/test_analysis_graph_preflight_r45.py",
                         ),
                     )
@@ -1203,11 +993,85 @@ def _implementations(method: MethodKey) -> tuple[Implementation, ...]:
     return (*declarations, *temporal)
 
 
+def _local_source_implementations(method: MethodKey) -> tuple[Implementation, ...]:
+    """Declare source-local consumers without deriving from saved-input templates."""
+    if method.name not in (
+        "state_rollup.sum_zero",
+        "state_rollup.mean",
+        "cell.difference",
+        "attribution.additive_difference",
+        "attribution.component_mix",
+    ):
+        return ()
+    numeric: tuple[
+        tuple[ScalarName, Literal["exact", "checked_int64", "native_numeric", "finite_float64"]],
+        ...,
+    ]
+    if method.name == "state_rollup.sum_zero":
+        numeric = (("int64", "checked_int64"),)
+    elif method.name == "state_rollup.mean":
+        numeric = (("float64", "native_numeric"),)
+    elif method.name == "cell.difference":
+        numeric = (("int64", "checked_int64"), ("float64", "finite_float64"))
+    elif method.name == "attribution.additive_difference":
+        numeric = (("int64", "exact"),)
+    else:
+        numeric = (("float64", "finite_float64"),)
+    unary = method.name.startswith("state_rollup.")
+    domains: tuple[tuple[DomainKind, ...], ...] = (
+        (("entity",), ("group",), ("singleton",)) if unary else (("singleton", "singleton"),)
+    )
+    time = TimeShape("instant", "us", "UTC")
+    backends: tuple[Backend, ...] = ("postgres", "mysql", "clickhouse", "trino")
+    shapes = tuple(SourceShape(backend, "table", "native", time) for backend in backends)
+    if method.name == "state_rollup.sum_zero":
+        shapes = (
+            SourceShape("duckdb", "table", "native", time),
+            *shapes,
+            SourceShape("duckdb", "parquet", "parquet", time),
+            SourceShape("duckdb", "csv", "csv", time),
+            SourceShape("duckdb", "json", "json", time),
+        )
+    parts: tuple[PartRole, ...] = (
+        ("subject", "current_endpoint", "baseline_endpoint", "correspondence")
+        if method.name == "cell.difference"
+        else (*PARTS, "current_endpoint", "baseline_endpoint", "correspondence")
+        if method.name.startswith("attribution.")
+        else PARTS
+    )
+    consumer = (
+        "analysis.materialization.graph_attribution"
+        if method.name.startswith("attribution.")
+        else "analysis.materialization.graph_local_execution"
+    )
+    return tuple(
+        Implementation(
+            QualificationKey(
+                method, (ScalarType(name),) * (1 if unary else 2), domain, shape, "ibis_python"
+            ),
+            NUMERIC_CHECKS,
+            parts,
+            precision,
+            ResourceRequirements("complete", "producer", None),
+            Qualified(
+                f"source.local.{method.name}.{shape}.{name}.{domain}",
+                consumer,
+                "tests/analysis/graph/test_capability_consumers.py",
+            ),
+            numeric_specialization="exact",
+        )
+        for name, precision in numeric
+        for domain in domains
+        for shape in shapes
+    )
+
+
 @cache
 def implementations(method: MethodKey) -> tuple[Implementation, ...]:
     """Bind component composition to member, group or overall observation grains."""
     declarations = tuple(
-        replace(item, contract_version=7) for item in _grain_implementations(method)
+        replace(item, contract_version=7)
+        for item in (*_grain_implementations(method), *_local_source_implementations(method))
     )
     if method.name in (
         "row.count",
@@ -1311,13 +1175,7 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
         declarations = tuple(
             replace(
                 item,
-                key=replace(
-                    item.key,
-                    method=method,
-                    route="ibis_python"
-                    if item.key.route != "artifact_python"
-                    else "artifact_python",
-                ),
+                key=replace(item.key, method=method, route="ibis_python"),
                 parts=tuple(dict.fromkeys((*item.parts, "comparison"))),
                 numeric_specialization="consumer",
                 qualification=Qualified(
@@ -1354,7 +1212,6 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             if not prepared_numeric(item)
         )
         return comparisons
-
     from marivo.analysis.methods.domain_preparation import consumers
 
     declarations = (
@@ -1420,7 +1277,6 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             )
         ),
     )
-
     if method.name in ("parts_transport", "row.count", "row.count_defined", "time.product"):
         declarations = tuple(
             {
@@ -1500,12 +1356,9 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
             if not isinstance(item.qualification, Qualified):
                 continue
             if not (
-                (
-                    isinstance(shape, SourceShape)
-                    and shape.backend == "duckdb"
-                    and isinstance(shape.time, TimeShape)
-                )
-                or (isinstance(shape, FixedShape) and isinstance(shape.time, NoTime))
+                isinstance(shape, SourceShape)
+                and shape.backend == "duckdb"
+                and isinstance(shape.time, TimeShape)
             ):
                 continue
             for zone in ("UTC", "America/New_York", "Asia/Shanghai", "America/Los_Angeles"):
@@ -1685,98 +1538,6 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 and item.qualification.consumer_id == "analysis.materialization.graph_preparation"
             ),
         )
-    c09_local_keys = {
-        "state_rollup.sum_zero": ((ScalarType("int64"),), ("entity",)),
-        "cell.difference": ((ScalarType("int64"),) * 2, ("singleton",) * 2),
-        "attribution.additive_difference": ((ScalarType("int64"),) * 2, ("singleton",) * 2),
-    }
-    if method.name in c09_local_keys:
-        types, domains = c09_local_keys[method.name]
-        local_backends: tuple[Backend, ...] = ("postgres", "mysql", "clickhouse", "trino")
-        if method.name == "state_rollup.sum_zero":
-            local_backends = ("duckdb", *local_backends)
-        declarations = (
-            *declarations,
-            *(
-                replace(
-                    item,
-                    key=replace(
-                        item.key,
-                        shape=SourceShape(
-                            backend, "table", "native", TimeShape("instant", "us", "UTC")
-                        ),
-                        route="ibis_python",
-                    ),
-                    resources=replace(item.resources, owner="producer"),
-                    checks=NUMERIC_CHECKS,
-                    numeric_specialization="exact",
-                    qualification=Qualified(
-                        f"r93.c09.local.{backend}.{item.key}",
-                        item.qualification.consumer_id,
-                        "tests/test_r96_cost_scenarios.py"
-                        if backend == "duckdb"
-                        else "tests/test_r93_attribution_consumers.py",
-                    ),
-                )
-                for backend in local_backends
-                for item in declarations
-                if item.key.shape == FixedShape(NoTime())
-                and item.key.input_types == types
-                and (
-                    item.key.input_domains == domains
-                    or (
-                        method.name == "state_rollup.sum_zero"
-                        and item.key.input_domains == ("group",)
-                    )
-                )
-                and item.key.route == "artifact_python"
-                and isinstance(item.qualification, Qualified)
-            ),
-        )
-    if method.name in ("state_rollup.mean", "cell.difference", "attribution.component_mix"):
-        mix_types = (ScalarType("float64"),) * (1 if method.name == "state_rollup.mean" else 2)
-        mix_domains = (
-            (("entity",), ("group",))
-            if method.name == "state_rollup.mean"
-            else (("singleton", "singleton"),)
-        )
-        declarations = (
-            *declarations,
-            *(
-                replace(
-                    item,
-                    key=replace(
-                        item.key,
-                        shape=SourceShape(
-                            backend, "table", "native", TimeShape("instant", "us", "UTC")
-                        ),
-                        route="ibis_python",
-                        input_types=mix_types,
-                    ),
-                    resources=replace(item.resources, owner="producer"),
-                    checks=NUMERIC_CHECKS,
-                    precision="finite_float64",
-                    numeric_specialization="exact",
-                    qualification=Qualified(
-                        f"r93.c09.mix.{backend}.{item.key}",
-                        item.qualification.consumer_id,
-                        "tests/test_r93_attribution_consumers.py",
-                    ),
-                )
-                for backend in ("postgres", "mysql", "clickhouse", "trino")
-                for item in declarations
-                if item.key.shape == FixedShape(NoTime())
-                and item.key.input_types
-                == (
-                    (ScalarType("int64"),) * 2
-                    if method.name in ("cell.difference", "attribution.component_mix")
-                    else mix_types
-                )
-                and item.key.input_domains in mix_domains
-                and item.key.route == "artifact_python"
-                and isinstance(item.qualification, Qualified)
-            ),
-        )
     if method.name in NATIVE_DISTRIBUTION_BACKENDS:
         declarations = (
             *declarations,
@@ -1838,21 +1599,11 @@ def _grain_implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 if isinstance(item.qualification, Qualified)
                 and item.key.input_domains == ("entity",)
                 and (
-                    (
-                        item.key.shape
-                        == SourceShape(
-                            "duckdb", "table", "native", TimeShape("instant", "us", "UTC")
-                        )
-                        and item.key.input_types
-                        == (ScalarType("int64" if method.name == "state_rollup" else "string"),)
-                        and item.key.route == "ibis"
-                    )
-                    or (
-                        method.name in ("state_rollup", "state_rollup.sum_zero")
-                        and item.key.shape == FixedShape(TimeShape("instant", "us", "UTC"))
-                        and item.key.input_types == (ScalarType("int64"),)
-                        and item.key.route == "artifact_python"
-                    )
+                    item.key.shape
+                    == SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "UTC"))
+                    and item.key.input_types
+                    == (ScalarType("int64" if method.name == "state_rollup" else "string"),)
+                    and (item.key.route == "ibis")
                 )
             ),
         )

@@ -94,10 +94,11 @@ def _manifest() -> Manifest:
     add("analysis/materialization/store", ("SessionStore._initialize",), ("read.execute",), store)
     add(
         "analysis/materialization/graph_store",
-        ("admit", "publish"),
+        ("publish",),
         ("conn.execute", "conn.executemany"),
         store,
     )
+    add("analysis/materialization/graph_store", ("admit",), ("conn.execute",), store)
     add(
         "analysis/materialization/store",
         ("SessionStore._initialize",),
@@ -237,15 +238,6 @@ def _manifest() -> Manifest:
         "analysis/materialization/admission",
         ("DatasetRuntime._execute_graph",),
         ("marivo.analysis.materialization.graph_publication.execute",),
-        typed,
-    )
-    add(
-        "analysis/materialization/graph_dataset",
-        ("GraphDataset._read_verified",),
-        (
-            "marivo.analysis.materialization.runs_execution.execute",
-            "marivo.analysis.materialization.statistical_execution.execute",
-        ),
         typed,
     )
     local_executors = (

@@ -12,13 +12,10 @@ from pydantic import TypeAdapter
 
 from marivo.analysis.core.graph import (
     Edge,
-    FixedLeaf,
     MethodNode,
     SourceDefinition,
     SourceLeaf,
-    capture_graph,
     method_node,
-    topology,
 )
 from marivo.analysis.core.model import (
     Binding,
@@ -43,8 +40,7 @@ from marivo.analysis.materialization.graph_snapshot import (
     graph_document,
     read_graph_document,
 )
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape
-from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
 from marivo.refs import ref
 from tests.support.json import Json, arr, checked, obj
 
@@ -270,41 +266,6 @@ def test_equal_definitions_keep_independent_capture_identities() -> None:
     assert isinstance(first, MethodNode) and isinstance(second, MethodNode)
     assert first.inputs[1].node is not second.inputs[0].node
     assert first.inputs[1].node.identity != second.inputs[0].node.identity
-
-
-def test_retained_closure_shares_definitions_but_does_not_schedule_them() -> None:
-    original = _observation()
-    fixed = FixedLeaf(
-        ArtifactRef("artifact"),
-        original.fingerprint,
-        original.signature,
-        original.value_type,
-        FixedShape(NoTime()),
-    )
-    node = method_node(
-        (Edge("current", fixed), Edge("baseline", fixed)),
-        CellDerive(
-            "difference",
-            "difference",
-            "propagate",
-            "count",
-            "all",
-            "source.exact_pairing@v1",
-            "source.finite_numeric@v1",
-        ),
-        value_type=original.value_type,
-        retained_endpoints=(original, replace(original)),
-    )
-    captured = capture_graph(node)
-    assert captured.nodes == (fixed, node)
-    assert len(captured.retained) == 5
-    document = graph_document(node)
-    assert len(document.nodes) == 4
-    restored = thaw_graph(freeze_graph(node))
-    assert isinstance(restored, MethodNode)
-    assert len(topology(restored)) == 2
-    assert restored.retained_endpoints[0] is restored.retained_endpoints[1]
-    assert restored.retained_endpoints[0].fingerprint == original.fingerprint
 
 
 def test_conflicting_identity_rejects_even_below_equal_parent_records() -> None:

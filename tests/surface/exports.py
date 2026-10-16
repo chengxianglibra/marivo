@@ -161,7 +161,6 @@ ANALYSIS_PUBLIC = (
     "MaterializedCoefficientRelation",
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
-    "LogicalFixedAnalysisDomain",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
     "LogicalTimeRunResult",

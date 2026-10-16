@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Protocol, TypeVar
 
 from marivo.analysis.compiler.graph_plan import (
-    ArtifactReadStage,
     CheckRequirement,
     GraphPlan,
     LocalCompute,
@@ -54,7 +53,7 @@ class PreparedGraph:
         for stage in self.admitted.stages:
             inputs = (
                 ()
-                if isinstance(stage, (SourceInputStage, ArtifactReadStage))
+                if isinstance(stage, (SourceInputStage,))
                 else tuple(results[reference] for reference in stage.inputs)
             )
             for requirement in before.get(stage.output, ()):
@@ -100,10 +99,6 @@ def _prepare_captured_graph(
     admitted = _plan_captured(captured, routes=routes)
     return PreparedGraph(admitted)
 
-
-# R2.3 Query scheduling. The scheduler only consumes a fixed QueryPlan: it never
-# opens a Store or historical Artifact, never re-selects a route and frees each
-# stage output after its last planned consumer.
 
 StageValue = TypeVar("StageValue")
 

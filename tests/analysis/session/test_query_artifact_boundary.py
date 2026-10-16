@@ -29,7 +29,6 @@ from marivo.analysis.core.artifact_data import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.graph import FixedLeaf
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.artifact import Artifact, ArtifactReader
 from marivo.analysis.errors import ArtifactNotFoundError
@@ -198,7 +197,7 @@ def test_terminal_artifact_has_only_identity_and_reader(tmp_path, monkeypatch) -
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": artifact})
     with pytest.raises(CoreRuleError, match="Metric expression"):
-        session.observe({"bad": object.__new__(FixedLeaf)})
+        session.observe({"bad": object()})
     assert not hasattr(mv, "Result")
     with pytest.raises(CoreRuleError, match="ID string"):
         session.artifact(artifact)

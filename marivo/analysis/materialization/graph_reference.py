@@ -21,16 +21,7 @@ from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 
 if TYPE_CHECKING:
     from marivo.analysis.materialization.graph_relation import Relation
-
-from marivo.analysis.core.graph import (
-    Edge,
-    FixedLeaf,
-    MethodNode,
-    Node,
-    method_node,
-    retained_nodes,
-    topology,
-)
+from marivo.analysis.core.graph import Edge, MethodNode, Node, method_node, retained_nodes
 from marivo.analysis.core.model import (
     Cell,
     Defined,
@@ -167,13 +158,7 @@ def bind(
     strata_dependencies: tuple[str, ...] = (),
     reference_id: str | None = None,
 ) -> Relation:
-    from marivo.analysis.materialization.graph_relation import (
-        FrozenBinding,
-        LiveBinding,
-        Relation,
-        _retained_definition,
-        _shared_root,
-    )
+    from marivo.analysis.materialization.graph_relation import Relation, _shared_root
 
     if not isinstance(values, Relation) or not isinstance(reference, Relation):
         raise invalid("reference inputs must be typed Relations")
@@ -182,39 +167,11 @@ def bind(
         or values.runtime.store.store_id != reference.runtime.store.store_id
     ):
         raise invalid("cross-Session reference")
-    if isinstance(values.binding, LiveBinding) != isinstance(reference.binding, LiveBinding):
-        raise invalid("mixed source/fixed reference")
-    reference_root = (
-        _retained_definition(reference.root, preserve_fixed=True)
-        if kind == "penetration"
-        and isinstance(values.binding, FrozenBinding)
-        and isinstance(reference.root, MethodNode)
-        else reference.root
-    )
+    reference_root = reference.root
     roots: tuple[Node, ...] = (values.root, _shared_root(values.root, reference_root))
     if kind == "share":
         basis = share_basis(values.definition, reference.definition)
-        if isinstance(values.binding, FrozenBinding):
-            candidates = tuple(
-                item
-                for item in retained_nodes(values.definition)
-                if isinstance(item, FixedLeaf) and item.definition_fingerprint == basis.fingerprint
-            )
-            if (
-                isinstance(values.root, FixedLeaf)
-                and values.root.definition_fingerprint == basis.fingerprint
-            ):
-                candidates = (values.root, *candidates)
-            dependencies = tuple(
-                item for item in topology(reference.definition) if isinstance(item, FixedLeaf)
-            )
-            if not candidates or not any(
-                item.artifact == candidates[0].artifact for item in dependencies
-            ):
-                raise invalid("fixed reference must roll up this exact retained numerator Artifact")
-            roots += (_shared_root(values.root, candidates[0]),)
-        else:
-            roots += (_shared_root(roots[1], basis),)
+        roots += (_shared_root(roots[1], basis),)
     if kind == "standardize" and unit != statistical_unit(values.definition):
         raise invalid("reference statistical Entity differs from the frozen receiver")
     left = values.root.signature
@@ -248,30 +205,21 @@ def bind(
         raise invalid(f"{values.root.value_type}/{reference.root.value_type}: {error}") from error
     node = method_node(
         tuple(
-            Edge(
-                "reference"
-                if index == 1
-                else "subject"
-                if root.signature.quantity is None
-                else "quantity",
-                root,
+            (
+                Edge(
+                    "reference"
+                    if index == 1
+                    else "subject"
+                    if root.signature.quantity is None
+                    else "quantity",
+                    root,
+                )
+                for index, root in enumerate(roots)
             )
-            for index, root in enumerate(roots)
         ),
         params,
         value_type=value_type,
-        retained_endpoints=(values.definition, reference.definition, basis)
-        if kind == "share" and isinstance(values.binding, FrozenBinding)
-        else (
-            values.definition,
-            reference_root
-            if isinstance(reference_root, MethodNode)
-            else _retained_definition(reference.definition, preserve_fixed=True),
-        )
-        if kind == "penetration" and isinstance(values.binding, FrozenBinding)
-        else (values.definition, reference.definition)
-        if isinstance(values.binding, FrozenBinding)
-        else (),
+        retained_endpoints=(),
     )
     return values._with_sources(reference)._with(node)
 
@@ -331,10 +279,7 @@ def _schema_for(
     return schema if schema is not None else pa.Schema.from_pandas(frame, preserve_index=False)
 
 
-def _rows(
-    part: ExchangePart,
-    schemas: Mapping[str, pa.Schema] | None,
-) -> list[dict[str, object]]:
+def _rows(part: ExchangePart, schemas: Mapping[str, pa.Schema] | None) -> list[dict[str, object]]:
     schema = _schema_for(part.table, schemas, part.role)
     return cell_rows(numeric_primary(to_arrow(part.table, schema)))
 
@@ -764,13 +709,13 @@ def fixed_parts(node: MethodNode, inputs: tuple[ExchangeResult, ...]) -> _Refere
             fields = list(logical_source_schema)
             if "value" in logical_source_schema.names:
                 from marivo.analysis.materialization.graph_local_execution import (
-                    _fixed_operand_bound,
+                    _operand_bound,
                     _operand_components,
                 )
 
                 components = _operand_components(source)
                 frame["error_bound"] = [
-                    _fixed_operand_bound(
+                    _operand_bound(
                         source,
                         row,
                         components.get(tuple(row[name] for name in source.contract.key_fields), {}),

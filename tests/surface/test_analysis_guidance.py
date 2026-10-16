@@ -108,7 +108,6 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
     members = (
         mv.LogicalAnalysisDomain,
         mv.MaterializedAnalysisDomain,
-        mv.LogicalFixedAnalysisDomain,
     )
     scalars = (
         mv.LogicalCategoryRelation,
@@ -128,7 +127,7 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
     for owner in members:
         assert not hasattr(owner, "count")
     for owner in scalars:
-        assert hasattr(owner, "aggregate")
+        assert hasattr(owner, "aggregate") == owner.__name__.startswith("Logical")
     for name in mv.__all__:
         owner = getattr(mv, name)
         if not inspect.isclass(owner):
@@ -142,33 +141,18 @@ def test_grouping_surface_has_no_explicit_target_domains() -> None:
 def test_current_row_aggregation_has_one_public_entry() -> None:
     owners = (
         mv.LogicalCategoryRelation,
-        mv.MaterializedCategoryRelation,
         mv.LogicalBooleanRelation,
-        mv.MaterializedBooleanRelation,
         mv.LogicalTemporalRelation,
-        mv.MaterializedTemporalRelation,
         mv.LogicalSelectedBooleanRelation,
-        mv.MaterializedSelectedBooleanRelation,
         mv.LogicalSelectedTemporalRelation,
-        mv.MaterializedSelectedTemporalRelation,
         mv.LogicalSelectedNumericRelation,
-        mv.MaterializedSelectedNumericRelation,
         mv.LogicalNumericRelation,
-        mv.MaterializedNumericRelation,
-        mv.MaterializedGroupedNumericRelation,
         mv.LogicalRolledNumericRelation,
-        mv.MaterializedRolledNumericRelation,
         mv.LogicalRolledRatioRelation,
-        mv.MaterializedRolledRatioRelation,
         mv.LogicalRatioRelation,
-        mv.MaterializedRatioRelation,
         mv.LogicalDifferenceRelation,
-        mv.MaterializedDifferenceRelation,
         mv.LogicalSelectedDifferenceRelation,
-        mv.MaterializedSelectedDifferenceRelation,
-        mv.MaterializedCoefficientRelation,
         mv.LogicalCoefficientSelectionRelation,
-        mv.MaterializedCoefficientSelectionRelation,
         mv.GroupedNumericRelation,
         mv.GroupedRatioRelation,
         mv.LogicalCoefficientRelation,

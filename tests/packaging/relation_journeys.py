@@ -4,16 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import shutil
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import Literal
 
-import duckdb
-import ibis
 import pandas as pd
 import pyarrow as pa
 import pytest
@@ -22,7 +18,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import graph_protocol
-from marivo.analysis.materialization.cell_arrow import logical_table
 from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.public_dsl import _MaterializedValue
 from tests.packaging.graph_journeys import NAMES
@@ -513,82 +508,6 @@ def _assert_oracles(saved: dict[str, Saved], scenario: Scenario) -> None:
             }
 
 
-def _decision_edges(saved: dict[str, Saved]) -> dict[str, bool]:
-    """Exercise existing Cells at the fixed consumer boundary, without a new producer."""
-    from marivo.analysis.compiler.graph_lowering import LoweredLocal, canonical_layout
-    from marivo.analysis.compiler.graph_plan import LocalMethodStage
-    from marivo.analysis.materialization.graph_exchange import from_pandas
-    from marivo.analysis.materialization.graph_local_execution import _cohort_stage
-    from marivo.analysis.methods.builtin import implementations
-    from marivo.analysis.methods.semantics import MethodKey
-
-    targets, values = saved["targets"], saved["controlled_values"]
-    assert isinstance(targets, mv.MaterializedAnalysisDomain)
-    assert isinstance(values, mv.MaterializedNumericRelation)
-    assert targets._dataset is not None and values._dataset is not None
-    target, supplied = targets._dataset.verified(), values._dataset.verified()
-    node = targets.cohort(
-        values.value.gt(0), rule=mv.at_least(3), through=values.subject_binding
-    )._node.root
-    implementation = next(
-        item
-        for item in implementations(MethodKey("domain.cohort"))
-        if item.key.route == "artifact_python"
-    )
-    stage = LoweredLocal(
-        LocalMethodStage("cohort", (), node, implementation),
-        (),
-        canonical_layout(node.signature, has_value=False),
-    )
-    grid = values._node.root.signature.domain.time_grid
-    assert grid is not None
-    cells = tuple(cell.identity for cell in grid.cells)
-    logical = logical_table(to_arrow(supplied.primary, supplied.contract.schema)).to_pandas()
-    reasons = (
-        ("unknown", ("controlled_consumer",)),
-        ("undefined", ("controlled_consumer",)),
-    )
-    checks = {}
-    for name, tags, payloads, expected in (
-        ("decidable_unknown_true", ("defined",) * 3 + ("unknown",), (1, 1, 1, None), True),
-        (
-            "decidable_unknown_false",
-            ("defined", "unknown", "defined", "defined"),
-            (1, None, 0, 0),
-            False,
-        ),
-        ("undecidable_unknown", ("defined",) * 3 + ("unknown",), (1, 1, 0, None), None),
-        ("undefined_hard_failure", ("defined",) * 3 + ("undefined",), (1, 1, 1, None), None),
-    ):
-        rows = logical.to_dict(orient="records")
-        for row in rows:
-            index = cells.index(row["key_1"])
-            row.update(
-                value=payloads[index],
-                cell_tag=tags[index],
-                cell_reason=None if tags[index] == "defined" else "controlled_consumer",
-            )
-        primary = pd.DataFrame(rows, columns=logical.columns)
-        controlled = from_pandas(
-            primary,
-            replace(supplied.contract, cell_reasons=reasons, _frozen=None),
-            parts=supplied.parts,
-            completed_checks=supplied.completed_checks,
-            method_state=supplied.method_state,
-        )
-        if expected is None:
-            with pytest.raises(AnalysisError, match=r"undecidable|Cell tag undefined"):
-                _cohort_stage(stage, target, (controlled,), "controlled")
-            checks[name] = True
-        else:
-            result = _cohort_stage(stage, target, (controlled,), "controlled")
-            assert len(result.primary) == (len(target.primary) if expected else 0)
-            decision = next(part.table for part in result.parts if part.role == "cohort_decision")
-            assert set(decision["cohort_decision__accepted"].tolist()) == {expected}
-            checks[name] = True
-    return checks
-
-
 def _produce(
     session: mv.Session, scenario: Scenario, shared_nodes: dict[str, int]
 ) -> dict[str, Saved]:
@@ -901,123 +820,3 @@ def _continue(saved: dict[str, Saved], scenario: Scenario) -> dict[str, Saved]:
         selected = values.where(values.value.is_defined())
         outputs["where_members"] = selected.where(selected.value.gte(0)).members().execute()
     return outputs
-
-
-def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[str, object]:
-    assert scenario_name in ("a02", "a06", "a07", "a08")
-    scenario: Scenario = next(
-        value for value in ("a02", "a06", "a07", "a08") if value == scenario_name
-    )
-    os.environ["MARIVO_PROJECT_ROOT"] = str(project)
-    patch = pytest.MonkeyPatch()
-    original = ibis.duckdb.connect
-    patch.setattr(
-        ibis.duckdb, "connect", lambda *args, **kwargs: original(*args, **{**kwargs, "threads": 1})
-    )
-    state_path = project / "r6-journey.json"
-    try:
-        if phase == "produce":
-            session, case = _create(project, source)
-            shared_nodes: dict[str, int] = {}
-            saved = _produce(session, scenario, shared_nodes)
-            _assert_oracles(saved, scenario)
-            snapshots = {name: _snapshot(value) for name, value in saved.items()}
-            state = {
-                "session": session.id,
-                "shared_nodes": shared_nodes,
-                "artifacts": {name: item["artifact"] for name, item in snapshots.items()},
-                "snapshots": snapshots,
-            }
-            state_path.write_text(json.dumps(state, sort_keys=True))
-            # A real fact change distinguishes fresh source evaluation from frozen recovery.
-            if source == "table":
-                with duckdb.connect(str(case.database_path)) as connection:
-                    connection.execute(
-                        "UPDATE reading SET energy = energy + 7 WHERE device_id = ? AND recorded_at >= ? AND recorded_at < ?",
-                        ["A", "2026-08-01", "2026-09-01"],
-                    )
-            else:
-                import pyarrow.parquet as pq
-
-                path = project / "source_files/reading.parquet"
-                table = pq.read_table(path)
-                rows = table.to_pylist()
-                for row in rows:
-                    if row["device_id"] == "A" and str(row["recorded_at"]).startswith("2026-08"):
-                        row["energy"] += 7
-                pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), path)
-            targets = session.members(ms.ref.entity("operations.device"))
-            fresh = targets.observe(
-                ms.ref.metric("operations.energy_total"),
-                during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
-                via=ms.ref.relationship("operations.reading_device"),
-                by=(mv.member(),),
-            ).execute()
-            assert _mapping(fresh)["A"] == 67
-            assert {name: _snapshot(value) for name, value in saved.items()} == snapshots
-            case.database_path.unlink()
-            shutil.rmtree(project / "models")
-            if (project / "source_files").exists():
-                shutil.rmtree(project / "source_files")
-            continuations = {}
-        else:
-            assert phase in ("continue", "recover")
-            assert not (project / "warehouse.duckdb").exists() and not (project / "models").exists()
-            from marivo.datasource.adapters import SourceSession
-            from marivo.datasource.runtime import DatasourceConnectionService
-
-            def forbidden(*args: object, **kwargs: object) -> None:
-                raise AssertionError("fixed relation journey consulted source, Semantic or DuckDB")
-
-            for owner, name in (
-                (duckdb, "connect"),
-                (ibis.duckdb, "connect"),
-                (ms, "load"),
-                (SourceSession, "__init__"),
-                (DatasourceConnectionService, "use_backend"),
-            ):
-                patch.setattr(owner, name, forbidden)
-            state = json.loads(state_path.read_text())
-            shared_nodes = state["shared_nodes"]
-            session = mv.session.resume(state["session"], by="id")
-            saved = {}
-            for name, reference in state["artifacts"].items():
-                value = session.artifact(reference)
-                assert isinstance(value, (_MaterializedValue, mv.MaterializedTable))
-                saved[name] = value
-            _assert_oracles(saved, scenario)
-            snapshots = {name: _snapshot(value) for name, value in saved.items()}
-            for name, snapshot in snapshots.items():
-                for field, actual in snapshot.items():
-                    assert actual == state["snapshots"][name][field], (
-                        name,
-                        field,
-                        actual,
-                        state["snapshots"][name][field],
-                    )
-            continuations = {
-                name: _snapshot(value) for name, value in _continue(saved, scenario).items()
-            }
-        return {
-            "phase": phase,
-            "pid": os.getpid(),
-            "session": session.id,
-            "snapshots": snapshots,
-            "continuations": continuations,
-            "run_count": len(session.runs().items),
-            "oracle": _oracle(),
-            "shared_nodes": shared_nodes,
-            "edge_checks": _decision_edges(saved) if scenario == "a08" else {},
-            "facts_sha256": hashlib.sha256(
-                json.dumps(asdict(_facts()), sort_keys=True).encode()
-            ).hexdigest(),
-        }
-    finally:
-        patch.undo()
-
-
-if __name__ == "__main__":
-    import sys
-
-    report = journey(sys.argv[1], Path(sys.argv[2]), sys.argv[3], sys.argv[4])
-    Path(sys.argv[5]).write_text(json.dumps(report, sort_keys=True))

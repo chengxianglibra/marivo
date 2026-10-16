@@ -1,4 +1,4 @@
-"""Caller-owned R4.3 fixed execution over fully checked local receipts."""
+"""Local kernels over checked stage outputs from the current source invocation."""
 
 from __future__ import annotations
 
@@ -13,22 +13,16 @@ from typing import TypeAlias
 import pandas as pd
 import pyarrow as pa
 
-from marivo.analysis.compiler.graph_lowering import LoweredLocal, LoweredPlan, LoweredRelation
-from marivo.analysis.compiler.graph_plan import ArtifactReadStage, CheckRequirement, LocalCompute
+from marivo.analysis.compiler.graph_lowering import LoweredLocal
+from marivo.analysis.compiler.graph_plan import CheckRequirement, LocalCompute
 from marivo.analysis.core.graph import MethodNode
-from marivo.analysis.core.local_laws import original_reduction_fusion_issue, selection_fusion_issue
 from marivo.analysis.core.model import (
     Cell,
     CoordinateStatePart,
     CoreRuleError,
-    CorrespondencePart,
-    CoveragePart,
     Defined,
-    EndpointPart,
     Null,
     OriginalStatePart,
-    RowStatePart,
-    StatisticalWeightPart,
     SubjectPart,
     Undefined,
     Unknown,
@@ -48,7 +42,6 @@ from marivo.analysis.core.rules import (
     DisplayTable,
     ForecastFit,
     ForecastRead,
-    MapCorrespond,
     OriginalReduce,
     PartsTransport,
     ReferenceDerive,
@@ -76,19 +69,14 @@ from marivo.analysis.materialization.graph_exchange import (
     ExchangeContract,
     ExchangePart,
     ExchangeResult,
-    FixedInput,
     PartContract,
     StageOutput,
-    VerifiedFixedInput,
     from_arrow,
     from_pandas,
-    from_receipts,
     numeric_primary,
     to_arrow,
 )
-from marivo.analysis.materialization.graph_execution import PreparedGraph
 from marivo.analysis.materialization.graph_reference import part_keys
-from marivo.analysis.materialization.graph_spearman_execution import finish_spearman
 from marivo.analysis.methods.comparison import evaluate as evaluate_comparison
 from marivo.analysis.methods.comparison import output_type as comparison_output_type
 from marivo.analysis.methods.comparison import propagated_cell, propagated_error, roundoff
@@ -99,7 +87,6 @@ from marivo.analysis.methods.physical import (
     DurationType,
     ScalarType,
     arrow_scalar_type,
-    matches_arrow_scalar,
 )
 from marivo.analysis.methods.predicates import evaluate_leaf
 from marivo.analysis.methods.registry import REGISTRY
@@ -108,9 +95,9 @@ from marivo.analysis.methods.state_validation import state_matches
 
 def _invalid(received: str) -> MaterializationError:
     return MaterializationError(
-        expected="one exact fixed graph with verified primary and required parts",
+        expected="one source-local stage with checked primary and required parts",
         received=received,
-        repair="Use the exact selected Artifact and a qualified local method.",
+        repair="Use the selected implementation and complete checked stage outputs.",
         stage="graph_local",
     )
 
@@ -214,55 +201,6 @@ def _cells(input_value: ExchangeResult) -> tuple[Cell, ...]:
         else:
             raise _invalid("unknown Cell tag")
     return tuple(cells)
-
-
-def execute_fixed_row(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    selected: FixedInput | VerifiedFixedInput,
-    input_contract: ExchangeContract,
-) -> ExchangeResult:
-    """Run a qualified fixed current-row method without source or DuckDB access."""
-    if (
-        prepared.admitted is not lowered.admitted
-        or lowered.admitted.classification.kind != "artifact"
-    ):
-        raise _invalid("prepared and lowered graph identity or input class differs")
-    if any(isinstance(stage, LoweredRelation) for stage in lowered.stages):
-        raise _invalid("fixed graph contains a source relation")
-    reads = tuple(stage for stage in lowered.stages if isinstance(stage, ArtifactReadStage))
-    methods = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-    if len(reads) != 1 or len(methods) != 1 or lowered.primary_output != methods[0].stage.output:
-        raise _invalid("only one fixed current-row method is qualified")
-    read = reads[0]
-    method = methods[0]
-    if (
-        selected.artifact_ref != read.leaf.artifact.ref
-        or replace(
-            input_contract.signature,
-            node_id=read.leaf.identity,
-            key_domain_id=read.leaf.artifact.ref,
-        )
-        != read.leaf.signature
-        or method.stage.inputs != (read.output,)
-        or input_contract.input_binding != read.leaf.artifact.ref
-        or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
-        or "value" not in input_contract.schema.names
-        or input_contract.schema.field("value").type != arrow_scalar_type(read.leaf.value_type)
-    ):
-        raise _invalid("fixed Artifact, signature, ordered binding or value type differs")
-    verified = (
-        selected.result
-        if isinstance(selected, VerifiedFixedInput)
-        else from_receipts(selected, input_contract)
-    )
-    return _row_result(
-        method,
-        verified,
-        selected.receipt.identity_digest,
-        read.leaf.artifact.ref,
-        lowered.admitted.checks,
-    )
 
 
 def _row_result(
@@ -435,7 +373,7 @@ def _row_result(
             indexed = _operand_components(verified)
             rows = _transport_rows(verified.primary, verified.contract.schema)
             bounds = [
-                _fixed_operand_bound(
+                _operand_bound(
                     verified,
                     row,
                     indexed.get(tuple(row[key] for key in verified.contract.key_fields), {}),
@@ -524,21 +462,6 @@ def _row_result(
     )
 
 
-def execute_fixed_count(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    selected: FixedInput | VerifiedFixedInput,
-    input_contract: ExchangeContract,
-) -> ExchangeResult:
-    """Retain the R3.4 fixed-count handoff during private method expansion."""
-    if (
-        not isinstance(lowered.admitted.root, MethodNode)
-        or lowered.admitted.root.method.name != "row.count"
-    ):
-        raise _invalid("fixed count method")
-    return execute_fixed_row(prepared, lowered, selected, input_contract)
-
-
 def _matches(
     value: object, operator: str, expected: int | float | str | bool | date | datetime
 ) -> bool:
@@ -575,58 +498,6 @@ def _matches(
         "gt": value > expected,
         "ge": value >= expected,
     }[operator]
-
-
-def execute_fixed_transport(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    selected: VerifiedFixedInput,
-) -> ExchangeResult:
-    """Transport exact saved rows and selected keyed parts without source access."""
-    if (
-        prepared.admitted is not lowered.admitted
-        or lowered.admitted.classification.kind != "artifact"
-    ):
-        raise _invalid("fixed transport graph identity or input class differs")
-    reads = tuple(stage for stage in lowered.stages if isinstance(stage, ArtifactReadStage))
-    methods = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-    if (
-        len(reads) != 1
-        or len(methods) != 1
-        or not isinstance(methods[0].stage.node.parameters, PartsTransport)
-        or methods[0].stage.inputs != (reads[0].output,)
-        or lowered.primary_output != methods[0].stage.output
-        or lowered.checks
-    ):
-        raise _invalid("only one qualified fixed transport method is selected")
-    return _transport_result(reads[0], methods[0], selected)
-
-
-def _transport_result(
-    read: ArtifactReadStage, method: LoweredLocal, selected: VerifiedFixedInput
-) -> ExchangeResult:
-    params = method.stage.node.parameters
-    assert isinstance(params, PartsTransport)
-    source = selected.result
-    if (
-        read.leaf.artifact.ref != selected.artifact_ref
-        or read.leaf.signature
-        != replace(
-            source.contract.signature,
-            node_id=read.leaf.identity,
-            key_domain_id=read.leaf.artifact.ref,
-        )
-        or source.contract.input_binding != selected.artifact_ref
-        or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
-        or (
-            "value" in source.contract.schema.names
-            and not matches_arrow_scalar(
-                source.contract.schema.field("value").type, read.leaf.value_type
-            )
-        )
-    ):
-        raise _invalid("fixed transport input signature, binding or type differs")
-    return _transport_stage(method, source, selected.artifact_ref)
 
 
 def _retained_roles(params: PartsTransport, source: ExchangeResult) -> tuple[str, ...]:
@@ -858,377 +729,6 @@ def _transport_exchange(
     )
 
 
-def _selection_candidate(method: LoweredLocal, checked_nodes: set[str]) -> bool:
-    node = method.stage.node
-    params = node.parameters
-    return (
-        node.identity not in checked_nodes
-        and node.value_type == ScalarType("int64")
-        and method.stage.implementation.key.route == "artifact_python"
-        and len(method.stage.inputs) == 1
-        and isinstance(params, PartsTransport)
-        and params.mode == "where"
-        and params.keep_quantity
-        and bool(params.predicates)
-        and not params.external_predicate
-        and not params.inclusion_inputs
-        and params.display_view is None
-        and params.attribution_view is None
-        and params.business_windows is None
-        and all(
-            isinstance(
-                part,
-                (
-                    SubjectPart,
-                    OriginalStatePart,
-                    CoordinateStatePart,
-                    RowStatePart,
-                    CoveragePart,
-                    StatisticalWeightPart,
-                    EndpointPart,
-                    CorrespondencePart,
-                ),
-            )
-            for part in node.inputs[0].node.signature.parts
-        )
-        and all(
-            leaf.operator != "is_defined"
-            and leaf.input_index == 0
-            and leaf.right_index in (None, 0)
-            and leaf.unknown == tree.unknown
-            for tree in params.predicates
-            for leaf in leaves(tree)
-        )
-    )
-
-
-def _selection_groups(lowered: LoweredPlan) -> dict[str, tuple[LoweredLocal, ...]]:
-    """Group existing selected stages only; shared and observable outputs end a group."""
-    consumers: dict[str, int] = {}
-    checked_nodes = {item.node_id for item in lowered.admitted.checks}
-    for stage in lowered.stages:
-        if isinstance(stage, LoweredLocal):
-            for source in stage.stage.inputs:
-                consumers[source] = consumers.get(source, 0) + 1
-    groups: dict[str, tuple[LoweredLocal, ...]] = {}
-    pending: list[LoweredLocal] = []
-    for stage in lowered.stages:
-        if isinstance(stage, LoweredLocal) and _selection_candidate(stage, checked_nodes):
-            if pending and (
-                stage.stage.inputs == (pending[-1].stage.output,)
-                and stage.stage.node.inputs[0].node is pending[-1].stage.node
-                and consumers.get(pending[-1].stage.output) == 1
-                and pending[-1].stage.output != lowered.primary_output
-                and selection_fusion_issue(stage.stage.node) is None
-            ):
-                pending.append(stage)
-                continue
-            if len(pending) > 1:
-                groups[pending[0].stage.output] = tuple(pending)
-            pending = [stage]
-        else:
-            if len(pending) > 1:
-                groups[pending[0].stage.output] = tuple(pending)
-            pending = []
-    if len(pending) > 1:
-        groups[pending[0].stage.output] = tuple(pending)
-    return groups
-
-
-def _selection_source_supported(method: LoweredLocal, source: ExchangeResult) -> bool:
-    """Check actual layouts before starting; unfamiliar transportation stays unfused."""
-    params = method.stage.node.parameters
-    assert isinstance(params, PartsTransport)
-    keys = source.contract.key_fields
-    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(
-        logical_schema(source.contract.schema).names
-    ):
-        raise _invalid("fixed selection input lacks complete keys or Cell fields")
-    for role in _retained_roles(params, source):
-        part = next((item for item in source.parts if item.role == role), None)
-        declared = next((item for item in source.contract.parts if item.role == role), None)
-        if part is None or declared is None:
-            raise _invalid("required retained transport part is absent")
-        if tuple(part.table.columns) != tuple(declared.schema.names):
-            raise _invalid("fixed selection part columns differ from its contract")
-        if declared.key_fields != keys or not set(keys) <= set(part.table.columns):
-            return False
-    return bool(source.contract.schema.field("value").type == pa.int64())
-
-
-def _selection_group_result(
-    group: tuple[LoweredLocal, ...], source: ExchangeResult, input_binding: str
-) -> ExchangeResult:
-    """Evaluate in stage order over surviving original positions, then transport once."""
-
-    keys = source.contract.key_fields
-    index = _index_rows(source.primary, keys, source.contract.schema)
-    ordered_keys = tuple(index)
-    positions = list(range(len(ordered_keys)))
-    params = group[-1].stage.node.parameters
-    assert isinstance(params, PartsTransport)
-    parts = tuple(
-        next(part for part in source.parts if part.role == role)
-        for role in _retained_roles(params, source)
-    )
-    declared_parts = {part.role: part.schema for part in source.contract.parts}
-    part_keys = tuple(_transport_part_keys(part, keys, declared_parts[part.role]) for part in parts)
-    input_rows = [index]
-    for stage in group:
-        survivors: list[int] = []
-        for position in positions:
-            if _selection_accepts(stage.stage.node, input_rows, ordered_keys[position]):
-                survivors.append(position)
-        positions = survivors
-    selected_primary = source.primary.iloc[positions].reset_index(drop=True)
-    primary = cell_project(
-        to_arrow(selected_primary, source.contract.schema),
-        (*keys, "value", "cell_tag", "cell_reason"),
-    )
-    selected_keys = {ordered_keys[position] for position in positions}
-    restricted: list[ExchangePart] = []
-    for part, located in zip(parts, part_keys, strict=True):
-        kept: list[int] = []
-        for position, key in enumerate(located):
-            if key in selected_keys:
-                kept.append(position)
-        restricted.append(ExchangePart(part.role, part.table.iloc[kept].reset_index(drop=True)))
-    return _transport_exchange(group[-1], source, input_binding, primary, tuple(restricted))
-
-
-def _reduction_candidate(method: LoweredLocal, checked_nodes: set[str]) -> bool:
-    node = method.stage.node
-    params = node.parameters
-    return (
-        node.identity not in checked_nodes
-        and method.stage.implementation.key.route == "artifact_python"
-        and len(node.inputs) == 1
-        and isinstance(params, OriginalReduce)
-        and params.method
-        in ("sum", "sum_zero", "count", "mean", "ratio", "weighted_mean", "linear")
-        and not params.time_mapping
-        and set(params.coordinates) <= set(node.inputs[0].node.signature.domain.instance_key)
-        and "L8" in REGISTRY.lookup(node.method).semantics.local_laws
-        and all(
-            isinstance(part, (SubjectPart, OriginalStatePart, CoveragePart))
-            for part in node.inputs[0].node.signature.parts
-        )
-    )
-
-
-def _reduction_groups(lowered: LoweredPlan) -> dict[str, tuple[LoweredLocal, ...]]:
-    """Group single-consumer L8 chains after the original fixed schedule is admitted."""
-    consumers: dict[str, int] = {}
-    for stage in lowered.stages:
-        if isinstance(stage, LoweredLocal):
-            for source in stage.stage.inputs:
-                consumers[source] = consumers.get(source, 0) + 1
-    checked_nodes = {item.node_id for item in lowered.admitted.checks}
-    groups: dict[str, tuple[LoweredLocal, ...]] = {}
-    pending: list[LoweredLocal] = []
-    for stage in lowered.stages:
-        if isinstance(stage, LoweredLocal) and _reduction_candidate(stage, checked_nodes):
-            if pending and (
-                stage.stage.inputs == (pending[-1].stage.output,)
-                and stage.stage.node.inputs[0].node is pending[-1].stage.node
-                and consumers.get(pending[-1].stage.output) == 1
-                and pending[-1].stage.output != lowered.primary_output
-                and original_reduction_fusion_issue(stage.stage.node) is None
-            ):
-                pending.append(stage)
-                continue
-            if len(pending) > 1:
-                groups[pending[0].stage.output] = tuple(pending)
-            pending = [stage]
-        else:
-            if len(pending) > 1:
-                groups[pending[0].stage.output] = tuple(pending)
-            pending = []
-    if len(pending) > 1:
-        groups[pending[0].stage.output] = tuple(pending)
-    return groups
-
-
-def _reduction_source_supported(method: LoweredLocal, source: ExchangeResult) -> bool:
-    """Check consumed physical layouts before starting a direct-key reduction group."""
-    keys = source.contract.key_fields
-    if not {*keys, "value", "cell_tag", "cell_reason"} <= set(
-        logical_schema(source.contract.schema).names
-    ):
-        raise _invalid("original reduction input lacks complete keys or Cell fields")
-    if not matches_arrow_scalar(
-        source.contract.schema.field("value").type, method.stage.node.value_type
-    ):
-        return False
-    roles = (
-        *(
-            ("subject",)
-            if any(isinstance(p, SubjectPart) for p in source.contract.signature.parts)
-            else ()
-        ),
-        "original_state",
-        "coverage",
-    )
-    for role in roles:
-        part = next((p for p in source.parts if p.role == role), None)
-        declared = next((p for p in source.contract.parts if p.role == role), None)
-        if part is None or declared is None:
-            raise _invalid("original reduction lacks a required retained part")
-        if tuple(part.table.columns) != tuple(declared.schema.names):
-            raise _invalid("original reduction retained columns differ from its contract")
-        if declared.key_fields != keys:
-            return False
-    return True
-
-
-def _reduction_group_result(
-    group: tuple[LoweredLocal, ...], source: ExchangeResult, binding: str
-) -> ExchangeResult:
-    """Compose direct key projections and finish only at the captured terminal node."""
-
-    terminal = group[-1]
-    params = terminal.stage.node.parameters
-    assert isinstance(params, OriginalReduce)
-    result = (
-        _coordinate_rollup_stage(terminal, source, binding)
-        if params.coordinates
-        else _original_rollup_stage(terminal, source, binding)
-    )
-    return result
-
-
-def execute_fixed_spearman(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    selected: tuple[FixedInput | VerifiedFixedInput, FixedInput | VerifiedFixedInput],
-    input_contracts: tuple[ExchangeContract, ExchangeContract],
-) -> ExchangeResult:
-    """Score two independently verified fixed observations by complete key."""
-    if (
-        prepared.admitted is not lowered.admitted
-        or lowered.admitted.classification.kind != "artifact"
-        or any(isinstance(stage, LoweredRelation) for stage in lowered.stages)
-    ):
-        raise _invalid("fixed Spearman graph identity or class differs")
-    reads = tuple(stage for stage in lowered.stages if isinstance(stage, ArtifactReadStage))
-    methods = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-    if (
-        len(reads) not in (1, 2)
-        or len(methods) != 1
-        or methods[0].stage.node.method.name != "association.spearman"
-        or len(methods[0].stage.inputs) != 2
-        or set(methods[0].stage.inputs) != {read.output for read in reads}
-        or lowered.primary_output != methods[0].stage.output
-    ):
-        raise _invalid("only one two-input fixed Spearman method is qualified")
-    if input_contracts[0].key_fields != input_contracts[1].key_fields:
-        raise _invalid("ordered fixed endpoint keys differ")
-    by_output = {read.output: read for read in reads}
-    verified: dict[str, ExchangeResult] = {}
-    values: list[ExchangeResult] = []
-    for output, item, contract in zip(
-        methods[0].stage.inputs, selected, input_contracts, strict=True
-    ):
-        read = by_output[output]
-        if (
-            item.artifact_ref != read.leaf.artifact.ref
-            or contract.input_binding != item.artifact_ref
-            or replace(
-                contract.signature, node_id=read.leaf.identity, key_domain_id=read.leaf.artifact.ref
-            )
-            != read.leaf.signature
-            or not isinstance(read.leaf.value_type, (ScalarType, DecimalType, DurationType))
-            or contract.schema.field("value").type != pa.type_for_alias(read.leaf.value_type.name)
-        ):
-            raise _invalid("fixed Spearman Artifact, binding, signature or type differs")
-        if output in verified:
-            if item != selected[0] or contract != input_contracts[0]:
-                raise _invalid("shared fixed input occurrence changed its selected receipt")
-        else:
-            verified[output] = (
-                item.result
-                if isinstance(item, VerifiedFixedInput)
-                else from_receipts(item, contract)
-            )
-        values.append(verified[output])
-    left, right = values
-    completed: list[CompletedCheck] = []
-    for check in lowered.checks:
-        if (
-            not isinstance(check, CheckRequirement)
-            or check.node_id != methods[0].stage.node.identity
-            or check.obligation.check_id
-            not in ("source.exact_pairing@v1", "source.finite_numeric@v1")
-        ):
-            raise _invalid("unmatched fixed Spearman check")
-        digest = hashlib.sha256(
-            (
-                selected[0].receipt.identity_digest
-                + selected[1].receipt.identity_digest
-                + check.obligation.check_id
-            ).encode()
-        ).hexdigest()
-        completed.append(CompletedCheck(check, digest))
-    return finish_spearman(
-        methods[0],
-        left.primary,
-        right.primary,
-        input_contracts[0].key_fields,
-        (left.contract.schema, right.contract.schema),
-        ",".join(item.artifact_ref for item in selected),
-        tuple(completed),
-        lowered.admitted.checks,
-    )
-
-
-def execute_fixed_difference(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    selected: tuple[VerifiedFixedInput, VerifiedFixedInput],
-) -> ExchangeResult:
-    """Subtract homogeneous numeric endpoints from two exact retained Artifacts."""
-    if (
-        prepared.admitted is not lowered.admitted
-        or lowered.admitted.classification.kind != "artifact"
-        or any(isinstance(stage, LoweredRelation) for stage in lowered.stages)
-    ):
-        raise _invalid("fixed Difference graph identity or class differs")
-    reads = tuple(stage for stage in lowered.stages if isinstance(stage, ArtifactReadStage))
-    methods = tuple(stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-    if (
-        len(reads) not in (1, 2)
-        or len(methods) != 1
-        or methods[0].stage.node.method.name != "cell.difference"
-        or len(methods[0].stage.inputs) != 2
-        or set(methods[0].stage.inputs) != {read.output for read in reads}
-        or lowered.primary_output != methods[0].stage.output
-    ):
-        raise _invalid("only one two-input fixed Difference method is qualified")
-    by_output = {read.output: read for read in reads}
-    values: list[ExchangeResult] = []
-    for output, item in zip(methods[0].stage.inputs, selected, strict=True):
-        read = by_output[output]
-        contract = item.result.contract
-        if (
-            item.artifact_ref != read.leaf.artifact.ref
-            or contract.input_binding != item.artifact_ref
-            or replace(
-                contract.signature, node_id=read.leaf.identity, key_domain_id=read.leaf.artifact.ref
-            )
-            != read.leaf.signature
-            or not matches_arrow_scalar(contract.schema.field("value").type, read.leaf.value_type)
-        ):
-            raise _invalid("fixed Difference Artifact, binding, signature or numeric type differs")
-        values.append(item.result)
-    return _difference_stage(
-        methods[0],
-        (values[0], values[1]),
-        selected[0].receipt.identity_digest + selected[1].receipt.identity_digest,
-        ",".join(item.artifact_ref for item in selected),
-        lowered.admitted.checks,
-    )
-
-
 def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict[str, object]]:
     """Index retained operand components once per endpoint, using complete keys."""
     result: dict[tuple[object, ...], dict[str, object]] = {}
@@ -1285,7 +785,7 @@ def _operand_components(source: ExchangeResult) -> dict[tuple[object, ...], dict
     return result
 
 
-def _fixed_operand_bound(
+def _operand_bound(
     source: ExchangeResult,
     row: dict[str, object] | None,
     components: dict[str, object],
@@ -1507,10 +1007,10 @@ def _difference_stage(
             raise _invalid("required exact-key operand is missing during consumption")
         both = first is not None and second is not None
         error_a, error_b = (
-            _fixed_operand_bound(
+            _operand_bound(
                 current, first, operand_components[0].get(original_keys[0].get(key, key), {})
             ),
-            _fixed_operand_bound(
+            _operand_bound(
                 baseline,
                 second,
                 operand_components[1].get(original_keys[1].get(key, key), {}),
@@ -2531,232 +2031,6 @@ def run_kernel(
     return None
 
 
-def validate_fixed_schedule(lowered: LoweredPlan) -> None:
-    """Check fixed consumption constraints once before Artifact reads or Run allocation."""
-    if lowered.admitted.classification.kind != "artifact":
-        raise _invalid("fixed schedule contains live inputs")
-    pending = {check.node_id for check in lowered.admitted.checks}
-    for stage in lowered.stages:
-        if not isinstance(stage, LoweredLocal):
-            continue
-        node = stage.stage.node
-        params = node.parameters
-        if (
-            isinstance(params, OriginalReduce)
-            and params.method != "fold"
-            and node.identity in pending
-        ):
-            raise _invalid("fixed rollup lacks frozen completed partition and coverage evidence")
-        if (
-            len(stage.stage.inputs) == 2
-            and not isinstance(
-                params,
-                (
-                    AttachCategory,
-                    AttributionDerive,
-                    CellDerive,
-                    ReferenceDerive,
-                    DisplayRank,
-                    DisplayTable,
-                ),
-            )
-            and not (isinstance(params, PartsTransport) and params.mode == "cohort")
-        ):
-            domains = tuple(edge.node.signature.domain for edge in node.inputs)
-            if any(
-                domain.binding != domains[0].binding
-                or domain.instance_key != domains[0].instance_key
-                or domain.target_key != domains[0].target_key
-                for domain in domains[1:]
-            ):
-                raise _invalid("fixed endpoints lack one frozen common member binding")
-
-
-def execute_verified_fixed(
-    prepared: PreparedGraph,
-    lowered: LoweredPlan,
-    inputs: tuple[VerifiedFixedInput, ...],
-) -> ExchangeResult:
-    """Execute each admitted fixed stage once without intermediate publication."""
-    if prepared.admitted is not lowered.admitted:
-        raise _invalid("prepared and lowered fixed plans differ")
-    groups = _selection_groups(lowered)
-    reductions = _reduction_groups(lowered)
-    fused_outputs: set[str] = set()
-    selected: dict[str, VerifiedFixedInput] = {}
-    for item in inputs:
-        prior = selected.get(item.artifact_ref)
-        if prior is not None and prior is not item:
-            raise _invalid("repeated Artifact input changed its verified receipt")
-        selected[item.artifact_ref] = item
-    results: dict[str, ExchangeResult] = {}
-    proofs: dict[str, str] = {}
-    completed: list[CompletedCheck] = []
-    binding = ",".join(item.artifact_ref for item in inputs)
-    for stage in lowered.stages:
-        if isinstance(stage, ArtifactReadStage):
-            selected_input = selected.get(stage.leaf.artifact.ref)
-            if (
-                selected_input is None
-                or replace(
-                    selected_input.result.contract.signature,
-                    node_id=stage.leaf.identity,
-                    key_domain_id=stage.leaf.artifact.ref,
-                )
-                != stage.leaf.signature
-                or selected_input.result.contract.input_binding != selected_input.artifact_ref
-                or not isinstance(stage.leaf.value_type, (ScalarType, DecimalType, DurationType))
-                or (
-                    "value" in selected_input.result.contract.schema.names
-                    and not matches_arrow_scalar(
-                        selected_input.result.contract.schema.field("value").type,
-                        stage.leaf.value_type,
-                    )
-                )
-            ):
-                raise _invalid("fixed stage differs from its exact verified Artifact")
-            results[stage.output] = selected_input.result
-            proofs[stage.output] = selected_input.receipt.identity_digest
-            continue
-        assert isinstance(stage, LoweredLocal)
-        if stage.stage.output in fused_outputs:
-            continue
-        group = groups.get(stage.stage.output)
-        if group is not None and _selection_source_supported(stage, results[stage.stage.inputs[0]]):
-            result = _selection_group_result(group, results[stage.stage.inputs[0]], binding)
-            for member in group:
-                proofs[member.stage.output] = hashlib.sha256(
-                    (
-                        member.stage.node.identity
-                        + "".join(proofs[key] for key in member.stage.inputs)
-                    ).encode()
-                ).hexdigest()
-                fused_outputs.add(member.stage.output)
-            results[group[-1].stage.output] = result
-            continue
-        reduction = reductions.get(stage.stage.output)
-        if reduction is not None and _reduction_source_supported(
-            stage, results[stage.stage.inputs[0]]
-        ):
-            result = _reduction_group_result(reduction, results[stage.stage.inputs[0]], binding)
-            for member in reduction:
-                proofs[member.stage.output] = hashlib.sha256(
-                    (
-                        member.stage.node.identity
-                        + "".join(proofs[key] for key in member.stage.inputs)
-                    ).encode()
-                ).hexdigest()
-                fused_outputs.add(member.stage.output)
-            results[reduction[-1].stage.output] = result
-            continue
-        values = tuple(results[key] for key in stage.stage.inputs)
-        proof = hashlib.sha256(
-            (
-                stage.stage.node.identity + "".join(proofs[key] for key in stage.stage.inputs)
-            ).encode()
-        ).hexdigest()
-        checks = tuple(
-            check for check in lowered.admitted.checks if check.node_id == stage.stage.node.identity
-        )
-        name = stage.stage.node.method.name
-        kernel = run_kernel(stage, values, binding)
-        if kernel is not None:
-            result = kernel
-        elif name == "group.attach":
-            result = _attach_category_stage(stage, values[0], values[1], binding)
-        elif name == "map_correspond":
-            params = stage.stage.node.parameters
-            if (
-                not isinstance(params, MapCorrespond)
-                or params.mode not in ("subjects", "group_keys")
-                or checks
-            ):
-                raise _invalid("fixed correspondence requires an exact retained Subject image")
-            result = (
-                _group_domain_stage(stage, values[0], binding)
-                if params.mode == "group_keys"
-                else _subject_image(stage, values[0], binding)
-            )
-        elif name == "comparison.read":
-            result = comparison_project(stage.stage.node, values[0], binding)
-        elif name in ("cell.difference", "cell.relative_change", "cell.ratio", "cell.compare"):
-            result = _difference_stage(stage, (values[0], values[1]), proof, binding, checks)
-        elif name == "association.spearman":
-            if values[0].contract.key_fields != values[1].contract.key_fields:
-                raise _invalid("fixed Spearman endpoint keys differ")
-            if any(
-                check.obligation.check_id
-                not in ("source.exact_pairing@v1", "source.finite_numeric@v1")
-                for check in checks
-            ):
-                raise _invalid("unqualified fixed Spearman check")
-            result = finish_spearman(
-                stage,
-                values[0].primary,
-                values[1].primary,
-                values[0].contract.key_fields,
-                (values[0].contract.schema, values[1].contract.schema),
-                binding,
-                tuple(CompletedCheck(check, proof) for check in checks),
-                checks,
-            )
-        else:
-            result = _row_result(stage, values[0], proof, binding, checks)
-        if isinstance(
-            stage.stage.node.parameters,
-            (
-                AttachCategory,
-                DisplayRank,
-                DisplayTable,
-                AttributionDerive,
-                PartsTransport,
-                OriginalReduce,
-            ),
-        ):
-            # These prerequisites were fulfilled by the required lookup/index work above.
-            if any(
-                item.obligation.check_id
-                not in (
-                    "source.group_mapping@v1",
-                    "source.cell_policy@v1",
-                    "source.exact_pairing@v1",
-                    "source.complete_coverage@v1",
-                    "source.contribution_partition@v1",
-                )
-                for item in checks
-            ):
-                raise _invalid("unimplemented local consumer prerequisite")
-            result = replace(
-                result,
-                contract=replace(result.contract, pending_checks=checks),
-                completed_checks=tuple(
-                    CompletedCheck(
-                        item,
-                        proof
-                        if item.obligation.fact in stage.stage.node.derivation.pre
-                        else next(
-                            done.result_digest
-                            for done in completed
-                            if done.requirement.obligation == item.obligation
-                        ),
-                    )
-                    for item in checks
-                ),
-            )
-        results[stage.stage.output] = result
-        proofs[stage.stage.output] = proof
-        completed.extend(result.completed_checks)
-    result = results[lowered.primary_output]
-    return from_pandas(
-        result.primary,
-        replace(result.contract, pending_checks=lowered.admitted.checks),
-        parts=result.parts,
-        completed_checks=tuple(completed),
-        method_state=result.method_state,
-        validate=False,
-    )
-
-
 def _subject_image(method: LoweredLocal, source: ExchangeResult, binding: str) -> ExchangeResult:
     """Project complete retained Subject tuples using local set-image semantics."""
     from marivo.analysis.core.model import SubjectPart
@@ -3303,9 +2577,6 @@ def _duration_mean(
         validate=False,
     )
 
-
-# R2.3 Query LocalCompute. Kernels receive copy-on-write views of completed
-# stage tables and return a new frame; normalization owns the output layout.
 
 LocalKernel: TypeAlias = Callable[[LocalCompute, tuple[pd.DataFrame, ...]], pd.DataFrame]
 

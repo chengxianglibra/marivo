@@ -10,7 +10,6 @@ from marivo._definition.expressions import FieldPredicate
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.graph import (
     BoundGraph,
-    FixedLeaf,
     MethodNode,
     Node,
     SourceLeaf,
@@ -31,7 +30,6 @@ from marivo.analysis.core.model import (
 from marivo.analysis.core.rules import (
     AssociationFit,
     AssociationRead,
-    AttachCategory,
     AttributionDerive,
     CellCompare,
     CellDerive,
@@ -54,12 +52,10 @@ from marivo.analysis.core.rules import (
 )
 from marivo.analysis.methods.physical import (
     QUERY_COMBINE_KERNEL,
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
     Route,
-    SourceShape,
     ValueType,
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
@@ -70,23 +66,18 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class InputClassification:
-    kind: Literal["source", "artifact", "mixed"]
+    kind: Literal["source"]
     sources: tuple[SourceLeaf, ...]
-    artifacts: tuple[FixedLeaf, ...]
 
 
 def classify_inputs(root: Node) -> InputClassification:
-    """Traverse actual dependencies only; fixed origin history has no graph edge."""
+    """Traverse the actual source dependencies of the unexecuted graph."""
     return _classify(topology(root))
 
 
 def _classify(nodes: tuple[Node, ...]) -> InputClassification:
     sources = tuple(n for n in nodes if isinstance(n, SourceLeaf))
-    artifacts = tuple(n for n in nodes if isinstance(n, FixedLeaf))
-    kind: Literal["source", "artifact", "mixed"] = (
-        "mixed" if sources and artifacts else "source" if sources else "artifact"
-    )
-    return InputClassification(kind, sources, artifacts)
+    return InputClassification("source", sources)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,12 +92,6 @@ class SourceInputStage:
 
     output: str
     leaf: SourceLeaf
-
-
-@dataclass(frozen=True, slots=True)
-class ArtifactReadStage:
-    output: str
-    leaf: FixedLeaf
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,7 +111,7 @@ class LocalMethodStage:
     implementation: Implementation
 
 
-Stage: TypeAlias = SourceInputStage | ArtifactReadStage | SourceMethodStage | LocalMethodStage
+Stage: TypeAlias = SourceInputStage | SourceMethodStage | LocalMethodStage
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,104 +170,21 @@ def plan(
 
 
 def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...]) -> GraphPlan:
-    root, registry, nodes = captured.root, captured.registry, captured.nodes
+    root, registry, nodes = (captured.root, captured.registry, captured.nodes)
     classification = _classify(nodes)
-    if classification.kind == "mixed":
-        _refuse(
-            "source-only or fixed Artifact-only dependencies",
-            "mixed live and fixed inputs",
-            "Use live inputs throughout, or materialize the source separately and use fixed inputs.",
-        )
     domains = {leaf.definition.datasource for leaf in classification.sources}
     if len(domains) > 1:
         _refuse(
             "one live datasource", "multiple live datasources", "Use one qualified source domain."
         )
-    shapes: set[SourceShape | FixedShape] = {
-        *(leaf.definition.shape for leaf in classification.sources),
-        *(leaf.shape for leaf in classification.artifacts),
-    }
-    fixed_cohort = (
-        classification.kind == "artifact"
-        and isinstance(root, MethodNode)
-        and isinstance(root.parameters, PartsTransport)
-        and root.parameters.mode == "cohort"
-        and root.parameters.opportunity_domain is not None
-        and root.parameters.opportunity_domain.time_grid is not None
-        and all(isinstance(edge.node, FixedLeaf) for edge in root.inputs)
-        and isinstance(root.inputs[0].node, FixedLeaf)
-        and root.inputs[0].node.shape == FixedShape(NoTime())
-        and len(shapes) == 2
-        and FixedShape(NoTime()) in shapes
-        and len({edge.node.shape for edge in root.inputs[1:] if isinstance(edge.node, FixedLeaf)})
-        == 1
-    )
-    timed_shapes = shapes - {FixedShape(NoTime())}
-    timed_grid = next(
-        (
-            leaf.signature.domain.time_grid
-            for leaf in classification.artifacts
-            if leaf.shape in timed_shapes
-        ),
-        None,
-    )
-    # Saved classifications pair full grid keys or retained Subject keys without
-    # reading timestamps; display still requires complete grid keys.
-    fixed_keyed = (
-        classification.kind == "artifact"
-        and len(shapes) == 2
-        and FixedShape(NoTime()) in shapes
-        and len(timed_shapes) == 1
-        and timed_grid is not None
-        and all(
-            (
-                leaf.signature.domain.time_grid == timed_grid
-                or (
-                    leaf.shape == FixedShape(NoTime())
-                    and leaf.signature.domain.time_grid is None
-                    and all(
-                        isinstance(node.parameters, AttachCategory)
-                        and node.parameters.subject_mapping
-                        and node.inputs[1].node is leaf
-                        and node.inputs[0].node.signature.domain.time_grid == timed_grid
-                        for node in nodes
-                        if isinstance(node, MethodNode)
-                        and any(edge.node is leaf for edge in node.inputs)
-                    )
-                )
-            )
-            and (
-                leaf.shape != FixedShape(NoTime())
-                or (
-                    leaf.signature.quantity is None
-                    and all(
-                        isinstance(node.parameters, (DisplayRank, DisplayTable))
-                        or (
-                            isinstance(node.parameters, AttachCategory)
-                            and node.inputs[1].node is leaf
-                        )
-                        for node in nodes
-                        if isinstance(node, MethodNode)
-                        and any(edge.node is leaf for edge in node.inputs)
-                    )
-                )
-            )
-            for leaf in classification.artifacts
-        )
-    )
-    if len(shapes) != 1 and not (fixed_cohort or fixed_keyed):
+    shapes = {leaf.definition.shape for leaf in classification.sources}
+    if len(shapes) != 1:
         _refuse(
-            "one exact input physical shape",
+            "one exact source physical shape",
             "different time or source shapes",
-            "Qualify a common exact shape first.",
+            "Qualify a common exact source shape first.",
         )
-    # Cohort reads the retained opportunity grid, not physical timestamp values.
-    # ArtifactReadStage retains each leaf's exact shape and publication contract.
-    shape = (
-        FixedShape(NoTime())
-        if fixed_cohort
-        else next(iter(timed_shapes if fixed_keyed else shapes))
-    )
+    shape = next(iter(shapes))
     methods = tuple(n for n in nodes if isinstance(n, MethodNode))
     if type(routes) is not tuple or any(type(r) is not RouteChoice for r in routes):
         _refuse("immutable route choices", repr(routes), "Choose one route per method node.")
@@ -299,19 +201,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             "bare source leaf",
             "Bind a registered method before planning a source read.",
         )
-    for leaf in classification.artifacts:
-        if leaf.signature.obligations:
-            _refuse(
-                "a completed fixed Artifact contract",
-                "pending Artifact obligations",
-                "Use an Artifact with completed publication checks.",
-            )
-    if not methods and classification.artifacts:
-        _refuse(
-            "a registered fixed-input method",
-            "bare fixed Artifact leaf",
-            "Bind a registered local method before planning an Artifact read.",
-        )
     stages: list[Stage] = []
     checks: list[CheckRequirement] = []
     physical: list[PhysicalRequirement] = []
@@ -322,17 +211,8 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
         output = f"stage:{len(stages)}"
         if isinstance(node, SourceLeaf):
             stages.append(SourceInputStage(output, node))
-        elif isinstance(node, FixedLeaf):
-            stages.append(ArtifactReadStage(output, node))
-            local.add(node.identity)
         else:
             route = choices[node.identity]
-            if (classification.kind == "artifact") != (route == "artifact_python"):
-                _refuse(
-                    "a route matching the input class",
-                    route,
-                    "Select fixed Python or a qualified source route explicitly.",
-                )
             prepared_ancestors[node.identity] = (
                 isinstance(node.parameters, PreparedObservation)
                 and (
@@ -350,90 +230,101 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
             )
             if (
                 not prepared_consumer
-                and not (
-                    route == "ibis_python"
-                    and isinstance(
-                        node.parameters,
-                        (
-                            PartsTransport,
-                            RowState,
-                            MapCorrespond,
-                            CellDerive,
-                            DisplayRank,
-                            DisplayTable,
-                        ),
+                and (
+                    not (
+                        route == "ibis_python"
+                        and isinstance(
+                            node.parameters,
+                            (
+                                PartsTransport,
+                                RowState,
+                                MapCorrespond,
+                                CellDerive,
+                                DisplayRank,
+                                DisplayTable,
+                            ),
+                        )
+                        and any(edge.node.identity in local for edge in node.inputs)
                     )
-                    and any(edge.node.identity in local for edge in node.inputs)
                 )
                 and any(edge.node.identity in local for edge in node.inputs)
-                and route != "artifact_python"
-                and not isinstance(
-                    node.parameters,
-                    (
-                        CellCompare,
-                        ComparisonRead,
-                        AssociationFit,
-                        AssociationRead,
-                        ForecastFit,
-                        ForecastRead,
-                        TimeRuns,
-                        TimeRunRead,
-                        DeviationFit,
-                        DeviationRead,
-                        TimeProduct,
-                        PreparedObservation,
-                    ),
-                )
-                and not (
-                    isinstance(node.parameters, RowState)
-                    and isinstance(node.inputs[0].node, MethodNode)
-                    and isinstance(node.inputs[0].node.parameters, PreparedObservation)
-                )
-                and not (
-                    isinstance(node.parameters, PartsTransport)
-                    and (
-                        node.parameters.mode == "business_coverage"
-                        or any(
-                            isinstance(p, CoveragePart) and p.business_windows is not None
-                            for p in node.inputs[0].node.signature.parts
-                        )
-                    )
-                )
-                and not any(
-                    isinstance(
-                        p,
+                and (
+                    not isinstance(
+                        node.parameters,
                         (
-                            ConditionCellsPart,
-                            RunCellsPart,
-                            PairInputsPart,
-                            TrainingInputsPart,
-                            FitInputsPart,
+                            CellCompare,
+                            ComparisonRead,
+                            AssociationFit,
+                            AssociationRead,
+                            ForecastFit,
+                            ForecastRead,
+                            TimeRuns,
+                            TimeRunRead,
+                            DeviationFit,
+                            DeviationRead,
+                            TimeProduct,
+                            PreparedObservation,
                         ),
                     )
-                    for e in node.inputs
-                    for p in e.node.signature.parts
                 )
-                and not all(
-                    edge.node.identity not in local
-                    or (
-                        isinstance(edge.node, MethodNode)
-                        and edge.node.method.name
-                        in (
-                            "cell.difference",
-                            "cell.compare",
-                            "comparison.read",
-                            "cell.relative_change",
-                            "cell.ratio",
-                            "reference.share",
-                            "reference.penetration",
-                            "reference.standardize",
-                            "attribution.additive_difference",
-                            "attribution.component_mix",
-                            "display.rank",
-                            "display.table",
+                and (
+                    not (
+                        isinstance(node.parameters, RowState)
+                        and isinstance(node.inputs[0].node, MethodNode)
+                        and isinstance(node.inputs[0].node.parameters, PreparedObservation)
+                    )
+                )
+                and (
+                    not (
+                        isinstance(node.parameters, PartsTransport)
+                        and (
+                            node.parameters.mode == "business_coverage"
+                            or any(
+                                isinstance(p, CoveragePart) and p.business_windows is not None
+                                for p in node.inputs[0].node.signature.parts
+                            )
                         )
                     )
-                    for edge in node.inputs
+                )
+                and (
+                    not any(
+                        isinstance(
+                            p,
+                            (
+                                ConditionCellsPart,
+                                RunCellsPart,
+                                PairInputsPart,
+                                TrainingInputsPart,
+                                FitInputsPart,
+                            ),
+                        )
+                        for e in node.inputs
+                        for p in e.node.signature.parts
+                    )
+                )
+                and (
+                    not all(
+                        edge.node.identity not in local
+                        or (
+                            isinstance(edge.node, MethodNode)
+                            and edge.node.method.name
+                            in (
+                                "cell.difference",
+                                "cell.compare",
+                                "comparison.read",
+                                "cell.relative_change",
+                                "cell.ratio",
+                                "reference.share",
+                                "reference.penetration",
+                                "reference.standardize",
+                                "attribution.additive_difference",
+                                "attribution.component_mix",
+                                "display.rank",
+                                "display.table",
+                            )
+                        )
+                        for edge in node.inputs
+                    )
                 )
             ):
                 _refuse(
@@ -575,8 +466,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
                     obligation,
                 )
                 for obligation in node.derivation.obligations
-                if classification.kind != "artifact"
-                or not any(prior.obligation == obligation for prior in checks)
             )
         outputs[node.identity] = output
     if any(isinstance(node.parameters, (PreparedObservation,)) for node in methods):
@@ -593,11 +482,6 @@ def _plan_captured(captured: _CapturedGraph, *, routes: tuple[RouteChoice, ...])
         outputs[root.identity],
         captured,
     )
-
-
-# R2.3 Query planning. The legacy GraphPlan above keeps serving the graph DSL;
-# QueryPlan is the only plan the BoundGraph Query path consumes. Planning is
-# pure: execute preparation supplies schema-only SourceSchema facts first.
 
 
 @dataclass(frozen=True, slots=True)

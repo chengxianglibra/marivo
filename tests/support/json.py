@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import TypeAlias
 
-from marivo.analysis.methods.physical import FixedShape, NoTime, QualificationKey, SourceShape
+from marivo.analysis.methods.physical import NoTime, QualificationKey
 
 Json: TypeAlias = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
 
@@ -61,17 +61,13 @@ def key_json(key: QualificationKey) -> dict[str, Json]:
             "timezone": key.shape.time.timezone,
         }
     )
-    shape: dict[str, Json] = {"kind": "FixedShape", "time": time}
-    if isinstance(key.shape, SourceShape):
-        shape = {
-            "kind": "SourceShape",
-            "backend": key.shape.backend,
-            "form": key.shape.form,
-            "table_kind": key.shape.table_kind,
-            "time": time,
-        }
-    else:
-        assert isinstance(key.shape, FixedShape)
+    shape: dict[str, Json] = {
+        "kind": "SourceShape",
+        "backend": key.shape.backend,
+        "form": key.shape.form,
+        "table_kind": key.shape.table_kind,
+        "time": time,
+    }
     return {
         "method": f"{key.method.name}@v{key.method.version}",
         "input_types": [value.name for value in key.input_types],

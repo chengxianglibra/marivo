@@ -84,7 +84,8 @@ change.show()
 构造返回 Logical relation，不读取业务行，也不分配 Run。
 为确定键和值类型，schema-only preflight 可能连接数据源。
 `execute()`完成准入和图执行，然后发布 Materialized 结果。
-在 Materialized 接收者上调用方法，会构造使用保留输入的新 Logical 工作。
+Materialized 接收者只提供结果读取。所有 DSL 组合都在 Logical 定义上完成后再执行；
+需要外部分析时，使用 `to_pandas()` 导出。
 
 单独执行 `session.members(entity).execute()` 会读取并保存完整成员主键集合，
 可能扫描整个 Entity 来源，不设默认行数截断。主键唯一性和没有历史版本
@@ -132,13 +133,14 @@ august = mv.time_scope(start="2026-08-01", end="2026-09-01")
 august_revenue = customers.observe(
     revenue, during=august, via=buyer, by=(mv.member(),)
 )
-total = customers.observe(revenue, during=august, via=buyer).execute()
-total.show()
+total = customers.observe(revenue, during=august, via=buyer)
+total.execute().show()
 total.contract().show()
 for action in total.contract().actions:
     print(action.call, action.help_target)
 saved_observation = august_revenue.execute()
-saved_observation.aggregate(method=mv.count()).execute().show()
+saved_observation.show()
+august_revenue.aggregate(method=mv.count()).execute().show()
 order_count = ms.ref.metric("sales.order_count")
 per_customer_count = customers.observe(
     order_count, during=august, via=buyer, by=(mv.member(),)
@@ -167,8 +169,7 @@ merged_count.show()
 继续使用已有的轴选择规则。
 
 分类 `read` 与链式 `.where()` 统一返回 `LogicalCategoryRelation`；旧执行路径
-返回 `MaterializedCategoryRelation`。物化分类上的筛选生成基于已保存数据的
-逻辑操作。作为 `by` 输入的分类经筛选后仍须覆盖全部消费键；若需限制成员范围，
+返回 `MaterializedCategoryRelation`。分类筛选应在执行前的 Logical 定义上完成。作为 `by` 输入的分类经筛选后仍须覆盖全部消费键；若需限制成员范围，
 先通过其 `.members()` 构建观测接收者。
 
 ## 按同一实体分组
@@ -218,16 +219,15 @@ category_revenue.show()
 ```
 
 同一 Dimension 经不同明确角色读取会保留不同坐标绑定。后续分组、统计 rollup 或保留轴归因中若裸
-Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用端点的完整有序坐标轴。fixed 后续操作直接使用保存的绑定
-和完整键，不重新推导路径。
-五种后端均使用平面贡献坐标状态，包括 MySQL 和 ClickHouse。结果键中已有的坐标复用原始分量；其余坐标保留完整的平面分区。真实的全 Null 贡献与空目标仍有区别。自动关系推导仍遵守精确后端准入边界。物化比较保留已绑定的端点分区，以便脱离源执行归因；旧格式状态需要重新执行。
-冻结定义使用共享契约表，避免相同事实与绑定在各个图节点重复展开，在现有定义预算内保留原始归因范围与脱离源的后续能力。较早格式的图快照需要重新执行，已有历史与文件会保留。
+Dimension Ref 有歧义，使用对应的分类对象选择角色。归因沿用端点的完整有序坐标轴。执行前的组合使用已捕获的绑定和完整键，不重新推导路径。
+五种后端均使用平面贡献坐标状态，包括 MySQL 和 ClickHouse。结果键中已有的坐标复用原始分量；其余坐标保留完整的平面分区。真实的全 Null 贡献与空目标仍有区别。自动关系推导仍遵守精确后端准入边界。归因应在比较的 Logical 定义上完成后再执行；旧格式状态需要重新执行。
+冻结定义使用共享契约表，避免相同事实与绑定在各个图节点重复展开，在现有定义预算内保留原始归因范围与执行前的源图组合能力。较早格式的图快照需要重新执行，已有历史与文件会保留。
 
 ## 明确来源与已保存结果边界
 
-再次执行旧 live 定义会读取当前来源。R2.1 的 `session.artifact(id)` 只负责终端产物，
-拒绝旧图格式且保留文件。旧内存对象的 fixed 后续操作消费保留状态，不重放来源。在 fixed 接收者上新增 live Metric 或字段
-依赖会形成 mixed 工作，并在读取任何业务输入之前拒绝。
+再次执行 live 定义会读取当前来源。`session.artifact(id)` 只打开确切的当前终态结果，
+提供预览、完整 pandas 导出和已保存事实。旧图输出仍被拒绝，已有文件保持不变。
+冷存重开的 Artifact 与旧内存 Materialized 结果均不能重新进入 DSL 计算。
 
 继续阅读[时间与群体](/zh-cn/docs/latest/guides/time-and-cohorts/)、
 [比较与归因](/zh-cn/docs/latest/guides/comparison-and-attribution/)、
@@ -257,5 +257,5 @@ session = mv.session.get_or_create("revenue-review", report_timezone="UTC")
 
 `mv.session.get_or_create("sales-review", domains="sales")` 保存准确的语义 domain
 选择，也可传入非空序列。再次获取时省略参数会保留原范围，显式传入冲突范围会失败。
-用 `session.domains` 读取它；固定结果依据保存的状态继续计算，无需当前模型。
+用 `session.domains` 读取它；已保存结果仅供读取，不需要当前模型，也不能重新进入 DSL 计算。
 Session 元数据使用 Store 第 10 代；旧代目录保持原样，不自动迁移。

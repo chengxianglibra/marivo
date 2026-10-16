@@ -20,7 +20,7 @@ the shared Help coordinator.
 | Analysis DSL | Explicit membership, observation scope, coordinates, comparisons, predicates, references and requested result views |
 | Analysis algebra | Bound domains/quantities, Cell policies, sufficient parts, premises, transported facts and pending obligations |
 | Method registry | One semantic method owner and exact qualified physical implementations |
-| Compiler | Actual graph dependencies, source/fixed classification, implementation selection, stage/check schedule and typed lowering |
+| Compiler | Actual graph dependencies, source dependency binding, implementation selection, stage/check schedule and typed lowering |
 | Runtime | Invocation checks, execution, retained state, Evidence/Findings and atomic publication |
 | Agent | Business question, interpretation, choice of next question and conclusions |
 
@@ -139,7 +139,8 @@ Constructors and transformations return concrete Logical values silently.
 Logical values expose bounded identity and `contract()`; `execute()` admits
 work and returns the matching Materialized type. Materialized values expose
 bounded `show()`, isolated `to_pandas()` copies and committed evidence reads.
-Methods on either state return Logical continuations. No implicit iteration,
+Only Logical values provide DSL composition. Materialized results are terminal reads;
+they expose no computation, predicate fields or conversion back to a Logical value. No implicit iteration,
 truth conversion, indexing or arithmetic substitutes for a registered method.
 
 Construction and planning do not query business rows or allocate a Run.
@@ -216,7 +217,7 @@ documentation-only algebra layer.
 
 Physical selection uses the exact method/version, ordered input value types
 (including Decimal precision/scale and Duration unit), ordered domain kinds,
-source or fixed shape, time authority and route. It also requires declared
+source shape, time authority and route. It also requires declared
 checks, output/retained parts and precision contracts. Selection does not
 execute the method or discharge its pending obligations.
 
@@ -257,7 +258,6 @@ snapshot/validity selection checks remain independently required.
 | Node | Captured authority |
 | --- | --- |
 | SourceLeaf | Exact Semantic/source definition, dependency fingerprint, declared Signature and physical value type |
-| FixedLeaf | Exact same-Session Artifact, retained Signature, value type and fixed time shape |
 | MethodNode | Versioned rule parameters, ordered role-bearing inputs, derivation and explicit additional source/retained references |
 
 Frozen graph v7 pools Binding, DomainSignature, Fact and Evidence by exact
@@ -266,10 +266,10 @@ preserving ordered inputs, full derivations and definition fingerprints. Graph
 records remain the same typed logical authority after decoding; pooling does not
 merge independent node captures or remove retained history.
 
-Historical Artifact lineage is a reference, not a live data-dependency edge.
-An explicit FixedLeaf stops source classification. Additional field, predicate,
-comparison, grouping and domain-method dependencies are real graph edges;
-classification cannot ignore them merely because the receiver is fixed.
+Committed output is never a data-dependency edge. Graph inputs are SourceLeaf
+or MethodNode; saved Artifact IDs, objects and legacy Materialized results cannot
+enter DSL composition. Additional field, predicate, comparison, grouping and
+domain-method dependencies remain explicit source graph edges.
 
 Definition fingerprints identify normalized meaning and explicit bindings.
 Node identities control sharing in one invocation: one shared node has one
@@ -291,8 +291,8 @@ methods. GraphPlan holds this capture directly and lowering preserves
 its selected registry interpretation. Exact implementation selection owns one
 parameter admission per method, including methods with preparation and local
 stages; preparation, lowering and local consumption do not repeat that admission.
-Restoring a serialized continuation still constructs nodes through their semantic
-owners and checks the saved derivations before entering a new invocation.
+Legacy source graph decoding remains an integrity-validation detail; it provides
+no result-to-definition conversion or saved-input execution route.
 
 Logical lowered layouts retain complete typed keys, Cell slots and declared
 part schemas. Before a source read is issued, `compiler/cell_lowering.py` lowers
@@ -302,7 +302,7 @@ state; Encoded Cells carry their value and a non-null int16 state column.
 Carrier selection follows declared policies and construction, never sampled
 rows. `core/cell_encoding.py` owns the canonical per-slot reason dictionaries;
 `materialization/cell_arrow.py` owns their Arrow operations and public decoding.
-Fixed execution and retained storage use the same bindings. Scalar algorithms
+Source-local stages and retained storage use the same bindings. Scalar algorithms
 may decode individual Cells; public rendering/export restores the existing
 string tag/reason columns and their ordering. Each emitted expression has exact
 SourceLeaf provenance;
@@ -315,12 +315,9 @@ does not submit SQL, consume source rows, allocate a Run or publish an Artifact.
 | --- | --- |
 | Source-only / ibis | Governed Ibis expressions execute on the datasource and return pandas data |
 | Source-only / ibis_python | Governed Ibis preparation returns the required input as pandas, then a registered local algorithm consumes it |
-| Fixed-only / artifact_python | Retained Parquet results are read into pandas for local pandas/NumPy/SciPy consumers |
-| Mixed live source and fixed Artifact | Reject before Run admission or either business input is read |
 
-A fixed member domain followed by a new live Metric/property dependency
-is mixed. A Logical continuation over only FixedLeaves remains fixed-only.
-Materialized method calls do not replay origin or reconnect its source.
+Local stages consume outputs from their current source invocation. Committed
+results have no physical input shape or execution route.
 
 Backend, table form, exact type, domain, time shape, method and complete-read/cleanup
 authority all participate in admission. DuckDB tables, local Parquet, local
@@ -331,7 +328,7 @@ expression is not blanket support.
 Ordinary contribution coordinates use flat primary/partition relations and one
 terminal pandas materialization. Complete result keys select keyed component
 reuse or a flat partition at compilation, shared across backends, exchange,
-persistence and fixed execution. `operators-and-frames.md` owns these layouts
+persistence and source-local execution. `operators-and-frames.md` owns these layouts
 and numeric semantics; `session-state-and-runtime.md` owns their receipt
 versions. Source execution returns pandas frames through Ibis/provider conversion;
 the persisted Cell/Parquet representation remains Arrow.
@@ -366,8 +363,8 @@ LogicalComparisonResult, whose absolute DifferenceRelation and relative
 NumericRelation read one shared endpoint pair. Execution publishes one
 MaterializedComparisonResult with two independently tagged Cells. Use
 `current.compare(baseline).absolute` for selection and attribution, or `.relative`
-for dimensionless current-row statistics. Roots have execute/show/contract and
-materialized state/evidence/to_pandas; numeric operations require a view.
+for dimensionless current-row statistics before executing. Logical roots have
+execute/contract; committed roots provide show/evidence/to_pandas only.
 
 Field Cells are constructed on the owner side of a lookup. A present owner's
 Null field is `Null(source_null)`; an absent owner supplies no operand and rejects
@@ -452,7 +449,7 @@ reject. Primary-key Dimensions remain ordinary classification axes and do not
 implicitly acquire Subject identity.
 
 Category reads and category `where()` return the same LogicalCategoryRelation;
-execution and recovery return MaterializedCategoryRelation. Selection remains
+legacy execution returns terminal MaterializedCategoryRelation; cold opening returns Artifact. Selection remains
 in the definition graph with its exact predicates, member scope and Dimension
 binding. The former SelectedCategoryRelation types are removed without aliases.
 Coordinate identity retains the original Dimension Ref, classification origin,
@@ -464,7 +461,7 @@ attribution without source reads. Attribution preserves the complete ordered
 endpoint axes; it does not choose another relationship role or recover removed axes.
 Multiple member classifications align on the complete member/time key before
 their group axes are attached. Comparisons and temporal-fold samples retain their
-original state in source and fixed execution. Complete member domains, contribution
+original state within source execution. Complete member domains, contribution
 windows, empty time buckets and Metric empty-set rules remain independent of
 explicit report rows. Reports with prescribed rows may complete their exported
 `to_pandas()` result externally; external results cannot re-enter typed analysis.
@@ -521,25 +518,17 @@ conditional equivalences. These identifiers are independent of the proposed
 theory's numbering; its [mapping table](algebra-theory.md#实现编号与理论定律的对应)
 is a cross-reference, not authority to expand current execution. Registration does not
 grant arbitrary semantic rewrites, source pushdown or additional public K.
-The explicit fixed sum StateEquation helpers keep their own narrow premises.
+The explicit sum StateEquation helpers keep their own narrow premises.
 
-The executor applies two invocation-local schedule optimizations:
-
-- A2 groups adjacent qualified fixed int64 ordinary selections using L1's
-  existing contract, reusing primary/part key indexes and survivor positions.
-- A3 groups adjacent qualified fixed original reductions using implementation-local L8 contracts,
-  merging original components directly under terminal keys before one finish.
-
-Both preserve the logical DAG, definition identity, selected implementations,
-plan identity and terminal parts. Shared intermediates, explicit boundaries,
-pending checks and unsupported mappings/parts end groups. Once computation
-starts, failures propagate without retry. Detailed grouping contracts are in
-[Runtime](session-state-and-runtime.md#fixed-execution-groups).
+The retired saved-input A2/A3 execution groups are removed. Algebraic laws and
+in-flight source kernels retain their own contracts; they do not admit persisted
+results as computation inputs.
 
 ## Disclosure and acceptance
 
 `marivo.help("analysis")` owns static API discovery and exact callable contracts.
-Results own state-dependent `contract()` actions and bounded `show()` data.
+Logical definitions own `contract()` actions; terminal results own bounded
+`show()` data, complete pandas export and saved facts.
 Structured errors own concrete repair, and packaged skills own workflow judgment.
 
 A continuation is admitted from the actual quantity, domain, state and bindings;

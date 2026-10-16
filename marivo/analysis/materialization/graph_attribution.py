@@ -48,7 +48,7 @@ from marivo.analysis.materialization.graph_exchange import (
 )
 from marivo.analysis.materialization.graph_protocol import digest
 from marivo.analysis.materialization.graph_reference import part_keys as retained_part_keys
-from marivo.analysis.materialization.graph_relation import FrozenBinding, LiveBinding, Relation
+from marivo.analysis.materialization.graph_relation import Relation
 from marivo.analysis.methods.attribution import (
     Basis,
     Errors,
@@ -62,12 +62,8 @@ from marivo.analysis.methods.attribution import (
 from marivo.analysis.methods.attribution import columns as columns
 from marivo.analysis.methods.attribution import part_keys as part_keys
 from marivo.analysis.methods.comparison import _finish
-from marivo.analysis.methods.coordinate_state import (
-    entries as coordinate_entries,
-)
-from marivo.analysis.methods.coordinate_state import (
-    retain as retain_coordinates,
-)
+from marivo.analysis.methods.coordinate_state import entries as coordinate_entries
+from marivo.analysis.methods.coordinate_state import retain as retain_coordinates
 from marivo.analysis.methods.physical import (
     DecimalType,
     DurationType,
@@ -123,8 +119,6 @@ def expand(
 ) -> MethodNode:
     params = node.parameters
     if isinstance(params, (ObserveMetric, ObserveCount, ObserveWeightedMean)):
-        if not isinstance(relation.binding, LiveBinding):
-            raise invalid("fixed endpoint is missing retained axes")
         fields = tuple(
             normalize_target_dimension(relation.binding.graph.registry, a.path) for a in axes
         )
@@ -241,10 +235,6 @@ def bind(
             raise invalid(
                 "classifications must select the complete retained ordered axes on both endpoints"
             )
-        if isinstance(relation.binding, FrozenBinding):
-            raise invalid(
-                "fixed Difference lacks the requested retained axes; lineage cannot supply them"
-            )
         children = tuple(
             Edge(e.role, expand(e.node, references, relation))
             if isinstance(e.node, MethodNode)
@@ -258,7 +248,6 @@ def bind(
             )
     source = relation.root.signature.domain
     owner = references[0].path.rsplit(".", 1)[0]
-
     entity = ref.entity(owner)
     keys = (
         *source.instance_key,
@@ -286,9 +275,7 @@ def bind(
         (relation._edge(), Edge("quantity", expanded)),
         AttributionDerive(domain, references, chosen, physical.name, mode, top_k, bindings),
         value_type=physical,
-        retained_endpoints=(view_definition, view_definition)
-        if isinstance(relation.binding, FrozenBinding)
-        else (),
+        retained_endpoints=(),
     )
     return relation._with(root)
 

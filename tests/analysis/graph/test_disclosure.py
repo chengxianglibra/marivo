@@ -18,6 +18,10 @@ from marivo.analysis.errors import HelpTargetError
 from marivo.analysis.materialization.store import SessionStore
 
 EXPECTED_EXPORTS = (
+    "Query",
+    "InstantAnchor",
+    "CalendarAxis",
+    "Artifact",
     "LogicalAttributionResult",
     "MaterializedAttributionResult",
     "LogicalRankingResult",
@@ -107,7 +111,6 @@ EXPECTED_EXPORTS = (
     "MaterializedCoefficientRelation",
     "LogicalCoefficientSelectionRelation",
     "MaterializedCoefficientSelectionRelation",
-    "LogicalFixedAnalysisDomain",
     "GroupedNumericRelation",
     "GroupedRatioRelation",
     "LogicalTimeRunResult",
@@ -189,7 +192,8 @@ def test_native_help_never_creates_persistent_state(monkeypatch: pytest.MonkeyPa
     for descriptor in registry.descriptors:
         text = render(registry, descriptor.canonical_id)
         assert len(text) <= 8192
-        assert "session.population(" not in text and "session.observe(" not in text
+        assert "session.population(" not in text
+        assert "LogicalFixedAnalysisDomain" not in text
 
 
 def test_incomplete_or_duplicate_owner_is_rejected() -> None:

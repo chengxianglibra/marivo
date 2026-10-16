@@ -257,15 +257,37 @@ def test_outer_join_known_null_and_validity_distinguish_absent_endpoints() -> No
 
 
 def test_compact_pandas_codec_uses_converted_values_without_roundtrip_audit() -> None:
-    from dataclasses import replace
-
     import pandas as pd
 
-    from marivo.analysis.materialization.graph_exchange import from_pandas
-    from tests.analysis.graph.selection_fixtures import selection_input
+    from marivo.analysis.core.model import Binding, Coordinate, DomainSignature, Signature
+    from marivo.analysis.materialization.cell_arrow import compact_schema
+    from marivo.analysis.materialization.graph_exchange import ExchangeContract, from_pandas
+    from marivo.analysis.methods.semantics import MethodKey
+    from marivo.refs import ref
 
-    _, verified = selection_input(1, parts=False)
-    contract = replace(verified.result.contract, parts=())
+    axes = tuple(
+        Coordinate(ref.entity("sales.customer"), name, "identity") for name in ("tenant", "id")
+    )
+    schema = pa.schema(
+        [
+            ("key_0", pa.int64()),
+            ("key_1", pa.string()),
+            ("value", pa.int64()),
+            ("cell_tag", pa.string()),
+            ("cell_reason", pa.string()),
+        ]
+    )
+    contract = ExchangeContract(
+        Signature(
+            DomainSignature(
+                Binding("codec", "sales", "customers", "none"), "entity", axes, axes, "codec"
+            )
+        ),
+        MethodKey("bind_project"),
+        "codec-input",
+        compact_schema(schema, ()),
+        ("key_0", "key_1"),
+    )
     frame = pd.DataFrame(
         {
             "key_0": [0],

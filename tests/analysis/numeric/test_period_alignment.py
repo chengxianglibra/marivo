@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 import pyarrow as pa
 import pytest
 
@@ -289,77 +287,6 @@ def test_equal_period_empty_finish_allows_missing_non_time_groups(
         )
         assert correspondence["correspondence__current_present"].tolist().count(False) == 3
         assert correspondence["correspondence__baseline_present"].tolist().count(False) == 3
-
-
-@pytest.mark.slow
-@pytest.mark.parametrize(
-    "kind,timestamp",
-    [
-        ("ordinal", False),
-        ("holiday_then_weekday", False),
-        ("holiday", True),
-        ("holiday_then_weekday", True),
-    ],
-)
-def test_period_independent_offline_fixed_and_cold(
-    analysis_dsl_case_factory: DslCaseFactory,
-    kind: Literal["ordinal", "holiday", "holiday_then_weekday"],
-    timestamp: bool,
-) -> None:
-    import os
-    import subprocess
-    import sys
-
-    from tests.analysis.materialization.domain_recovery_worker import snapshot
-    from tests.support.json import Json, encode, read
-    from tests.support.paths import PROJECT_ROOT
-
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(ms.ref.entity("sales.customer"))
-    _, current = period(members, 8, 2)
-    _, baseline = period(members, 7, 3)
-    from tests.analysis.numeric.test_time_alignment import time_key
-
-    source = current.compare(
-        baseline, align=mv.outer(time=time_key(kind, timestamp=timestamp))
-    ).execute()
-    state: dict[str, Json] = {
-        "session": case.session.id,
-        "kind": kind,
-        "timestamp": timestamp,
-        "inputs": {
-            "current": snapshot(current.execute()),
-            "baseline": snapshot(baseline.execute()),
-        },
-        "source": snapshot(source),
-    }
-    (case.root / "period-alignment.json").write_bytes(encode(state))
-    case.database_path.rename(case.database_path.with_suffix(".offline"))
-    (case.root / "models").rename(case.root / "models.offline")
-    pids = {os.getpid()}
-    for phase in ("fixed", "cold"):
-        output = case.root / (phase + ".json")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.materialization.period_alignment_worker",
-                str(case.root),
-                phase,
-                str(output),
-            ],
-            cwd=PROJECT_ROOT,
-            env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), MARIVO_TELEMETRY="off"),
-            capture_output=True,
-            text=True,
-            timeout=90,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        pid = read(output)["pid"]
-        assert isinstance(pid, int)
-        pids.add(pid)
-    assert len(pids) == 3
 
 
 def test_period_exchange_checks_original_projections_presence_and_both_views(

@@ -23,7 +23,6 @@ from marivo._definition.expressions import (
 )
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
-    ArtifactReadStage,
     CheckRequirement,
     GraphPlan,
     LocalMethodStage,
@@ -100,19 +99,11 @@ from marivo.analysis.methods.native_numeric import (
     bounded_transport_cast,
     transport_cast,
 )
-from marivo.analysis.methods.physical import (
-    DecimalType,
-    DurationType,
-    ScalarType,
-    SourceShape,
-)
+from marivo.analysis.methods.physical import DecimalType, DurationType, ScalarType, SourceShape
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.datasource.adapters import BoundSource, PhysicalRequirement
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
-from marivo.semantic._expression_binding import (
-    CompiledExpressionSidecar,
-    evaluate_expression_body,
-)
+from marivo.semantic._expression_binding import CompiledExpressionSidecar, evaluate_expression_body
 from marivo.semantic.ir import (
     DIRECT_ONLY_AGGREGATES,
     TargetDimensionContract,
@@ -333,7 +324,7 @@ class TemporalCheck:
     axis: TargetDimensionContract
 
 
-LoweredStage: TypeAlias = LoweredRelation | LoweredLocal | ArtifactReadStage
+LoweredStage: TypeAlias = LoweredRelation | LoweredLocal
 LoweredCheck: TypeAlias = IntegrityCheck | SemanticCheck | TemporalCheck | CheckRequirement
 
 
@@ -2012,11 +2003,11 @@ def _state_magnitude(state: OriginalStatePart) -> tuple[str, str]:
 
 
 def _term_sum_name(index: int, sign: int) -> str:
-    return f"original_state__{'plus' if sign > 0 else 'minus'}_{index}_sum"
+    return f"original_state__{('plus' if sign > 0 else 'minus')}_{index}_sum"
 
 
 def _term_support_name(index: int, sign: int) -> str:
-    return f"original_state__{'plus' if sign > 0 else 'minus'}_{index}_non_null_count"
+    return f"original_state__{('plus' if sign > 0 else 'minus')}_{index}_non_null_count"
 
 
 def _original_state(signature: Signature) -> OriginalStatePart:
@@ -3800,13 +3791,6 @@ def lower(
         coordinate_relations: list[tuple[str, ir.Table]] = []
         transports: list[ir.Table] = []
         part_source_ids: tuple[tuple[str, tuple[str, ...]], ...] = ()
-        if isinstance(stage, ArtifactReadStage):
-            layout = canonical_layout(
-                stage.leaf.signature, has_value=stage.leaf.signature.quantity is not None
-            )
-            layouts[stage.output] = layout
-            stages.append(stage)
-            continue
         if isinstance(stage, LocalMethodStage):
             output_layout = canonical_layout(
                 stage.node.signature,
@@ -4203,9 +4187,6 @@ def lower(
         ):
             # A deferred originating check must finish locally before inherited
             # consumers can reuse its proof, even when its operands are source relations.
-            checks.append(requirement)
-            continue
-        if admitted.classification.kind == "artifact":
             checks.append(requirement)
             continue
         if isinstance(owner, MethodNode) and (
@@ -4671,10 +4652,6 @@ def endpoint_fields(signature: Signature, side: str, table: ir.Table) -> dict[st
             else "coordinate_state__present"
         ]
     return fields
-
-
-# R2.3 Query lowering. Each SourceRead becomes one Ibis table over its exact
-# bound relation; lowering reads only Ibis schemas and never executes.
 
 
 @dataclass(frozen=True, slots=True, eq=False)

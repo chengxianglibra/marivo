@@ -1,4 +1,4 @@
-"""Private Arrow/pandas Spearman continuation shared by source and fixed inputs."""
+"""Private Arrow/pandas Spearman continuation over in-flight source inputs."""
 
 from __future__ import annotations
 

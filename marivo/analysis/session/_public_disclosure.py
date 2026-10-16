@@ -20,13 +20,8 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 from marivo.analysis._subject import SubjectBinding
 from marivo.analysis.materialization import graph_fields as fields
-from marivo.analysis.session._method_disclosure import (
-    method_example,
-    parameter_guidance,
-)
-from marivo.analysis.session._method_disclosure import (
-    section as _doc_section,
-)
+from marivo.analysis.session._method_disclosure import method_example, parameter_guidance
+from marivo.analysis.session._method_disclosure import section as _doc_section
 
 _METHOD_GROUPS = {
     ("_MaterializedRead", "show"): "artifacts.reads",
@@ -44,7 +39,6 @@ _METHOD_GROUPS = {
     ("_NumericComparison", "forecast"): "methods.forecast",
     ("_Attribution", "where"): "methods.compare",
     ("LogicalDifferenceRelation", "attribute"): "methods.compare",
-    ("MaterializedDifferenceRelation", "attribute"): "methods.compare",
     ("_Ranking", "where"): "methods.rows",
     ("_Ranking", "limit"): "methods.rows",
     ("_NumericComparison", "compare"): "methods.compare",
@@ -60,30 +54,18 @@ _METHOD_GROUPS = {
     ("LogicalNumericRelation", "rollup"): "methods.metric",
     ("LogicalNumericRelation", "aggregate"): "methods.metric.summary",
     ("LogicalNumericRelation", "correlate"): "methods.association",
-    ("MaterializedNumericRelation", "aggregate"): "methods.metric.summary",
-    ("MaterializedNumericRelation", "group_by"): "methods.metric.reduce",
-    ("MaterializedNumericRelation", "rollup"): "methods.metric.reduce",
-    ("MaterializedNumericRelation", "correlate"): "methods.association",
-    ("MaterializedNumericRelation", "where"): "methods.rows",
     ("LogicalRatioRelation", "group_by"): "methods.metric",
     ("LogicalRatioRelation", "rollup"): "methods.metric",
     ("LogicalRatioRelation", "aggregate"): "methods.metric.summary",
-    ("MaterializedRatioRelation", "rollup"): "methods.metric",
     ("LogicalCategoryRelation", "where"): "methods.rows",
     ("LogicalDifferenceRelation", "where"): "methods.rows",
     ("LogicalDifferenceRelation", "aggregate"): "methods.compare",
-    ("MaterializedSelectedDifferenceRelation", "members"): "methods.rows",
-    ("MaterializedCoefficientRelation", "where"): "methods.association",
 }
-
-
 _DISCOVERY_FAMILIES = {
     ("_OriginalContinuation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
     ("LogicalNumericRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
-    ("MaterializedNumericRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
     ("LogicalRatioRelation", "aggregate"): "dsl.LogicalNumericRelation.aggregate",
     ("LogicalRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
-    ("MaterializedRatioRelation", "rollup"): "dsl.LogicalRatioRelation.rollup",
 }
 
 
@@ -170,7 +152,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         dsl.MaterializedCoefficientRelation,
         dsl.LogicalCoefficientSelectionRelation,
         dsl.MaterializedCoefficientSelectionRelation,
-        dsl.LogicalFixedAnalysisDomain,
         dsl.MemberAxis,
         dsl.RowMethod,
         dsl.CountMethod,
@@ -289,6 +270,14 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 else acquisition,
                 producers=("actions.execute",) if name.startswith("Materialized") else producers,
                 consumers=(
+                    "actions.show",
+                    "actions.to_pandas",
+                    "artifact.findings",
+                    "artifact.finding",
+                    "dsl.MaterializedRead.evidence_digest",
+                )
+                if name.startswith("Materialized") and type_value is not dsl.MaterializedTable
+                else (
                     "dsl.LogicalComparisonResult.execute",
                     "dsl.Value.contract",
                     "LogicalDifferenceRelation",
@@ -389,7 +378,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             )
         )
         exports.append(ExportInput(name, type_value, name))
-
     descriptors.append(
         operation(
             "dsl.time_grid",
@@ -419,7 +407,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
     )
     exports.append(ExportInput("time_grid", dsl.time_grid, "dsl.time_grid"))
-
     descriptors.append(
         operation(
             "dsl.table",
@@ -434,7 +421,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             ),
             output="LogicalTable",
             constraints=(
-                "One Session and source/fixed mode; terminal export only. Non-Defined pandas values lose their Cell labels, retained by show() and the Artifact.",
+                "One Session and unexecuted source inputs; terminal export only. Non-Defined pandas values lose their Cell labels, retained by show() and the Artifact.",
             ),
             effects="Pure definition binding; no business rows or Run.",
             failures=("AnalysisError: use the exact structured binding or key repair.",),
@@ -545,7 +532,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             )
         )
         exports.append(ExportInput(name, function, "dsl." + name))
-
     descriptors.append(
         operation(
             "dsl.one_to_one",
@@ -577,7 +563,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
     )
     exports.append(ExportInput("one_to_one", dsl.one_to_one, "dsl.one_to_one"))
-
     descriptors.append(
         operation(
             "dsl.reference_weights",
@@ -605,7 +590,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
         )
     )
     exports.append(ExportInput("reference_weights", dsl.reference_weights, "dsl.reference_weights"))
-
     for quantifier_function, output, example in (
         (cohort.any_instance, "AnyInstance", "mv.any_instance()"),
         (cohort.at_least, "AtLeast", "mv.at_least(3)"),
@@ -642,7 +626,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             )
         )
         exports.append(ExportInput(name, quantifier_function, "dsl." + name))
-
     for composite_function in (fields.all_of, fields.any_of, fields.not_):
         name = composite_function.__name__
         descriptors.append(
@@ -676,7 +659,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
             )
         )
         exports.append(ExportInput(name, composite_function, name))
-
     field_types = (
         fields.NumericField,
         fields.CategoryField,
@@ -734,7 +716,6 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                 constraints=("Exact binding; no implicit truth or short-circuit exemption.",),
             )
         )
-
     owner_methods: tuple[type[object], ...] = (
         fields._BoundValue,
         *field_types,
@@ -824,7 +805,7 @@ def inputs() -> tuple[tuple[Descriptor, ...], tuple[ExportInput, ...]]:
                     example=method_example(value),
                 )
             )
-    return _with_producers(tuple(descriptors)), tuple(exports)
+    return (_with_producers(tuple(descriptors)), tuple(exports))
 
 
 _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
@@ -835,7 +816,6 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
     "OuterAlignment": ("outer",),
     "ExactAlignment": ("exact",),
     "LogicalAnalysisDomain": ("session.members", "dsl.LogicalSelectedNumericRelation.members"),
-    "LogicalFixedAnalysisDomain": ("dsl.MaterializedNumericRelation.members",),
     "LogicalNumericRelation": (
         "dsl.LogicalAnalysisDomain.read",
         "dsl.LogicalAnalysisDomain.observe",
@@ -844,44 +824,24 @@ _RELATION_PRODUCERS: dict[str, tuple[str, ...]] = {
     "LogicalCategoryRelation": (
         "dsl.LogicalAnalysisDomain.read",
         "dsl.LogicalCategoryRelation.where",
-        "dsl.MaterializedCategoryRelation.where",
     ),
     "LogicalBooleanRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalAssociationResult"),
     "LogicalTemporalRelation": ("dsl.LogicalAnalysisDomain.read", "LogicalTimeRunResult"),
-    "LogicalSelectedNumericRelation": (
-        "dsl.LogicalNumericRelation.where",
-        "dsl.MaterializedNumericRelation.where",
-    ),
+    "LogicalSelectedNumericRelation": ("dsl.LogicalNumericRelation.where",),
     "LogicalSelectedBooleanRelation": ("dsl.LogicalBooleanRelation.where",),
     "LogicalSelectedTemporalRelation": ("dsl.LogicalTemporalRelation.where",),
     "LogicalRatioRelation": ("dsl.LogicalAnalysisDomain.observe",),
-    "LogicalRolledNumericRelation": (
-        "dsl.LogicalNumericRelation.rollup",
-        "dsl.MaterializedNumericRelation.rollup",
-    ),
-    "LogicalRolledRatioRelation": (
-        "dsl.LogicalRatioRelation.rollup",
-        "dsl.MaterializedRatioRelation.rollup",
-    ),
+    "LogicalRolledNumericRelation": ("dsl.LogicalNumericRelation.rollup",),
+    "LogicalRolledRatioRelation": ("dsl.LogicalRatioRelation.rollup",),
     "LogicalDifferenceRelation": ("LogicalComparisonResult", "MaterializedComparisonResult"),
-    "LogicalSelectedDifferenceRelation": (
-        "dsl.LogicalDifferenceRelation.where",
-        "dsl.MaterializedDifferenceRelation.where",
-    ),
+    "LogicalSelectedDifferenceRelation": ("dsl.LogicalDifferenceRelation.where",),
     "LogicalStatisticRelation": (
         "dsl.LogicalNumericRelation.aggregate",
-        "dsl.MaterializedNumericRelation.aggregate",
         "dsl.CountRelation.aggregate",
     ),
     "LogicalCoefficientRelation": ("LogicalAssociationResult",),
-    "LogicalCoefficientSelectionRelation": (
-        "dsl.LogicalCoefficientRelation.where",
-        "dsl.MaterializedCoefficientRelation.where",
-    ),
-    "GroupedNumericRelation": (
-        "dsl.LogicalNumericRelation.group_by",
-        "dsl.MaterializedNumericRelation.group_by",
-    ),
+    "LogicalCoefficientSelectionRelation": ("dsl.LogicalCoefficientRelation.where",),
+    "GroupedNumericRelation": ("dsl.LogicalNumericRelation.group_by",),
     "GroupedRatioRelation": ("dsl.LogicalRatioRelation.group_by",),
     "GroupedStatisticRelation": ("dsl.StatisticContinuation.group_by",),
 }

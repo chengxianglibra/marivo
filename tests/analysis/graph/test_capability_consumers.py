@@ -15,14 +15,8 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
-from marivo.analysis.methods import builtin
 from marivo.analysis.methods.physical import (
-    FixedShape,
-    QualificationKey,
-    Qualified,
     ScalarType,
-    SourceShape,
-    TimeShape,
 )
 from marivo.analysis.methods.semantics import MethodKey
 from marivo.datasource.adapters import SourceSession
@@ -691,31 +685,6 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
             grouped,
             (case.session,),
         )
-
-
-@pytest.mark.parametrize(
-    "method", ["parts_transport", "time.product", "metric.sum_zero", "state_rollup.sum_zero"]
-)
-def test_tokyo_grid_registration_is_limited_to_recorded_keys(
-    method: Literal["parts_transport", "time.product", "metric.sum_zero", "state_rollup.sum_zero"],
-) -> None:
-    declarations = [
-        item
-        for item in builtin.implementations(MethodKey(method))
-        if isinstance(item.qualification, Qualified)
-        and item.qualification.implementation_id.startswith("r93.c06.dst_grid.")
-    ]
-    fixed = method == "state_rollup.sum_zero"
-    expected = QualificationKey(
-        MethodKey(method),
-        (ScalarType("int64" if fixed else "string"),),
-        ("entity",),
-        FixedShape(TimeShape("instant", "us", "Asia/Tokyo"))
-        if fixed
-        else SourceShape("duckdb", "table", "native", TimeShape("instant", "us", "Asia/Tokyo")),
-        "artifact_python" if fixed else "ibis",
-    )
-    assert [item.key for item in declarations] == [expected]
 
 
 @pytest.mark.parametrize(

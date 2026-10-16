@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import shutil
-import subprocess
-import sys
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import replace
@@ -27,7 +22,6 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.slow
@@ -258,27 +252,3 @@ def test_long_path_sum_and_count(
                 else:
                     assert selected.to_pandas().sort_values("member").value.tolist() == [2, 0, 0]
         assert session._runtime.store.resources(session.id) == ()
-
-    if depth == 4 and key_type == "int64":
-        (tmp_path / "observations.json").write_text(
-            json.dumps({"session": session.id, "inputs": outputs})
-        )
-        shutil.rmtree(tmp_path / "models")
-        for database in tmp_path.glob("*.duckdb"):
-            database.unlink()
-        for phase in ("fixed", "cold"):
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "tests.analysis.graph.observation_recovery_worker",
-                    str(tmp_path),
-                    phase,
-                ],
-                cwd=PROJECT_ROOT,
-                env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-                capture_output=True,
-                text=True,
-                timeout=180,
-            )
-            assert completed.returncode == 0, completed.stdout + completed.stderr

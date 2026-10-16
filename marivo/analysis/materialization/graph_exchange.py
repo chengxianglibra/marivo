@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -35,7 +34,6 @@ from marivo.analysis.core.model import (
     part_role,
 )
 from marivo.analysis.core.rules import ReferenceDerive
-from marivo.analysis.datasets.descriptors import DatasetRowContract, DatasetRowSetContract
 from marivo.analysis.materialization.cell_arrow import (
     binding,
     compact_schema,
@@ -44,13 +42,10 @@ from marivo.analysis.materialization.cell_arrow import (
     pack,
     required,
     schema_binding,
-    storage_schema,
 )
 from marivo.analysis.materialization.cell_arrow import rows as cell_rows
 from marivo.analysis.materialization.cell_arrow import validate as validate_cells
-from marivo.analysis.materialization.contracts import LocalReceipt
 from marivo.analysis.materialization.errors import MaterializationError
-from marivo.analysis.materialization.storage import _open_payload, _realized_schema
 from marivo.analysis.methods.physical import stage_arrow_type
 from marivo.analysis.methods.registry import REGISTRY
 from marivo.analysis.methods.semantics import MethodKey
@@ -158,12 +153,9 @@ class ExchangeContract:
     def __post_init__(self) -> None:
         expected_state: str | None
         if self._frozen is not None:
-            from marivo.analysis.materialization.graph_protocol import fixed_signature
-
             value = self._frozen.descriptor
             if (
-                self.signature
-                not in (value.signature, fixed_signature(value, _validated=self._frozen))
+                self.signature != value.signature
                 or value.method_state.input_binding != self.input_binding
                 or value.method_state.method_name != self.method.name
                 or value.method_state.method_version != self.method.version
@@ -1404,101 +1396,6 @@ def from_arrow(
         completed_checks=completed_checks,
         method_state=method_state,
     )
-
-
-@dataclass(frozen=True, slots=True)
-class VerifiedFixedInput:
-    """Invocation-owned v8 input, already exhausted by the receipt owner."""
-
-    artifact_ref: str
-    receipt: LocalReceipt
-    result: ExchangeResult
-
-
-@dataclass(frozen=True, slots=True)
-class FixedPartInput:
-    role: str
-    receipt: LocalReceipt
-
-
-@dataclass(frozen=True, slots=True)
-class FixedInput:
-    artifact_ref: str
-    root: Path
-    receipt: LocalReceipt
-    row: DatasetRowContract
-    rows: DatasetRowSetContract
-    parts: tuple[FixedPartInput, ...]
-
-
-def from_receipts(selected: FixedInput, contract: ExchangeContract) -> ExchangeResult:
-    """Read exact local receipts into pandas without opening a source or native scan."""
-    if selected.artifact_ref != contract.input_binding:
-        raise _invalid("fixed receipt does not match the exact input binding")
-    if tuple(item.role for item in selected.parts) != tuple(part.role for part in contract.parts):
-        raise _invalid("missing, reordered or extra fixed part receipt")
-
-    def read(receipt: LocalReceipt, expected: pa.Schema) -> pd.DataFrame:
-        import sys
-
-        parquet, path = _open_payload(selected.root, receipt)
-        failed = False
-        try:
-            actual = parquet.schema_arrow
-            if not actual.equals(storage_schema(expected), check_metadata=True):
-                raise _invalid("fixed receipt schema or fingerprint differs")
-            if (
-                parquet.metadata.num_rows != receipt.realized_row_count
-                or len(receipt.file_manifest) != 1
-                or path.stat().st_size != receipt.file_manifest[0].size_bytes
-            ):
-                raise _invalid("fixed receipt content or cardinality differs")
-            if receipt is selected.receipt:
-                if (
-                    selected.rows.cardinality.kind == "singleton"
-                    and receipt.realized_row_count != 1
-                ):
-                    raise _invalid("fixed singleton receipt has an invalid row count")
-                _realized_schema(selected.row, actual)
-                if any(
-                    column.nullable != field.nullable
-                    for column, field in zip(selected.row.schema.columns, actual, strict=True)
-                ):
-                    raise _invalid("fixed primary nullability differs from its row contract")
-            frame = pd.read_parquet(path, dtype_backend="pyarrow")
-            if (
-                tuple(frame.columns) != tuple(actual.names)
-                or len(frame) != receipt.realized_row_count
-            ):
-                raise _invalid("fixed pandas payload differs from its receipt")
-            return frame
-        except (OSError, pa.ArrowException, ValueError, TypeError) as error:
-            failed = True
-            if isinstance(error, MaterializationError):
-                raise
-            raise _invalid(
-                f"fixed Parquet payload could not be read: {type(error).__name__}"
-            ) from error
-        finally:
-            failed = failed or sys.exc_info()[0] is not None
-            try:
-                parquet.close()
-            except (OSError, pa.ArrowException):
-                if not failed:
-                    raise _invalid("fixed Parquet reader did not close successfully") from None
-
-    primary = read(selected.receipt, contract.schema)
-    if tuple(primary.columns) != tuple(contract.schema.names):
-        raise _invalid("fixed primary columns differ from its frozen exchange")
-    _validate_pandas_cells(primary, contract.schema)
-    checked_parts: list[ExchangePart] = []
-    for item, declared in zip(selected.parts, contract.parts, strict=True):
-        frame = read(item.receipt, declared.schema)
-        if tuple(frame.columns) != tuple(declared.schema.names):
-            raise _invalid(f"{declared.role} fixed columns differ")
-        _validate_pandas_cells(frame, declared.schema)
-        checked_parts.append(ExchangePart(item.role, frame))
-    return from_pandas(primary, contract, parts=tuple(checked_parts), validate=False)
 
 
 def reference_parameters(signature: Signature) -> ReferenceDerive:

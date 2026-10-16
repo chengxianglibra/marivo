@@ -63,7 +63,6 @@ table.execute().execute()
 def rejected(
     members: mv.LogicalAnalysisDomain,
     fixed_members: mv.MaterializedAnalysisDomain,
-    selected_members: mv.LogicalFixedAnalysisDomain,
     category: mv.LogicalCategoryRelation,
     fixed_category: mv.MaterializedCategoryRelation,
     selected_category: mv.LogicalCategoryRelation,
@@ -80,7 +79,6 @@ def rejected(
 ) -> None:
     members.group_by()
     fixed_members.group_by()
-    selected_members.group_by()
     members.count()
     category.group_by()
     fixed_category.group_by()
@@ -132,7 +130,6 @@ def rejected(
     assert 'LogicalAnalysisDomain" has no attribute "each"' in output
     assert 'TimeGrid" has no attribute "window"' in output
     assert 'has no attribute "execute"' in output
-    assert 'LogicalFixedAnalysisDomain" has no attribute "observe"' in output
     assert 'Argument 1 to "compare"' in output
     assert 'LogicalComparisonResult" has no attribute "rollup"' in output
     assert 'Argument "method" to "correlate"' in output
@@ -150,7 +147,6 @@ def rejected(
     for owner in (
         "LogicalAnalysisDomain",
         "MaterializedAnalysisDomain",
-        "LogicalFixedAnalysisDomain",
         "LogicalCategoryRelation",
         "MaterializedCategoryRelation",
         "LogicalBooleanRelation",
@@ -201,7 +197,6 @@ assert_type(selected, mv.LogicalCategoryRelation)
 assert_type(selected.where(selected.value.eq('east')), mv.LogicalCategoryRelation)
 fixed_category = selected.execute()
 assert_type(fixed_category, mv.MaterializedCategoryRelation)
-assert_type(fixed_category.where(fixed_category.value.eq('east')), mv.LogicalCategoryRelation)
 classified = members.observe(ms.ref.metric('sales.revenue'), by=(category,))
 assert isinstance(classified, mv.LogicalNumericRelation)
 """

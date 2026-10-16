@@ -814,7 +814,7 @@ payload is rejected as an integrity failure, never coerced.
 | condition_cells | series/cell key, dependency bindings, true/false/unavailable and closed reasons | Runs; full classification scope survives selected outputs |
 | run_cells | run identity, ordered cell identities, start/end/count/duration and two termination witnesses | Runs; select by run identity, never resegment |
 | subject_map | original complete Subject tuple, input cell/instance and run/observed mapping when available | actual Subject owner; never synthesize from public numeric keys |
-| pair_inputs | ordered quantity/pair/series/lag, full correspondence bindings, captured pair values/tags and pairing counts | Association; fixed method requires these inputs, transport-only does not qualify the kernel |
+| pair_inputs | ordered quantity/pair/series/lag, full correspondence bindings, captured pair values/tags and pairing counts | Association within the source invocation; transport-only does not qualify the kernel |
 | association_state | every candidate key, counts/status/coefficient/selected, input quantity contracts and original search_summary/selection version | Association; selected current rows retain original search authority |
 | training_inputs | series/cell key, full training values, training grid and quantity binding | Forecast; no source/calendar reconstruction |
 | forecast_state | series key, model/season/n/innovation count/df/slope/sigma2/zero flag/numeric policy; each horizon variance | Forecast; per-series facts, not only min/max summaries |
@@ -851,9 +851,9 @@ Cell comparisons/references, allocation reconciliation and r8_numeric_v1 are
 different numerical contracts. None certifies source sampling, business
 completeness or approximation error outside its own scope.
 
-Current-row int64/float64 consumers, the qualified fixed NoTime Entity
-Decimal(18,2) sum/mean consumers and the qualified Duration mean consumers keep
-their exact declared input/output/state types. The Decimal sum state widens to
+Current-row source consumers and qualified Duration mean consumers keep their
+exact declared input/output/state types. Local Decimal arithmetic helpers retain
+their numeric equations without granting saved-result execution. The Decimal sum state widens to
 Decimal(38,2); its mean finishes once to Decimal(38,6) with HALF_EVEN while
 retaining scale-2 sum state. This is not blanket Decimal group/time admission.
 

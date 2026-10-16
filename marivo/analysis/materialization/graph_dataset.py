@@ -5,13 +5,12 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import pyarrow as pa
 
 from marivo._data_render import _DataCard, _validate_display
-from marivo.analysis.core.graph import MethodNode
 from marivo.analysis.core.model import (
     AttributionPart,
     ComparisonPart,
@@ -460,31 +459,6 @@ def _schema(table: pa.Table) -> d.DatasetSchema:
 class GraphDataset:
     runtime: DatasetRuntime
     artifact: GraphArtifact
-    projection: (
-        Literal[
-            "absolute",
-            "relative",
-            "values",
-            "ranks",
-            "contribution",
-            "current",
-            "baseline",
-            "observed",
-            "reference",
-            "deviation",
-            "score",
-            "start",
-            "end",
-            "count",
-            "duration",
-            "coefficient",
-            "selected",
-            "prediction",
-            "lower",
-            "upper",
-        ]
-        | None
-    ) = None
 
     def evidence_digest(self) -> t.GraphArtifactDigest:
         with self.runtime.store._read() as connection:
@@ -566,73 +540,6 @@ class GraphDataset:
         if current is None:
             raise invalid("selected Artifact disappeared")
         result = read_result(store.project_root, current.descriptor, _validated=current.validated)
-        if self.projection is not None:
-            from marivo.analysis.materialization.graph_display import project
-
-            if self.projection in ("absolute", "relative"):
-                from marivo.analysis.materialization.graph_local_execution import comparison_project
-                from marivo.analysis.materialization.graph_relation import Relation
-
-                node = (
-                    Relation._from_verified_artifact(self.runtime, current)
-                    .comparison_field(self.projection)
-                    .root
-                )
-                assert isinstance(node, MethodNode)
-                result = comparison_project(node, result, current.artifact_ref)
-            elif self.projection in ("coefficient", "selected", "prediction", "lower", "upper"):
-                from marivo.analysis.materialization.graph_relation import Relation
-                from marivo.analysis.materialization.statistical_execution import (
-                    execute as execute_statistical,
-                )
-
-                relation = Relation._from_verified_artifact(self.runtime, current)
-                node = (
-                    relation.association_field(self.projection)
-                    if self.projection in ("coefficient", "selected")
-                    else relation.forecast_field(
-                        "prediction"
-                        if self.projection == "prediction"
-                        else "lower"
-                        if self.projection == "lower"
-                        else "upper"
-                    )
-                ).root
-                assert isinstance(node, MethodNode)
-                result = execute_statistical(node, (result,), current.artifact_ref)
-            elif self.projection in ("start", "end", "count", "duration"):
-                from marivo.analysis.materialization.graph_relation import Relation
-                from marivo.analysis.materialization.runs_execution import execute
-
-                node = (
-                    Relation._from_verified_artifact(self.runtime, current)
-                    .run_field(self.projection)
-                    .root
-                )
-                assert isinstance(node, MethodNode)
-                result = execute(node, (result,), current.artifact_ref)
-            elif self.projection in ("observed", "reference", "deviation", "score"):
-                from marivo.analysis.materialization.deviation_execution import (
-                    project as deviation_project,
-                )
-                from marivo.analysis.materialization.graph_relation import Relation
-
-                relation = Relation._from_verified_artifact(self.runtime, current)
-                node = relation.deviation_field(self.projection).root
-
-                assert isinstance(node, MethodNode)
-                result = deviation_project(
-                    result, self.projection, node=node, binding=current.artifact_ref
-                )
-            elif self.projection in ("contribution", "current", "baseline"):
-                from marivo.analysis.materialization.graph_attribution import (
-                    project as attribution_project,
-                )
-
-                result = attribution_project(result, self.projection)
-            else:
-                assert self.projection in ("values", "ranks")
-                result = project(result, self.projection)
         return current, result
 
     @property
@@ -818,9 +725,7 @@ class GraphDataset:
                     f"{ranking.order}, ties={ranking.ties}; original_rows={len(original)}, selected_rows={public.num_rows}",
                 ),
             )
-            if self.projection is None and not (
-                isinstance(params, PartsTransport) and params.display_view is not None
-            ):
+            if not (isinstance(params, PartsTransport) and params.display_view is not None):
                 rank_table = next(p.table for p in checked.parts if p.role == "ranks")
                 for row in rank_table.to_dict(orient="records"):
                     ranks[tuple(row[k] for k in checked.contract.key_fields)] = row["ranks__value"]

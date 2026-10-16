@@ -58,8 +58,8 @@ baseline_grid = mv.time_grid(
 metric = ms.ref.metric("sales.order_count")
 current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.member(),))
 baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
-periods = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
-periods.show()
+periods = current.compare(baseline, align=mv.outer(time=mv.ordinal()))
+periods.execute().show()
 weekdays = current.compare(baseline, align=mv.outer(time=mv.weekday())).execute()
 selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
 ```
@@ -76,7 +76,7 @@ holiday 按相对 occurrence 首日的有符号民用日偏移配对；hybrid �
 节假日输入来自 `session.catalog.temporal_sets.get(...).occurrence(key)`，必须具有整日边界，
 且边界时区与对应网格一致。四种映射均输出规范字符串，例如 `ordinal:1`、`weekday:1:1`、
 `holiday:0` 和 `holiday_then_weekday:holiday:0`。键像不等时仍按 exact/outer 覆盖政策处理，
-映射及 occurrence 快照身份在 fixed 与 cold 续接中保持冻结。
+映射及 occurrence 快照身份保留在执行前的源图及保存的结果元数据中。
 
 若模型已认证 UTC 中的 `sales.holidays` 及其 `august`、`july` occurrence，
 可用它们构造上述日粒度端点的节假日描述符。
@@ -158,7 +158,7 @@ penetration = counts.where(counts.value.gt(0)).members().penetration_in(members)
 stratum_counts = counts.group_by(region).rollup()
 composition = stratum_counts.share_of(stratum_counts.rollup())
 weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
-standardized = stratum_counts.standardize(reference=weights).execute()
+standardized = stratum_counts.standardize(reference=weights)
 standardized.contract().show()
 ```
 
@@ -187,15 +187,15 @@ baseline_counts = attribution_members.observe(
     by=(channel,),
 ).rollup()
 change = current_counts.compare(baseline_counts).absolute
-allocation = change.attribute(axes=(channel,), top_k=3).execute()
-selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocation = change.attribute(axes=(channel,), top_k=3)
+selected_allocation = allocation.where(allocation.contribution.value.is_defined())
 allocated_table = mv.table(
     contribution=selected_allocation.contribution,
     current=selected_allocation.current,
     baseline=selected_allocation.baseline,
 ).execute()
 allocation.contract().show()
-restored_allocation = session.artifact(allocation.state.artifact_ref)
+allocated_table.show()
 ```
 
 读取贡献、对应 current/baseline 端点、残差与对账。Joint axes 标识组合；

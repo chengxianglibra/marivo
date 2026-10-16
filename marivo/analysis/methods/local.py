@@ -52,7 +52,7 @@ def score_spearman(
     """Pair exact retained keys and score complete finite Cells with average ranks."""
     if (
         not isinstance(stage.node.parameters, AssociationScore)
-        or stage.implementation.key.route not in ("ibis_python", "artifact_python")
+        or stage.implementation.key.route not in ("ibis_python",)
         or not keys
     ):
         reject(
@@ -147,7 +147,7 @@ def arithmetic(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> ArithmeticRe
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method not in ("sum", "mean")
-        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
+        or stage.implementation.key.route not in ("ibis_python",)
         or type(cells) is not tuple
     ):
         reject(
@@ -235,7 +235,7 @@ def count(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResult:
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count"
-        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
+        or stage.implementation.key.route not in ("ibis_python",)
     ):
         reject(
             "the registered local count stage",
@@ -303,7 +303,7 @@ def count_defined(stage: LocalMethodStage, cells: tuple[Cell, ...]) -> CountResu
     if (
         not isinstance(stage.node.parameters, RowState)
         or stage.node.parameters.method != "count_defined"
-        or stage.implementation.key.route not in ("artifact_python", "ibis_python")
+        or stage.implementation.key.route not in ("ibis_python",)
         or type(cells) is not tuple
         or any(type(cell) not in (Defined, Null, Undefined, Unknown) for cell in cells)
     ):

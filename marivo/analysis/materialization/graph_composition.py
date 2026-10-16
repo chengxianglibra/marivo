@@ -11,7 +11,6 @@ import pyarrow as pa
 
 from marivo.analysis.core.graph import (
     Edge,
-    FixedLeaf,
     MethodNode,
     Node,
     SourceLeaf,
@@ -141,7 +140,7 @@ def _invalid_composition(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected="compatible ordered numeric definitions and exact target/correspondence bindings",
         received=received,
-        repair="Use shared targets for time comparisons, common Group/Singleton coordinates for cohorts, and complete retained definitions for fixed inputs.",
+        repair="Use shared targets for time comparisons, common Group/Singleton coordinates for cohorts, and complete source definitions for input composition.",
         location="analysis.graph_composition",
     )
 
@@ -395,16 +394,11 @@ def comparison_endpoints(node: MethodNode) -> tuple[MethodNode, ...]:
     if node.retained_endpoints:
         fingerprints = definition_fingerprints(node)
         for child, edge in zip(children, node.inputs, strict=True):
-            expected = (
-                edge.node.definition_fingerprint
-                if isinstance(edge.node, FixedLeaf)
-                else fingerprints[edge.node.identity]
-            )
+            expected = fingerprints[edge.node.identity]
             if fingerprints[child.identity] != expected:
                 raise _invalid_composition(
                     "retained endpoint does not match its exact input receipt definition"
                 )
-
     return tuple(child for child in children if isinstance(child, MethodNode))
 
 

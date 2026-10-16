@@ -5,23 +5,17 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-import os
 import sqlite3
-import sys
 from collections import Counter
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from uuid import uuid4
 
 import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
-from marivo.datasource import backends
-from marivo.datasource.adapters import SourceSession
-from tests.packaging.wheel_probe import assert_installed_origin
 from tests.support.source_trace import capture_source
 
 
@@ -334,25 +328,6 @@ def failure(kind: str) -> dict[str, object]:
     }
 
 
-def cold(project: Path, phase: str) -> dict[str, object]:
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("cold retained work attempted source connection")
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(SourceSession, "__init__", forbidden)
-        patch.setattr(
-            backends,
-            "_build_backend_from_effective",
-            forbidden,
-        )
-        if phase == "cold":
-            from marivo.analysis.materialization import graph_local_execution
-
-            patch.setattr(graph_local_execution, "execute_verified_fixed", forbidden)
-        return cold_retained(project, phase)
-
-
 def cold_retained(project: Path, phase: str) -> dict[str, object]:
     saved = json.loads((project / "saved.json").read_text())
     session = mv.session.resume(saved["session"], by="id")
@@ -459,61 +434,3 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
     else:
         raise ValueError(engine)
     return {"account": "analysis_reader", "insert_denied": error}
-
-
-def main() -> None:
-    phase, engine, project_arg, report_arg = sys.argv[1:]
-    project = Path(project_arg).resolve()
-    origin = assert_installed_origin()
-    os.environ["MARIVO_WHEEL_READER"] = "analysis_reader"
-    if engine in {"postgres", "mysql", "clickhouse"}:
-        from tests.datasource.environment.credentials import password
-
-        os.environ["MARIVO_WHEEL_PASSWORD"] = password()
-    if phase == "prepare":
-        prefix = "wheel_" + uuid4().hex + "_"
-        configure(engine, project, prefix)
-        (project / "prefix").write_text(prefix)
-        prepare(engine, project, prefix)
-        result: dict[str, object] = {"prefix": prefix}
-    else:
-        os.chdir(project)
-        if phase == "produce":
-            result = produce(project)
-        elif phase == "native":
-            result = native_audit(engine, project)
-        elif phase == "privileges":
-            result = privileges(engine, project)
-        elif phase in {"fixed", "cold"}:
-            result = cold(project, phase)
-        elif phase == "invalidate":
-            prefix = (project / "prefix").read_text()
-            with administrator(engine, project) as execute:
-                execute(f"DELETE FROM {prefix}customers WHERE id = '2'")
-            result = {"required_target_removed": True}
-        elif phase in {"invalid", "offline"}:
-            result = failure(phase)
-        elif phase == "remove":
-            remove(engine, project, (project / "prefix").read_text())
-            result = {"removed": True}
-        else:
-            raise ValueError(phase)
-    Path(report_arg).write_text(
-        json.dumps(
-            {
-                "phase": phase,
-                "backend": engine,
-                "pid": os.getpid(),
-                "origin": origin,
-                "result": result,
-            },
-            indent=2,
-            default=str,
-        )
-        + "\n"
-    )
-    assert_installed_origin()
-
-
-if __name__ == "__main__":
-    main()

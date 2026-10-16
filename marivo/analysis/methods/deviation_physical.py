@@ -8,7 +8,6 @@ from typing import Literal
 
 from marivo.analysis.methods.physical import (
     DecimalType,
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
@@ -59,24 +58,18 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
         ("table", "native"),
         ("parquet", "parquet"),
     )
-    shapes: tuple[SourceShape | FixedShape, ...] = (
+    shapes: tuple[SourceShape, ...] = (
         *(
             SourceShape("duckdb", form, kind, time)
             for form, kind in forms
             for time in (NoTime(), *times)
             if form == "parquet" or isinstance(time, NoTime) or time.unit == "us"
         ),
-        *(FixedShape(time) for time in (NoTime(), *times)),
+        *(),
     )
     declarations = tuple(
         Implementation(
-            QualificationKey(
-                method,
-                (typ,),
-                (domain,),
-                shape,
-                "artifact_python" if isinstance(shape, FixedShape) else "ibis_python",
-            ),
+            QualificationKey(method, (typ,), (domain,), shape, "ibis_python"),
             NUMERIC_CHECKS,
             (
                 *PARTS,
@@ -87,22 +80,14 @@ def implementations(method: MethodKey) -> tuple[Implementation, ...]:
                 "pair_counts",
             ),
             "exact" if method.name == "deviation.read" else "certified_statistical",
-            ResourceRequirements(
-                "complete", "caller" if isinstance(shape, FixedShape) else "producer", None
-            ),
+            ResourceRequirements("complete", "producer", None),
             Qualified(
-                "r8-"
-                + method.name.replace(".", "-")
-                + ("-artifact_python-v1" if isinstance(shape, FixedShape) else "-ibis_python-v1"),
+                "r8-" + method.name.replace(".", "-") + "-ibis_python-v1",
                 "analysis.materialization.deviation_execution",
                 "tests/test_analysis_deviation_r82.py",
             ),
         )
-        for domain in (
-            "singleton",
-            "entity",
-            "group",
-        )
+        for domain in ("singleton", "entity", "group")
         for typ in (ScalarType("int64"), ScalarType("float64"))
         for shape in shapes
     )

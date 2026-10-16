@@ -1,4 +1,4 @@
-"""Typed source and fixed relation operations for the existing public receivers."""
+"""Typed source relation operations for the existing public receivers."""
 
 from __future__ import annotations
 
@@ -8,10 +8,8 @@ from typing import Literal, TypeAlias
 
 from marivo._temporal import BeforeEndBoundary, TimeScope
 from marivo.analysis._cohort import AllInstances, AnyInstance, AtLeast, CohortRule
-from marivo.analysis.compiler.graph_plan import RouteChoice
 from marivo.analysis.core.graph import (
     Edge,
-    FixedLeaf,
     MethodNode,
     Node,
     SourceLeaf,
@@ -35,15 +33,12 @@ from marivo.analysis.core.model import (
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
-    AssociationScore,
     AttachCategory,
     BindProject,
     CellCompare,
     CellDerive,
     ComparisonRead,
     MapCorrespond,
-    ObserveCount,
-    ObserveMetric,
     OriginalReduce,
     PartsTransport,
     RowState,
@@ -58,9 +53,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.graph_composition import (
     combine_observations,
-    comparison_empty_rules,
-    period_mapping,
-    validate_time_comparison,
 )
 from marivo.analysis.materialization.graph_dataset import GraphDataset
 from marivo.analysis.materialization.graph_members import MemberGraph, construct_members
@@ -70,25 +62,12 @@ from marivo.analysis.materialization.graph_observation import (
     observe_linear_members,
     observe_ratio_members,
 )
-from marivo.analysis.materialization.graph_protocol import (
-    ValidatedDescriptor,
-    digest,
-    fixed_signature,
-    thaw_graph,
-)
-from marivo.analysis.materialization.graph_snapshot import MethodRecord, same_node_definition
-from marivo.analysis.materialization.graph_store import GraphArtifact
+from marivo.analysis.materialization.graph_protocol import digest
+from marivo.analysis.materialization.graph_snapshot import same_node_definition
 from marivo.analysis.methods.comparison import output_type
-from marivo.analysis.methods.physical import (
-    DecimalType,
-    DurationType,
-    FixedShape,
-    NoTime,
-    ScalarType,
-)
+from marivo.analysis.methods.physical import DecimalType, DurationType, NoTime, ScalarType
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.analysis.observation.route_inputs import RelationshipPath
-from marivo.analysis.refs import ArtifactRef
 from marivo.refs import (
     DimensionKind,
     EntityKind,
@@ -109,7 +88,7 @@ def _reject(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
         expected="one qualified typed relation with exact Session, member and method binding",
         received=received,
-        repair="Use matching logical inputs or exact Artifacts from this Session.",
+        repair="Use matching unexecuted Logical inputs from this Session.",
         location="analysis.graph_relation",
     )
 
@@ -150,16 +129,12 @@ def _shared_root(first: Node, second: Node, known: dict[str, Node] | None = None
 
 
 def _retained_definition(
-    root: MethodNode,
-    *,
-    preserve_fixed: bool = False,
-    shared: dict[str, tuple[Node, Node]] | None = None,
+    root: MethodNode, *, shared: dict[str, tuple[Node, Node]] | None = None
 ) -> MethodNode:
     """Isolate an Artifact's metadata closure without altering any definition hash.
 
     Source shape qualification may differ across snapshots of the same capture.
     Receipt data edges retain their original identities; this closure is evidence only.
-    Preserve fixed leaves when reusing the executable Artifact input and its exact receipt.
     """
     from uuid import uuid4
 
@@ -190,9 +165,8 @@ def _retained_definition(
                     if isinstance(endpoint, MethodNode)
                 ),
             )
-        elif not (preserve_fixed and isinstance(node, FixedLeaf)):
+        else:
             node = replace(node, identity=uuid4().hex)
-        # The original capture key is used only while rebuilding this isolated closure.
         known[original.identity] = node
         if shared is not None:
             shared[original.identity] = (original, node)
@@ -208,12 +182,7 @@ class LiveBinding:
     report_timezone: str
 
 
-@dataclass(frozen=True, slots=True)
-class FrozenBinding:
-    definition: MethodNode | ValidatedDescriptor
-
-
-Binding: TypeAlias = LiveBinding | FrozenBinding
+Binding: TypeAlias = LiveBinding
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -243,91 +212,29 @@ class Relation:
         )
         return cls(runtime, graph.root, LiveBinding(graph, sidecar, report_timezone))
 
-    @classmethod
-    def restore(cls, dataset: GraphDataset) -> Relation:
-        current, _ = dataset._read_verified()
-        return cls._from_verified_artifact(dataset.runtime, current)
-
-    @classmethod
-    def _from_verified_artifact(cls, runtime: DatasetRuntime, artifact: GraphArtifact) -> Relation:
-        descriptor = artifact.descriptor
-        checked = artifact.validated
-        definition = checked.root
-        captured_time = descriptor.time_shape
-        root = FixedLeaf(
-            ArtifactRef(ref=artifact.artifact_ref),
-            descriptor.definition_fingerprint,
-            fixed_signature(descriptor, _validated=checked),
-            definition.value_type,
-            FixedShape(captured_time),
-        )
-        return cls(runtime, root, FrozenBinding(checked))
-
     @property
     def definition(self) -> MethodNode:
         if isinstance(self.root, MethodNode):
             return self.root
-        if isinstance(self.binding, FrozenBinding):
-            definition = self.binding.definition
-            if isinstance(definition, MethodNode):
-                return definition
-            restored = thaw_graph(definition.snapshot.root)
-            if not isinstance(restored, MethodNode):
-                raise _reject("Artifact has no typed method result")
-            return restored
         raise _reject("relation has no typed definition")
 
     @property
-    def captured_definition(self) -> MethodNode | MethodRecord:
-        """Read frozen result metadata without restoring historical semantics."""
-        if isinstance(self.binding, FrozenBinding) and isinstance(
-            self.binding.definition, ValidatedDescriptor
-        ):
-            return self.binding.definition.root
+    def captured_definition(self) -> MethodNode:
         return self.definition
 
     def _with(self, root: MethodNode) -> Relation:
-        if (
-            isinstance(self.binding, FrozenBinding)
-            and isinstance(self.root, FixedLeaf)
-            and len(root.inputs) == 1
-            and root.inputs[0].node is self.root
-            and isinstance(
-                root.parameters, (PartsTransport, OriginalReduce, RowState, ComparisonRead)
-            )
-        ):
-            root = replace(
-                root,
-                retained_endpoints=(self.definition,),
-            )
-        binding: Binding = (
-            replace(self.binding, graph=replace(self.binding.graph, root=root))
-            if isinstance(self.binding, LiveBinding)
-            else FrozenBinding(root)
+        return Relation(
+            self.runtime, root, replace(self.binding, graph=replace(self.binding.graph, root=root))
         )
-        return Relation(self.runtime, root, binding)
 
     def _live(self) -> LiveBinding:
-        if not isinstance(self.binding, LiveBinding):
-            raise _reject("fixed selected members plus live Metric or Dimension")
         return self.binding
 
     def _edge(self) -> Edge:
         return Edge("subject" if self.root.signature.quantity is None else "quantity", self.root)
 
     def execute(self) -> GraphDataset:
-        if isinstance(self.binding, LiveBinding):
-            artifact = self.binding.graph.execute()
-        else:
-            artifact = self.runtime._execute_graph(
-                self.root,
-                tuple(
-                    RouteChoice(node.identity, "artifact_python")
-                    for node in topology(self.root)
-                    if isinstance(node, MethodNode)
-                ),
-            )
-        return GraphDataset(self.runtime, artifact)
+        return GraphDataset(self.runtime, self.binding.graph.execute())
 
     def _require_anchor_time(self) -> None:
         if any(c.role == "aligned" for c in self.root.signature.domain.instance_key):
@@ -401,7 +308,6 @@ class Relation:
             )
 
     def runs(self, predicate: ValuePredicate, dependencies: tuple[Relation, ...]) -> Relation:
-        from marivo.analysis.compiler.graph_plan import classify_inputs
         from marivo.analysis.core.rules import TimeRuns
 
         self._check_runs_input()
@@ -418,8 +324,6 @@ class Relation:
             )
         )
         node = method_node(edges, TimeRuns(predicate, identity), value_type=ScalarType("int64"))
-        if classify_inputs(node).kind == "mixed":
-            raise _reject("runs cannot mix source and fixed predicate dependencies")
         result = self._with(node)
         for dependency in dependencies:
             result = result._with_sources(dependency)
@@ -436,7 +340,6 @@ class Relation:
     def deviation(
         self, method: Literal["zscore", "mad"], partitions: tuple[Relation, ...]
     ) -> Relation:
-        from marivo.analysis.compiler.graph_plan import classify_inputs
         from marivo.analysis.core.rules import DeviationFit
         from marivo.analysis.methods.deviation_physical import parse_type
 
@@ -499,13 +402,6 @@ class Relation:
             DeviationFit(method, self.root.value_type.name, identity),
             value_type=ScalarType("float64"),
         )
-        if classify_inputs(node).kind == "mixed":
-            raise failure(
-                "r8.input_mode",
-                "one source-only or fixed-only dependency closure",
-                "mixed source and fixed dependencies",
-                "Rebuild the categories and receiver in one input mode.",
-            )
         result = self._with(node)
         for partition in partitions:
             result = result._with_sources(partition)
@@ -639,23 +535,13 @@ class Relation:
                 )
             if v.root.signature.domain.time_grid is not None or lag_range is not None:
                 v._check_runs_input("correlate")
-        from marivo.analysis.compiler.graph_plan import classify_inputs
-
-        modes = tuple(classify_inputs(v.root).kind for v in inputs)
-        if len(set(modes)) != 1:
-            raise error(
-                "r8.input_mode",
-                "one source or fixed closure",
-                repr(modes),
-                "Use source Logical inputs together, or retained fixed inputs together.",
-            )
         known = {n.identity: n for n in topology(self.root)}
         edges = (
             self._edge(),
             *(Edge("quantity", _shared_root(self.root, v.root, known)) for v in others),
         )
         association_id = digest(
-            repr((tuple(v.root.fingerprint for v in inputs), method, lags, lag_range is not None))
+            repr((tuple((v.root.fingerprint for v in inputs)), method, lags, lag_range is not None))
         )
         node = method_node(
             edges,
@@ -873,12 +759,7 @@ class Relation:
                 else None,
             ),
             value_type=self.root.value_type,
-            retained_endpoints=(
-                self.definition,
-                *(_retained_definition(item.definition) for item in dependencies),
-            )
-            if isinstance(self.binding, FrozenBinding) and inclusions
-            else (),
+            retained_endpoints=(),
         )
         result = self._with(root)
         for item in dependencies:
@@ -1201,104 +1082,17 @@ class Relation:
             raise _reject(
                 "Spearman requires one observation per member without contribution coordinates"
             )
-        if isinstance(self.binding, LiveBinding) and isinstance(other.binding, LiveBinding):
-            graph = combine_observations(
-                self.binding.graph,
-                other.binding.graph,
-                method,
-                design=design,
-                pairing=pairing,
-                relationship=relationship,
-                verification=verification,
-                time=time,
-            )
-            return Relation(self.runtime, graph.root, replace(self.binding, graph=graph))
-        if isinstance(self.binding, LiveBinding) or isinstance(other.binding, LiveBinding):
-            raise _reject("mixed live and materialized dependencies")
-        current, baseline = self.definition, other.definition
-        first, second = self.root.signature, other.root.signature
-        left, right = first.quantity, second.quantity
-        if left is None or right is None:
-            raise _reject("comparison endpoints must retain quantities")
-        if method in ("difference", "relative_change"):
-            validate_time_comparison(current, baseline, design)
-        elif method == "relation_ratio":
-            if design != "period" and left.time_scope != right.time_scope:
-                raise _reject("ordinary ratio requires corresponding time roles")
-        else:
-            if not isinstance(current.parameters, (ObserveMetric, ObserveCount)) or not isinstance(
-                baseline.parameters, (ObserveMetric, ObserveCount)
-            ):
-                raise _reject("endpoints must retain their exact observation definitions")
-            a, b = current.inputs[0].node, baseline.inputs[0].node
-            if a.identity != b.identity or a.fingerprint != b.fingerprint:
-                raise _reject("endpoints do not share the same frozen member node")
-            if method == "spearman" and (
-                current.parameters.coordinates or baseline.parameters.coordinates
-            ):
-                raise _reject("Spearman requires exactly one observation per member")
-            first, second = self.root.signature, other.root.signature
-            left, right = first.quantity, second.quantity
-            if (
-                first.domain.binding != second.domain.binding
-                or first.domain.instance_key != second.domain.instance_key
-                or not isinstance(left, ObservedQuantity)
-                or not isinstance(right, ObservedQuantity)
-            ):
-                raise _reject("endpoints lack one exact frozen member binding")
-        if design == "period" and time is None:
-            raise _reject("period composition requires the selected frozen time-key descriptor")
-        time_mapping = (
-            period_mapping(current, baseline, time)
-            if design == "period" and time is not None
-            else None
+        graph = combine_observations(
+            self.binding.graph,
+            other.binding.graph,
+            method,
+            design=design,
+            pairing=pairing,
+            relationship=relationship,
+            verification=verification,
+            time=time,
         )
-        definition = digest(method + self.root.fingerprint + other.root.fingerprint)
-        if method in ("difference", "relative_change", "relation_ratio"):
-            from marivo.semantic.unit_algebra import ratio_unit
-
-            arithmetic: Literal["difference", "relative_change", "ratio"] = (
-                "ratio" if method == "relation_ratio" else method
-            )
-            try:
-                result_type = output_type(arithmetic, self.root.value_type, other.root.value_type)
-            except ValueError as error:
-                raise _reject(str(error)) from error
-            root = method_node(
-                (Edge("current", self.root), Edge("baseline", other.root)),
-                CellDerive(
-                    arithmetic,
-                    definition,
-                    "duration_ratio_unknown"
-                    if arithmetic == "ratio"
-                    and isinstance(self.root.value_type, DurationType)
-                    and isinstance(other.root.value_type, DurationType)
-                    else "propagate",
-                    ratio_unit(left.unit, right.unit) if arithmetic == "ratio" else left.unit,
-                    left.time_scope,
-                    "source.exact_pairing@v1" if pairing == "exact" else "source.unique_key@v1",
-                    "source.finite_numeric@v1",
-                    "ratio" if method == "relation_ratio" else design,
-                    pairing,
-                    comparison_empty_rules(current, baseline) if pairing == "metric_empty" else (),
-                    time_index=time_mapping[0] if time_mapping is not None else None,
-                    time_keys=time_mapping[1] if time_mapping is not None else None,
-                    relationship=relationship,
-                    verification=verification,
-                ),
-                value_type=result_type,
-                retained_endpoints=(current, baseline),
-            )
-        else:
-            domain = DomainSignature(first.domain.binding, "singleton", (), (), definition)
-            root = method_node(
-                (self._edge(), other._edge()),
-                AssociationScore(
-                    domain, definition, "source.exact_pairing@v1", "source.finite_numeric@v1"
-                ),
-                value_type=ScalarType("float64"),
-            )
-        return self._with(root)
+        return Relation(self.runtime, graph.root, replace(self.binding, graph=graph))
 
     def rollup(
         self, *coordinates: Ref[DimensionKind] | Ref[EntityKind] | BoundTimeGrid | Coordinate
@@ -1578,24 +1372,21 @@ class Relation:
         raise _reject("classification requires an explicit retained Dimension identity")
 
     def _with_sources(self, dependency: Relation) -> Relation:
-        if isinstance(self.binding, LiveBinding) and isinstance(dependency.binding, LiveBinding):
-            own = self.binding.graph
-            other = dependency.binding.graph
-            sources = {
-                leaf.identity: (schema, leaf)
-                for schema, leaf in (
-                    *(other.sources or ((other.entity_schema, other.leaf),)),
-                    *(own.sources or ((own.entity_schema, own.leaf),)),
-                )
-            }
-            return replace(
-                self,
-                binding=replace(
-                    self.binding,
-                    graph=replace(self.binding.graph, sources=tuple(sources.values())),
-                ),
+        own = self.binding.graph
+        other = dependency.binding.graph
+        sources = {
+            leaf.identity: (schema, leaf)
+            for schema, leaf in (
+                *(other.sources or ((other.entity_schema, other.leaf),)),
+                *(own.sources or ((own.entity_schema, own.leaf),)),
             )
-        return self
+        }
+        return replace(
+            self,
+            binding=replace(
+                self.binding, graph=replace(self.binding.graph, sources=tuple(sources.values()))
+            ),
+        )
 
     def attach_category(
         self, category: Relation, *, coordinate: Coordinate | None = None

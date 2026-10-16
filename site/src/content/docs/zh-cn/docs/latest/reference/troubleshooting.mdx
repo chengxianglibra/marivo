@@ -19,9 +19,9 @@ description: 使用具体错误与自有契约修复配置和分析。
 跟随确切 repair。缺少业务描述和 guardrail 不会阻塞 readiness。有界 preview 与
 source-health 失败不改变 Readiness，连接成功不能授权 Metric 方程。
 
-## 修复混合输入
+## 保持执行结果的终态边界
 
-Python 教程绑定 `current`、`baseline`后，此故意失败示例把保存输入与 live 定义混合。
+Python 教程绑定 `current`、`baseline`后，此故意失败示例将已提交结果用作计算输入。
 
 {/* example: mixed-input-setup */}
 
@@ -32,12 +32,12 @@ saved_current = current.execute()
 {/* example: mixed-input-error */}
 
 ```python
-# This intentionally combines fixed and live inputs and must fail.
-saved_current.compare(baseline).execute()
+# A committed result is not a DSL input; this intentionally fails.
+current.compare(saved_current).execute()
 ```
 
-明确问题：像教程一样比较当前 live 定义，或执行两端后比较其兼容保留结果。
-不要上传保存行绕过准入。物化选择前构造下游 live 观察，或跟随接收者要求的执行边界。
+在 `current` 与 `baseline` 都是 Logical 定义时完成比较，再执行整个表达式。
+需要分析保存行时，使用 `to_pandas()` 导出并在 DSL 外继续。已保存结果不能转回 Logical 输入。
 
 ## 修复谓词与对应关系
 

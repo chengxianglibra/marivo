@@ -92,7 +92,6 @@ if TYPE_CHECKING:
     assert_type(chosen, mv.LogicalCategoryRelation)
     fixed_chosen = chosen.execute()
     assert_type(fixed_chosen, mv.MaterializedCategoryRelation)
-    assert_type(fixed_chosen.members(), mv.LogicalFixedAnalysisDomain)
     observed = members.observe(
         ms.ref.metric("sales.revenue"),
         during=mv.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -143,13 +142,7 @@ if TYPE_CHECKING:
     )
     assert_type(weights, mv.ReferenceWeights)
     assert_type(grouped_values.standardize(reference=weights), mv.LogicalNumericRelation)
-    assert_type(fixed.share_of(fixed.rollup()), mv.LogicalNumericRelation)
     assert_type(fixed, mv.MaterializedNumericRelation)
-    assert_type(
-        fixed.rollup().execute(),
-        mv.MaterializedRolledNumericRelation | mv.MaterializedGroupedNumericRelation,
-    )
-    assert_type(fixed.contract(), mv.AnalysisContract)
     recovered = session.artifact(fixed.state.artifact_ref.ref)
     assert_type(recovered, mv.Artifact)
 
@@ -162,17 +155,15 @@ if TYPE_CHECKING:
     assert_type(temporal.execute(), mv.MaterializedTemporalRelation)
     assert_type(
         temporal.where(temporal.value.lt(datetime(2026, 9, 1, tzinfo=timezone.utc))).members(),
-        mv.LogicalAnalysisDomain | mv.LogicalFixedAnalysisDomain,
+        mv.LogicalAnalysisDomain,
     )
     assert_type(
         mv.time_scope(start="2026-08-01", end="2026-09-01").before_end, mv.BeforeEndBoundary
     )
 
     assert_type(observed.compare(observed, align=mv.outer()).relative, mv.LogicalNumericRelation)
-    assert_type(fixed.compare(fixed), mv.LogicalComparisonResult)
     assert_type(difference.compare(difference).absolute, mv.LogicalDifferenceRelation)
     assert_type(observed.ratio(observed, align=mv.exact()), mv.LogicalNumericRelation)
-    assert_type(fixed.ratio(fixed), mv.LogicalNumericRelation)
     pairing = mv.one_to_one(
         left=observed, right=observed, via=ms.ref.relationship("sales.identity")
     )
@@ -198,10 +189,6 @@ if TYPE_CHECKING:
     assert_type(ranking.limit(5), mv.LogicalRankingResult)
     materialized_ranking = ranking.execute()
     assert_type(materialized_ranking, mv.MaterializedRankingResult)
-    assert_type(materialized_ranking.values, mv.MaterializedNumericRelation)
-    assert_type(materialized_ranking.ranks, mv.MaterializedNumericRelation)
-    selected_ranking = materialized_ranking.where(materialized_ranking.ranks.value.is_defined())
-    assert_type(selected_ranking, mv.LogicalRankingResult)
     terminal = mv.table(values=ranking.values, ranks=ranking.ranks, category=category)
     assert_type(terminal, mv.LogicalTable)
     assert_type(terminal.execute(), mv.MaterializedTable)
@@ -214,7 +201,3 @@ if TYPE_CHECKING:
     assert_type(attribution.baseline, mv.LogicalNumericRelation)
     allocated = attribution.execute()
     assert_type(allocated, mv.MaterializedAttributionResult)
-    assert_type(allocated.contribution, mv.MaterializedNumericRelation)
-    assert_type(allocated.current, mv.MaterializedNumericRelation)
-    assert_type(allocated.baseline, mv.MaterializedNumericRelation)
-    assert_type(allocated.where(allocated.contribution.value.gt(0)), mv.LogicalAttributionResult)

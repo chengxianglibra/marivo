@@ -9,12 +9,12 @@ import pyarrow as pa
 import pytest
 
 import marivo.semantic as ms
-from marivo.analysis.core.graph import Edge, FixedLeaf, MethodNode, method_node
+from marivo.analysis.core.graph import Edge, MethodNode, SourceDefinition, SourceLeaf, method_node
 from marivo.analysis.core.model import (
     Binding,
     Coordinate,
-    DerivedQuantity,
     DomainSignature,
+    ObservedQuantity,
     Signature,
     TableFitsPart,
 )
@@ -31,9 +31,8 @@ from marivo.analysis.materialization.graph_exchange import (
     from_pandas,
 )
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
+from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.refs import ArtifactRef
 from tests.support.json import arr as array_json
 from tests.support.json import checked
 from tests.support.json import obj as object_json
@@ -51,7 +50,16 @@ def _input(
     keys = (Coordinate(ms.ref.entity("sales.customer"), "id", "identity"),)
     signature = Signature(
         DomainSignature(binding, "entity", keys, keys, "members"),
-        DerivedQuantity("input", "input@v1", ("fact",), "CNY", "original", "strict"),
+        ObservedQuantity(
+            "input",
+            ms.ref.metric("sales.input"),
+            "input-v1",
+            "CNY",
+            "original",
+            "orders",
+            "strict",
+            "sum@v1",
+        ),
     )
     table = pa.table(
         {
@@ -74,12 +82,15 @@ def _input(
         ),
     )
     source = from_arrow(table, contract)
-    leaf = FixedLeaf(
-        ArtifactRef(ref="artifact_r82"),
-        "a" * 64,
+    leaf = SourceLeaf(
+        SourceDefinition(
+            ms.ref.metric("sales.input"),
+            "input-v1",
+            ms.ref.datasource("warehouse"),
+            SourceShape("duckdb", "table", "native", NoTime()),
+        ),
         signature,
         ScalarType("float64"),
-        FixedShape(NoTime()),
     )
     node = method_node(
         (Edge("quantity", leaf),),

@@ -30,8 +30,7 @@ monthly = (
         by=(mv.member(),),
     )
 )
-fixed = monthly.execute()
-totals = fixed.group_by(grid).rollup().execute()
+totals = monthly.group_by(grid).rollup().execute()
 ```
 
 `during=grid` binds the complete time axis and selects each bucket's contribution
@@ -250,7 +249,7 @@ original = members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(region,),
 ).execute()
-row_mean = values.group_by(region).aggregate(mv.mean()).execute()
+row_mean = values.group_by(region).aggregate(mv.mean())
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
 row_counts = values.group_by(region).aggregate(mv.count()).execute()

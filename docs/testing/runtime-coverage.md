@@ -15,8 +15,6 @@ package installation and installed-origin boundaries.
 | Typed graph rules, capture, lowering, admission and planning | [analysis/graph](../../tests/analysis/graph/) | Daily local contracts and execution; explicitly extended recovery in slow-test; Runtime native SQL differences |
 | Observation, aggregation, comparison, attribution and selection | [analysis/numeric](../../tests/analysis/numeric/) | Daily numerical and behavioral oracles; explicitly extended cases in slow-test; Runtime native carriers |
 | Time grids, timezones, windows and temporal folds | [analysis/temporal](../../tests/analysis/temporal/) | Daily temporal semantics; explicitly extended recovery in slow-test; Runtime native time semantics |
-| Journey matching, Duration, Funnel, anchors and retention | [analysis/journey](../../tests/analysis/journey/) | Daily source/fixed behavior; explicitly extended journeys and process recovery in slow-test; Runtime native matching |
-| History replay, completeness, views and captured observations | [analysis/lifecycle](../../tests/analysis/lifecycle/) | Daily lifecycle behavior; explicitly extended history and source-free continuation in slow-test |
 | Deviation, association and forecast | [analysis/statistics](../../tests/analysis/statistics/) | Daily statistical behavior; explicitly extended composed and recovered execution in slow-test |
 | Artifact reads, native failures, atomic publication, crash recovery and cold ownership | [analysis/materialization](../../tests/analysis/materialization/) | Daily local publication and recovery; explicitly extended process recovery in slow-test; Runtime native timeout configuration |
 | Session ownership and persistence | [analysis/session](../../tests/analysis/session/) | Daily session behavior; explicitly extended local session checks in slow-test; Runtime native source integration |
@@ -38,21 +36,20 @@ import helpers from test modules.
   native cases where compilation, precision, physical keys or resource ownership
   introduces a distinct risk; avoid backend/storage Cartesian replay.
 - Run embedded DuckDB, local-file and loopback HTTP checks in
-  `make test`. Mark only materially extended local source/fixed/cold journeys
+  `make test`. Mark only materially extended local source/cold-reading journeys
   `slow`; an analysis directory or filename does not make a case slow. A fresh
   Python process does not require a fresh datasource service.
-- Keep source, fixed and cold assertions at their owning boundaries: source covers
-  primary behavior and results, fixed covers follow-up operations, and cold
-  keeps a few representatives for distinct persisted result types and recovery
-  paths. Unmarked local cases run in the daily suite; only explicitly marked
-  extended cases run in `make slow-test`.
+- Keep source execution and terminal cold-reading assertions at their owning
+  boundaries. Committed results cannot re-enter the DSL; the terminal boundary
+  tests reject both new and reopened results as computation inputs. Source
+  scheduling, keys and numeric kernels retain independent local tests.
 - Mark only actual external-service parameter cases as `runtime`; static native
   compilation, decoding and rejected-call checks remain daily. Shared matrices
   use `source_params()` to mark their service parameters individually.
 - Share ready service containers across cases and invocations. Isolate mutable
   tables/schemas with UUID names and close each case's connections; tests clean
   their own objects. Service lifecycle stays outside pytest and Make test gates.
-- Keep source, source-offline continuation and fresh-process recovery boundaries
+- Keep source, source-offline output reading and fresh-process recovery boundaries
   explicit. In-process checks do not replace process or crash witnesses.
 - Installed-package checks establish candidate archive integrity, noneditable
   import origin and public recovery separately from development-suite coverage.
@@ -61,8 +58,8 @@ import helpers from test modules.
 
 | Removed repetition | Remaining coverage |
 | --- | --- |
-| Statistical methods and nine-method fixed/cold replay on every service | Local DuckDB method and process oracles; source profiles own native decoding and stream cleanup |
-| Reference, comparison, member validation and attribution business matrices on every service | Their local source/fixed and independent cold tests; native producer recovery owns source-offline and cold handoff per service |
+| Retired saved-input computation and repeated cold replay on every service | Local DuckDB method and process oracles; source profiles own native decoding and stream cleanup |
+| Reference, comparison, member validation and attribution business matrices on every service | Their local source and terminal-output tests; native producer recovery owns source-offline and cold handoff per service |
 | Separate native mean, distribution, reference, versioned, temporal and multiroot recovery journeys | Local recovery owners preserve their exact assertions; native producer recovery covers the shared service handoff |
 | Ordinary multiroot arithmetic, slicing, aggregation and min/max replay on every service | Local full matrix; native Decimal precision/overflow and first/last ordering cases remain |
 | Coordinate statistics, original component weighting and cumulative-window business replay on every service | Local full matrices; native numeric carriers and native reader/grid/timezone tests remain |
@@ -132,3 +129,15 @@ Runtime acquisition and control-boundary tests still exercise PostgreSQL, Trino
 and ClickHouse native settings; MySQL acquisition/certification tests exercise
 its native SELECT limit and prove no successful publication after failure.
 A local pass or a skipped service case is not native backend qualification.
+
+## Terminal-result cleanup
+
+Saved-result DSL continuation, FixedLeaf/FixedShape qualifications, artifact_python,
+and the A2/A3 saved-input executor are removed. Their dedicated execution/fusion
+fixtures and tests are retired. Source planning, source key identity, retained
+numeric equations, exchange integrity and current terminal reading remain owned
+by their existing tests. `analysis/session/test_terminal_composition_boundary.py`
+checks read-only legacy receiver types and rejects new/reopened outputs as inputs;
+`analysis/materialization/test_terminal_publication.py` retains real committed
+output and fresh-process reading coverage. Older fixtures using retired semantic
+declaration factories are not current acceptance evidence until migrated.

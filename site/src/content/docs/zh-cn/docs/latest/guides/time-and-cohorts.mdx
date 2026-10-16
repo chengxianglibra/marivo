@@ -29,8 +29,7 @@ monthly = (
         by=(mv.member(),),
     )
 )
-fixed = monthly.execute()
-totals = fixed.group_by(grid).rollup().execute()
+totals = monthly.group_by(grid).rollup().execute()
 ```
 
 `during=grid` 绑定完整时间轴并按各桶的窗口计算，包括空 cell。固定 TimeScope 只选择一个观测窗口。属性读取和累计观测直接通过 `at` 接收网格端点，无需单独构造时间域。粗化仍要求完整原始 cell 落在目标桶内，跨月的周拒绝粗化；网格默认时区由消费它的 Session 绑定。
@@ -235,7 +234,7 @@ original = members.observe(
     via=ms.ref.relationship("sales.order_buyer"),
     by=(region,),
 ).execute()
-row_mean = values.group_by(region).aggregate(mv.mean()).execute()
+row_mean = values.group_by(region).aggregate(mv.mean())
 total_row_mean = row_mean.rollup().execute()
 selected_regions = all_regions.where(all_regions.value.eq("east"))
 row_counts = values.group_by(region).aggregate(mv.count()).execute()

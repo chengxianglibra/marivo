@@ -35,10 +35,9 @@ from marivo.analysis.core.rules import (
     TimeProduct,
     TimeRuns,
 )
-from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType, SourceShape, ValueType
+from marivo.analysis.methods.physical import NoTime, ScalarType, SourceShape, ValueType
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey, key_for_parameters
-from marivo.analysis.refs import ArtifactRef
 from marivo.refs import DatasourceKind, EntityKind, MetricKind, Ref, SemanticKind
 from marivo.semantic.ir import TargetSnapshotVersion, TargetValidityVersion
 
@@ -91,7 +90,6 @@ def _identifier(value: str) -> None:
 
 
 def _digest(value: object) -> str:
-    # Only closed immutable definition values enter this fingerprint, never nodes.
     return sha256(repr(value).encode()).hexdigest()
 
 
@@ -160,46 +158,6 @@ class SourceLeaf:
         return _digest((self.definition, self.signature, self.value_type))
 
 
-@dataclass(frozen=True, slots=True, eq=False)
-class FixedLeaf:
-    """A captured Artifact contract; origin history deliberately is not an input."""
-
-    artifact: ArtifactRef
-    definition_fingerprint: str
-    signature: Signature
-    value_type: ValueType
-    shape: FixedShape
-    identity: str = field(default_factory=lambda: uuid4().hex)
-
-    def __post_init__(self) -> None:
-        _identifier(self.identity)
-        _identifier(self.definition_fingerprint)
-        if (
-            type(self.artifact) is not ArtifactRef
-            or type(self.signature) is not Signature
-            or type(self.shape) is not FixedShape
-        ):
-            _fail("a fixed Artifact ref, signature and time shape", self.identity)
-        _value_type(self.value_type)
-        object.__setattr__(
-            self,
-            "signature",
-            replace(self.signature, node_id=self.identity, key_domain_id=self.artifact.ref),
-        )
-
-    @property
-    def fingerprint(self) -> str:
-        return _digest(
-            (
-                self.artifact.ref,
-                self.definition_fingerprint,
-                self.signature,
-                self.value_type,
-                self.shape,
-            )
-        )
-
-
 EdgeRole: TypeAlias = Literal["subject", "quantity", "current", "baseline", "reference"]
 
 
@@ -211,7 +169,7 @@ class Edge:
     def __post_init__(self) -> None:
         if self.role not in ("subject", "quantity", "current", "baseline", "reference"):
             _fail("a closed data dependency role", str(self.role))
-        if type(self.node) not in (SourceLeaf, FixedLeaf, MethodNode):
+        if type(self.node) not in (SourceLeaf, MethodNode):
             _fail("a typed definition node", type(self.node).__name__)
 
 
@@ -265,7 +223,7 @@ def _fingerprints(nodes: tuple[Node, ...]) -> dict[str, str]:
     return result
 
 
-Node: TypeAlias = SourceLeaf | FixedLeaf | MethodNode
+Node: TypeAlias = SourceLeaf | MethodNode
 
 
 def _value_type(value: ValueType) -> None:
@@ -307,15 +265,7 @@ def _retained_inclusion(receiver: Node, dependency: Node) -> bool:
     nodes = retained_nodes(receiver)
 
     def captured(candidate: Node) -> bool:
-        return any(
-            node.identity == candidate.identity
-            or (
-                isinstance(node, FixedLeaf)
-                and isinstance(candidate, FixedLeaf)
-                and node.artifact == candidate.artifact
-            )
-            for node in nodes
-        )
+        return any(node.identity == candidate.identity for node in nodes)
 
     def captured_domain(candidate: Node) -> bool:
         if captured(candidate):
@@ -429,8 +379,6 @@ def _validate_method(node: MethodNode, registry: MethodRegistry) -> None:
             if type(index) is not int or not 1 <= index < len(node.inputs):
                 _fail("a valid retained inclusion input", repr(index))
             input_node = node.inputs[index].node
-            if isinstance(input_node, FixedLeaf) and node.retained_endpoints:
-                input_node = node.retained_endpoints[index]
             receiver = (
                 node.retained_endpoints[0] if node.retained_endpoints else node.inputs[0].node
             )
@@ -562,11 +510,7 @@ def _validate_endpoints(node: MethodNode, fingerprints: Mapping[str, str]) -> No
     if not node.retained_endpoints:
         return
     for endpoint, edge in zip(node.retained_endpoints, node.inputs, strict=True):
-        expected = (
-            edge.node.definition_fingerprint
-            if isinstance(edge.node, FixedLeaf)
-            else fingerprints[edge.node.identity]
-        )
+        expected = fingerprints[edge.node.identity]
         if fingerprints[endpoint.identity] != expected:
             _fail("a retained endpoint matching its exact input definition", node.identity)
 
@@ -578,7 +522,7 @@ def _ordered_nodes(root: Node, *, retained: bool) -> tuple[Node, ...]:
     done: set[int] = set()
 
     def visit(node: Node) -> None:
-        if type(node) not in (SourceLeaf, FixedLeaf, MethodNode):
+        if type(node) not in (SourceLeaf, MethodNode):
             _fail("a typed graph root", type(node).__name__)
         _identifier(node.identity)
         previous = identities.setdefault(node.identity, node)
@@ -636,8 +580,8 @@ def _static_value_digest(
     if kind is None:
         kind = f"{type(item).__module__}.{type(item).__qualname__}".encode()
         kinds[type(item)] = kind
-    if isinstance(item, (SourceLeaf, FixedLeaf, MethodNode)):
-        payload = (b"" if capture_ids else str(id(item)).encode() + b"\0") + _static_value_digest(
+    if isinstance(item, (SourceLeaf, MethodNode)):
+        payload = (b"" if capture_ids else str(id(item)).encode() + b"\x00") + _static_value_digest(
             item.identity, memo, kinds, capture_ids
         )
     elif isinstance(item, Ref):
@@ -657,7 +601,7 @@ def _static_value_digest(
         )
     else:
         payload = repr(item).encode()
-    result = sha256(kind + b"\0" + payload).digest()
+    result = sha256(kind + b"\x00" + payload).digest()
     memo[id(item)] = result
     return result
 

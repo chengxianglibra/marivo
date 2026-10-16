@@ -5,7 +5,6 @@ from types import MappingProxyType
 
 from marivo.analysis.methods.physical import (
     Backend,
-    FixedShape,
     Implementation,
     NoTime,
     Qualified,
@@ -81,29 +80,26 @@ def subject_image(implementation: Implementation) -> bool:
     shape = key.shape
     time = shape.time
     supported_shape = (
-        isinstance(shape, FixedShape)
-        and (key.input_domains == ("group",) or not isinstance(time, NoTime))
-    ) or (
         isinstance(shape, SourceShape)
         and shape.backend == "duckdb"
-        and (shape.form, shape.table_kind) in (("table", "native"), ("parquet", "parquet"))
+        and ((shape.form, shape.table_kind) in (("table", "native"), ("parquet", "parquet")))
         and (shape.form == "parquet" or isinstance(time, NoTime) or time.unit == "us")
     )
     return (
         isinstance(status, Qualified)
         and status.consumer_id == "analysis.materialization.graph_local_execution"
-        and key.method.name == "map_correspond"
-        and key.method.version == 1
-        and key.input_domains in (("entity",), ("group",))
-        and key.route in ("ibis_python", "artifact_python")
-        and implementation.parts == ("subject",)
+        and (key.method.name == "map_correspond")
+        and (key.method.version == 1)
+        and (key.input_domains in (("entity",), ("group",)))
+        and (key.route in ("ibis_python",))
+        and (implementation.parts == ("subject",))
         and supported_shape
         and (
             isinstance(time, NoTime)
             or (
                 time.kind == "instant"
                 and time.unit in ("s", "ms", "us", "ns")
-                and time.timezone in ("UTC", "America/New_York")
+                and (time.timezone in ("UTC", "America/New_York"))
             )
         )
     )

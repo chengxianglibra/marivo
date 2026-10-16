@@ -15,7 +15,6 @@ from marivo._temporal import (
     PeriodRecord,
 )
 from marivo.analysis.compiler.graph_plan import (
-    ArtifactReadStage,
     GraphPlan,
     LocalMethodStage,
     SourceInputStage,
@@ -23,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.core import model as core_model
 from marivo.analysis.core import time_alignment as time_alignment_model
-from marivo.analysis.core.graph import FixedLeaf, MethodNode, Node, SourceLeaf
+from marivo.analysis.core.graph import SourceLeaf
 from marivo.analysis.core.predicates import DurationLiteral
 from marivo.analysis.core.time_grid import (
     BoundTimeGrid,
@@ -49,10 +48,9 @@ from marivo.semantic.runtime_metric import (
     RuntimeWeightedMeanExpr,
 )
 
-_DEFINITION = re.compile(r"ds_[0-9a-f]{64}\Z")
+_DEFINITION = re.compile("ds_[0-9a-f]{64}\\Z")
 _GRAPH_PROTOCOL = "marivo.analysis.execution_key/v3"
 _CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["_CanonicalValue", ...]
-
 _WIRE_TAGS: dict[type[object], str] = {
     core_model.ComparisonPart: "comparison_part",
     core_model.PairInputsPart: "r8_pair_inputs_part",
@@ -122,7 +120,6 @@ _WIRE_TAGS: dict[type[object], str] = {
     method_physical.NoTime: "no_time",
     method_physical.TimeShape: "time_shape",
     method_physical.SourceShape: "source_shape",
-    method_physical.FixedShape: "fixed_shape",
     method_physical.QualificationKey: "qualification",
     RuntimeAggregateExpr: "runtime_aggregate",
     RuntimeSliceExpr: "runtime_slice",
@@ -222,24 +219,11 @@ def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
     }
     identities = {
         (
-            stage.leaf if isinstance(stage, (ArtifactReadStage, SourceInputStage)) else stage.node
+            stage.leaf if isinstance(stage, (SourceInputStage,)) else stage.node
         ).identity: f"node:{index}"
         for index, stage in enumerate(admitted.stages)
-        if isinstance(
-            stage, (ArtifactReadStage, SourceInputStage, SourceMethodStage, LocalMethodStage)
-        )
+        if isinstance(stage, (SourceInputStage, SourceMethodStage, LocalMethodStage))
     }
-    fixed_slots: dict[str, set[str]] = {}
-    for stage in admitted.stages:
-        if isinstance(stage, ArtifactReadStage):
-            fixed_slots.setdefault(stage.leaf.artifact.ref, set()).add(
-                identities[stage.leaf.identity]
-            )
-    for retained in admitted.captured.retained:
-        if isinstance(retained, FixedLeaf):
-            slots = fixed_slots.get(retained.artifact.ref, set())
-            if len(slots) == 1:
-                identities.setdefault(retained.identity, next(iter(slots)))
     ordered: list[_CanonicalValue] = []
     for requirement in admitted.physical_requirements:
         qualified = requirement.implementation.qualification
@@ -260,21 +244,6 @@ def _ordered_plan(admitted: GraphPlan) -> _CanonicalValue:
     return tuple(ordered)
 
 
-def _fixed_input_occurrences(root: Node) -> tuple[FixedLeaf, ...]:
-    """Retain ordered fixed operand slots while expanding shared methods once."""
-    pending = [root]
-    expanded: set[str] = set()
-    leaves: list[FixedLeaf] = []
-    while pending:
-        node = pending.pop()
-        if isinstance(node, FixedLeaf):
-            leaves.append(node)
-        elif isinstance(node, MethodNode) and node.identity not in expanded:
-            expanded.add(node.identity)
-            pending.extend(edge.node for edge in reversed(node.inputs))
-    return tuple(leaves)
-
-
 @dataclass(frozen=True, slots=True)
 class SourceKeyBinding:
     """Selected source metadata; this value alone never certifies a source read."""
@@ -283,29 +252,6 @@ class SourceKeyBinding:
     physical_shape: method_physical.SourceShape
     semantic_dependency_digest: str
     selected_binding_fingerprint: str
-
-
-@dataclass(frozen=True, slots=True)
-class FixedPartKey:
-    role: str
-    contract_id: str
-    contract_version: int
-    receipt_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class FixedKeyInput:
-    """Exact fixed metadata; R4.4 must verify receipts before using a hit."""
-
-    leaf: FixedLeaf
-    session_ref: str
-    producing_run_ref: str
-    primary_receipt_digest: str
-    ordered_parts: tuple[FixedPartKey, ...]
-    input_binding: str
-    method_state_contract_id: str
-    method_state_version: int
-    snapshot_digest: str
 
 
 def graph_source_execution_key(
@@ -348,67 +294,6 @@ def graph_source_execution_key(
             _ordered_plan(admitted),
             ordered_bindings,
             run_ref,
-        )
-    )
-
-
-def graph_fixed_execution_key(admitted: GraphPlan, inputs: tuple[FixedKeyInput, ...]) -> str:
-    """Hash ordered fixed metadata, without claiming receipt or cache authority."""
-    occurrences = _fixed_input_occurrences(admitted.root)
-    if (
-        admitted.classification.kind != "artifact"
-        or type(inputs) is not tuple
-        or len(inputs) != len(occurrences)
-        or any(value.leaf is not leaf for value, leaf in zip(inputs, occurrences, strict=True))
-        or any(
-            value.session_ref != value.leaf.signature.domain.binding.session_id
-            or type(value.ordered_parts) is not tuple
-            or type(value.method_state_version) is not int
-            or value.method_state_version < 1
-            or not all(
-                (
-                    value.session_ref,
-                    value.producing_run_ref,
-                    value.primary_receipt_digest,
-                    value.input_binding,
-                    value.method_state_contract_id,
-                    value.snapshot_digest,
-                )
-            )
-            or any(
-                type(part.contract_version) is not int
-                or part.contract_version < 1
-                or not all((part.role, part.contract_id, part.receipt_digest))
-                for part in value.ordered_parts
-            )
-            for value in inputs
-        )
-    ):
-        raise _key_error("one admitted fixed plan and exact ordered Artifact inputs", "mismatch")
-    ordered_inputs: _CanonicalValue = tuple(
-        (
-            value.session_ref,
-            value.leaf.artifact.ref,
-            value.producing_run_ref,
-            value.primary_receipt_digest,
-            tuple(
-                (part.role, part.contract_id, part.contract_version, part.receipt_digest)
-                for part in value.ordered_parts
-            ),
-            value.input_binding,
-            value.method_state_contract_id,
-            value.method_state_version,
-            value.snapshot_digest,
-        )
-        for value in inputs
-    )
-    return _canonical_digest(
-        (
-            _GRAPH_PROTOCOL,
-            "fixed",
-            admitted.root.fingerprint,
-            _ordered_plan(admitted),
-            ordered_inputs,
         )
     )
 

@@ -18,10 +18,9 @@ from marivo.analysis.methods.errors import reject
 from marivo.analysis.methods.semantics import MethodKey
 
 QUERY_COMBINE_KERNEL = "query.combine@v1"
-
 Backend: TypeAlias = Literal["duckdb", "postgres", "mysql", "trino", "clickhouse"]
 ScalarName: TypeAlias = Literal["boolean", "string", "int64", "float64", "date", "timestamp"]
-Route: TypeAlias = Literal["ibis", "ibis_python", "artifact_python"]
+Route: TypeAlias = Literal["ibis", "ibis_python"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,45 +129,33 @@ class SourceShape:
 
 
 @dataclass(frozen=True, slots=True)
-class FixedShape:
-    time: NoTime | TimeShape
-
-    def __post_init__(self) -> None:
-        if type(self.time) not in (NoTime, TimeShape):
-            reject(
-                "a fixed Artifact time shape", repr(self.time), "Preserve retained time metadata."
-            )
-
-
-@dataclass(frozen=True, slots=True)
 class QualificationKey:
     method: MethodKey
     input_types: tuple[ValueType, ...]
     input_domains: tuple[DomainKind, ...]
-    shape: SourceShape | FixedShape
+    shape: SourceShape
     route: Route
 
     def __post_init__(self) -> None:
         if (
             type(self.method) is not MethodKey
             or type(self.input_types) is not tuple
-            or not self.input_types
+            or (not self.input_types)
             or any(
                 type(item) not in (ScalarType, DecimalType, DurationType)
                 for item in self.input_types
             )
-            or type(self.input_domains) is not tuple
-            or not self.input_domains
+            or (type(self.input_domains) is not tuple)
+            or (not self.input_domains)
             or any(item not in get_args(DomainKind) for item in self.input_domains)
-            or len(self.input_types) != len(self.input_domains)
-            or type(self.shape) not in (SourceShape, FixedShape)
-            or self.route not in get_args(Route)
-            or (type(self.shape) is FixedShape) != (self.route == "artifact_python")
+            or (len(self.input_types) != len(self.input_domains))
+            or (type(self.shape) not in (SourceShape,))
+            or (self.route not in get_args(Route))
         ):
             reject(
                 "a complete exact method/type/domain/shape/route key",
                 repr(self),
-                "Use Ibis source routes or fixed Artifact Python; never import Artifacts into DuckDB.",
+                "Use a qualified source route; committed Artifacts are terminal output.",
             )
 
 
@@ -299,13 +286,7 @@ class Implementation:
                 self.key.method.name,
                 "Use the existing precision contract for this method.",
             )
-        if self.key.route == "artifact_python" and self.resources.owner != "caller":
-            reject(
-                "caller-owned fixed input resources",
-                repr(self.resources),
-                "Keep fixed input execution in the caller.",
-            )
-        if self.key.route != "artifact_python" and self.resources.owner != "producer":
+        if self.resources.owner != "producer":
             reject(
                 "producer-owned source resources",
                 repr(self.resources),

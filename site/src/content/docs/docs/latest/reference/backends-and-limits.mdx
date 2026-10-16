@@ -63,7 +63,6 @@ This example declares source fields and a local Metric only. R1.4 has not publis
 | --- | --- |
 | Live sources | Governed Ibis executes on the source and returns pandas data, or prepares a DataFrame for a registered local algorithm |
 | Fixed Artifacts | Persisted Result Parquet is read into pandas for registered local consumers |
-| Mixed source and fixed | Reject before Run admission or either business input read |
 
 Relational work expressible in the admitted Ibis plan stays at the source. Ibis
 and its provider convert returned rows to pandas; those defaults can be lossy,
@@ -93,3 +92,5 @@ falls back to approximation. Statistical methods do not
 inherit ordinary scalar Metric backend support.
 
 Follow the exact structured repair and [troubleshooting](/docs/latest/reference/troubleshooting/). Support described here is implementation scope, not a claim of full release or every remote combination qualification.
+
+Committed Artifacts and legacy Materialized results are terminal reads, not DSL inputs.

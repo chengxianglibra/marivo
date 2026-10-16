@@ -1,9 +1,6 @@
 """One native versioned fixture binds both clocks and four attribute families."""
 
-import os
 import shutil
-import subprocess
-import sys
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -18,7 +15,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.support.json import Json, encode, obj, read
+from tests.support.json import Json, encode
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
@@ -204,30 +201,3 @@ def test_native_versioned_members_independent_fixed_and_cold(
             path.unlink()
     reports: list[Json] = []
     repository = PROJECT_ROOT
-    for phase in ("fixed", "cold"):
-        output = tmp_path / (phase + ".json")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.materialization.versioned_recovery_worker",
-                str(tmp_path),
-                phase,
-                str(output),
-            ],
-            cwd=repository,
-            env=dict(os.environ, PYTHONPATH=str(repository), MARIVO_TELEMETRY="off"),
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        reports.append(read(output))
-    assert len({os.getpid(), *(obj(report)["pid"] for report in reports)}) == 3
-    if destination := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-        Path(destination, "versions-recovery-" + backend + ".json").write_bytes(
-            encode(
-                {"backend": backend, "source_pid": os.getpid(), "source": state, "reports": reports}
-            )
-        )

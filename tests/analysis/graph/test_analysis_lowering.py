@@ -25,14 +25,7 @@ from marivo.analysis.compiler.graph_lowering import (
     lower,
 )
 from marivo.analysis.compiler.graph_plan import RouteChoice, plan
-from marivo.analysis.core.graph import (
-    Edge,
-    FixedLeaf,
-    SourceDefinition,
-    SourceLeaf,
-    method_node,
-    topology,
-)
+from marivo.analysis.core.graph import Edge, SourceDefinition, SourceLeaf, method_node, topology
 from marivo.analysis.core.local_laws import (
     FixedMapping,
     FixedStates,
@@ -47,14 +40,10 @@ from marivo.analysis.core.model import (
     Coordinate,
     CoreRuleError,
     CoveragePart,
-    Defined,
     DomainSignature,
-    Null,
     ObservedQuantity,
     OriginalStatePart,
     Signature,
-    Undefined,
-    Unknown,
 )
 from marivo.analysis.core.predicates import ValuePredicate
 from marivo.analysis.core.rules import (
@@ -67,17 +56,8 @@ from marivo.analysis.core.rules import (
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import ExchangeResult, _pandas_records
 from marivo.analysis.methods.errors import MethodRegistrationError
-from marivo.analysis.methods.local import count
-from marivo.analysis.methods.physical import (
-    DecimalType,
-    FixedShape,
-    NoTime,
-    ScalarType,
-    SourceShape,
-    TimeShape,
-)
+from marivo.analysis.methods.physical import DecimalType, NoTime, ScalarType, SourceShape, TimeShape
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
-from marivo.analysis.refs import ArtifactRef
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import (
     AiContextIR,
@@ -147,7 +127,7 @@ def source_case(request, tmp_path: Path):
         "db", "db", "duckdb", {}, {}, AiContextIR(), "db", DatasourceSourceLocation("source.py", 1)
     )
     with SourceSession(provider_for("duckdb"), datasource, backend) as session:
-        yield session, form, path
+        yield (session, form, path)
 
 
 def _bind(case, leaf):
@@ -176,7 +156,7 @@ def _plan(root, route="ibis"):
         routes=tuple(
             RouteChoice(n.identity, route)
             for n in topology(root)
-            if not isinstance(n, (SourceLeaf, FixedLeaf))
+            if not isinstance(n, (SourceLeaf,))
         ),
     )
 
@@ -236,10 +216,7 @@ def _spearman(left, right):
     return method_node(
         (Edge("quantity", left), Edge("quantity", right)),
         AssociationScore(
-            target,
-            "rank-association",
-            "source.exact_pairing@v1",
-            "source.finite_numeric@v1",
+            target, "rank-association", "source.exact_pairing@v1", "source.finite_numeric@v1"
         ),
         value_type=ScalarType("float64"),
     )
@@ -293,16 +270,11 @@ def test_source_spearman_exact_pair_state(
     observed = left.signature.quantity
     assert isinstance(observed, ObservedQuantity)
     right_observed = replace(
-        observed,
-        definition_id="other",
-        metric_ref=ms.ref.metric("sales.other"),
+        observed, definition_id="other", metric_ref=ms.ref.metric("sales.other")
     )
     right = SourceLeaf(
         SourceDefinition(
-            right_observed.metric_ref,
-            "metric-v1",
-            ms.ref.datasource("db"),
-            left.definition.shape,
+            right_observed.metric_ref, "metric-v1", ms.ref.datasource("db"), left.definition.shape
         ),
         replace(left.signature, quantity=right_observed),
         ScalarType("int64"),
@@ -452,7 +424,7 @@ def test_direct_field_binding_filters_actual_subjects(source_case):
 
 @pytest.mark.parametrize("mode", ["exact_keys", "one_to_one", "union_keys"])
 def test_correspondence_uses_full_tuples_not_cartesian_axes(source_case, mode):
-    left, right = _leaf(source_case[1], quantity=False), _leaf(source_case[1], quantity=False)
+    left, right = (_leaf(source_case[1], quantity=False), _leaf(source_case[1], quantity=False))
     bindings = (_bind(source_case, left), _bind(source_case, right))
     output = replace(left.signature.domain, definition_id="paired")
     root = method_node(
@@ -461,7 +433,6 @@ def test_correspondence_uses_full_tuples_not_cartesian_axes(source_case, mode):
         value_type=left.value_type,
     )
     lowered = lower(_plan(root), bindings=bindings)
-    # Ordered fact inputs that share the same symbolic domain are ambiguous without identities.
     assert len(_read(source_case[0], lowered, bindings, _primary(lowered).expression)) == 5
     for check in lowered.checks:
         assert _read(source_case[0], lowered, bindings, check.violations) == []
@@ -529,36 +500,9 @@ def test_unqualified_parameters_and_shapes_fail_at_plan():
         )
 
 
-@pytest.mark.parametrize("method, expected", [("count", 4), ("count_defined", 1)])
-def test_fixed_count_handoff_and_registered_local_consumer(method, expected):
-    from marivo.analysis.methods.local import count_defined
-
-    reducer = count if method == "count" else count_defined
-    source = _leaf()
-    fixed = FixedLeaf(
-        ArtifactRef("old/revenue"),
-        source.fingerprint,
-        source.signature,
-        source.value_type,
-        FixedShape(NoTime()),
-    )
-    lowered = lower(_plan(_count(fixed, method), "artifact_python"), bindings=())
-    stage = next(s for s in lowered.stages if isinstance(s, LoweredLocal))
-    assert (
-        reducer(
-            stage.stage, (Defined(1), Null("empty"), Undefined("zero"), Unknown("missing"))
-        ).count
-        == expected
-    )
-    assert reducer(stage.stage, ()).cell == Defined(0)
-    if method == "count":
-        with pytest.raises(CoreRuleError, match="100000"):
-            reducer(stage.stage, (Defined(1),) * 100001)
-
-
 def _states():
     source = _leaf().signature
-    binding, quantity = source.domain.binding, source.quantity
+    binding, quantity = (source.domain.binding, source.quantity)
     state = OriginalStatePart(
         binding,
         quantity.definition_id,
@@ -587,7 +531,7 @@ def test_composition_preserves_roles_scope_and_noninjectivity():
     second = FixedMapping(binding, "subjects", "groups", ("region",), (((10,), (100,)),))
     result = compose_mapping(first, second)
     assert result.rows == (((1,), (100,)), ((2,), (100,)))
-    assert result.roles == ("participant", "region") and not result.injective
+    assert result.roles == ("participant", "region") and (not result.injective)
     with pytest.raises(CoreRuleError, match="same fixed input"):
         compose_mapping(first, replace(second, binding=replace(binding, scope_id="other")))
     with pytest.raises(CoreRuleError, match="total mapping"):
@@ -694,8 +638,8 @@ def test_empty_source_count_keeps_singleton(source_case):
 
 
 def test_exact_pairing_rejects_different_realizations_of_same_definition(source_case):
-    left, right = _leaf(source_case[1], quantity=False), _leaf(source_case[1], quantity=False)
-    a, b = _bind(source_case, left), _bind(source_case, right)
+    left, right = (_leaf(source_case[1], quantity=False), _leaf(source_case[1], quantity=False))
+    a, b = (_bind(source_case, left), _bind(source_case, right))
     b = replace(
         b,
         source=replace(b.source, relation=b.source.relation.filter(b.source.relation.tenant == 1)),
@@ -834,7 +778,7 @@ def test_subject_set_image_and_declared_injectivity(source_case, injective):
             for c in lowered.checks
         )
         rows = _read(source_case[0], lowered, (binding,), _primary(lowered).expression)
-        assert len(rows) == 5  # A false declaration is not a source audit.
+        assert len(rows) == 5
     else:
         rows = _read(source_case[0], lowered, (binding,), _primary(lowered).expression)
         assert sorted(rows, key=lambda r: r["key_0"]) == [
@@ -888,7 +832,7 @@ def test_refuses_unqualified_value_types():
 def test_same_table_leaves_keep_expression_source_identity(source_case, mode):
     left = _leaf(source_case[1], quantity=False)
     right = _leaf(source_case[1], quantity=False)
-    a, b = _bind(source_case, left), _bind(source_case, right)
+    a, b = (_bind(source_case, left), _bind(source_case, right))
     if source_case[1] == "table":
         assert a.source.relation.op() == b.source.relation.op()
     root = method_node(
@@ -941,7 +885,7 @@ def test_source_identity_propagates_through_projection_and_rejects_untracked_exp
 ):
     left = _leaf(source_case[1], quantity=False)
     right = _leaf(source_case[1], quantity=False)
-    a, b = _bind(source_case, left), _bind(source_case, right)
+    a, b = (_bind(source_case, left), _bind(source_case, right))
     paired = method_node(
         (Edge("subject", left), Edge("subject", right)),
         MapCorrespond(
@@ -1082,7 +1026,6 @@ def test_transport_carries_exact_source_cell_reason_policy(source_case):
     )
     admitted = _plan(view)
     binding = replace(_bind(source_case, leaf), cell_reasons=())
-
     with pytest.raises(MaterializationError, match="undeclared physical Cell code"):
         execute_source_graph(
             PreparedGraph(admitted), lower(admitted, bindings=(binding,)), source_case[0]
@@ -1142,8 +1085,8 @@ def test_registered_row_arithmetic_uses_one_semantic_policy(
         assert [row["value"] for row in _exchange_rows(result)] == [expected]
         assert [row["cell_tag"] for row in _exchange_rows(result)] == ["defined"]
         assert len(result.completed_checks) == 1
-        assert result.completed_checks[0].requirement.obligation.check_id == (
-            "source.finite_numeric@v1"
+        assert (
+            result.completed_checks[0].requirement.obligation.check_id == "source.finite_numeric@v1"
         )
         assert result.parts[0].table["row_state__sum"].tolist() == [23]
         if method == "mean":
@@ -1181,7 +1124,6 @@ def test_false_source_identity_declaration_is_not_reaudited(source_case):
     leaf = _leaf(form)
     admitted = _plan(_count(leaf))
     lowered = lower(admitted, bindings=(_bind(source_case, leaf),))
-    # This declaration is intentionally false. Analysis does not audit it.
     result = execute_source_graph(PreparedGraph(admitted), lowered, session)
     assert [row["value"] for row in _exchange_rows(result)] == [5]
 
@@ -1283,28 +1225,6 @@ def test_lowering_reuses_static_admission(source_case) -> None:
     assert source_case[0].submissions == []
 
 
-def test_artifact_lowering_reuses_static_admission() -> None:
-    leaf = _leaf()
-    fixed = FixedLeaf(
-        ArtifactRef("o1-fixed"),
-        leaf.fingerprint,
-        leaf.signature,
-        leaf.value_type,
-        FixedShape(NoTime()),
-    )
-    admitted = _plan(_count(fixed), "artifact_python")
-    with (
-        patch.object(graph, "_validate_method", side_effect=AssertionError("revalidated graph")),
-        patch.object(MethodRegistry, "derive", side_effect=AssertionError("rederived semantics")),
-        patch.object(MethodRegistry, "select", side_effect=AssertionError("reselected method")),
-        patch.object(
-            MethodRegistry, "_select_derived", side_effect=AssertionError("reselected method")
-        ),
-    ):
-        lowered = lower(admitted, bindings=())
-    assert lowered.admitted is admitted
-
-
 def test_handoff_is_bound_to_registry_instance(source_case) -> None:
     leaf = _leaf(source_case[1])
     admitted = _plan(_count(leaf))
@@ -1334,28 +1254,3 @@ def test_method_parameter_admission_is_reused_through_lowering_and_consumption(
     if route == "ibis_python":
         assert len(prepared.admitted.stages) == 3
     assert source_case[0].submissions == []
-
-
-def test_artifact_method_parameter_admission_is_reused_through_lowering_and_consumption() -> None:
-    from marivo.analysis.materialization.graph_execution import prepare_graph
-
-    leaf = _leaf()
-    root = _count(
-        FixedLeaf(
-            ArtifactRef("admission-fixed"),
-            leaf.fingerprint,
-            leaf.signature,
-            leaf.value_type,
-            FixedShape(NoTime()),
-        )
-    )
-    with patch.object(registry_module, "admit", wraps=builtin.admit) as admissions:
-        prepared = prepare_graph(
-            root,
-            session_ref=leaf.signature.domain.binding.session_id,
-            routes=(RouteChoice(root.identity, "artifact_python"),),
-        )
-        lowered = lower(prepared.admitted, bindings=())
-        stage = next(stage.stage for stage in lowered.stages if isinstance(stage, LoweredLocal))
-        assert count(stage, (Defined(1), Null("source_null"))).count == 2
-    assert admissions.call_count == 1

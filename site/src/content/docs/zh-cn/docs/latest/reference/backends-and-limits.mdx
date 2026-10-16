@@ -59,7 +59,6 @@ def total():
 | --- | --- |
 | Live sources | 已治理 Ibis 在来源执行并返回 pandas 数据，或为已注册本地算法准备 DataFrame |
 | Fixed Artifacts | 持久化 Result Parquet 读入 pandas 后交给已注册本地 consumer |
-| 混合 source 与 fixed | 在 Run 准入或任一业务输入读取前拒绝 |
 
 准入的 Ibis 计划能够表达的关系工作留在数据源侧。Ibis 与 provider 负责把返回行转为
 pandas，默认转换可能有损，例如把非法日期转为空值。Marivo 不再对来源数据增加严格
@@ -80,3 +79,5 @@ Quantile 精确性属于定义，不支持的精确聚合不回退到近似计�
 统计方法不能继承普通 scalar Metric 的后端支持。
 
 跟随确切 structured repair 和[问题排查](/zh-cn/docs/latest/reference/troubleshooting/)。本页描述实现范围，不宣称完整发布验收或所有远程组合均得到验证。
+
+已提交 Artifact 与旧 Materialized 结果只供读取，不能作为 DSL 输入。

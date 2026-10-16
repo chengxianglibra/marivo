@@ -164,28 +164,6 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.read("selected members contract", selected_members.contract().show)
     assert isinstance(selected_members, mv.LogicalAnalysisDomain)
 
-    trace = traces["fixed_statistic"] = Trace(case.root)
-    fixed = values.execute()
-    trace.identities[fixed.state.artifact_ref.ref] = "<artifact>"
-    trace.identities[fixed.state.producing_run_ref] = "<run>"
-    contract = fixed.contract()
-    trace.read("fixed contract", contract.show)
-    summary_action = next(
-        action for action in contract.actions if action.call.startswith("relation.aggregate(")
-    )
-    trace.help(summary_action.help_target)
-    # Fixed execution must succeed with the source unavailable.
-    offline = case.database_path.with_suffix(".offline")
-    case.database_path.rename(offline)
-    try:
-        fixed_mean = fixed.aggregate(mv.mean()).execute()
-        trace.identities[fixed_mean.state.artifact_ref.ref] = "<next-artifact>"
-        trace.identities[fixed_mean.state.producing_run_ref] = "<next-run>"
-        trace.read("fixed mean result", fixed_mean.show)
-        assert fixed_mean.to_pandas()["value"].tolist() == [1.0]
-    finally:
-        offline.rename(case.database_path)
-
     trace = traces["spearman"] = Trace(case.root)
     trace.help("analysis")
     trace.help("analysis.methods")

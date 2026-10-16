@@ -62,16 +62,14 @@ def test_family_projection_preserves_every_canonical_member() -> None:
         "dsl.LogicalNumericRelation.aggregate": {
             "dsl.OriginalContinuation.aggregate",
             "dsl.LogicalNumericRelation.aggregate",
-            "dsl.MaterializedNumericRelation.aggregate",
             "dsl.LogicalRatioRelation.aggregate",
         },
         "dsl.LogicalRatioRelation.rollup": {
             "dsl.LogicalRatioRelation.rollup",
-            "dsl.MaterializedRatioRelation.rollup",
         },
     }
     # Correlation receivers already share one native method, not separate variants.
-    for receiver in (mv.LogicalNumericRelation, mv.MaterializedNumericRelation):
+    for receiver in (mv.LogicalNumericRelation,):
         assert (
             registry.by_callable(receiver.correlate).canonical_id
             == "dsl.NumericComparison.correlate"

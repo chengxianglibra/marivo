@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from fractions import Fraction
 from itertools import pairwise
-from pathlib import Path
 from typing import Literal
-from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
-import duckdb
-import ibis
 import pyarrow as pa
 
 import marivo.analysis as mv
@@ -31,10 +24,8 @@ from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import DecimalType, ScalarType, TimeShape
-from marivo.datasource.adapters import SourceSession
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
-from marivo.semantic.reader import SemanticProject
-from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected, forbidden
+from tests.analysis.statistics.deviation_oracle import PROFILES, decimal_finish, expected
 
 
 def publish_calendar(catalog: ms.SemanticCatalog, zone: str, *, baseline: bool = False) -> None:
@@ -186,165 +177,3 @@ def verify(
     assert result._node.root.signature.domain.time_grid is not None
     assert result._node.root.signature.domain.time_grid.report_timezone == zone
     assert actual.input_domains == (("entity",) if domain == "entity_time" else ("group",))
-
-
-def run(
-    root: Path,
-    phase: str,
-    key_profile: str,
-    unit: Literal["s", "ms", "us", "ns"],
-    zone: str,
-    grid_kind: str,
-) -> None:
-    os.environ["MARIVO_PROJECT_ROOT"] = str(root)
-    os.environ["MARIVO_TELEMETRY"] = "off"
-    path = root / "deviation-time.json"
-    if phase == "produce":
-        catalog = ms.load(workspace_dir=root)
-        if grid_kind == "calendar":
-            publish_calendar(catalog, zone)
-        session = mv.session.get_or_create("r82-time", report_timezone=zone)
-        members = session.members(ms.ref.entity("sales.order"))
-        grid = mv.time_grid(
-            during=mv.time_scope(
-                start="2026-08-01", end="2026-08-07" if grid_kind == "calendar" else "2026-08-04"
-            ),
-            grain=ms.calendar_grain(
-                calendar=ms.ref.period_calendar("sales.unequal"), level="period"
-            )
-            if grid_kind == "calendar"
-            else mv.grain("day"),
-        )
-        entries = []
-        for index in (0,) if key_profile == "KS" else (1,) if key_profile == "KI" else (7,):
-            raw = members.observe(
-                ms.ref.metric(f"sales.maximum_{index}"),
-                during=grid,
-                by=(mv.member(),),
-            )
-            assert isinstance(raw, mv.LogicalNumericRelation)
-            sources: dict[str, mv.LogicalNumericRelation | mv.LogicalRolledNumericRelation] = {
-                "entity_time": raw
-            }
-            if key_profile == "KS":
-                sources["time"] = raw.group_by(grid).rollup()
-                category = members.read(ms.ref.dimension("sales.order.channel"), at=grid.before_end)
-                assert isinstance(category, mv.LogicalCategoryRelation)
-                sources["category_time"] = raw.group_by(category, grid).rollup()
-            for domain, source in sources.items():
-                original = source.execute()
-                for method in ("zscore", "mad"):
-                    result = source.deviation(method=method).execute()
-                    verify(result, index, method, domain, key_profile, unit, zone, "ibis_python")
-                    entries.append(
-                        {
-                            "index": index,
-                            "method": method,
-                            "domain": domain,
-                            "input": original.evidence_digest().artifact_ref.ref,
-                            "result": result.evidence_digest().artifact_ref.ref,
-                        }
-                    )
-        path.write_text(json.dumps({"session": session.id, "entries": entries}))
-    else:
-        manifest = json.loads(path.read_text())
-        with (
-            patch.object(SemanticProject, "load", forbidden),
-            patch.object(ms, "load", forbidden),
-            patch.object(SourceSession, "__enter__", forbidden),
-            patch.object(SourceSession, "execute", forbidden),
-            patch.object(duckdb, "connect", forbidden),
-            patch.object(ibis.duckdb, "connect", forbidden),
-        ):
-            session = mv.session.resume(manifest["session"], by="id")
-            entries = manifest["entries"]
-            if phase == "cold":
-                entries = [
-                    entry
-                    for entry in entries
-                    if entry["domain"] == "entity_time" and entry["method"] == "zscore"
-                ]
-            for entry in entries:
-                captured_input, recovered = (
-                    session.artifact(entry["input"]),
-                    session.artifact(entry["result"]),
-                )
-                assert isinstance(
-                    captured_input,
-                    (mv.MaterializedNumericRelation, mv.MaterializedGroupedNumericRelation),
-                )
-                original = captured_input
-                assert isinstance(recovered, mv.MaterializedDeviationResult)
-                verify(
-                    recovered,
-                    entry["index"],
-                    entry["method"],
-                    entry["domain"],
-                    key_profile,
-                    unit,
-                    zone,
-                    "ibis_python",
-                )
-                fixed = original.deviation(method=entry["method"]).execute()
-                verify(
-                    fixed,
-                    entry["index"],
-                    entry["method"],
-                    entry["domain"],
-                    key_profile,
-                    unit,
-                    zone,
-                    "artifact_python",
-                )
-                if phase == "fixed":
-                    entry["fixed"] = fixed.evidence_digest().artifact_ref.ref
-                else:
-                    assert fixed.evidence_digest().artifact_ref.ref == entry["fixed"]
-                    cold_input = original.rank(order="ascending", ties="dense").values.execute()
-                    cold_logical = cold_input.deviation(method=entry["method"])
-                    cold = cold_logical.execute()
-                    verify(
-                        cold,
-                        entry["index"],
-                        entry["method"],
-                        entry["domain"],
-                        key_profile,
-                        unit,
-                        zone,
-                        "artifact_python",
-                    )
-                    entry["cold"] = cold.evidence_digest().artifact_ref.ref
-                    assert entry["cold"] != entry["fixed"]
-                    runs = session.runs().items
-                    assert (
-                        cold_logical.execute().evidence_digest().artifact_ref.ref == entry["cold"]
-                    )
-                    assert session.runs().items == runs
-            path.write_text(json.dumps(manifest))
-    print(
-        json.dumps(
-            {
-                "accepted": phase,
-                "profiles": 1,
-                "key_profile": key_profile,
-                "unit": unit,
-                "zone": zone,
-                "grid": grid_kind,
-            }
-        )
-    )
-
-
-if __name__ == "__main__":
-    source_unit = sys.argv[4]
-    assert source_unit in ("s", "ms", "us", "ns")
-    unit: Literal["s", "ms", "us", "ns"] = (
-        "s"
-        if source_unit == "s"
-        else "ms"
-        if source_unit == "ms"
-        else "us"
-        if source_unit == "us"
-        else "ns"
-    )
-    run(Path(sys.argv[1]), sys.argv[2], sys.argv[3], unit, sys.argv[5], sys.argv[6])

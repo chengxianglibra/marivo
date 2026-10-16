@@ -1,29 +1,16 @@
 """Recover actual allocation carriers using retained original partitions only."""
 
 import json
-import os
-import sys
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
-from typing import Literal
-from unittest.mock import patch
 
-import duckdb
-import ibis
 import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.analysis.materialization import graph_local_execution
 from marivo.analysis.materialization.graph_exchange import to_arrow
 from marivo.analysis.public_dsl import _MaterializedRead
-from marivo.datasource.adapters import SourceSession
-from marivo.semantic.reader import SemanticProject
-from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
-from tests.shared_fixtures import run_ids
-from tests.support.json import Json, arr, checked, encode, obj, read
+from tests.support.json import Json, arr, checked, obj
 
 
 def table_rows(frame: pd.DataFrame, schema: pa.Schema) -> list[Json]:
@@ -104,115 +91,3 @@ def check_allocation(result: mv.MaterializedAttributionResult, kind: str) -> Non
         "reconciliation",
         "selection_scope",
     }
-
-
-def run(root: Path, phase: Literal["fixed", "cold"]) -> dict[str, Json]:
-    os.chdir(root)
-    os.environ["MARIVO_PROJECT_ROOT"] = str(root)
-    path = root / "r94-attribution-carrier.json"
-    state = read(path)
-    identity = state["session"]
-    assert isinstance(identity, str)
-    all_originals = obj(state["originals"])
-    methods = []
-    for raw in arr(state["methods"]):
-        assert isinstance(raw, str)
-        methods.append(raw)
-    if phase == "cold":
-        family = state["family"]
-        assert isinstance(family, str)
-        retained_method = (
-            "sum"
-            if family == "int64" or family.startswith("duration")
-            else "mean"
-            if family in ("float64", "decimal")
-            else None
-        )
-        assert retained_method is not None and retained_method in methods
-        methods = [retained_method]
-        retained = {retained_method + ":" + label for label in ("difference", "allocation")}
-        all_originals = {name: value for name, value in all_originals.items() if name in retained}
-    assert not any(
-        (root / name).exists() for name in ("models", "warehouse.duckdb", "source_files")
-    )
-    with (
-        patch.object(ms, "load", forbidden),
-        patch.object(SemanticProject, "load", forbidden),
-        patch.object(SourceSession, "__init__", forbidden),
-        patch.object(duckdb, "connect", forbidden),
-        patch.object(ibis.duckdb, "connect", forbidden),
-        patch.object(
-            graph_local_execution,
-            "execute_verified_fixed",
-            wraps=graph_local_execution.execute_verified_fixed,
-        ) as kernels,
-    ):
-        session = mv.session.resume(identity, by="id")
-        originals: dict[str, _MaterializedRead] = {}
-        for name, raw in all_originals.items():
-            saved = obj(raw)
-            reference = saved["artifact"]
-            assert isinstance(reference, str)
-            value = session.artifact(reference)
-            assert isinstance(value, _MaterializedRead)
-            assert snapshot(value) == saved and parts(value) == obj(state["parts"])[name]
-            originals[name] = value
-        before = run_ids(session)
-        outputs: dict[str, Json] = {}
-        output_parts: dict[str, Json] = {}
-        for raw in methods:
-            difference = originals[raw + ":difference"]
-            assert isinstance(difference, mv.MaterializedDifferenceRelation)
-            operation = difference.attribute(axes=(ms.ref.dimension("sales.order.channel"),))
-            if phase == "cold":
-                with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                    result = operation.execute()
-            else:
-                result = operation.execute()
-            check_allocation(result, raw)
-            labels = ("allocation", "expanded") if phase == "fixed" else ("allocation",)
-            for label in labels:
-                source = originals[raw + ":" + label]
-                assert isinstance(source, mv.MaterializedAttributionResult)
-                check_allocation(source, raw)
-            outputs[raw], output_parts[raw] = snapshot(result), parts(result)
-            seen = run_ids(session)
-            with patch.object(graph_local_execution, "execute_verified_fixed", forbidden):
-                assert snapshot(operation.execute()) == outputs[raw]
-            assert run_ids(session) == seen
-        current = run_ids(session)
-        assert session._runtime.store.resources(session.id) == ()
-        for name, original in originals.items():
-            assert snapshot(original) == obj(state["originals"])[name]
-            assert parts(original) == obj(state["parts"])[name]
-        if phase == "fixed":
-            assert len(current - before) == kernels.call_count == len(outputs)
-            state["outputs"], state["output_parts"] = outputs, output_parts
-            path.write_bytes(encode(state))
-        else:
-            if "outputs" in state:
-                saved_outputs = obj(state["outputs"])
-                saved_parts = obj(state["output_parts"])
-                assert outputs == {name: saved_outputs[name] for name in methods}
-                assert output_parts == {name: saved_parts[name] for name in methods}
-                assert current == before and kernels.call_count == 0
-            else:
-                assert len(current - before) == kernels.call_count == len(outputs)
-        return {
-            "phase": phase,
-            "pid": os.getpid(),
-            "outputs": outputs,
-            "output_parts": output_parts,
-            "new_runs": len(current - before),
-            "kernels": kernels.call_count,
-            "resources": 0,
-            "source_semantic_reconnect_forbidden": True,
-            "original_snapshots_and_parts_preserved": True,
-        }
-
-
-if __name__ == "__main__":
-    raw = sys.argv[2]
-    assert raw in ("fixed", "cold")
-    phase: Literal["fixed", "cold"] = "fixed" if raw == "fixed" else "cold"
-    Path(sys.argv[3]).write_bytes(encode(run(Path(sys.argv[1]), phase)))

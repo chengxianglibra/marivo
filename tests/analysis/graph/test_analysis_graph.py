@@ -1,26 +1,18 @@
 """Pure graph oracles; synthetic implementations confer no production qualification."""
 
 from dataclasses import FrozenInstanceError, replace
-from hashlib import sha256
 from unittest.mock import patch
 
 import pytest
 
-import marivo.analysis as mv
 import marivo.analysis.core.graph as graph
 import marivo.semantic as ms
-from marivo.analysis.compiler.graph_lowering import lower
 from marivo.analysis.compiler.graph_plan import (
-    ArtifactReadStage,
-    LocalMethodStage,
     RouteChoice,
-    SourceMethodStage,
-    classify_inputs,
     plan,
 )
 from marivo.analysis.core.graph import (
     Edge,
-    FixedLeaf,
     SourceDefinition,
     SourceLeaf,
     capture_graph,
@@ -38,17 +30,12 @@ from marivo.analysis.core.model import (
     available_facts,
 )
 from marivo.analysis.core.rules import (
-    BindProject,
     CellDerive,
-    DisplayTable,
     OriginalReduce,
-    PartsTransport,
     RowState,
 )
-from marivo.analysis.core.time_grid import bind_grid
 from marivo.analysis.methods.errors import MethodRegistrationError
 from marivo.analysis.methods.physical import (
-    FixedShape,
     Implementation,
     NoTime,
     QualificationKey,
@@ -56,14 +43,10 @@ from marivo.analysis.methods.physical import (
     ResourceRequirements,
     ScalarType,
     SourceShape,
-    TimeShape,
     Unavailable,
 )
 from marivo.analysis.methods.registry import REGISTRY, MethodRegistry
 from marivo.analysis.methods.semantics import MethodKey
-from marivo.analysis.refs import ArtifactRef
-from marivo.refs import RefPayloadV1, SemanticKind
-from marivo.semantic.ir import TargetDimensionContract
 
 
 def _source(*, datasource: str = "sales_db", owner: str = "sales") -> SourceLeaf:
@@ -94,18 +77,7 @@ def _source(*, datasource: str = "sales_db", owner: str = "sales") -> SourceLeaf
     )
 
 
-def _fixed() -> FixedLeaf:
-    source = _source()
-    return FixedLeaf(
-        ArtifactRef("history/revenue"),
-        source.fingerprint,
-        source.signature,
-        source.value_type,
-        FixedShape(NoTime()),
-    )
-
-
-def _mean(leaf: SourceLeaf | FixedLeaf):
+def _mean(leaf: SourceLeaf):
     target = DomainSignature(leaf.signature.domain.binding, "singleton", (), (), "all")
     return method_node(
         (Edge("quantity", leaf),),
@@ -136,9 +108,7 @@ def _registry(shape, route="ibis", *, status=None):
         ("source.finite_numeric@v1",),
         ("row_state",),
         "finite_float64",
-        ResourceRequirements(
-            "stream", "caller" if route == "artifact_python" else "producer", 1000
-        ),
+        ResourceRequirements("stream", "producer", 1000),
         status or Qualified("test.mean", "test.consumer", "synthetic-only"),
     )
     return MethodRegistry(
@@ -147,12 +117,11 @@ def _registry(shape, route="ibis", *, status=None):
 
 
 def test_definition_identity_is_not_node_or_artifact_identity():
-    left, right = _source(), _source()
+    left, right = (_source(), _source())
     assert left.identity != right.identity
     assert left.fingerprint == right.fingerprint
     assert len(topology(_difference(left, right))) == 3
     assert len(topology(_difference(left, left))) == 2
-    assert _fixed().identity != _fixed().artifact.ref
     with pytest.raises(FrozenInstanceError):
         left.identity = "changed"
 
@@ -199,59 +168,6 @@ def test_result_type_cannot_forge_successor_qualification():
     root = _mean(_source())
     with pytest.raises(MethodRegistrationError, match="result type"):
         replace(root, value_type=ScalarType("int64"))
-
-
-def test_classification_has_only_reachable_data_leaves():
-    _source(datasource="unrelated_db")
-    assert classify_inputs(_mean(_source())).kind == "source"
-    fixed = _fixed()
-    classified = classify_inputs(_mean(fixed))
-    assert classified.kind == "artifact"
-    assert classified.sources == ()
-    assert classified.artifacts == (fixed,)
-    assert classify_inputs(_difference(_mean(_source()), _mean(fixed))).kind == "mixed"
-
-
-def test_bare_fixed_leaf_cannot_authorize_artifact_read():
-    with pytest.raises(CoreRuleError, match="bare fixed Artifact leaf"):
-        plan(_fixed(), routes=())
-
-
-def test_mixed_and_multisource_reject_before_route_selection():
-    for root, reason in (
-        (_difference(_source(), _fixed()), "mixed live"),
-        (_difference(_source(), _source(datasource="other_db")), "multiple live"),
-    ):
-        with pytest.raises(CoreRuleError, match=reason):
-            plan(root, routes=())
-
-
-@pytest.mark.parametrize("route", ["ibis", "ibis_python", "artifact_python"])
-def test_explicit_routes_produce_exact_stages_and_pending_checks(route):
-    leaf = _fixed() if route == "artifact_python" else _source()
-    shape = leaf.shape if isinstance(leaf, FixedLeaf) else leaf.definition.shape
-    root = _mean(leaf)
-    result = plan(
-        root, routes=(RouteChoice(root.identity, route),), registry=_registry(shape, route)
-    )
-    assert result.primary_output == result.stages[-1].output
-    assert len(result.stages) == (3 if route == "ibis_python" else 2)
-    assert isinstance(result.stages[-1], SourceMethodStage if route == "ibis" else LocalMethodStage)
-    if route == "artifact_python":
-        assert isinstance(result.stages[0], ArtifactReadStage)
-    if route == "ibis_python":
-        assert result.stages[1].operation == "prepare"
-        assert result.stages[2].inputs == (result.stages[1].output,)
-    assert tuple(check.obligation for check in result.checks) == root.derivation.obligations
-    assert result.checks[0].obligation.fact.binding == leaf.signature.domain.binding
-    assert result.checks[0].obligation.before == "consume"
-    assert result.checks[0].stage_output == result.stages[1].output
-    assert result.physical_requirements[0].implementation.resources.max_rows == 1000
-    assert not set(root.derivation.pre) <= available_facts(root.signature)
-    assert (
-        plan(root, routes=(RouteChoice(root.identity, route),), registry=_registry(shape, route))
-        == result
-    )
 
 
 def test_production_is_blocked_and_does_not_borrow_test_qualifications():
@@ -343,202 +259,6 @@ def test_local_predecessor_cannot_be_implicitly_sent_to_source():
         )
 
 
-def test_zero_io_on_construction_planning_and_refusal(monkeypatch):
-    import sqlite3
-
-    import duckdb
-
-    from marivo.analysis.materialization import graph_store, storage
-    from marivo.analysis.materialization.store import SessionStore
-    from marivo.datasource.adapters import SourceSession
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Pure graph work attempted I/O")
-
-    monkeypatch.setattr(sqlite3, "connect", forbidden)
-    monkeypatch.setattr(duckdb, "connect", forbidden)
-    monkeypatch.setattr(SourceSession, "__init__", forbidden)
-    monkeypatch.setattr(SourceSession, "bind", forbidden)
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    monkeypatch.setattr(SessionStore, "__init__", forbidden)
-    monkeypatch.setattr(graph_store, "admit", forbidden)
-    monkeypatch.setattr(graph_store, "artifact", forbidden)
-    monkeypatch.setattr(storage, "_open_payload", forbidden)
-    for leaf, route in (
-        (_source(), "ibis"),
-        (_source(), "ibis_python"),
-        (_fixed(), "artifact_python"),
-    ):
-        root = _mean(leaf)
-        shape = leaf.shape if isinstance(leaf, FixedLeaf) else leaf.definition.shape
-        plan(root, routes=(RouteChoice(root.identity, route),), registry=_registry(shape, route))
-    with pytest.raises(CoreRuleError):
-        plan(_difference(_source(), _fixed()), routes=())
-
-
-def test_binding_method_declares_sources_even_with_fixed_subjects():
-    base = _source()
-    signature = replace(base.signature, quantity=None)
-    entity = ms.ref.entity("sales.customer")
-    source = SourceLeaf(
-        SourceDefinition(entity, "customer-v1", base.definition.datasource, base.definition.shape),
-        signature,
-        ScalarType("int64"),
-    )
-    fixed = FixedLeaf(
-        ArtifactRef("customer-history"),
-        "customer-v1",
-        signature,
-        ScalarType("int64"),
-        FixedShape(NoTime()),
-    )
-    field = TargetDimensionContract(
-        RefPayloadV1(
-            schema="marivo.semantic_ref/v1",
-            kind=SemanticKind.DIMENSION,
-            path="sales.customer.region",
-        ),
-        RefPayloadV1(
-            schema="marivo.semantic_ref/v1", kind=SemanticKind.ENTITY, path="sales.customer"
-        ),
-        "region",
-        "string",
-        False,
-        False,
-        None,
-        False,
-        None,
-    )
-    params = BindProject(ms.ref.dimension("sales.customer.region"), entity, field, None, (), ())
-    with pytest.raises(MethodRegistrationError, match="declared string result type"):
-        method_node(
-            (Edge("subject", source),),
-            params,
-            value_type=ScalarType("int64"),
-            sources=(source,),
-        )
-    with pytest.raises(CoreRuleError, match="explicit source bindings"):
-        method_node((Edge("subject", fixed),), params, value_type=ScalarType("string"))
-    node = method_node(
-        (Edge("subject", fixed),), params, value_type=ScalarType("string"), sources=(source,)
-    )
-    assert classify_inputs(node).kind == "mixed"
-    with pytest.raises(CoreRuleError, match="mixed live"):
-        plan(node, routes=())
-    wrong_scope = replace(
-        source,
-        signature=replace(
-            signature,
-            domain=replace(
-                signature.domain, binding=replace(signature.domain.binding, scope_id="other-month")
-            ),
-        ),
-    )
-    with pytest.raises(CoreRuleError, match="exact Session, owner and scope"):
-        method_node(
-            (Edge("subject", fixed),),
-            params,
-            value_type=ScalarType("string"),
-            sources=(wrong_scope,),
-        )
-    with pytest.raises(CoreRuleError, match="explicit source bindings"):
-        method_node(
-            (Edge("subject", fixed),),
-            params,
-            value_type=ScalarType("string"),
-            sources=(source, source),
-        )
-
-
-def test_noncohort_fixed_shapes_remain_exact() -> None:
-    left = _fixed()
-    right = replace(
-        left,
-        identity="other-fixed-input",
-        artifact=ArtifactRef("history/other"),
-        shape=FixedShape(TimeShape("instant", "us", "UTC")),
-    )
-    root = _difference(left, right)
-    with pytest.raises(CoreRuleError, match="different time or source shapes"):
-        plan(root, routes=(RouteChoice(root.identity, "artifact_python"),))
-
-
-@pytest.mark.parametrize("reverse,temporal_category", [(False, False), (True, True)])
-def test_fixed_grid_display_admits_only_time_neutral_categories(
-    reverse: bool, temporal_category: bool
-) -> None:
-    grid = bind_grid(
-        mv.time_scope(start="2026-07-01", end="2026-10-01"),
-        mv.grain("month"),
-        report_timezone="UTC",
-    )
-    original = _fixed()
-    domain = original.signature.domain
-    coord = Coordinate(domain.instance_key[0].entity_ref, "time:" + grid.identity, "anchor")
-    domain = replace(
-        domain,
-        instance_key=(*domain.instance_key, coord),
-        target_key=(*domain.target_key, coord),
-        time_grid=grid,
-    )
-    value = replace(
-        original,
-        signature=replace(original.signature, domain=domain),
-        shape=FixedShape(TimeShape("instant", "us", "UTC")),
-    )
-    category = replace(
-        value,
-        identity="category",
-        artifact=ArtifactRef("history/category"),
-        signature=replace(value.signature, quantity=None),
-        value_type=ScalarType("string"),
-        shape=FixedShape(TimeShape("instant", "ms", "UTC") if temporal_category else NoTime()),
-    )
-    inputs = (category, value) if reverse else (value, category)
-    root = method_node(
-        tuple(Edge("subject" if leaf is category else "quantity", leaf) for leaf in inputs),
-        DisplayTable(
-            ("category", "amount") if reverse else ("amount", "category"),
-            ("string", "int64") if reverse else ("int64", "string"),
-            tuple(leaf.identity for leaf in inputs),
-        ),
-        value_type=inputs[0].value_type,
-    )
-    routes = (RouteChoice(root.identity, "artifact_python"),)
-    if temporal_category:
-        with pytest.raises(CoreRuleError, match="different time or source shapes"):
-            plan(root, routes=routes)
-    else:
-        admitted = plan(root, routes=routes)
-        assert admitted.physical_requirements[-1].key.shape == value.shape
-        assert tuple(
-            stage.leaf.shape for stage in admitted.stages if isinstance(stage, ArtifactReadStage)
-        ) == tuple(leaf.shape for leaf in inputs)
-
-
-def test_time_shape_is_exact_and_fixed_obligations_are_not_recovered():
-    source = _source()
-    changed = replace(
-        source,
-        definition=replace(
-            source.definition,
-            shape=replace(source.definition.shape, time=TimeShape("instant", "us", "UTC")),
-        ),
-    )
-    root = _mean(changed)
-    with pytest.raises(MethodRegistrationError, match="blocked"):
-        plan(
-            root,
-            routes=(RouteChoice(root.identity, "ibis"),),
-            registry=_registry(source.definition.shape),
-        )
-    pending = _mean(source).signature.obligations
-    fixed = _fixed()
-    fixed = replace(fixed, signature=replace(fixed.signature, obligations=pending))
-    with pytest.raises(CoreRuleError, match="pending Artifact obligations"):
-        plan(fixed, routes=())
-
-
 def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
     left = _source()
     for right, expected_count in ((left, 2), (_source(), 3)):
@@ -569,46 +289,6 @@ def test_same_node_emits_one_stage_but_independent_nodes_do_not_merge():
         assert (result.stages[-1].inputs[0] == result.stages[-1].inputs[1]) == (left is right)
 
 
-@pytest.mark.parametrize("fixed", [False, True])
-def test_chain_construction_derives_and_checks_only_new_nodes(fixed: bool) -> None:
-    depth = 40
-    leaf = _fixed() if fixed else _source()
-    root = leaf
-    leaf_signature = leaf.signature
-    with (
-        patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
-        patch.object(
-            MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
-        ) as derivations,
-    ):
-        for _ in range(depth):
-            root = method_node(
-                (Edge("quantity", root),),
-                PartsTransport("view", root.signature.domain, (), True),
-                value_type=root.value_type,
-            )
-    assert checks.call_count == derivations.call_count == depth
-    routes = tuple(
-        RouteChoice(node.identity, "artifact_python" if fixed else "ibis")
-        for node in graph.retained_nodes(root)
-        if isinstance(node, graph.MethodNode)
-    )
-    with (
-        patch.object(graph, "_validate_method", wraps=graph._validate_method) as checks,
-        patch.object(
-            MethodRegistry, "derive", autospec=True, side_effect=MethodRegistry.derive
-        ) as derivations,
-    ):
-        assert len(topology(root)) == depth + 1
-        capture_graph(root)
-        admitted = plan(root, routes=routes)
-        if fixed:
-            lower(admitted, bindings=())
-    assert checks.call_count == derivations.call_count == 0
-    assert leaf.signature is leaf_signature
-    assert len(admitted.stages) == depth + 1
-
-
 def test_complete_entry_captures_shared_nodes_without_rederivation() -> None:
     child = _mean(_source())
     root = _difference(child, child)
@@ -629,67 +309,3 @@ def test_deep_identity_collision_is_rejected_at_complete_entry() -> None:
     root = _difference(_mean(leaf), _mean(replace(leaf)))
     with pytest.raises(CoreRuleError, match="one object per explicit node identity"):
         capture_graph(root)
-
-
-def test_retained_source_definitions_do_not_classify_as_execution_inputs() -> None:
-    original = _mean(_source())
-    fixed = FixedLeaf(
-        ArtifactRef("retained"),
-        original.fingerprint,
-        original.signature,
-        original.value_type,
-        FixedShape(NoTime()),
-    )
-    root = method_node(
-        (Edge("current", fixed), Edge("baseline", fixed)),
-        _difference(original, original).parameters,
-        value_type=original.value_type,
-        retained_endpoints=(original, original),
-    )
-    captured = capture_graph(root)
-    assert captured.nodes == (fixed, root)
-    assert original in captured.retained
-    assert classify_inputs(root).kind == "artifact"
-    object.__setattr__(original, "inputs", (Edge("quantity", root),))
-    with pytest.raises(CoreRuleError, match="acyclic"):
-        capture_graph(root)
-
-
-@pytest.mark.parametrize(
-    ("kind", "fingerprint", "plan_hash", "snapshot_hash"),
-    [
-        (
-            "source",
-            "82816f07666e8eb1cf366830b6266f48fd14253bf0bd41ee95a48a64dd0b2a12",
-            "d1ed60a0a26f1417da8df85d9a013eb4c6e41c880f511d8623d007bd8c84532a",
-            "e6c14dfa8bb55820474a65ca047ee712472ba4221161ddfd68c58b1e2c7ca4bf",
-        ),
-        (
-            "fixed",
-            "8cf118f0b71fdfd4d14f5278f0cfe660f6e22acef6daf93ca300ecc8b4e9c609",
-            "7c98a8ad6bfaf046afce13cbc2cf749592f9cfbab8baa8ce489f010bfd2da1c8",
-            "9f50768f7c6078da09e79781bbad4d5d6a116bea900489554aa5c089d1a1095d",
-        ),
-    ],
-)
-def test_persisted_identity_pins_v10_snapshot_without_semantic_changes(
-    kind: str, fingerprint: str, plan_hash: str, snapshot_hash: str
-) -> None:
-    from marivo.analysis.materialization.graph_protocol import freeze_graph, plan_digest
-
-    # Definition and plan pins stay unchanged; v9 changes only frozen wire bytes.
-    root = _source() if kind == "source" else _fixed()
-    root = replace(root, identity="leaf")
-    routes = []
-    for index in range(2):
-        root = method_node(
-            (Edge("quantity", root),),
-            PartsTransport("view", root.signature.domain, (), True),
-            value_type=root.value_type,
-        )
-        root = replace(root, identity=f"view-{index}")
-        routes.append(RouteChoice(root.identity, "ibis" if kind == "source" else "artifact_python"))
-    admitted = plan(root, routes=tuple(routes))
-    assert root.fingerprint == fingerprint
-    assert plan_digest(admitted) == plan_hash
-    assert sha256(freeze_graph(root).encode()).hexdigest() == snapshot_hash

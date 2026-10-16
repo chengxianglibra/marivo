@@ -61,8 +61,8 @@ baseline_grid = mv.time_grid(
 metric = ms.ref.metric("sales.order_count")
 current = customers.observe(metric, during=current_grid, via=buyer, by=(mv.member(),))
 baseline = customers.observe(metric, during=baseline_grid, via=buyer, by=(mv.member(),))
-periods = current.compare(baseline, align=mv.outer(time=mv.ordinal())).execute()
-periods.show()
+periods = current.compare(baseline, align=mv.outer(time=mv.ordinal()))
+periods.execute().show()
 weekdays = current.compare(baseline, align=mv.outer(time=mv.weekday())).execute()
 selected = periods.absolute.where(periods.absolute.value.is_defined()).execute()
 ```
@@ -84,7 +84,7 @@ they must have whole-day bounds in their respective grid boundary timezones.
 All four mappings output canonical strings, including `ordinal:1`, `weekday:1:1`,
 `holiday:0` and `holiday_then_weekday:holiday:0`. Unequal key images use the same
 exact/outer coverage policies. The mapping and occurrence snapshot identities
-remain frozen through fixed and cold continuation.
+remain captured in the unexecuted source graph and saved output metadata.
 
 For the preceding daily endpoints, a model with certified `sales.holidays` occurrences
 `august` and `july` in UTC supplies both holiday descriptors.
@@ -120,7 +120,7 @@ next_month_mean = (
 )
 ```
 
-Only Defined finite compatible values can enter numeric predicates. Follow the receiver contract if an intermediate local algorithm requires execution before continuation.
+Only Defined finite compatible values can enter numeric predicates. Compose the complete Logical chain before execution; follow typed repair when a source-local route is unavailable.
 
 ## Preserve ratio components
 
@@ -166,7 +166,7 @@ penetration = counts.where(counts.value.gt(0)).members().penetration_in(members)
 stratum_counts = counts.group_by(region).rollup()
 composition = stratum_counts.share_of(stratum_counts.rollup())
 weights = mv.reference_weights(composition, strata=(region,), unit=ms.ref.entity("sales.order"))
-standardized = stratum_counts.standardize(reference=weights).execute()
+standardized = stratum_counts.standardize(reference=weights)
 standardized.contract().show()
 ```
 
@@ -196,15 +196,15 @@ baseline_counts = attribution_members.observe(
     by=(channel,),
 ).rollup()
 change = current_counts.compare(baseline_counts).absolute
-allocation = change.attribute(axes=(channel,), top_k=3).execute()
-selected_allocation = allocation.where(allocation.contribution.value.is_defined()).execute()
+allocation = change.attribute(axes=(channel,), top_k=3)
+selected_allocation = allocation.where(allocation.contribution.value.is_defined())
 allocated_table = mv.table(
     contribution=selected_allocation.contribution,
     current=selected_allocation.current,
     baseline=selected_allocation.baseline,
 ).execute()
 allocation.contract().show()
-restored_allocation = session.artifact(allocation.state.artifact_ref)
+allocated_table.show()
 ```
 
 Read contributions, their current/baseline endpoints, residual and reconciliation.

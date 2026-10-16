@@ -1,4 +1,4 @@
-"""Public three-process recovery of row states and direct-only aggregates."""
+"""Source-process publication of row states and direct-only aggregates."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 @pytest.mark.slow
-def test_parquet_row_states_and_direct_only_results_recover_in_three_processes(
+def test_parquet_row_states_and_direct_only_results_publish_in_a_process(
     retained_coordinates_case: DslCase,
 ) -> None:
     parquet = True
@@ -31,30 +31,19 @@ approx_quantile = ms.aggregate(name='approx_quantile', measure=amount, agg=('app
     )
     if parquet:
         export_dsl_parquet_models(case, case.root)
-    reports = []
-    for phase in ("produce", "continue", "recover"):
-        if phase == "continue":
-            case.database_path.rename(case.database_path.with_suffix(".offline"))
-            (case.root / "models").rename(case.root / "models.offline")
-            if parquet:
-                (case.root / "source_files").rename(case.root / "source_files.offline")
-        process = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "from tests.analysis.materialization.numeric_recovery_worker import run_process; import sys; run_process(*sys.argv[1:])",
-                str(case.root),
-                case.session.id,
-                phase,
-            ],
-            env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        assert process.returncode == 0, process.stdout + process.stderr
-        reports.append(json.loads(process.stdout.splitlines()[-1]))
-    assert len({report["pid"] for report in reports}) == 3
-    fixed_results = reports[1]["results"]
-    cold_names = {"sum", "quantile", "read", "category"}
-    assert reports[2]["results"] == {name: fixed_results[name] for name in cold_names}
+    process = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tests.analysis.materialization.numeric_recovery_worker import run_process; import sys; run_process(*sys.argv[1:])",
+            str(case.root),
+            case.session.id,
+        ],
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert process.returncode == 0, process.stdout + process.stderr
+    report = json.loads(process.stdout.splitlines()[-1])
+    assert set(report["results"]) >= {"sum", "mean", "count", "quantile", "read", "category"}

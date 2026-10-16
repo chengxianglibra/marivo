@@ -2,29 +2,19 @@
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 from decimal import Decimal
 from fractions import Fraction
-from pathlib import Path
-from unittest.mock import patch
 
-import duckdb
-import ibis
 import pyarrow as pa
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.deviation_execution import decode as _decode
 from marivo.analysis.materialization.fit_state import load
 from marivo.analysis.materialization.graph_protocol import descriptor_plan
 from marivo.analysis.methods.deviation_numeric import DeviationMethod
 from marivo.analysis.methods.physical import DecimalType, NoTime
-from marivo.datasource.adapters import SourceSession
-from marivo.semantic.reader import SemanticProject
-from tests.analysis.statistics.deviation_oracle import decimal_finish, expected, forbidden
+from tests.analysis.statistics.deviation_oracle import decimal_finish, expected
 
 
 def verify(
@@ -66,85 +56,3 @@ def verify(
     assert actual.input_types == (DecimalType(precision, scale),)
     assert actual.input_domains == ("entity",) and isinstance(actual.shape.time, NoTime)
     assert actual.route == route
-
-
-def run(root: Path, precision: int, scale: int, phase: str) -> None:
-    os.environ["MARIVO_PROJECT_ROOT"] = str(root)
-    os.environ["MARIVO_TELEMETRY"] = "off"
-    manifest_path = root / "deviation-decimal.json"
-    if phase == "produce":
-        ms.load(workspace_dir=root)
-        session = mv.session.get_or_create("r82-decimal-laws", report_timezone="UTC")
-        members = session.members(ms.ref.entity("sales.order"))
-        entries = []
-        source = members.read(ms.ref.measure(f"sales.order.law_{scale}"))
-        original = source.execute()
-        for method in ("zscore", "mad"):
-            result = source.deviation(method=method).execute()
-            verify(result, precision, scale, method, "ibis_python")
-            entries.append(
-                {
-                    "scale": scale,
-                    "method": method,
-                    "input": original.evidence_digest().artifact_ref.ref,
-                    "result": result.evidence_digest().artifact_ref.ref,
-                }
-            )
-        manifest_path.write_text(json.dumps({"session": session.id, "entries": entries}))
-    else:
-        manifest = json.loads(manifest_path.read_text())
-        with (
-            patch.object(SemanticProject, "load", forbidden),
-            patch.object(ms, "load", forbidden),
-            patch.object(SourceSession, "__enter__", forbidden),
-            patch.object(SourceSession, "execute", forbidden),
-            patch.object(duckdb, "connect", forbidden),
-            patch.object(ibis.duckdb, "connect", forbidden),
-        ):
-            session = mv.session.resume(manifest["session"], by="id")
-            input_ref = manifest["entries"][0]["input"]
-            assert all(entry["input"] == input_ref for entry in manifest["entries"])
-            original = session.artifact(input_ref)
-            assert isinstance(original, mv.MaterializedNumericRelation)
-            cold_input = (
-                original.rank(order="ascending", ties="dense").values.execute()
-                if phase == "cold"
-                else None
-            )
-            for entry in manifest["entries"]:
-                source_result = session.artifact(entry["result"])
-                assert isinstance(source_result, mv.MaterializedDeviationResult)
-                verify(source_result, precision, entry["scale"], entry["method"], "ibis_python")
-                fixed = original.deviation(method=entry["method"]).execute()
-                verify(fixed, precision, entry["scale"], entry["method"], "artifact_python")
-                artifact_ref = fixed.evidence_digest().artifact_ref.ref
-                if phase == "fixed":
-                    entry["fixed"] = artifact_ref
-                else:
-                    assert artifact_ref == entry["fixed"]
-                    assert cold_input is not None
-                    cold_logical = cold_input.deviation(method=entry["method"])
-                    cold = cold_logical.execute()
-                    verify(cold, precision, entry["scale"], entry["method"], "artifact_python")
-                    entry["cold"] = cold.evidence_digest().artifact_ref.ref
-                    assert entry["cold"] != entry["fixed"]
-                    runs = session.runs().items
-                    assert (
-                        cold_logical.execute().evidence_digest().artifact_ref.ref == entry["cold"]
-                    )
-                    assert session.runs().items == runs
-            manifest_path.write_text(json.dumps(manifest))
-    print(
-        json.dumps(
-            {
-                "accepted": phase,
-                "precision": precision,
-                "scale": scale,
-                "methods": ["zscore", "mad"],
-            }
-        )
-    )
-
-
-if __name__ == "__main__":
-    run(Path(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4])

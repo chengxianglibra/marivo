@@ -70,7 +70,6 @@ if TYPE_CHECKING:
     from marivo.analysis.public_dsl import LogicalComparisonResult as LogicalComparisonResult
     from marivo.analysis.public_dsl import LogicalDeviationResult as LogicalDeviationResult
     from marivo.analysis.public_dsl import LogicalDifferenceRelation as LogicalDifferenceRelation
-    from marivo.analysis.public_dsl import LogicalFixedAnalysisDomain as LogicalFixedAnalysisDomain
     from marivo.analysis.public_dsl import LogicalForecastResult as LogicalForecastResult
     from marivo.analysis.public_dsl import LogicalNumericRelation as LogicalNumericRelation
     from marivo.analysis.public_dsl import LogicalRankingResult as LogicalRankingResult

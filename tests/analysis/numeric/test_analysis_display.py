@@ -7,7 +7,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.cell_arrow import column as cell_column
 from marivo.analysis.materialization.graph_display import ranked
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, export_dsl_parquet_models
 from tests.support.paths import PROJECT_ROOT
@@ -672,102 +671,6 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
             db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
         with pytest.raises(AnalysisError, match="duplicate"):
             numeric.rank(order="ascending", ties="ordinal").execute()
-
-
-def test_closed_display_exchange_preserves_four_cells() -> None:
-    import pandas as pd
-    import pyarrow as pa
-
-    from marivo.analysis.core.graph import Edge, FixedLeaf, method_node
-    from marivo.analysis.core.model import (
-        Binding,
-        Coordinate,
-        DerivedQuantity,
-        DomainSignature,
-        Signature,
-    )
-    from marivo.analysis.core.rules import DisplayRank, DisplayTable
-    from marivo.analysis.materialization.graph_dataset import _public_table
-    from marivo.analysis.materialization.graph_display import fixed, project
-    from marivo.analysis.materialization.graph_exchange import (
-        ExchangeContract,
-        from_arrow,
-        to_arrow,
-    )
-    from marivo.analysis.methods.physical import FixedShape, NoTime, ScalarType
-    from marivo.analysis.methods.semantics import MethodKey
-    from marivo.analysis.refs import ArtifactRef
-
-    binding = Binding("r65", "display", "cells", "whole")
-    key = (Coordinate(ms.ref.entity("sales.customer"), "customer_id", "identity"),)
-    domain = DomainSignature(binding, "entity", key, key, "four-cells")
-    signature = Signature(
-        domain, DerivedQuantity("input", "test@v1", ("raw",), None, "none", "input_owned")
-    )
-    primary = pa.table(
-        {
-            "key_0": [4, 2, 1, 3],
-            "value": pa.array([None, None, 2**53 + 1, None], type=pa.int64()),
-            "cell_tag": ["null", "unknown", "defined", "undefined"],
-            "cell_reason": ["source_null", "coverage", None, "zero_denominator"],
-        }
-    )
-    reasons = (
-        ("null", ("source_null",)),
-        ("unknown", ("coverage",)),
-        ("undefined", ("zero_denominator",)),
-    )
-    contract = ExchangeContract(
-        signature,
-        MethodKey("parts_transport"),
-        "four-cells",
-        primary.schema,
-        ("key_0",),
-        cell_reasons=reasons,
-    )
-    source = from_arrow(primary, contract)
-    leaf = FixedLeaf(
-        ArtifactRef(ref="cells"), "input", signature, ScalarType("int64"), FixedShape(NoTime())
-    )
-    ranking_node = method_node(
-        (Edge("quantity", leaf),),
-        DisplayRank("int64", "descending", "ordinal"),
-        value_type=ScalarType("int64"),
-    )
-    ranking = fixed(ranking_node, (source,), "four-cells")
-    ranks = project(ranking, "ranks")
-    values = project(ranking, "values")
-    assert _public_table(ranks)["member"].to_pylist() == [1, 2, 3, 4]
-    ranks_table = to_arrow(ranks.primary, ranks.contract.schema)
-    assert cell_column(ranks_table, "cell_tag").to_pylist() == primary["cell_tag"].to_pylist()
-    assert cell_column(ranks_table, "cell_reason").to_pylist() == primary["cell_reason"].to_pylist()
-    inputs = tuple(
-        FixedLeaf(
-            ArtifactRef(ref=name),
-            name,
-            item.contract.signature,
-            ScalarType("int64"),
-            FixedShape(NoTime()),
-        )
-        for name, item in (("values", values), ("ranks", ranks))
-    )
-    table_node = method_node(
-        tuple(Edge("quantity", item) for item in inputs),
-        DisplayTable(("amount", "rank"), ("int64", "int64"), ("values", "ranks")),
-        value_type=ScalarType("int64"),
-    )
-    table = fixed(table_node, (values, ranks), "four-cells")
-    assert table.contract.column_reasons == (reasons, reasons)
-    exported = _public_table(table).to_pandas(types_mapper=pd.ArrowDtype)
-    assert exported.column_0__value.tolist()[0] == 2**53 + 1
-    assert exported.column_0__value.isna().tolist() == [False, True, True, True]
-    for i in range(2):
-        assert (
-            cell_column(
-                to_arrow(table.primary, table.contract.schema), f"column_{i}__cell_tag"
-            ).to_pylist()
-            == primary["cell_tag"].to_pylist()
-        )
 
 
 def test_represented_float_order_has_no_epsilon_ties() -> None:
