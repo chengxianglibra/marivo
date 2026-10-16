@@ -481,6 +481,8 @@ def test_mysql_authoring_timeout_opens_readonly_transaction() -> None:
 
         def raw_sql(self, sql: str) -> _FakeCursor:
             self.calls.append(sql)
+            if sql == "SELECT VERSION()":
+                return _FakeCursor(["version"], [("8.0.36",)])
             if "MAX_EXECUTION_TIME" in sql and sql.startswith("SELECT"):
                 return _FakeCursor(["val"], [(1000,)])
             return _FakeCursor([], [])
@@ -488,12 +490,71 @@ def test_mysql_authoring_timeout_opens_readonly_transaction() -> None:
     backend = _MysqlBackend()
     with authoring_timeout(backend, 5):
         backend.raw_sql("SELECT 1")
-    assert backend.calls[0] == "SELECT @@SESSION.MAX_EXECUTION_TIME"
-    assert backend.calls[1] == "START TRANSACTION READ ONLY"
-    assert "SET SESSION MAX_EXECUTION_TIME = 5000" in backend.calls[2]
-    assert backend.calls[3] == "SELECT 1"
-    assert backend.calls[-2] == "ROLLBACK"
-    assert "SET SESSION MAX_EXECUTION_TIME = 1000" in backend.calls[-1]
+    assert backend.calls == [
+        "SELECT VERSION()",
+        "SELECT @@SESSION.MAX_EXECUTION_TIME",
+        "START TRANSACTION READ ONLY",
+        "SET SESSION MAX_EXECUTION_TIME = 5000",
+        "SELECT 1",
+        "ROLLBACK",
+        "SET SESSION MAX_EXECUTION_TIME = 1000",
+    ]
+
+
+def test_mysql_authoring_timeout_uses_max_statement_time_on_mariadb() -> None:
+    from marivo.datasource.engines.mysql import authoring_timeout
+
+    class _MariaDBBackend:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def raw_sql(self, sql: str) -> _FakeCursor:
+            self.calls.append(sql)
+            if sql == "SELECT VERSION()":
+                return _FakeCursor(["version"], [("10.11.6-MariaDB-0+deb12u1",)])
+            if sql == "SELECT @@SESSION.max_statement_time":
+                return _FakeCursor(["val"], [(0.0,)])
+            if "MAX_EXECUTION_TIME" in sql:
+                raise RuntimeError("unknown system variable MAX_EXECUTION_TIME")
+            return _FakeCursor([], [])
+
+    backend = _MariaDBBackend()
+    with authoring_timeout(backend, 5):
+        backend.raw_sql("SELECT 1")
+    assert backend.calls == [
+        "SELECT VERSION()",
+        "SELECT @@SESSION.max_statement_time",
+        "START TRANSACTION READ ONLY",
+        "SET SESSION max_statement_time = 5",
+        "SELECT 1",
+        "ROLLBACK",
+        "SET SESSION max_statement_time = 0.0",
+    ]
+
+
+def test_mysql_authoring_timeout_restores_mariadb_setting_on_setup_failure() -> None:
+    from marivo.datasource.engines.mysql import authoring_timeout
+
+    class _MariaDBBackend:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def raw_sql(self, sql: str) -> _FakeCursor:
+            self.calls.append(sql)
+            if sql == "SELECT VERSION()":
+                return _FakeCursor(["version"], [("10.6.18-MariaDB",)])
+            if sql == "SELECT @@SESSION.max_statement_time":
+                return _FakeCursor(["val"], [(30.5,)])
+            if sql == "SET SESSION max_statement_time = 5":
+                raise RuntimeError("setup failed")
+            return _FakeCursor([], [])
+
+    backend = _MariaDBBackend()
+    executions = 0
+    with pytest.raises(RuntimeError, match="setup failed"), authoring_timeout(backend, 5):
+        executions += 1
+    assert executions == 0
+    assert backend.calls[-2:] == ["ROLLBACK", "SET SESSION max_statement_time = 30.5"]
 
 
 def test_raw_sql_rejects_non_positive_timeout(tmp_path: Path) -> None:
