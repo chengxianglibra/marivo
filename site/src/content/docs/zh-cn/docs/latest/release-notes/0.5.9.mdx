@@ -1,0 +1,19 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.5.9
+title: Marivo 0.5.9
+description: Marivo 0.5.9 发布说明。
+---
+
+Marivo 0.5.9 修复通过 `mysql` 引擎连接 MariaDB 服务器时的查询超时问题。
+
+## 修复
+
+- 针对 MariaDB 服务器的带超时保护的查询（包括 `md.raw_sql`、目录预览和快照采样）不再报错 `Unknown system variable 'MAX_EXECUTION_TIME'`。`mysql` 引擎现在读取 `VERSION()`，在 MariaDB 上通过 `max_statement_time`（秒）设置超时，在 MySQL 上沿用 `MAX_EXECUTION_TIME`（毫秒）。只读事务及会话变量原值的恢复保持不变；服务器两个变量都不提供时仍会直接失败。
+
+## 安装
+
+~~~bash
+pip install --upgrade marivo==0.5.9
+~~~
+
+Marivo 0.5.9 要求 Python 3.10 或更新版本。
